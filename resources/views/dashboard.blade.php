@@ -1,10 +1,16 @@
 <x-app-layout>
     <div class="min-h-screen bg-gradient-to-b from-emerald-50 to-white">
-        <div class="max-w-lg mx-auto px-4 py-6 space-y-5">
+        <div class="max-w-lg mx-auto max-[390px]:px-3 px-4 max-[390px]:py-3 py-4 max-[390px]:space-y-2.5 space-y-3">
 
             @include('dashboard.partials.greeting-card')
 
             @include('dashboard.partials.link-generator')
+
+            @if ($latestResult)
+                @include('dashboard.partials.affiliate-result', [
+                    'result' => $latestResult
+                ])
+            @endif
 
             @include('dashboard.partials.pinned-links', [
                 'links' => $pinnedLinks
