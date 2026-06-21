@@ -113,4 +113,24 @@ class User extends Authenticatable
     {
         return $this->hasMany(Withdrawal::class, 'processed_by');
     }
+
+    public function isAdmin(): bool
+    {
+        return $this->hasRole('Admin');
+    }
+
+    public function isMerchant(): bool
+    {
+        return $this->hasRole('Merchant');
+    }
+
+    public function isAffiliate(): bool
+    {
+        return $this->hasRole('Affiliate');
+    }
+
+    public function isMember(): bool
+    {
+        return $this->hasRole('Member');
+    }
 }
