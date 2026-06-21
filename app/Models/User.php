@@ -114,6 +114,11 @@ class User extends Authenticatable
         return $this->hasMany(Withdrawal::class, 'processed_by');
     }
 
+    public function linkRequests(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(LinkRequest::class);
+    }
+
     public function isAdmin(): bool
     {
         return $this->hasRole('Admin');
