@@ -15,7 +15,7 @@ class DashboardController extends Controller
 
         $pinnedLinks = LinkRequest::forUser($user)
             ->pinned()
-            ->latest()
+            ->latest('pinned_at')
             ->limit(5)
             ->get();
 
@@ -44,6 +44,36 @@ class DashboardController extends Controller
 
         return redirect()->route('dashboard')
             ->with('success', 'Đã nhận link sản phẩm. Chúng tôi sẽ xử lý trong thời gian sớm nhất!');
+    }
+
+    public function togglePin(LinkRequest $linkRequest): RedirectResponse
+    {
+        $user = auth()->user();
+
+        if ($linkRequest->user_id !== $user->id) {
+            abort(403);
+        }
+
+        if ($linkRequest->is_pinned) {
+            $linkRequest->update([
+                'is_pinned' => false,
+                'pinned_at' => null,
+            ]);
+        } else {
+            $pinnedCount = LinkRequest::forUser($user)->pinned()->count();
+
+            if ($pinnedCount >= 5) {
+                return redirect()->route('dashboard')
+                    ->with('error', 'Bạn chỉ có thể ghim tối đa 5 link.');
+            }
+
+            $linkRequest->update([
+                'is_pinned' => true,
+                'pinned_at' => now(),
+            ]);
+        }
+
+        return redirect()->route('dashboard');
     }
 
     private function detectPlatform(string $url): string

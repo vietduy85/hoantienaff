@@ -6,17 +6,13 @@
 
             @include('dashboard.partials.link-generator')
 
-            @if ($pinnedLinks->isNotEmpty())
-                @include('dashboard.partials.pinned-links', [
-                    'links' => $pinnedLinks
-                ])
-            @endif
+            @include('dashboard.partials.pinned-links', [
+                'links' => $pinnedLinks
+            ])
 
-            @if ($recentLinks->isNotEmpty())
-                @include('dashboard.partials.recent-links', [
-                    'links' => $recentLinks
-                ])
-            @endif
+            @include('dashboard.partials.recent-links', [
+                'links' => $recentLinks
+            ])
 
         </div>
     </div>

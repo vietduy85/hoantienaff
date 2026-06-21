@@ -11,6 +11,7 @@ Route::get('/', function () {
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::post('/link-requests', [DashboardController::class, 'store'])->name('link-requests.store');
+    Route::post('/link-requests/{linkRequest}/toggle-pin', [DashboardController::class, 'togglePin'])->name('link-requests.toggle-pin');
 });
 
 Route::middleware('auth')->group(function () {

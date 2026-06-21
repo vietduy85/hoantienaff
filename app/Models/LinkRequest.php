@@ -15,6 +15,7 @@ class LinkRequest extends Model
         'status',
         'notes',
         'is_pinned',
+        'pinned_at',
     ];
 
     protected function casts(): array
@@ -22,6 +23,7 @@ class LinkRequest extends Model
         return [
             'estimated_cashback' => 'decimal:2',
             'is_pinned' => 'boolean',
+            'pinned_at' => 'datetime',
         ];
     }
 
