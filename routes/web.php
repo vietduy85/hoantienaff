@@ -15,6 +15,7 @@ Route::get('/debug/provider', [App\Http\Controllers\Debug\ProviderController::cl
 Route::post('/debug/provider', [App\Http\Controllers\Debug\ProviderController::class, 'test']);
 
 Route::get('/debug/worker', [App\Http\Controllers\Debug\WorkerController::class, 'index']);
+Route::get('/debug/playwright', [App\Http\Controllers\Debug\PlaywrightController::class, 'index']);
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');

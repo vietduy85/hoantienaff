@@ -49,6 +49,20 @@ class AffiliateWorkerClient
         ];
     }
 
+    public function testPlaywright(): array
+    {
+        $response = $this->http->get('/playwright-test');
+
+        if ($response->successful()) {
+            return $response->json();
+        }
+
+        return [
+            'success' => false,
+            'error' => 'Worker returned status ' . $response->status(),
+        ];
+    }
+
     public function ping(): bool
     {
         $response = $this->http->get('/health');
