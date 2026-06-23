@@ -26,17 +26,17 @@
             width: 100%;
             max-width: 480px;
             margin: 0 auto;
-            padding: 12px 20px 24px;
+            padding: 12px 12px 28px;
             display: flex;
             flex-direction: column;
-            gap: 12px;
+            gap: 0;
         }
 
         /* ───── Hero ───── */
         .hero {
             width: 100%;
-            height: 240px;
-            border-radius: 24px;
+            height: 250px;
+            border-radius: 20px;
             overflow: hidden;
             box-shadow: 0 8px 28px rgba(255, 107, 53, 0.18);
             background: linear-gradient(135deg, #FF6B35, #FF8F5E);
@@ -49,6 +49,31 @@
             display: block;
         }
 
+        /* ───── Badge ───── */
+        .hero-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #fff;
+            padding: 12px 18px;
+            border-radius: 14px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+            margin-top: 16px;
+            width: 100%;
+            box-shadow: 0 4px 20px rgba(255, 107, 53, 0.12);
+            border: 1px solid rgba(255, 107, 53, 0.1);
+            flex-shrink: 0;
+        }
+        .hero-badge-fire {
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+        .hero-badge-text {
+            flex: 1;
+        }
+
         /* ───── Google CTA ───── */
         .btn-google {
             width: 100%;
@@ -59,23 +84,24 @@
             background: #fff;
             border: 1.5px solid #d4d4d4;
             border-radius: 16px;
-            height: 54px;
-            font-size: 15px;
-            font-weight: 600;
+            height: 56px;
+            font-size: 18px;
+            font-weight: 700;
             color: #333;
             cursor: pointer;
             text-decoration: none;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+            margin-top: 20px;
+            box-shadow: 0 6px 24px rgba(0,0,0,0.08);
             transition: box-shadow 0.2s, border-color 0.2s;
             flex-shrink: 0;
         }
         .btn-google:hover {
-            box-shadow: 0 6px 24px rgba(0,0,0,0.1);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.12);
             border-color: #bbb;
         }
         .btn-google svg {
-            width: 20px;
-            height: 20px;
+            width: 22px;
+            height: 22px;
             flex-shrink: 0;
         }
 
@@ -83,6 +109,7 @@
         .auth-row {
             display: flex;
             gap: 12px;
+            margin-top: 12px;
             flex-shrink: 0;
         }
         .auth-row a {
@@ -90,10 +117,11 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 13px;
+            padding: 0;
+            height: 52px;
             border-radius: 16px;
-            font-size: 15px;
-            font-weight: 600;
+            font-size: 16px;
+            font-weight: 700;
             text-decoration: none;
             transition: opacity 0.2s;
         }
@@ -119,12 +147,12 @@
             display: flex;
             flex-direction: column;
             gap: 12px;
-            margin-top: 4px;
+            margin-top: 20px;
         }
         .benefit-card {
             background: #fff;
             border-radius: 20px;
-            padding: 18px;
+            padding: 16px;
             display: flex;
             align-items: center;
             gap: 14px;
@@ -133,10 +161,10 @@
             min-height: 80px;
         }
         .benefit-icon {
-            font-size: 26px;
+            font-size: 24px;
             flex-shrink: 0;
-            width: 46px;
-            height: 46px;
+            width: 48px;
+            height: 48px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -147,98 +175,24 @@
             flex: 1;
         }
         .benefit-title {
-            font-size: 14px;
-            font-weight: 600;
+            font-size: 16px;
+            font-weight: 700;
             color: #1a1a1a;
-            margin-bottom: 2px;
+            margin-bottom: 3px;
         }
         .benefit-desc {
-            font-size: 12px;
+            font-size: 13px;
             color: #999;
             line-height: 1.45;
         }
 
         /* ───── Responsive ───── */
-        @media (max-height: 750px) {
-            .container {
-                padding: 8px 20px 16px;
-                gap: 10px;
-            }
-            .hero {
-                height: 200px;
-            }
-            .btn-google {
-                height: 48px;
-                font-size: 14px;
-                border-radius: 14px;
-            }
-            .auth-row a {
-                padding: 11px;
-                font-size: 14px;
-                border-radius: 14px;
-            }
-            .benefit-card {
-                min-height: 68px;
-                padding: 14px 16px;
-            }
-            .benefit-icon {
-                width: 40px;
-                height: 40px;
-                font-size: 22px;
-            }
-            .benefits {
-                gap: 10px;
-            }
-        }
-        @media (max-height: 670px) {
-            .container {
-                padding: 6px 16px 12px;
-                gap: 8px;
-            }
-            .hero {
-                height: 170px;
-            }
-            .btn-google {
-                height: 44px;
-                font-size: 13px;
-                border-radius: 12px;
-            }
-            .btn-google svg {
-                width: 17px;
-                height: 17px;
-            }
-            .auth-row {
-                gap: 8px;
-            }
-            .auth-row a {
-                padding: 9px;
-                font-size: 13px;
-                border-radius: 12px;
-            }
-            .benefit-card {
-                min-height: 58px;
-                padding: 10px 14px;
-                border-radius: 16px;
-            }
-            .benefit-icon {
-                width: 34px;
-                height: 34px;
-                font-size: 18px;
-                border-radius: 10px;
-            }
-            .benefit-title {
-                font-size: 12px;
-            }
-            .benefit-desc {
-                font-size: 11px;
-            }
-            .benefits {
-                gap: 8px;
-            }
-        }
         @media (min-width: 481px) {
             .container {
-                padding: 20px 24px 32px;
+                padding: 20px 20px 32px;
+            }
+            .hero {
+                height: 260px;
             }
         }
         @media (min-width: 1024px) {
@@ -246,7 +200,7 @@
                 padding: 40px 0;
             }
             .hero {
-                height: 260px;
+                height: 280px;
             }
         }
     </style>
@@ -256,6 +210,12 @@
         <!-- Hero -->
         <div class="hero">
             <img src="{{ asset('images/hero-cashback.png') }}" alt="Hoàn Tiền">
+        </div>
+
+        <!-- Badge -->
+        <div class="hero-badge">
+            <span class="hero-badge-fire">🔥</span>
+            <span class="hero-badge-text">Hoàn tiền đến 15% tại Shopee, Lazada, TikTok Shop</span>
         </div>
 
         <!-- Google CTA -->
