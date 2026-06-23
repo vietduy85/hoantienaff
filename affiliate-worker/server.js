@@ -15,6 +15,17 @@ app.get('/health', (_req, res) => {
   });
 });
 
+app.get('/playwright-test', async (_req, res) => {
+  const { runBrowserTest } = require('./playwright/browser-test');
+
+  try {
+    const result = await runBrowserTest();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.post('/create-link', (req, res) => {
   const { url } = req.body;
 
