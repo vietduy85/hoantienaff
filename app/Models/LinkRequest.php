@@ -57,6 +57,21 @@ class LinkRequest extends Model
         return $query->where('user_id', $user->id);
     }
 
+    public function getShortUrlAttribute(): string
+    {
+        $url = $this->affiliate_url;
+        if (!$url) {
+            return '';
+        }
+
+        $host = (string) parse_url($url, PHP_URL_HOST);
+        $host = preg_replace('/^www\./', '', $host);
+
+        $code = substr(md5($url), 0, 8);
+
+        return $host . '/' . $code;
+    }
+
     public function isPending(): bool
     {
         return $this->status === 'pending';

@@ -13,8 +13,11 @@
                 </p>
             </div>
 
-            <div class="flex items-center gap-1.5">
-                <span class="max-[390px]:text-[11px] text-xs text-gray-500 shrink-0">🔗 Link hoàn tiền đã tạo</span>
+            <div class="text-center">
+                <p class="max-[390px]:text-[11px] text-xs text-gray-500">🔗 Link hoàn tiền</p>
+                <p class="text-lg font-bold text-gray-800 text-center mt-2 mb-4 font-mono break-all">
+                    {{ $result->short_url }}
+                </p>
             </div>
 
             <div class="flex gap-2">
@@ -40,7 +43,7 @@
                     class="flex-1 max-[390px]:h-11 h-12 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white font-bold max-[390px]:text-xs text-sm rounded-xl transition-all duration-150 flex items-center justify-center gap-1.5"
                 >
                     <span class="max-[390px]:text-base text-lg">🛒</span>
-                    <span>Mở sản phẩm</span>
+                    <span>Mua ngay</span>
                 </a>
             </div>
         </div>
