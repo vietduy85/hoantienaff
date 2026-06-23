@@ -25,6 +25,7 @@ class User extends Authenticatable
         'total_withdrawn',
         'phone',
         'avatar',
+        'google_id',
         'status',
     ];
 

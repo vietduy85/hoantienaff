@@ -8,6 +8,9 @@ Route::get('/', function () {
     return view('welcome');
 });
 
+Route::get('/auth/google', [App\Http\Controllers\Auth\GoogleController::class, 'redirect'])->name('google.redirect');
+Route::get('/auth/google/callback', [App\Http\Controllers\Auth\GoogleController::class, 'callback'])->name('google.callback');
+
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::post('/link-requests', [DashboardController::class, 'store'])->name('link-requests.store');
