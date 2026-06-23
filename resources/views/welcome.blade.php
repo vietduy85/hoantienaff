@@ -6,7 +6,7 @@
     <title>{{ config('app.name', 'Hoàn Tiền') }}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
@@ -18,271 +18,305 @@
             background: #F8F8F8;
             color: #1a1a1a;
             min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
         }
         .container {
             width: 100%;
             max-width: 480px;
-            padding: 16px 20px;
             margin: 0 auto;
+            padding: 0 20px 24px;
             display: flex;
             flex-direction: column;
-            gap: 14px;
+            gap: 20px;
         }
 
-        /* Hero (contains logo, title, subtitle + illustration) */
+        /* ───── Hero ───── */
         .hero {
             width: 100%;
-            height: 200px;
-            background: linear-gradient(135deg, #FF6B35 0%, #FF8F5E 50%, #fff0e8 100%);
-            border-radius: 24px;
+            height: 330px;
+            background: linear-gradient(160deg, #FF6B35 0%, #FF8F5E 40%, #fff0e8 100%);
+            border-radius: 0 0 32px 32px;
             position: relative;
             overflow: hidden;
-            box-shadow: 0 8px 24px rgba(255, 107, 53, 0.15);
+            margin: 0 -20px;
+            padding: 0 20px;
+            box-shadow: 0 8px 32px rgba(255, 107, 53, 0.2);
             flex-shrink: 0;
         }
-        .hero-inner {
-            width: 100%;
-            height: 100%;
+        .hero-content {
             position: relative;
+            z-index: 2;
+            height: 100%;
             display: flex;
             flex-direction: column;
-            align-items: center;
             justify-content: center;
-            padding: 0 20px;
-        }
-        .hero-logo {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 44px;
-            height: 44px;
-            background: #fff;
-            border-radius: 12px;
-            margin-bottom: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-        }
-        .hero-logo span {
-            font-size: 22px;
-            font-weight: 800;
-            color: #FF6B35;
+            padding-top: 12px;
         }
         .hero-title {
-            font-size: 26px;
-            font-weight: 800;
+            font-size: 42px;
+            font-weight: 900;
             color: #fff;
-            line-height: 1.2;
-            text-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            letter-spacing: -1px;
+            line-height: 1.1;
+            text-shadow: 0 2px 12px rgba(0,0,0,0.08);
         }
         .hero-sub {
-            font-size: 13px;
-            font-weight: 400;
+            font-size: 15px;
             color: rgba(255,255,255,0.85);
-            margin-top: 2px;
+            margin-top: 4px;
+            font-weight: 500;
+        }
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(255,255,255,0.2);
+            backdrop-filter: blur(8px);
+            padding: 8px 16px;
+            border-radius: 100px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #fff;
+            margin-top: 16px;
+            width: fit-content;
+            border: 1px solid rgba(255,255,255,0.25);
+        }
+        .hero-badge-fire {
+            font-size: 15px;
         }
 
-        /* Phone illustration */
+        /* Illustrations */
         .hero-phone {
             position: absolute;
-            width: 64px;
-            height: 112px;
+            width: 72px;
+            height: 126px;
             background: #fff;
             border-radius: 14px;
-            bottom: 14px;
-            left: 24px;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+            bottom: 20px;
+            left: 16px;
+            z-index: 1;
+            box-shadow: 0 6px 24px rgba(0,0,0,0.12);
         }
         .hero-phone::before {
             content: '';
             position: absolute;
-            top: 6px;
+            top: 7px;
             left: 50%;
             transform: translateX(-50%);
-            width: 24px;
+            width: 28px;
             height: 3px;
-            background: #e0e0e0;
+            background: #ddd;
             border-radius: 4px;
         }
         .hero-phone-screen {
             position: absolute;
-            top: 14px;
-            left: 6px;
-            right: 6px;
+            top: 16px;
+            left: 7px;
+            right: 7px;
             bottom: 10px;
             background: linear-gradient(180deg, #FF6B35 0%, #FF8F5E 100%);
-            border-radius: 6px;
+            border-radius: 7px;
             display: flex;
             align-items: center;
             justify-content: center;
         }
         .hero-phone-screen::after {
             content: '$';
-            font-size: 20px;
-            font-weight: 800;
+            font-size: 22px;
+            font-weight: 900;
             color: #fff;
         }
 
-        /* Girl silhouette */
         .hero-girl {
             position: absolute;
-            width: 80px;
-            height: 120px;
-            bottom: 8px;
-            right: 28px;
+            width: 90px;
+            height: 135px;
+            bottom: 16px;
+            right: 24px;
+            z-index: 1;
         }
         .hero-girl-head {
             position: absolute;
             top: 0;
             left: 50%;
             transform: translateX(-50%);
-            width: 32px;
-            height: 32px;
+            width: 36px;
+            height: 36px;
             background: #FFD0B5;
             border-radius: 50%;
         }
         .hero-girl-head::after {
             content: '';
             position: absolute;
-            top: -6px;
-            left: -3px;
-            width: 38px;
-            height: 16px;
+            top: -7px;
+            left: -4px;
+            width: 44px;
+            height: 18px;
             background: #1a1a1a;
-            border-radius: 20px 20px 0 0;
+            border-radius: 22px 22px 0 0;
+        }
+        .hero-girl-head::before {
+            content: '';
+            position: absolute;
+            top: 10px;
+            right: 4px;
+            width: 4px;
+            height: 4px;
+            background: #1a1a1a;
+            border-radius: 50%;
+            box-shadow: 10px 0 0 #1a1a1a;
         }
         .hero-girl-body {
             position: absolute;
-            top: 28px;
+            top: 32px;
             left: 50%;
             transform: translateX(-50%);
-            width: 38px;
-            height: 48px;
+            width: 42px;
+            height: 56px;
             background: #fff;
-            border-radius: 10px 10px 6px 6px;
+            border-radius: 12px 12px 8px 8px;
         }
         .hero-girl-arm {
             position: absolute;
-            top: 34px;
-            right: -24px;
-            width: 32px;
-            height: 10px;
+            top: 38px;
+            right: -28px;
+            width: 38px;
+            height: 11px;
             background: #FFD0B5;
-            border-radius: 10px;
-            transform: rotate(-20deg);
+            border-radius: 12px;
+            transform: rotate(-18deg);
             transform-origin: left center;
         }
         .hero-girl-legs {
             position: absolute;
-            bottom: 6px;
+            bottom: 8px;
             left: 50%;
             transform: translateX(-50%);
-            width: 32px;
-            height: 18px;
+            width: 36px;
+            height: 20px;
             background: #fff;
-            border-radius: 0 0 6px 6px;
+            border-radius: 0 0 8px 8px;
         }
 
-        /* Shopping bag */
         .hero-bag {
             position: absolute;
-            bottom: 28px;
-            right: 14px;
-            width: 28px;
-            height: 32px;
+            bottom: 40px;
+            right: 8px;
+            width: 32px;
+            height: 36px;
             background: #FF6B35;
-            border-radius: 6px 6px 8px 8px;
+            border-radius: 8px 8px 10px 10px;
             opacity: 0.9;
+            z-index: 1;
         }
         .hero-bag::before {
             content: '';
             position: absolute;
-            top: -6px;
+            top: -7px;
             left: 50%;
             transform: translateX(-50%);
-            width: 12px;
-            height: 8px;
-            border: 2px solid #FF6B35;
+            width: 14px;
+            height: 9px;
+            border: 2.5px solid #FF6B35;
             border-bottom: none;
             border-radius: 6px 6px 0 0;
         }
         .hero-bag-handle {
             position: absolute;
-            top: -4px;
+            top: -5px;
             left: 50%;
             transform: translateX(-50%);
-            width: 4px;
-            height: 6px;
+            width: 5px;
+            height: 7px;
             border: 2px solid #fff;
             border-bottom: none;
             border-radius: 4px 4px 0 0;
         }
 
-        /* Coins */
         .hero-coin {
             position: absolute;
-            width: 22px;
-            height: 22px;
+            width: 26px;
+            height: 26px;
             background: radial-gradient(circle at 35% 35%, #FFD700, #FFA500);
             border-radius: 50%;
             border: 2px solid #E8960C;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 10px;
-            font-weight: 800;
+            font-size: 11px;
+            font-weight: 900;
             color: #8B5E00;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+            box-shadow: 0 3px 8px rgba(0,0,0,0.18);
+            z-index: 1;
         }
-        .hero-coin-1 { top: 18px; left: 100px; }
-        .hero-coin-2 { top: 50px; right: 100px; }
-        .hero-coin-3 { bottom: 80px; left: 130px; }
-        .hero-coin-4 { top: 80px; right: 40px; }
+        .hero-coin-1 { top: 80px; right: 130px; }
+        .hero-coin-2 { top: 160px; left: 24px; }
+        .hero-coin-3 { top: 200px; right: 20px; }
 
-        /* Sparkles */
         .hero-sparkle {
             position: absolute;
-            width: 6px;
-            height: 6px;
-            background: rgba(255,255,255,0.5);
+            background: rgba(255,255,255,0.35);
             border-radius: 50%;
+            z-index: 0;
         }
-        .hero-sparkle:nth-child(2) { top: 16px; left: 20px; }
-        .hero-sparkle:nth-child(3) { top: 30px; right: 28px; width: 5px; height: 5px; }
-        .hero-sparkle:nth-child(4) { bottom: 40px; left: 16px; width: 4px; height: 4px; }
-        .hero-sparkle:nth-child(5) { bottom: 50px; right: 120px; width: 5px; height: 5px; }
+        .hero-sparkle:nth-child(1) { top: 30px; right: 60px; width: 10px; height: 10px; }
+        .hero-sparkle:nth-child(2) { top: 60px; left: 40px; width: 6px; height: 6px; }
+        .hero-sparkle:nth-child(3) { top: 140px; right: 80px; width: 8px; height: 8px; }
+        .hero-sparkle:nth-child(4) { bottom: 100px; left: 60px; width: 5px; height: 5px; }
+        .hero-sparkle:nth-child(5) { top: 240px; right: 40px; width: 6px; height: 6px; }
 
-        /* Benefits */
+        /* ───── Section ───── */
+        .section-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #aaa;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* ───── Benefits ───── */
         .benefits {
             display: flex;
             flex-direction: column;
-            gap: 10px;
-            flex-shrink: 0;
+            gap: 14px;
         }
         .benefit-card {
             background: #fff;
-            border-radius: 16px;
-            padding: 0 16px;
+            border-radius: 20px;
+            padding: 20px 18px;
             display: flex;
             align-items: center;
-            gap: 12px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            gap: 16px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.04);
             border: 1px solid rgba(0,0,0,0.04);
-            height: 56px;
-            width: 100%;
+            min-height: 86px;
         }
         .benefit-icon {
-            font-size: 22px;
+            font-size: 28px;
             flex-shrink: 0;
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f8f8f8;
+            border-radius: 14px;
         }
-        .benefit-text {
-            font-size: 13px;
-            font-weight: 500;
-            color: #333;
+        .benefit-content {
+            flex: 1;
+        }
+        .benefit-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #1a1a1a;
+            margin-bottom: 3px;
+        }
+        .benefit-desc {
+            font-size: 12.5px;
+            color: #999;
+            line-height: 1.45;
         }
 
-        /* Google CTA - primary */
+        /* ───── Google CTA ───── */
         .btn-google {
             width: 100%;
             display: flex;
@@ -290,32 +324,32 @@
             justify-content: center;
             gap: 10px;
             background: #fff;
-            border: 1.5px solid #d0d0d0;
-            border-radius: 14px;
-            height: 52px;
-            font-size: 14px;
+            border: 1.5px solid #d4d4d4;
+            border-radius: 16px;
+            height: 56px;
+            font-size: 15px;
             font-weight: 600;
             color: #333;
             cursor: pointer;
             text-decoration: none;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.07);
             transition: box-shadow 0.2s, border-color 0.2s;
             flex-shrink: 0;
         }
         .btn-google:hover {
-            box-shadow: 0 6px 24px rgba(0,0,0,0.1);
+            box-shadow: 0 8px 28px rgba(0,0,0,0.12);
             border-color: #bbb;
         }
         .btn-google svg {
-            width: 18px;
-            height: 18px;
+            width: 20px;
+            height: 20px;
             flex-shrink: 0;
         }
 
-        /* Auth row */
+        /* ───── Auth row ───── */
         .auth-row {
             display: flex;
-            gap: 10px;
+            gap: 12px;
             flex-shrink: 0;
         }
         .auth-row a {
@@ -323,9 +357,9 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 12px;
-            border-radius: 14px;
-            font-size: 14px;
+            padding: 14px;
+            border-radius: 16px;
+            font-size: 15px;
             font-weight: 600;
             text-decoration: none;
             transition: opacity 0.2s;
@@ -347,113 +381,22 @@
             background: #fff5f0;
         }
 
-        /* Short screens (iPhone 12, 13, 14 etc) */
-        @media (max-height: 850px) {
-            .container {
-                padding: 12px 20px;
-                gap: 10px;
-            }
+        /* ───── Responsive ───── */
+        @media (min-width: 481px) {
             .hero {
-                height: 170px;
-            }
-            .hero-logo {
-                width: 36px;
-                height: 36px;
-                border-radius: 10px;
-                margin-bottom: 6px;
-            }
-            .hero-logo span {
-                font-size: 18px;
-            }
-            .hero-title {
-                font-size: 22px;
-            }
-            .hero-sub {
-                font-size: 12px;
-            }
-            .benefit-card {
-                height: 48px;
-                border-radius: 14px;
-                padding: 0 14px;
-            }
-            .benefit-icon {
-                font-size: 18px;
-            }
-            .benefit-text {
-                font-size: 12px;
-            }
-            .btn-google {
-                height: 46px;
-                font-size: 13px;
-                border-radius: 12px;
-            }
-            .auth-row a {
-                padding: 10px;
-                border-radius: 12px;
-                font-size: 13px;
+                border-radius: 32px;
+                margin: 0;
+                width: 100%;
             }
         }
-
-        @media (max-height: 700px) {
-            .container {
-                padding: 8px 16px;
-                gap: 8px;
-            }
-            .hero {
-                height: 140px;
-            }
-            .hero-logo {
-                width: 30px;
-                height: 30px;
-                border-radius: 8px;
-                margin-bottom: 4px;
-            }
-            .hero-logo span {
-                font-size: 15px;
-            }
-            .hero-title {
-                font-size: 18px;
-            }
-            .hero-sub {
-                font-size: 11px;
-            }
-            .benefits {
-                gap: 6px;
-            }
-            .benefit-card {
-                height: 42px;
-                border-radius: 12px;
-                padding: 0 12px;
-                gap: 8px;
-            }
-            .benefit-icon {
-                font-size: 16px;
-            }
-            .benefit-text {
-                font-size: 11px;
-            }
-            .btn-google {
-                height: 40px;
-                font-size: 12px;
-                border-radius: 10px;
-            }
-            .btn-google svg {
-                width: 15px;
-                height: 15px;
-            }
-            .auth-row {
-                gap: 6px;
-            }
-            .auth-row a {
-                padding: 8px;
-                border-radius: 10px;
-                font-size: 12px;
-            }
-        }
-
         @media (min-width: 600px) {
             .container {
-                padding: 24px 32px;
+                padding: 0 32px 32px;
+            }
+            .hero {
+                margin: 0 -12px;
+                padding: 0 32px;
+                width: calc(100% + 24px);
             }
         }
         @media (min-width: 1024px) {
@@ -461,45 +404,99 @@
                 padding: 40px 0;
             }
             .hero {
-                height: 220px;
+                height: 360px;
+                margin: 0;
+                width: 100%;
+            }
+            .hero-title {
+                font-size: 52px;
+            }
+        }
+
+        /* iPhone 12 (390x844) – hero ~35-40% of height */
+        @media (max-height: 850px) {
+            .hero {
+                height: 310px;
+            }
+            .hero-title {
+                font-size: 36px;
+            }
+            .hero-sub {
+                font-size: 14px;
+            }
+            .container {
+                gap: 16px;
+            }
+        }
+        @media (max-height: 740px) {
+            .hero {
+                height: 270px;
+            }
+            .hero-title {
+                font-size: 30px;
+            }
+            .hero-sub {
+                font-size: 13px;
+            }
+            .hero-badge {
+                font-size: 11px;
+                padding: 6px 14px;
+                margin-top: 12px;
+            }
+            .benefit-card {
+                min-height: 74px;
+                padding: 14px 16px;
+            }
+            .btn-google {
+                height: 50px;
+                font-size: 14px;
+            }
+            .auth-row a {
+                padding: 12px;
+                font-size: 14px;
+            }
+            .container {
+                gap: 14px;
             }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <!-- Hero with branding inside -->
+        <!-- Hero -->
         <div class="hero">
-            <div class="hero-inner">
-                <div class="hero-sparkle"></div>
-                <div class="hero-sparkle"></div>
-                <div class="hero-sparkle"></div>
-                <div class="hero-sparkle"></div>
-                <div class="hero-sparkle"></div>
+            <div class="hero-sparkle"></div>
+            <div class="hero-sparkle"></div>
+            <div class="hero-sparkle"></div>
+            <div class="hero-sparkle"></div>
+            <div class="hero-sparkle"></div>
 
-                <div class="hero-logo"><span>H</span></div>
+            <div class="hero-coin hero-coin-1">$</div>
+            <div class="hero-coin hero-coin-2">%</div>
+            <div class="hero-coin hero-coin-3">$</div>
+
+            <div class="hero-content">
                 <div class="hero-title">Hoàn Tiền</div>
                 <div class="hero-sub">Mua sắm thông minh, hoàn tiền tối đa.</div>
-
-                <div class="hero-phone">
-                    <div class="hero-phone-screen"></div>
+                <div class="hero-badge">
+                    <span class="hero-badge-fire">🔥</span>
+                    Hoàn tiền đến 15% tại Shopee, Lazada, TikTok Shop
                 </div>
+            </div>
 
-                <div class="hero-girl">
-                    <div class="hero-girl-head"></div>
-                    <div class="hero-girl-body"></div>
-                    <div class="hero-girl-arm"></div>
-                    <div class="hero-girl-legs"></div>
-                </div>
+            <div class="hero-phone">
+                <div class="hero-phone-screen"></div>
+            </div>
 
-                <div class="hero-bag">
-                    <div class="hero-bag-handle"></div>
-                </div>
+            <div class="hero-girl">
+                <div class="hero-girl-head"></div>
+                <div class="hero-girl-body"></div>
+                <div class="hero-girl-arm"></div>
+                <div class="hero-girl-legs"></div>
+            </div>
 
-                <div class="hero-coin hero-coin-1">$</div>
-                <div class="hero-coin hero-coin-2">%</div>
-                <div class="hero-coin hero-coin-3">$</div>
-                <div class="hero-coin hero-coin-4">%</div>
+            <div class="hero-bag">
+                <div class="hero-bag-handle"></div>
             </div>
         </div>
 
@@ -507,15 +504,24 @@
         <div class="benefits">
             <div class="benefit-card">
                 <span class="benefit-icon">💰</span>
-                <span class="benefit-text">Hoàn tiền đến 15%</span>
+                <div class="benefit-content">
+                    <div class="benefit-title">Hoàn tiền đến 15%</div>
+                    <div class="benefit-desc">Nhận tiền hoàn sau mỗi đơn hàng thành công.</div>
+                </div>
             </div>
             <div class="benefit-card">
                 <span class="benefit-icon">⚡</span>
-                <span class="benefit-text">Tạo link hoàn tiền nhanh</span>
+                <div class="benefit-content">
+                    <div class="benefit-title">Tạo link hoàn tiền nhanh</div>
+                    <div class="benefit-desc">Dán link sản phẩm và nhận link chỉ trong vài giây.</div>
+                </div>
             </div>
             <div class="benefit-card">
                 <span class="benefit-icon">🛡</span>
-                <span class="benefit-text">Theo dõi đơn hàng minh bạch</span>
+                <div class="benefit-content">
+                    <div class="benefit-title">Theo dõi minh bạch</div>
+                    <div class="benefit-desc">Kiểm tra đơn hàng và hoa hồng dễ dàng.</div>
+                </div>
             </div>
         </div>
 
