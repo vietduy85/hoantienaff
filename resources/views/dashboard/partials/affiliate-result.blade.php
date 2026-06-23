@@ -15,9 +15,14 @@
 
             <div class="text-center">
                 <p class="max-[390px]:text-[11px] text-xs text-gray-500">🔗 Link hoàn tiền</p>
-                <p class="text-lg font-bold text-gray-800 text-center mt-2 mb-4 font-mono break-all">
+                <a
+                    href="{{ $result->affiliate_url }}"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="block text-lg font-bold text-gray-800 text-center mt-2 mb-4 font-mono break-all cursor-pointer hover:underline hover:opacity-90 min-h-[44px] flex items-center justify-center"
+                >
                     {{ $result->short_url }}
-                </p>
+                </a>
             </div>
 
             <div class="flex gap-2">
