@@ -41,4 +41,8 @@ return [
         'redirect' => env('GOOGLE_REDIRECT_URI'),
     ],
 
+    'affiliate_worker' => [
+        'url' => env('AFFILIATE_WORKER_URL', 'http://127.0.0.1:3001'),
+    ],
+
 ];

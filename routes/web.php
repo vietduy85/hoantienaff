@@ -11,6 +11,11 @@ Route::get('/', function () {
 Route::get('/auth/google', [App\Http\Controllers\Auth\GoogleController::class, 'redirect'])->name('google.redirect');
 Route::get('/auth/google/callback', [App\Http\Controllers\Auth\GoogleController::class, 'callback'])->name('google.callback');
 
+Route::get('/debug/provider', [App\Http\Controllers\Debug\ProviderController::class, 'index']);
+Route::post('/debug/provider', [App\Http\Controllers\Debug\ProviderController::class, 'test']);
+
+Route::get('/debug/worker', [App\Http\Controllers\Debug\WorkerController::class, 'index']);
+
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::post('/link-requests', [DashboardController::class, 'store'])->name('link-requests.store');
