@@ -26,6 +26,39 @@ app.get('/playwright-test', async (_req, res) => {
   }
 });
 
+app.get('/shopee/session-test', async (_req, res) => {
+  const { testShopeeSession } = require('./playwright/shopee-session-test');
+
+  try {
+    const result = await testShopeeSession();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/shopee-login', async (req, res) => {
+  const { loginShopee } = require('./playwright/shopee-login');
+
+  try {
+    const result = await loginShopee();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/shopee-login-interactive', async (_req, res) => {
+  const { loginShopeeInteractive } = require('./playwright/shopee-login');
+
+  try {
+    const result = await loginShopeeInteractive();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.post('/create-link', (req, res) => {
   const { url } = req.body;
 

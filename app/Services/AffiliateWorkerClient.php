@@ -63,6 +63,48 @@ class AffiliateWorkerClient
         ];
     }
 
+    public function shopeeSessionTest(): array
+    {
+        $response = $this->http->get('/shopee/session-test');
+
+        if ($response->successful()) {
+            return $response->json();
+        }
+
+        return [
+            'success' => false,
+            'error' => 'Worker returned status ' . $response->status(),
+        ];
+    }
+
+    public function shopeeLogin(): array
+    {
+        $response = $this->http->post('/shopee-login');
+
+        if ($response->successful()) {
+            return $response->json();
+        }
+
+        return [
+            'success' => false,
+            'error' => 'Worker returned status ' . $response->status(),
+        ];
+    }
+
+    public function shopeeLoginInteractive(): array
+    {
+        $response = $this->http->timeout(180)->post('/shopee-login-interactive');
+
+        if ($response->successful()) {
+            return $response->json();
+        }
+
+        return [
+            'success' => false,
+            'error' => 'Worker returned status ' . $response->status(),
+        ];
+    }
+
     public function ping(): bool
     {
         $response = $this->http->get('/health');

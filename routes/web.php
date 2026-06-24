@@ -17,6 +17,11 @@ Route::post('/debug/provider', [App\Http\Controllers\Debug\ProviderController::c
 Route::get('/debug/worker', [App\Http\Controllers\Debug\WorkerController::class, 'index']);
 Route::get('/debug/playwright', [App\Http\Controllers\Debug\PlaywrightController::class, 'index']);
 
+Route::get('/debug/shopee-login', [App\Http\Controllers\Debug\ShopeeLoginController::class, 'index']);
+Route::post('/debug/shopee-login/check', [App\Http\Controllers\Debug\ShopeeLoginController::class, 'login']);
+Route::post('/debug/shopee-login/interactive', [App\Http\Controllers\Debug\ShopeeLoginController::class, 'loginInteractive']);
+Route::post('/debug/shopee-login/session-test', [App\Http\Controllers\Debug\ShopeeLoginController::class, 'sessionTest']);
+
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::post('/link-requests', [DashboardController::class, 'store'])->name('link-requests.store');
