@@ -21,6 +21,8 @@ Route::get('/debug/shopee-login', [App\Http\Controllers\Debug\ShopeeLoginControl
 Route::post('/debug/shopee-login/check', [App\Http\Controllers\Debug\ShopeeLoginController::class, 'login']);
 Route::post('/debug/shopee-login/interactive', [App\Http\Controllers\Debug\ShopeeLoginController::class, 'loginInteractive']);
 Route::post('/debug/shopee-login/session-test', [App\Http\Controllers\Debug\ShopeeLoginController::class, 'sessionTest']);
+Route::post('/debug/shopee-login/dashboard-test', [App\Http\Controllers\Debug\ShopeeLoginController::class, 'dashboardTest']);
+Route::post('/debug/shopee-login/profile-test', [App\Http\Controllers\Debug\ShopeeLoginController::class, 'profileTest']);
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');

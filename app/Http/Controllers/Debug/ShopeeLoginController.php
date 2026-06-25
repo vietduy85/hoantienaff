@@ -22,6 +22,40 @@ class ShopeeLoginController extends Controller
         return view('debug.shopee-login', compact('online', 'hasSession', 'stateFile'));
     }
 
+    public function profileTest(): RedirectResponse
+    {
+        $result = $this->worker->shopeeProfileTest();
+
+        if ($result['success']) {
+            return back()->with('status', 'profile-valid')
+                ->with('message', 'PROFILE_VALID — ' . ($result['url'] ?? ''));
+        }
+
+        $message = $result['message'] ?? $result['error'] ?? 'FAIL';
+        $status = match($message) {
+            'CAPTCHA_REQUIRED' => 'captcha-required',
+            'LOGIN_REQUIRED' => 'login-required',
+            'LANDING_PAGE' => 'landing-page',
+            default => 'profile-fail',
+        };
+        return back()->with('status', $status)
+            ->with('message', json_encode($result));
+    }
+
+    public function dashboardTest(): RedirectResponse
+    {
+        $result = $this->worker->shopeeDashboardTest();
+
+        if ($result['success']) {
+            return back()->with('status', 'dashboard-pass')
+                ->with('message', 'PASS — ' . ($result['url'] ?? ''));
+        }
+
+        $message = $result['message'] ?? $result['error'] ?? 'FAIL';
+        return back()->with('status', 'dashboard-fail')
+            ->with('message', 'FAIL — ' . $message);
+    }
+
     public function sessionTest(): RedirectResponse
     {
         $result = $this->worker->shopeeSessionTest();

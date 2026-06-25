@@ -1,0 +1,40 @@
+=== SIDEBAR TREE ===
+URL: https://affiliate.shopee.vn/dashboard
+Title: Shopee Affiliate Program | Shopee Vietnam
+
+--- Navigation containers ---
+  <span> .menu-text
+  <div> .ant-layout-sider-children
+  <div> .ant-menu-submenu-title
+  <div> .sider-links.collapsed
+  <li> .ant-menu-submenu.ant-menu-submenu-vertical.left-menu.ant-menu-submenu-selected
+    role: menuitem
+  <aside>#aff-sider .sider.aff-sider.ant-layout-sider.ant-layout-sider-dark.ant-layout-sider-collapsed
+  <ul> .ant-menu.ant-menu-light.ant-menu-inline-collapsed.ant-menu-root.ant-menu-vertical
+    role: menu
+
+--- Links (candidates) ---
+  Thiết lập thanh toán
+    href: https://affiliate.shopee.vn/payment_setting?status=2
+    tag: <a> class: 
+  Trang chủ /
+    href: https://affiliate.shopee.vn/dashboard
+    tag: <a> class: 
+
+--- Other candidates ---
+  <span> Dashboard
+  <span> Dashboard
+    class: desc
+  <div> Tiếng ViệtnguyenthimyaffTrung tâm Hỗ trợDashboardHoa hồngChi
+  <div> Trang chủ / DashboardThời Gian Dữ Liệu ~ 23-06-2026Dữ liệu đ
+    class: container
+  <div> Trang chủ / Dashboard
+    class: breadcrumb
+  <div> Thời Gian Dữ Liệu ~ 23-06-2026Dữ liệu được cập nhật hàng ngà
+    class: no-style-panel dashboard-panel
+  <div> Thời Gian Dữ Liệu ~ 23-06-2026Dữ liệu được cập nhật hàng ngà
+    class: panel dashboard-panel data-period-header
+  <div> Chỉ Sốso với ngày hôm trướcClicks  00%Đơn hàng  00%Hoa Hồng 
+    class: data-overview-wrapper panel dashboard-panel
+  <div> Top 5 sản phẩm của tôiSản PhẩmSố Lượng Đã BánHoa Hồng ước tí
+    class: panel dashboard-panel

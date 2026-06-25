@@ -8,8 +8,8 @@
 </head>
 <body class="bg-gray-50 font-sans antialiased">
     <div class="max-w-lg mx-auto px-4 py-8">
-        <h1 class="text-xl font-bold text-gray-900 mb-1">🔧 TEST 8A + 8B — Shopee Affiliate</h1>
-        <p class="text-sm text-gray-400 mb-6">Đăng nhập và kiểm tra session Shopee Affiliate</p>
+        <h1 class="text-xl font-bold text-gray-900 mb-1">🔧 TEST 8A + 8B + 9A + 9A.2 — Shopee Affiliate</h1>
+        <p class="text-sm text-gray-400 mb-6">Đăng nhập, kiểm tra session, dashboard và profile</p>
 
         @if (session('status'))
             <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-4">
@@ -21,6 +21,13 @@
                             'session-valid' => ['bg-emerald-50 text-emerald-600', 'bg-emerald-500', 'Session valid'],
                             'session-expired' => ['bg-red-50 text-red-600', 'bg-red-500', 'Session expired'],
                             'manual_login_required' => ['bg-amber-50 text-amber-600', 'bg-amber-500', 'Cần đăng nhập'],
+                            'dashboard-pass' => ['bg-emerald-50 text-emerald-600', 'bg-emerald-500', 'PASS'],
+                            'dashboard-fail' => ['bg-red-50 text-red-600', 'bg-red-500', 'FAIL'],
+                            'profile-valid' => ['bg-emerald-50 text-emerald-600', 'bg-emerald-500', 'PROFILE_VALID'],
+                            'profile-fail' => ['bg-red-50 text-red-600', 'bg-red-500', 'PROFILE_FAIL'],
+                            'captcha-required' => ['bg-amber-50 text-amber-600', 'bg-amber-500', 'CAPTCHA'],
+                            'login-required' => ['bg-red-50 text-red-600', 'bg-red-500', 'LOGIN_REQUIRED'],
+                            'landing-page' => ['bg-amber-50 text-amber-600', 'bg-amber-500', 'LANDING_PAGE'],
                         ];
                         $colors = $statusColors[session('status')] ?? ['bg-red-50 text-red-600', 'bg-red-500', 'Lỗi'];
                     @endphp
@@ -70,6 +77,26 @@
                         class="w-full h-11 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white font-bold text-sm rounded-xl transition-all"
                     >
                         Kiểm tra login
+                    </button>
+                </form>
+
+                <form method="POST" action="{{ url('debug/shopee-login/profile-test') }}">
+                    @csrf
+                    <button
+                        type="submit"
+                        class="w-full h-11 bg-indigo-500 hover:bg-indigo-600 active:bg-indigo-700 text-white font-bold text-sm rounded-xl transition-all"
+                    >
+                        TEST 9A.2 Chrome Profile
+                    </button>
+                </form>
+
+                <form method="POST" action="{{ url('debug/shopee-login/dashboard-test') }}">
+                    @csrf
+                    <button
+                        type="submit"
+                        class="w-full h-11 bg-purple-500 hover:bg-purple-600 active:bg-purple-700 text-white font-bold text-sm rounded-xl transition-all"
+                    >
+                        TEST 9A Dashboard
                     </button>
                 </form>
 

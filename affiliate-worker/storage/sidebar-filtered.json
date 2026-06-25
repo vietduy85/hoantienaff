@@ -1,0 +1,363 @@
+[
+  {
+    "tag": "a",
+    "text": "Thiết lập thanh toán",
+    "href": "https://affiliate.shopee.vn/payment_setting?status=2",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 279,
+      "y": 83,
+      "w": 124,
+      "h": 17
+    }
+  },
+  {
+    "tag": "a",
+    "text": "Trang chủ /",
+    "href": "https://affiliate.shopee.vn/dashboard",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 68,
+      "y": 19,
+      "w": 81,
+      "h": 19
+    }
+  },
+  {
+    "tag": "a",
+    "text": "Open API",
+    "href": "https://affiliate.shopee.vn/open_api",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": false,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Dashboard",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 16,
+      "y": 86,
+      "w": 92,
+      "h": 17
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Dashboard",
+    "href": "",
+    "id": "",
+    "className": "menu-text",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 40,
+      "y": 86,
+      "w": 68,
+      "h": 17
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Dashboard",
+    "href": "",
+    "id": "",
+    "className": "desc",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 154,
+      "y": 19,
+      "w": 180,
+      "h": 19
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Tiếng ViệtnguyenthimyaffTrung tâm Hỗ trợDashboardHoa hồngChiến dịchCreativeBáo cáoThanh toánOpen API  Vui lòng cập nhật thông tin Thiết lập thanh toán để nhận được hoa hồngTrang chủ / DashboardThời Gi",
+    "href": "",
+    "id": "root",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 1034,
+      "h": 965
+    }
+  },
+  {
+    "tag": "div",
+    "text": "DashboardHoa hồngChiến dịchCreativeBáo cáoThanh toánOpen API",
+    "href": "",
+    "id": "",
+    "className": "ant-layout-sider-children",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 55,
+      "w": 48,
+      "h": 724
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Dashboard",
+    "href": "",
+    "id": "",
+    "className": "ant-menu-submenu-title",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 75,
+      "w": 32,
+      "h": 40
+    }
+  },
+  {
+    "tag": "div",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "sider-links collapsed",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 779,
+      "w": 48,
+      "h": 30
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Trang chủ / DashboardThời Gian Dữ Liệu ~ 23-06-2026Dữ liệu được cập nhật hàng ngày vào lúc 3:30 chiềuChỉ Sốso với ngày hôm trướcClicks  00%Đơn hàng  00%Hoa Hồng ước tính(₫)  00%Số Lượng Đã Bán  00%Giá",
+    "href": "",
+    "id": "",
+    "className": "container",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 72,
+      "y": 128,
+      "w": 1118,
+      "h": 821
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Trang chủ / Dashboard",
+    "href": "",
+    "id": "",
+    "className": "breadcrumb",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 16,
+      "y": 10,
+      "w": 323,
+      "h": 36
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Thời Gian Dữ Liệu ~ 23-06-2026Dữ liệu được cập nhật hàng ngày vào lúc 3:30 chiềuChỉ Sốso với ngày hôm trướcClicks  00%Đơn hàng  00%Hoa Hồng ước tính(₫)  00%Số Lượng Đã Bán  00%Giá Trị đơn hàng(₫)  00%",
+    "href": "",
+    "id": "",
+    "className": "no-style-panel dashboard-panel",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 72,
+      "y": 128,
+      "w": 1118,
+      "h": 480
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Thời Gian Dữ Liệu ~ 23-06-2026Dữ liệu được cập nhật hàng ngày vào lúc 3:30 chiều",
+    "href": "",
+    "id": "",
+    "className": "panel dashboard-panel data-period-header",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 72,
+      "y": 128,
+      "w": 1118,
+      "h": 64
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Chỉ Sốso với ngày hôm trướcClicks  00%Đơn hàng  00%Hoa Hồng ước tính(₫)  00%Số Lượng Đã Bán  00%Giá Trị đơn hàng(₫)  00%Người mua mới  00%Phân tích lượt click  Mạng xã hội0",
+    "href": "",
+    "id": "",
+    "className": "data-overview-wrapper panel dashboard-panel",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 72,
+      "y": 208,
+      "w": 1118,
+      "h": 400
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Top 5 sản phẩm của tôiSản PhẩmSố Lượng Đã BánHoa Hồng ước tính(₫)Thao tác----------------------------------------",
+    "href": "",
+    "id": "",
+    "className": "panel dashboard-panel",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 72,
+      "y": 624,
+      "w": 1118,
+      "h": 325
+    }
+  },
+  {
+    "tag": "li",
+    "text": "Dashboard",
+    "href": "",
+    "id": "",
+    "className": "ant-menu-submenu ant-menu-submenu-vertical left-menu ant-menu-submenu-selected",
+    "role": "menuitem",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 75,
+      "w": 80,
+      "h": 40
+    }
+  },
+  {
+    "tag": "aside",
+    "text": "DashboardHoa hồngChiến dịchCreativeBáo cáoThanh toánOpen API",
+    "href": "",
+    "id": "aff-sider",
+    "className": "sider aff-sider ant-layout-sider ant-layout-sider-dark ant-layout-sider-collapsed",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 55,
+      "w": 48,
+      "h": 724
+    }
+  },
+  {
+    "tag": "ul",
+    "text": "DashboardHoa hồngChiến dịchCreativeBáo cáoThanh toánOpen API",
+    "href": "",
+    "id": "",
+    "className": "ant-menu ant-menu-light ant-menu-inline-collapsed ant-menu-root ant-menu-vertical",
+    "role": "menu",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 55,
+      "w": 80,
+      "h": 328
+    }
+  }
+]

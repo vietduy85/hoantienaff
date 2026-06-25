@@ -1,0 +1,21 @@
+{
+  "url": "https://affiliate.shopee.vn/api/v3/gql?q=batchCustomLink",
+  "method": "POST",
+  "headers": {
+    "sec-ch-ua-platform": "\"Windows\"",
+    "x-sap-ri": "73c23c6aeb27cf3d8f0bc33805012356bd2a22e896cf31396bef",
+    "af-ac-enc-dat": "943c210f251afe47",
+    "af-ac-enc-sz-token": "50L2eLmQLCTMCwQ/n9/wcA==|O1ki+43kouUR2fuPonNDX4q1PZAs0VEZLFzuS+4d+zt5CKDtlCW49oAgJM7MgiUuUA3KMshhbTb1LRY=|87UhTiOztqmblaLx|08|3",
+    "referer": "https://affiliate.shopee.vn/offer/custom_link",
+    "sec-ch-ua": "\"Google Chrome\";v=\"141\", \"Not?A_Brand\";v=\"8\", \"Chromium\";v=\"141\"",
+    "affiliate-program-type": "1",
+    "csrf-token": "h5MoSmMe-xiDiLP_lBHyUhN0AR8F3SMyyhfI",
+    "sec-ch-ua-mobile": "?0",
+    "x-sz-sdk-version": "1.12.21",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+    "accept": "application/json, text/plain, */*",
+    "content-type": "application/json; charset=UTF-8",
+    "x-sap-sec": "u/q6VmXfbyXRjgRXiyAXigbX7yTzigwXxdAniyRX8yTqibwXzyFbilRXx4THimzXVTFtil5XN4FmiaAXwyTjiguXLdAAiizXndFvig2X0dAfimRXNyFwixzXYdT2igzXdyT5ixXXBTAxiz5XqyFuiipXMyFpilAXF4T3iiHXVdTwimVX9dTciyAXoyVXiyAXiy9OHymviyAXrJ8k/M/5idAXiyAXyqI8pIkXidAX9yuXiYe8P4uXixdrXyVXiyAXGNrXiaA/iyD8McR8iyAXtxdkuyAXiw58iyAri4AX43ta7yAXifqViTAXxyuXiyAXDh9XdVGkiyAXePDruuzpiTAXiyD4yFz9iyTsWTAS980DQfV3iGlHidAXiyD+p5AWiyDXiTAXia+6Lpk8Vi9b/G1CiyFSMspXiyT5vmQ8SuOoWW7qg2oUJk11vs7dJTix6+Fbu7Arf3ZuiqTwmNlpLaCL5dXiarryPqWXM24lEcpyUzfBwKmPtD5XExjjPwxq1DQOSWOqz57kwyLxDMX/79gUoyiaDFjIbtPOxCpfwdT4JJJOC5AtdotdUu2xzsUhsaNYiXaKyYFDIZnwuYyAaIokx0YdDEgEEvXO8OGMEf5G/4hQV/P3SwayDnKaGvIdmKaNKxqX4cPVOqi25ekzO7tmk6nX2mgklgcCAQiyVhA6dep4yHzmtW7PnvmcCohLQ+N/fZPAAywAF5G+OURp3MR+EmkYiy5XiyDcWeKk9RLnVyzXiyF+cl0T04AXiCqdTHy2LepqbVetDkIdrntwEI/J/vJSMoaxUdQ5Yb0bbOvFWvOgelfSMaMnU4iY3NFMKHN1mAf8T2LS0/TGDRnEPDJi7F/qb/iz1j9+Q4HZKOuaFoIzVirRuVr7gy2nbdPsMenUWqO3bFsYKKgN1loZ3SfwCAEocNOQPtcsPdcC+ciJPlU29U+4mfMhpxL2nj+CYLWxsQCtpxaQdL4Db6IEP2VXjyAXiy/gDSwViyAX4EfHatBFZiEj3hzNiyAXiyAXiyAXiyAXATAXixnxN9cU5JH+MCgItCClD5ZmHx6pQu6MaxZ+N8UhNPHi+nvPbGBDYNIt0UHNEowPWwZrSlOs7PptNhUcaSKFYrJzo6NdRYwMfbWUHrKKIJV64ufBanVXiyAXiyAXiyAXizuXiyFWHEyo2H7BgaG/7WJ5NPwaPCGHilzXiyDj0L1PKbX58qLO2cf2IQaU5LvExtIWYrffShTJKqycl2nR2mXXiyAXxyAXiwxQ2cGEdIiU4xxcqE/FY5smSGSkE0b48wlM2BnLrDqn5xnLbGUyYAPFSLpcKYXI91lMSBtprlSviyAXiy5XiyDEjbf7AtbgvyAXiyAXiyAXmyAXiY5Gal2vG2oY+OSdzSQ3YuI+tLVeRtSQxfEh9uwuiyAXo6W8iYsQyM5uiyAXaJV2aJj0qcuXiyAX"
+  },
+  "postData": "{\"operationName\":\"batchGetCustomLink\",\"query\":\"\\n    query batchGetCustomLink($linkParams: [CustomLinkParam!], $sourceCaller: SourceCaller){\\n      batchCustomLink(linkParams: $linkParams, sourceCaller: $sourceCaller){\\n        shortLink\\n        longLink\\n        failCode\\n      }\\n    }\\n    \",\"variables\":{\"linkParams\":[{\"originalLink\":\"https://shopee.vn/Loa-Bluetooth-XM-301-phi%C3%AAn-b%E1%BA%A3n-m%E1%BB%9Bi-%C4%91%E1%BB%99c-%C4%91%C3%A1o-kh%C3%B4ng-d%C3%A2y-%C3%A2m-thanh-%C4%91%E1%BB%89nh-cao-i.76448301.21584571185?extraParams=%7B%22display_model_id%22%3A129406076778%2C%22model_selection_logic%22%3A3%7D\",\"advancedLinkParams\":{}}],\"sourceCaller\":\"CUSTOM_LINK_CALLER\"}}"
+}

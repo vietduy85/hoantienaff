@@ -1,0 +1,4419 @@
+[
+  {
+    "tag": "a",
+    "text": "Trung tâm Hỗ trợ",
+    "href": "https://help.shopee.vn/portal?source=10",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 910,
+      "y": 22,
+      "w": 91,
+      "h": 14
+    }
+  },
+  {
+    "tag": "a",
+    "text": "Thiết lập thanh toán",
+    "href": "https://affiliate.shopee.vn/payment_setting?status=2",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 279,
+      "y": 83,
+      "w": 124,
+      "h": 17
+    }
+  },
+  {
+    "tag": "a",
+    "text": "Trang chủ /",
+    "href": "https://affiliate.shopee.vn/dashboard",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 68,
+      "y": 19,
+      "w": 81,
+      "h": 19
+    }
+  },
+  {
+    "tag": "a",
+    "text": "Open API",
+    "href": "https://affiliate.shopee.vn/open_api",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": false,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "tag": "button",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "ant-alert-close-icon",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 1149,
+      "y": 81,
+      "w": 24,
+      "h": 24
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Tiếng Việt",
+    "href": "",
+    "id": "",
+    "className": "user-name",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 500,
+      "y": 19,
+      "w": 54,
+      "h": 18
+    }
+  },
+  {
+    "tag": "span",
+    "text": "nguyenthimyaff",
+    "href": "",
+    "id": "",
+    "className": "user-name",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 605,
+      "y": 19,
+      "w": 83,
+      "h": 18
+    }
+  },
+  {
+    "tag": "span",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "ant-badge",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 805,
+      "y": 19,
+      "w": 16,
+      "h": 19
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Trung tâm Hỗ trợ",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 877,
+      "y": 9,
+      "w": 141,
+      "h": 39
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Dashboard",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 16,
+      "y": 86,
+      "w": 92,
+      "h": 17
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Dashboard",
+    "href": "",
+    "id": "",
+    "className": "menu-text",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 40,
+      "y": 86,
+      "w": 68,
+      "h": 17
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Hoa hồng",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 16,
+      "y": 130,
+      "w": 84,
+      "h": 17
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Hoa hồng",
+    "href": "",
+    "id": "",
+    "className": "menu-text",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 40,
+      "y": 130,
+      "w": 60,
+      "h": 17
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Chiến dịch",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 16,
+      "y": 174,
+      "w": 90,
+      "h": 17
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Chiến dịch",
+    "href": "",
+    "id": "",
+    "className": "menu-text",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 40,
+      "y": 174,
+      "w": 66,
+      "h": 17
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Creative",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 16,
+      "y": 218,
+      "w": 76,
+      "h": 17
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Creative",
+    "href": "",
+    "id": "",
+    "className": "menu-text",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 40,
+      "y": 218,
+      "w": 52,
+      "h": 17
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Báo cáo",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 16,
+      "y": 262,
+      "w": 75,
+      "h": 17
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Báo cáo",
+    "href": "",
+    "id": "",
+    "className": "menu-text",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 40,
+      "y": 262,
+      "w": 51,
+      "h": 17
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Thanh toán",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 16,
+      "y": 306,
+      "w": 95,
+      "h": 17
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Thanh toán",
+    "href": "",
+    "id": "",
+    "className": "menu-text",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 40,
+      "y": 306,
+      "w": 71,
+      "h": 17
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Open API",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 16,
+      "y": 350,
+      "w": 83,
+      "h": 17
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Open API",
+    "href": "",
+    "id": "",
+    "className": "menu-text",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 40,
+      "y": 350,
+      "w": 59,
+      "h": 17
+    }
+  },
+  {
+    "tag": "span",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "fa ant-alert-icon",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 89,
+      "y": 85,
+      "w": 16,
+      "h": 16
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Vui lòng cập nhật thông tin Thiết lập thanh toán để nhận được hoa hồng",
+    "href": "",
+    "id": "",
+    "className": "ant-alert-message",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 110,
+      "y": 83,
+      "w": 443,
+      "h": 17
+    }
+  },
+  {
+    "tag": "span",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "ant-alert-description",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": false,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "tag": "span",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "fa logo",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 16,
+      "y": 10,
+      "w": 36,
+      "h": 36
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Dashboard",
+    "href": "",
+    "id": "",
+    "className": "desc",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 154,
+      "y": 19,
+      "w": 180,
+      "h": 19
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Thời Gian Dữ Liệu",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 96,
+      "y": 152,
+      "w": 110,
+      "h": 17
+    }
+  },
+  {
+    "tag": "span",
+    "text": "~ 23-06-2026",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 214,
+      "y": 151,
+      "w": 230,
+      "h": 17
+    }
+  },
+  {
+    "tag": "span",
+    "text": "~",
+    "href": "",
+    "id": "",
+    "className": "ant-calendar-picker",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 214,
+      "y": 144,
+      "w": 230,
+      "h": 32
+    }
+  },
+  {
+    "tag": "span",
+    "text": "~",
+    "href": "",
+    "id": "",
+    "className": "ant-calendar-picker-input ant-input",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 214,
+      "y": 144,
+      "w": 230,
+      "h": 32
+    }
+  },
+  {
+    "tag": "span",
+    "text": "~",
+    "href": "",
+    "id": "",
+    "className": "ant-calendar-range-picker-separator",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": false,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "tag": "span",
+    "text": "23-06-2026",
+    "href": "",
+    "id": "",
+    "className": "cover",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 226,
+      "y": 152,
+      "w": 71,
+      "h": 16
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Dữ liệu được cập nhật hàng ngày vào lúc 3:30 chiều",
+    "href": "",
+    "id": "",
+    "className": "time-desc",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 847,
+      "y": 152,
+      "w": 319,
+      "h": 17
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Chỉ Số",
+    "href": "",
+    "id": "",
+    "className": "title",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 96,
+      "y": 232,
+      "w": 60,
+      "h": 26
+    }
+  },
+  {
+    "tag": "span",
+    "text": "so với ngày hôm trước",
+    "href": "",
+    "id": "",
+    "className": "time-desc",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 1028,
+      "y": 235,
+      "w": 138,
+      "h": 21
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Clicks",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 109,
+      "y": 287,
+      "w": 230,
+      "h": 16
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Clicks",
+    "href": "",
+    "id": "",
+    "className": "title",
+    "role": "",
+    "aria-label": "",
+    "title": "Clicks",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 109,
+      "y": 287,
+      "w": 38,
+      "h": 16
+    }
+  },
+  {
+    "tag": "span",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 151,
+      "y": 286,
+      "w": 16,
+      "h": 17
+    }
+  },
+  {
+    "tag": "span",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "fa",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 151,
+      "y": 287,
+      "w": 16,
+      "h": 16
+    }
+  },
+  {
+    "tag": "span",
+    "text": "0",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 109,
+      "y": 307,
+      "w": 206,
+      "h": 36
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Đơn hàng",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 381,
+      "y": 287,
+      "w": 230,
+      "h": 16
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Đơn hàng",
+    "href": "",
+    "id": "",
+    "className": "title",
+    "role": "",
+    "aria-label": "",
+    "title": "Đơn hàng",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 381,
+      "y": 287,
+      "w": 60,
+      "h": 16
+    }
+  },
+  {
+    "tag": "span",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 444,
+      "y": 286,
+      "w": 16,
+      "h": 17
+    }
+  },
+  {
+    "tag": "span",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "fa",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 444,
+      "y": 287,
+      "w": 16,
+      "h": 16
+    }
+  },
+  {
+    "tag": "span",
+    "text": "0",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 381,
+      "y": 307,
+      "w": 206,
+      "h": 36
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Hoa Hồng ước tính(₫)",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 652,
+      "y": 287,
+      "w": 230,
+      "h": 16
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Hoa Hồng ước tính(₫)",
+    "href": "",
+    "id": "",
+    "className": "title",
+    "role": "",
+    "aria-label": "",
+    "title": "Hoa Hồng ước tính(₫)",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 652,
+      "y": 287,
+      "w": 135,
+      "h": 16
+    }
+  },
+  {
+    "tag": "span",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 791,
+      "y": 286,
+      "w": 16,
+      "h": 17
+    }
+  },
+  {
+    "tag": "span",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "fa",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 791,
+      "y": 287,
+      "w": 16,
+      "h": 16
+    }
+  },
+  {
+    "tag": "span",
+    "text": "0",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 652,
+      "y": 307,
+      "w": 206,
+      "h": 36
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Số Lượng Đã Bán",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 924,
+      "y": 287,
+      "w": 230,
+      "h": 16
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Số Lượng Đã Bán",
+    "href": "",
+    "id": "",
+    "className": "title",
+    "role": "",
+    "aria-label": "",
+    "title": "Số Lượng Đã Bán",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 924,
+      "y": 287,
+      "w": 108,
+      "h": 16
+    }
+  },
+  {
+    "tag": "span",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 1035,
+      "y": 286,
+      "w": 16,
+      "h": 17
+    }
+  },
+  {
+    "tag": "span",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "fa",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 1035,
+      "y": 287,
+      "w": 16,
+      "h": 16
+    }
+  },
+  {
+    "tag": "span",
+    "text": "0",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 924,
+      "y": 307,
+      "w": 206,
+      "h": 36
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Giá Trị đơn hàng(₫)",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 109,
+      "y": 385,
+      "w": 230,
+      "h": 16
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Giá Trị đơn hàng(₫)",
+    "href": "",
+    "id": "",
+    "className": "title",
+    "role": "",
+    "aria-label": "",
+    "title": "Giá Trị đơn hàng(₫)",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 109,
+      "y": 385,
+      "w": 120,
+      "h": 16
+    }
+  },
+  {
+    "tag": "span",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 233,
+      "y": 384,
+      "w": 16,
+      "h": 17
+    }
+  },
+  {
+    "tag": "span",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "fa",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 233,
+      "y": 385,
+      "w": 16,
+      "h": 16
+    }
+  },
+  {
+    "tag": "span",
+    "text": "0",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 109,
+      "y": 405,
+      "w": 206,
+      "h": 36
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Người mua mới",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 381,
+      "y": 385,
+      "w": 230,
+      "h": 16
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Người mua mới",
+    "href": "",
+    "id": "",
+    "className": "title",
+    "role": "",
+    "aria-label": "",
+    "title": "Người mua mới",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 381,
+      "y": 385,
+      "w": 97,
+      "h": 16
+    }
+  },
+  {
+    "tag": "span",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 481,
+      "y": 384,
+      "w": 16,
+      "h": 17
+    }
+  },
+  {
+    "tag": "span",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "fa",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 481,
+      "y": 385,
+      "w": 16,
+      "h": 16
+    }
+  },
+  {
+    "tag": "span",
+    "text": "0",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 381,
+      "y": 405,
+      "w": 206,
+      "h": 36
+    }
+  },
+  {
+    "tag": "span",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "fa",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 113,
+      "y": 548,
+      "w": 16,
+      "h": 16
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Top 5 sản phẩm của tôiSản PhẩmSố Lượng Đã BánHoa Hồng ước tính(₫)Thao tác----------------------------------------",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 96,
+      "y": 648,
+      "w": 1070,
+      "h": 277
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Top 5 sản phẩm của tôi",
+    "href": "",
+    "id": "",
+    "className": "table-title",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 104,
+      "y": 653,
+      "w": 186,
+      "h": 20
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Sản Phẩm",
+    "href": "",
+    "id": "",
+    "className": "ant-table-header-column",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 113,
+      "y": 693,
+      "w": 55,
+      "h": 26
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Sản Phẩm",
+    "href": "",
+    "id": "",
+    "className": "ant-table-column-title",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 113,
+      "y": 699,
+      "w": 55,
+      "h": 14
+    }
+  },
+  {
+    "tag": "span",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "ant-table-column-sorter",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": false,
+    "disabled": false,
+    "rect": {
+      "x": 113,
+      "y": 719,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Số Lượng Đã Bán",
+    "href": "",
+    "id": "",
+    "className": "ant-table-header-column",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 557,
+      "y": 693,
+      "w": 113,
+      "h": 26
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Số Lượng Đã Bán",
+    "href": "",
+    "id": "",
+    "className": "ant-table-column-title",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 557,
+      "y": 693,
+      "w": 93,
+      "h": 26
+    }
+  },
+  {
+    "tag": "span",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "ant-table-column-sorter",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 649,
+      "y": 693,
+      "w": 20,
+      "h": 26
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Hoa Hồng ước tính(₫)",
+    "href": "",
+    "id": "",
+    "className": "ant-table-header-column",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 788,
+      "y": 693,
+      "w": 136,
+      "h": 26
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Hoa Hồng ước tính(₫)",
+    "href": "",
+    "id": "",
+    "className": "ant-table-column-title",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 788,
+      "y": 693,
+      "w": 116,
+      "h": 26
+    }
+  },
+  {
+    "tag": "span",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "ant-table-column-sorter",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 904,
+      "y": 693,
+      "w": 20,
+      "h": 26
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Thao tác",
+    "href": "",
+    "id": "",
+    "className": "ant-table-header-column",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 940,
+      "y": 693,
+      "w": 47,
+      "h": 26
+    }
+  },
+  {
+    "tag": "span",
+    "text": "Thao tác",
+    "href": "",
+    "id": "",
+    "className": "ant-table-column-title",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 940,
+      "y": 699,
+      "w": 47,
+      "h": 14
+    }
+  },
+  {
+    "tag": "span",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "ant-table-column-sorter",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": false,
+    "disabled": false,
+    "rect": {
+      "x": 940,
+      "y": 719,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "tag": "span",
+    "text": "--",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 113,
+      "y": 739,
+      "w": 7,
+      "h": 14
+    }
+  },
+  {
+    "tag": "span",
+    "text": "--",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 663,
+      "y": 739,
+      "w": 7,
+      "h": 14
+    }
+  },
+  {
+    "tag": "span",
+    "text": "--",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 917,
+      "y": 739,
+      "w": 7,
+      "h": 14
+    }
+  },
+  {
+    "tag": "span",
+    "text": "--",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 940,
+      "y": 739,
+      "w": 7,
+      "h": 14
+    }
+  },
+  {
+    "tag": "span",
+    "text": "--",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 113,
+      "y": 779,
+      "w": 7,
+      "h": 14
+    }
+  },
+  {
+    "tag": "span",
+    "text": "--",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 663,
+      "y": 779,
+      "w": 7,
+      "h": 14
+    }
+  },
+  {
+    "tag": "span",
+    "text": "--",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 917,
+      "y": 779,
+      "w": 7,
+      "h": 14
+    }
+  },
+  {
+    "tag": "span",
+    "text": "--",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 940,
+      "y": 779,
+      "w": 7,
+      "h": 14
+    }
+  },
+  {
+    "tag": "span",
+    "text": "--",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 113,
+      "y": 819,
+      "w": 7,
+      "h": 14
+    }
+  },
+  {
+    "tag": "span",
+    "text": "--",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 663,
+      "y": 819,
+      "w": 7,
+      "h": 14
+    }
+  },
+  {
+    "tag": "span",
+    "text": "--",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 917,
+      "y": 819,
+      "w": 7,
+      "h": 14
+    }
+  },
+  {
+    "tag": "span",
+    "text": "--",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 940,
+      "y": 819,
+      "w": 7,
+      "h": 14
+    }
+  },
+  {
+    "tag": "span",
+    "text": "--",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 113,
+      "y": 859,
+      "w": 7,
+      "h": 14
+    }
+  },
+  {
+    "tag": "span",
+    "text": "--",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 663,
+      "y": 859,
+      "w": 7,
+      "h": 14
+    }
+  },
+  {
+    "tag": "span",
+    "text": "--",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 917,
+      "y": 859,
+      "w": 7,
+      "h": 14
+    }
+  },
+  {
+    "tag": "span",
+    "text": "--",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 940,
+      "y": 859,
+      "w": 7,
+      "h": 14
+    }
+  },
+  {
+    "tag": "span",
+    "text": "--",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 113,
+      "y": 898,
+      "w": 7,
+      "h": 14
+    }
+  },
+  {
+    "tag": "span",
+    "text": "--",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 663,
+      "y": 898,
+      "w": 7,
+      "h": 14
+    }
+  },
+  {
+    "tag": "span",
+    "text": "--",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 917,
+      "y": 898,
+      "w": 7,
+      "h": 14
+    }
+  },
+  {
+    "tag": "span",
+    "text": "--",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 940,
+      "y": 898,
+      "w": 7,
+      "h": 14
+    }
+  },
+  {
+    "tag": "div",
+    "text": "icons / 16x16 / notice\n    Created with Sketch.\n    \n        \n    \n\n    \n    形状\n    Created with Sketch.\n    \n        \n    \n\n    \n    icons/16x16/arrow-down\n    Created with Sketch.",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": false,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Tiếng ViệtnguyenthimyaffTrung tâm Hỗ trợDashboardHoa hồngChiến dịchCreativeBáo cáoThanh toánOpen API  Vui lòng cập nhật thông tin Thiết lập thanh toán để nhận được hoa hồngTrang chủ / DashboardThời Gi",
+    "href": "",
+    "id": "root",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 1034,
+      "h": 965
+    }
+  },
+  {
+    "tag": "div",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "nav-left",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": false,
+    "disabled": false,
+    "rect": {
+      "x": 16,
+      "y": 28,
+      "w": 280,
+      "h": 0
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Tiếng ViệtnguyenthimyaffTrung tâm Hỗ trợ",
+    "href": "",
+    "id": "",
+    "className": "nav-right",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 460,
+      "y": 6,
+      "w": 558,
+      "h": 44
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Tiếng Việt",
+    "href": "",
+    "id": "",
+    "className": "user",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 460,
+      "y": 6,
+      "w": 122,
+      "h": 44
+    }
+  },
+  {
+    "tag": "div",
+    "text": "nguyenthimyaff",
+    "href": "",
+    "id": "",
+    "className": "user",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 597,
+      "y": 6,
+      "w": 119,
+      "h": 44
+    }
+  },
+  {
+    "tag": "div",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "divider ant-divider ant-divider-vertical",
+    "role": "separator",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 732,
+      "y": 11,
+      "w": 1,
+      "h": 32
+    }
+  },
+  {
+    "tag": "div",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "utc",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 749,
+      "y": 12,
+      "w": 48,
+      "h": 32
+    }
+  },
+  {
+    "tag": "div",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "nav-right-zone",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 749,
+      "y": 12,
+      "w": 32,
+      "h": 32
+    }
+  },
+  {
+    "tag": "div",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "notification",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 797,
+      "y": 12,
+      "w": 32,
+      "h": 32
+    }
+  },
+  {
+    "tag": "div",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "nav-right-ellipsis",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 845,
+      "y": 12,
+      "w": 32,
+      "h": 32
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Trung tâm Hỗ trợ",
+    "href": "",
+    "id": "",
+    "className": "nav-right-education-hub",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 893,
+      "y": 9,
+      "w": 125,
+      "h": 39
+    }
+  },
+  {
+    "tag": "div",
+    "text": "DashboardHoa hồngChiến dịchCreativeBáo cáoThanh toánOpen API",
+    "href": "",
+    "id": "",
+    "className": "ant-layout-sider-children",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 55,
+      "w": 48,
+      "h": 724
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Dashboard",
+    "href": "",
+    "id": "",
+    "className": "ant-menu-submenu-title",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 75,
+      "w": 32,
+      "h": 40
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Hoa hồng",
+    "href": "",
+    "id": "",
+    "className": "ant-menu-submenu-title",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 119,
+      "w": 32,
+      "h": 40
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Chiến dịch",
+    "href": "",
+    "id": "",
+    "className": "ant-menu-submenu-title",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 163,
+      "w": 32,
+      "h": 40
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Creative",
+    "href": "",
+    "id": "",
+    "className": "ant-menu-submenu-title",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 207,
+      "w": 32,
+      "h": 40
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Báo cáo",
+    "href": "",
+    "id": "",
+    "className": "ant-menu-submenu-title",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 251,
+      "w": 32,
+      "h": 40
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Thanh toán",
+    "href": "",
+    "id": "",
+    "className": "ant-menu-submenu-title",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 295,
+      "w": 32,
+      "h": 40
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Open API",
+    "href": "",
+    "id": "",
+    "className": "ant-menu-submenu-title",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 339,
+      "w": 32,
+      "h": 40
+    }
+  },
+  {
+    "tag": "div",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "sider-links collapsed",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 779,
+      "w": 48,
+      "h": 30
+    }
+  },
+  {
+    "tag": "div",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 785,
+      "w": 30,
+      "h": 21
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Vui lòng cập nhật thông tin Thiết lập thanh toán để nhận được hoa hồng",
+    "href": "",
+    "id": "",
+    "className": "banner-collection-wrapper",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 72,
+      "y": 72,
+      "w": 1118,
+      "h": 40
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Vui lòng cập nhật thông tin Thiết lập thanh toán để nhận được hoa hồng",
+    "href": "",
+    "id": "",
+    "className": "ant-alert ant-alert-error ant-alert-closable",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {
+      "show": "true"
+    },
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 72,
+      "y": 72,
+      "w": 1118,
+      "h": 40
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Trang chủ / DashboardThời Gian Dữ Liệu ~ 23-06-2026Dữ liệu được cập nhật hàng ngày vào lúc 3:30 chiềuChỉ Sốso với ngày hôm trướcClicks  00%Đơn hàng  00%Hoa Hồng ước tính(₫)  00%Số Lượng Đã Bán  00%Giá",
+    "href": "",
+    "id": "",
+    "className": "container",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 72,
+      "y": 128,
+      "w": 1118,
+      "h": 821
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Trang chủ / Dashboard",
+    "href": "",
+    "id": "",
+    "className": "breadcrumb",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 16,
+      "y": 10,
+      "w": 323,
+      "h": 36
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Thời Gian Dữ Liệu ~ 23-06-2026Dữ liệu được cập nhật hàng ngày vào lúc 3:30 chiềuChỉ Sốso với ngày hôm trướcClicks  00%Đơn hàng  00%Hoa Hồng ước tính(₫)  00%Số Lượng Đã Bán  00%Giá Trị đơn hàng(₫)  00%",
+    "href": "",
+    "id": "",
+    "className": "no-style-panel dashboard-panel",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 72,
+      "y": 128,
+      "w": 1118,
+      "h": 480
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Thời Gian Dữ Liệu ~ 23-06-2026Dữ liệu được cập nhật hàng ngày vào lúc 3:30 chiềuChỉ Sốso với ngày hôm trướcClicks  00%Đơn hàng  00%Hoa Hồng ước tính(₫)  00%Số Lượng Đã Bán  00%Giá Trị đơn hàng(₫)  00%",
+    "href": "",
+    "id": "",
+    "className": "page-content",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 72,
+      "y": 128,
+      "w": 1118,
+      "h": 480
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Thời Gian Dữ Liệu ~ 23-06-2026Dữ liệu được cập nhật hàng ngày vào lúc 3:30 chiều",
+    "href": "",
+    "id": "",
+    "className": "panel dashboard-panel data-period-header",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 72,
+      "y": 128,
+      "w": 1118,
+      "h": 64
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Thời Gian Dữ Liệu ~ 23-06-2026",
+    "href": "",
+    "id": "",
+    "className": "data-period-content",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 96,
+      "y": 144,
+      "w": 348,
+      "h": 32
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Thời Gian Dữ Liệu",
+    "href": "",
+    "id": "",
+    "className": "prefix-title",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 96,
+      "y": 150,
+      "w": 118,
+      "h": 21
+    }
+  },
+  {
+    "tag": "div",
+    "text": "~ 23-06-2026",
+    "href": "",
+    "id": "",
+    "className": "range-picker-wrapper range-picker-wrapper-transparent",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 214,
+      "y": 144,
+      "w": 230,
+      "h": 32
+    }
+  },
+  {
+    "tag": "div",
+    "text": "23-06-2026",
+    "href": "",
+    "id": "",
+    "className": "cover-warp",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 226,
+      "y": 152,
+      "w": 71,
+      "h": 16
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Dữ liệu được cập nhật hàng ngày vào lúc 3:30 chiều",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 847,
+      "y": 150,
+      "w": 319,
+      "h": 21
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Chỉ Sốso với ngày hôm trướcClicks  00%Đơn hàng  00%Hoa Hồng ước tính(₫)  00%Số Lượng Đã Bán  00%Giá Trị đơn hàng(₫)  00%Người mua mới  00%Phân tích lượt click  Mạng xã hội0",
+    "href": "",
+    "id": "",
+    "className": "data-overview-wrapper panel dashboard-panel",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 72,
+      "y": 208,
+      "w": 1118,
+      "h": 400
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Chỉ Sốso với ngày hôm trước",
+    "href": "",
+    "id": "",
+    "className": "header key-metrics-header",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 96,
+      "y": 232,
+      "w": 1070,
+      "h": 42
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Clicks  00%Đơn hàng  00%Hoa Hồng ước tính(₫)  00%Số Lượng Đã Bán  00%Giá Trị đơn hàng(₫)  00%Người mua mới  00%",
+    "href": "",
+    "id": "",
+    "className": "data-overview",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 96,
+      "y": 274,
+      "w": 1070,
+      "h": 196
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Clicks  00%Đơn hàng  00%Hoa Hồng ước tính(₫)  00%Số Lượng Đã Bán  00%Giá Trị đơn hàng(₫)  00%Người mua mới  00%",
+    "href": "",
+    "id": "",
+    "className": "data-overview-card-list",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 96,
+      "y": 274,
+      "w": 1070,
+      "h": 196
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Clicks  00%",
+    "href": "",
+    "id": "",
+    "className": "overview-item selected",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 96,
+      "y": 274,
+      "w": 256,
+      "h": 82
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Clicks",
+    "href": "",
+    "id": "",
+    "className": "text",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 109,
+      "y": 287,
+      "w": 230,
+      "h": 16
+    }
+  },
+  {
+    "tag": "div",
+    "text": "00%",
+    "href": "",
+    "id": "",
+    "className": "data",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 109,
+      "y": 303,
+      "w": 230,
+      "h": 40
+    }
+  },
+  {
+    "tag": "div",
+    "text": "0%",
+    "href": "",
+    "id": "",
+    "className": "chain-ratio",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 323,
+      "y": 319,
+      "w": 16,
+      "h": 20
+    }
+  },
+  {
+    "tag": "div",
+    "text": "0%",
+    "href": "",
+    "id": "",
+    "className": "grey",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 323,
+      "y": 319,
+      "w": 16,
+      "h": 20
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Đơn hàng  00%",
+    "href": "",
+    "id": "",
+    "className": "overview-item",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 368,
+      "y": 274,
+      "w": 256,
+      "h": 82
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Đơn hàng",
+    "href": "",
+    "id": "",
+    "className": "text",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 381,
+      "y": 287,
+      "w": 230,
+      "h": 16
+    }
+  },
+  {
+    "tag": "div",
+    "text": "00%",
+    "href": "",
+    "id": "",
+    "className": "data",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 381,
+      "y": 303,
+      "w": 230,
+      "h": 40
+    }
+  },
+  {
+    "tag": "div",
+    "text": "0%",
+    "href": "",
+    "id": "",
+    "className": "chain-ratio",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 594,
+      "y": 319,
+      "w": 16,
+      "h": 20
+    }
+  },
+  {
+    "tag": "div",
+    "text": "0%",
+    "href": "",
+    "id": "",
+    "className": "grey",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 594,
+      "y": 319,
+      "w": 16,
+      "h": 20
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Hoa Hồng ước tính(₫)  00%",
+    "href": "",
+    "id": "",
+    "className": "overview-item",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 639,
+      "y": 274,
+      "w": 256,
+      "h": 82
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Hoa Hồng ước tính(₫)",
+    "href": "",
+    "id": "",
+    "className": "text",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 652,
+      "y": 287,
+      "w": 230,
+      "h": 16
+    }
+  },
+  {
+    "tag": "div",
+    "text": "00%",
+    "href": "",
+    "id": "",
+    "className": "data",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 652,
+      "y": 303,
+      "w": 230,
+      "h": 40
+    }
+  },
+  {
+    "tag": "div",
+    "text": "0%",
+    "href": "",
+    "id": "",
+    "className": "chain-ratio",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 866,
+      "y": 319,
+      "w": 16,
+      "h": 20
+    }
+  },
+  {
+    "tag": "div",
+    "text": "0%",
+    "href": "",
+    "id": "",
+    "className": "grey",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 866,
+      "y": 319,
+      "w": 16,
+      "h": 20
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Số Lượng Đã Bán  00%",
+    "href": "",
+    "id": "",
+    "className": "overview-item",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 911,
+      "y": 274,
+      "w": 256,
+      "h": 82
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Số Lượng Đã Bán",
+    "href": "",
+    "id": "",
+    "className": "text",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 924,
+      "y": 287,
+      "w": 230,
+      "h": 16
+    }
+  },
+  {
+    "tag": "div",
+    "text": "00%",
+    "href": "",
+    "id": "",
+    "className": "data",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 924,
+      "y": 303,
+      "w": 230,
+      "h": 40
+    }
+  },
+  {
+    "tag": "div",
+    "text": "0%",
+    "href": "",
+    "id": "",
+    "className": "chain-ratio",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 1137,
+      "y": 319,
+      "w": 16,
+      "h": 20
+    }
+  },
+  {
+    "tag": "div",
+    "text": "0%",
+    "href": "",
+    "id": "",
+    "className": "grey",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 1137,
+      "y": 319,
+      "w": 16,
+      "h": 20
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Giá Trị đơn hàng(₫)  00%",
+    "href": "",
+    "id": "",
+    "className": "overview-item",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 96,
+      "y": 372,
+      "w": 256,
+      "h": 82
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Giá Trị đơn hàng(₫)",
+    "href": "",
+    "id": "",
+    "className": "text",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 109,
+      "y": 385,
+      "w": 230,
+      "h": 16
+    }
+  },
+  {
+    "tag": "div",
+    "text": "00%",
+    "href": "",
+    "id": "",
+    "className": "data",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 109,
+      "y": 401,
+      "w": 230,
+      "h": 40
+    }
+  },
+  {
+    "tag": "div",
+    "text": "0%",
+    "href": "",
+    "id": "",
+    "className": "chain-ratio",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 323,
+      "y": 417,
+      "w": 16,
+      "h": 20
+    }
+  },
+  {
+    "tag": "div",
+    "text": "0%",
+    "href": "",
+    "id": "",
+    "className": "grey",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 323,
+      "y": 417,
+      "w": 16,
+      "h": 20
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Người mua mới  00%",
+    "href": "",
+    "id": "",
+    "className": "overview-item",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 368,
+      "y": 372,
+      "w": 256,
+      "h": 82
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Người mua mới",
+    "href": "",
+    "id": "",
+    "className": "text",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 381,
+      "y": 385,
+      "w": 230,
+      "h": 16
+    }
+  },
+  {
+    "tag": "div",
+    "text": "00%",
+    "href": "",
+    "id": "",
+    "className": "data",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 381,
+      "y": 401,
+      "w": 230,
+      "h": 40
+    }
+  },
+  {
+    "tag": "div",
+    "text": "0%",
+    "href": "",
+    "id": "",
+    "className": "chain-ratio",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 594,
+      "y": 417,
+      "w": 16,
+      "h": 20
+    }
+  },
+  {
+    "tag": "div",
+    "text": "0%",
+    "href": "",
+    "id": "",
+    "className": "grey",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 594,
+      "y": 417,
+      "w": 16,
+      "h": 20
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Phân tích lượt click  Mạng xã hội0",
+    "href": "",
+    "id": "",
+    "className": "chart",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 96,
+      "y": 494,
+      "w": 1070,
+      "h": 90
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Phân tích lượt click  Mạng xã hội0",
+    "href": "",
+    "id": "",
+    "className": "break-down",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 96,
+      "y": 494,
+      "w": 1070,
+      "h": 90
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Phân tích lượt click",
+    "href": "",
+    "id": "",
+    "className": "break-down-title",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 96,
+      "y": 494,
+      "w": 1070,
+      "h": 20
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Mạng xã hội0",
+    "href": "",
+    "id": "",
+    "className": "channel-block",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 96,
+      "y": 530,
+      "w": 1070,
+      "h": 54
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Mạng xã hội0",
+    "href": "",
+    "id": "",
+    "className": "channel-wrapper",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 96,
+      "y": 530,
+      "w": 357,
+      "h": 54
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Mạng xã hội0",
+    "href": "",
+    "id": "",
+    "className": "channel-content",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 113,
+      "y": 543,
+      "w": 339,
+      "h": 28
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Mạng xã hội0",
+    "href": "",
+    "id": "",
+    "className": "channel",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 113,
+      "y": 543,
+      "w": 327,
+      "h": 24
+    }
+  },
+  {
+    "tag": "div",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "channel-icon",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 113,
+      "y": 545,
+      "w": 16,
+      "h": 20
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Mạng xã hội",
+    "href": "",
+    "id": "",
+    "className": "channel-name",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 137,
+      "y": 543,
+      "w": 147,
+      "h": 24
+    }
+  },
+  {
+    "tag": "div",
+    "text": "0",
+    "href": "",
+    "id": "",
+    "className": "channel-number",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 292,
+      "y": 546,
+      "w": 147,
+      "h": 18
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Top 5 sản phẩm của tôiSản PhẩmSố Lượng Đã BánHoa Hồng ước tính(₫)Thao tác----------------------------------------",
+    "href": "",
+    "id": "",
+    "className": "panel dashboard-panel",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 72,
+      "y": 624,
+      "w": 1118,
+      "h": 325
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Top 5 sản phẩm của tôiSản PhẩmSố Lượng Đã BánHoa Hồng ước tính(₫)Thao tác----------------------------------------",
+    "href": "",
+    "id": "",
+    "className": "page-content",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 96,
+      "y": 648,
+      "w": 1070,
+      "h": 277
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Top 5 sản phẩm của tôiSản PhẩmSố Lượng Đã BánHoa Hồng ước tính(₫)Thao tác----------------------------------------",
+    "href": "",
+    "id": "",
+    "className": "leaderboard-wrapper",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 96,
+      "y": 648,
+      "w": 1070,
+      "h": 277
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Top 5 sản phẩm của tôiSản PhẩmSố Lượng Đã BánHoa Hồng ước tính(₫)Thao tác----------------------------------------",
+    "href": "",
+    "id": "",
+    "className": "leaderboard",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 96,
+      "y": 648,
+      "w": 1070,
+      "h": 277
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Top 5 sản phẩm của tôiSản PhẩmSố Lượng Đã BánHoa Hồng ước tính(₫)Thao tác----------------------------------------",
+    "href": "",
+    "id": "",
+    "className": "leaderboard-table-wrapper",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 104,
+      "y": 648,
+      "w": 1062,
+      "h": 277
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Top 5 sản phẩm của tôiSản PhẩmSố Lượng Đã BánHoa Hồng ước tính(₫)Thao tác----------------------------------------",
+    "href": "",
+    "id": "",
+    "className": "account-top5",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 104,
+      "y": 648,
+      "w": 1062,
+      "h": 277
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Top 5 sản phẩm của tôi",
+    "href": "",
+    "id": "",
+    "className": "table-header clearfix",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 104,
+      "y": 648,
+      "w": 1062,
+      "h": 30
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Top 5 sản phẩm của tôi",
+    "href": "",
+    "id": "",
+    "className": "left",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 104,
+      "y": 653,
+      "w": 1062,
+      "h": 20
+    }
+  },
+  {
+    "tag": "div",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "right",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": false,
+    "disabled": false,
+    "rect": {
+      "x": 1166,
+      "y": 663,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Sản PhẩmSố Lượng Đã BánHoa Hồng ước tính(₫)Thao tác----------------------------------------",
+    "href": "",
+    "id": "",
+    "className": "ant-table-wrapper aff-table no-pagination",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 104,
+      "y": 686,
+      "w": 1062,
+      "h": 239
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Sản PhẩmSố Lượng Đã BánHoa Hồng ước tính(₫)Thao tác----------------------------------------",
+    "href": "",
+    "id": "",
+    "className": "ant-spin-nested-loading",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 105,
+      "y": 687,
+      "w": 1060,
+      "h": 238
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Sản PhẩmSố Lượng Đã BánHoa Hồng ước tính(₫)Thao tác----------------------------------------",
+    "href": "",
+    "id": "",
+    "className": "ant-spin-container",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 105,
+      "y": 687,
+      "w": 1060,
+      "h": 238
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Sản PhẩmSố Lượng Đã BánHoa Hồng ước tính(₫)Thao tác----------------------------------------",
+    "href": "",
+    "id": "",
+    "className": "ant-table ant-table-default ant-table-scroll-position-left ant-table-layout-fixed",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 105,
+      "y": 687,
+      "w": 1060,
+      "h": 238
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Sản PhẩmSố Lượng Đã BánHoa Hồng ước tính(₫)Thao tác----------------------------------------",
+    "href": "",
+    "id": "",
+    "className": "ant-table-content",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 105,
+      "y": 687,
+      "w": 1060,
+      "h": 238
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Sản PhẩmSố Lượng Đã BánHoa Hồng ước tính(₫)Thao tác----------------------------------------",
+    "href": "",
+    "id": "",
+    "className": "ant-table-scroll",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 105,
+      "y": 687,
+      "w": 1060,
+      "h": 238
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Sản PhẩmSố Lượng Đã BánHoa Hồng ước tính(₫)Thao tác----------------------------------------",
+    "href": "",
+    "id": "",
+    "className": "ant-table-body",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 105,
+      "y": 687,
+      "w": 1060,
+      "h": 238
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Sản Phẩm",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 113,
+      "y": 693,
+      "w": 55,
+      "h": 26
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Số Lượng Đã Bán",
+    "href": "",
+    "id": "",
+    "className": "ant-table-column-sorters",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 557,
+      "y": 693,
+      "w": 113,
+      "h": 26
+    }
+  },
+  {
+    "tag": "div",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "ant-table-column-sorter-inner",
+    "role": "",
+    "aria-label": "",
+    "title": "Sort",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 657,
+      "y": 702,
+      "w": 12,
+      "h": 14
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Hoa Hồng ước tính(₫)",
+    "href": "",
+    "id": "",
+    "className": "ant-table-column-sorters",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 788,
+      "y": 693,
+      "w": 136,
+      "h": 26
+    }
+  },
+  {
+    "tag": "div",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "ant-table-column-sorter-inner",
+    "role": "",
+    "aria-label": "",
+    "title": "Sort",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 912,
+      "y": 702,
+      "w": 12,
+      "h": 14
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Thao tác",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 940,
+      "y": 693,
+      "w": 47,
+      "h": 26
+    }
+  },
+  {
+    "tag": "div",
+    "text": "",
+    "href": "",
+    "id": "popupContainer",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": false,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 965,
+      "w": 1034,
+      "h": 0
+    }
+  },
+  {
+    "tag": "div",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "adm-px-tester",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": false,
+    "disabled": false,
+    "rect": {
+      "x": 2068,
+      "y": 1608,
+      "w": 0,
+      "h": 10
+    }
+  },
+  {
+    "tag": "div",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "adm-px-tester",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": false,
+    "disabled": false,
+    "rect": {
+      "x": 2068,
+      "y": 1617,
+      "w": 0,
+      "h": 1
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Open API",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": false,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 1034,
+      "h": 0
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Open API",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": false,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 1034,
+      "h": 0
+    }
+  },
+  {
+    "tag": "div",
+    "text": "Open API",
+    "href": "",
+    "id": "",
+    "className": "ant-menu-submenu ant-menu-submenu-popup ant-menu-light ant-menu-submenu-placement-rightTop  ant-menu-submenu-hidden",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": false,
+    "disabled": false,
+    "rect": {
+      "x": 36,
+      "y": 339,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "tag": "li",
+    "text": "Dashboard",
+    "href": "",
+    "id": "",
+    "className": "ant-menu-submenu ant-menu-submenu-vertical left-menu ant-menu-submenu-selected",
+    "role": "menuitem",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 75,
+      "w": 80,
+      "h": 40
+    }
+  },
+  {
+    "tag": "li",
+    "text": "Hoa hồng",
+    "href": "",
+    "id": "",
+    "className": "ant-menu-submenu ant-menu-submenu-vertical left-menu",
+    "role": "menuitem",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 119,
+      "w": 80,
+      "h": 40
+    }
+  },
+  {
+    "tag": "li",
+    "text": "Chiến dịch",
+    "href": "",
+    "id": "",
+    "className": "ant-menu-submenu ant-menu-submenu-vertical left-menu",
+    "role": "menuitem",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 163,
+      "w": 80,
+      "h": 40
+    }
+  },
+  {
+    "tag": "li",
+    "text": "Creative",
+    "href": "",
+    "id": "",
+    "className": "ant-menu-submenu ant-menu-submenu-vertical left-menu",
+    "role": "menuitem",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 207,
+      "w": 80,
+      "h": 40
+    }
+  },
+  {
+    "tag": "li",
+    "text": "Báo cáo",
+    "href": "",
+    "id": "",
+    "className": "ant-menu-submenu ant-menu-submenu-vertical left-menu",
+    "role": "menuitem",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 251,
+      "w": 80,
+      "h": 40
+    }
+  },
+  {
+    "tag": "li",
+    "text": "Thanh toán",
+    "href": "",
+    "id": "",
+    "className": "ant-menu-submenu ant-menu-submenu-vertical left-menu",
+    "role": "menuitem",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 295,
+      "w": 80,
+      "h": 40
+    }
+  },
+  {
+    "tag": "li",
+    "text": "Open API",
+    "href": "",
+    "id": "",
+    "className": "ant-menu-submenu ant-menu-submenu-vertical left-menu",
+    "role": "menuitem",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 339,
+      "w": 80,
+      "h": 40
+    }
+  },
+  {
+    "tag": "li",
+    "text": "Open API",
+    "href": "",
+    "id": "",
+    "className": "ant-menu-item",
+    "role": "menuitem",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": false,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "tag": "aside",
+    "text": "DashboardHoa hồngChiến dịchCreativeBáo cáoThanh toánOpen API",
+    "href": "",
+    "id": "aff-sider",
+    "className": "sider aff-sider ant-layout-sider ant-layout-sider-dark ant-layout-sider-collapsed",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 55,
+      "w": 48,
+      "h": 724
+    }
+  },
+  {
+    "tag": "ul",
+    "text": "DashboardHoa hồngChiến dịchCreativeBáo cáoThanh toánOpen API",
+    "href": "",
+    "id": "",
+    "className": "ant-menu ant-menu-light ant-menu-inline-collapsed ant-menu-root ant-menu-vertical",
+    "role": "menu",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 55,
+      "w": 80,
+      "h": 328
+    }
+  },
+  {
+    "tag": "ul",
+    "text": "Open API",
+    "href": "",
+    "id": "open_api$Menu",
+    "className": "ant-menu ant-menu-sub ant-menu-hidden ant-menu-vertical",
+    "role": "menu",
+    "aria-label": "",
+    "title": "",
+    "dataset": {},
+    "visible": false,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "tag": "script",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {
+      "requirecontext": "_",
+      "requiremodule": "https://deo.shopeemobile.com/shopee/shopee-trackingsdk-live-sg/amd/@shopee/tracking-ubt@7f3ca14.min.js"
+    },
+    "visible": false,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "tag": "script",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {
+      "requirecontext": "_",
+      "requiremodule": "https://deo.shopeemobile.com/shopee/shopee-trackingsdk-live-sg/amd/@shopee/tracking-core@7f3ca14.min.js"
+    },
+    "visible": false,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "tag": "svg",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {
+      "icon": "menu-unfold"
+    },
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 16,
+      "y": 787,
+      "w": 14,
+      "h": 14
+    }
+  },
+  {
+    "tag": "svg",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {
+      "icon": "close"
+    },
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 1155,
+      "y": 87,
+      "w": 12,
+      "h": 12
+    }
+  },
+  {
+    "tag": "svg",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {
+      "icon": "calendar"
+    },
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 417,
+      "y": 153,
+      "w": 14,
+      "h": 14
+    }
+  },
+  {
+    "tag": "svg",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {
+      "icon": "caret-down"
+    },
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 658,
+      "y": 702,
+      "w": 11,
+      "h": 11
+    }
+  },
+  {
+    "tag": "svg",
+    "text": "",
+    "href": "",
+    "id": "",
+    "className": "",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {
+      "icon": "caret-down"
+    },
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 912,
+      "y": 702,
+      "w": 11,
+      "h": 11
+    }
+  },
+  {
+    "tag": "tr",
+    "text": "--------",
+    "href": "",
+    "id": "",
+    "className": "ant-table-row tr-grey ant-table-row-level-0",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {
+      "rowKey": "0"
+    },
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 105,
+      "y": 726,
+      "w": 1060,
+      "h": 40
+    }
+  },
+  {
+    "tag": "tr",
+    "text": "--------",
+    "href": "",
+    "id": "",
+    "className": "ant-table-row tr-grey ant-table-row-level-0",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {
+      "rowKey": "1"
+    },
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 105,
+      "y": 766,
+      "w": 1060,
+      "h": 40
+    }
+  },
+  {
+    "tag": "tr",
+    "text": "--------",
+    "href": "",
+    "id": "",
+    "className": "ant-table-row tr-grey ant-table-row-level-0",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {
+      "rowKey": "2"
+    },
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 105,
+      "y": 806,
+      "w": 1060,
+      "h": 40
+    }
+  },
+  {
+    "tag": "tr",
+    "text": "--------",
+    "href": "",
+    "id": "",
+    "className": "ant-table-row tr-grey ant-table-row-level-0",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {
+      "rowKey": "3"
+    },
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 105,
+      "y": 846,
+      "w": 1060,
+      "h": 40
+    }
+  },
+  {
+    "tag": "tr",
+    "text": "--------",
+    "href": "",
+    "id": "",
+    "className": "ant-table-row tr-grey ant-table-row-level-0",
+    "role": "",
+    "aria-label": "",
+    "title": "",
+    "dataset": {
+      "rowKey": "4"
+    },
+    "visible": true,
+    "disabled": false,
+    "rect": {
+      "x": 105,
+      "y": 886,
+      "w": 1060,
+      "h": 40
+    }
+  }
+]
