@@ -45,4 +45,8 @@ return [
         'url' => env('AFFILIATE_WORKER_URL', 'http://127.0.0.1:3001'),
     ],
 
+    'affiliate_extension' => [
+        'token' => env('AFFILIATE_EXTENSION_TOKEN', ''),
+    ],
+
 ];

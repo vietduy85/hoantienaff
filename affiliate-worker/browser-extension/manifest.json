@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "Hoàn Tiền Affiliate - Shopee Worker",
+  "version": "1.0.0",
+  "description": "Tạo affiliate short-link Shopee tự động trong trang Custom Link",
+
+  "permissions": [
+    "storage",
+    "alarms",
+    "scripting"
+  ],
+
+  "host_permissions": [
+    "https://affiliate.shopee.vn/*",
+    "https://hoantien.xyz/*",
+    "http://hoantien.xyz/*",
+    "http://localhost/*"
+  ],
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "content_scripts": [
+  {
+    "matches": [
+      "https://affiliate.shopee.vn/*"
+    ],
+    "js": [
+      "content.js"
+    ],
+    "run_at": "document_idle"
+  }
+],
+
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Hoàn Tiền Affiliate"
+  }
+}

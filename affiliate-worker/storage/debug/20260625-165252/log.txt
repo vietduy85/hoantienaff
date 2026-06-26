@@ -1,0 +1,86 @@
+[16:52:52] [INFO] [Worker] createAffiliateLink: https://shopee.vn/B%E1%BB%99-5-Qu%E1%BA%A7n-l%C3%B3t-nam-ERIVIS-l%C6%B0ng-nh%E1%BB%8F-Thun-l%E1%BA%A1nh-cao-c%E1%BA%A5p-i.18100749.1813236355?extraParams=%7B%22display_model_id%22%3A3076991824%2C%22model_selection_logic%22%3A3%7D
+[16:52:52] [INFO] [Worker] Connecting to Chrome...
+[16:52:52] [INFO] [Worker] Current URL: https://affiliate.shopee.vn/offer/custom_link
+[16:52:52] [INFO] [Worker] Already on Custom Link page
+[16:52:52] [INFO] [Worker] Looking for input field...
+[16:52:52] [INFO] [Worker] Input selector: textarea
+[16:52:52] [INFO] [Worker] Input URL: https://shopee.vn/B%E1%BB%99-5-Qu%E1%BA%A7n-l%C3%B3t-nam-ERIVIS-l%C6%B0ng-nh%E1%BB%8F-Thun-l%E1%BA%A1nh-cao-c%E1%BA%A5p-i.18100749.1813236355?extraParams=%7B%22display_model_id%22%3A3076991824%2C%22model_selection_logic%22%3A3%7D
+[16:52:52] [INFO] [Worker] Looking for generate button...
+[16:52:52] [INFO] [Worker] Button found: button "Lấy link"
+[16:52:52] [INFO] [Worker] Button: button "Lấy link"
+[16:52:52] [INFO] [Worker] Clicked Generate
+[16:52:52] [DEBUG] [Worker] GraphQL request captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [INFO] [Worker] GraphQL received, status: 200
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:53] [DEBUG] [Worker] GraphQL response captured
+[16:52:54] [DEBUG] [Worker] GraphQL response captured
+[16:52:54] [DEBUG] [Worker] GraphQL response captured
+[16:52:54] [DEBUG] [Worker] GraphQL response captured
+[16:52:54] [DEBUG] [Worker] GraphQL response captured
+[16:52:54] [DEBUG] [Worker] GraphQL response captured
+[16:52:54] [DEBUG] [Worker] GraphQL response captured
+[16:52:54] [DEBUG] [Worker] GraphQL response captured
+[16:52:54] [DEBUG] [Worker] GraphQL response captured
+[16:52:54] [DEBUG] [Worker] GraphQL response captured
+[16:52:54] [DEBUG] [Worker] GraphQL response captured
+[16:52:54] [DEBUG] [Worker] GraphQL response captured
+[16:52:54] [DEBUG] [Worker] GraphQL response captured
+[16:52:54] [DEBUG] [Worker] GraphQL response captured
+[16:52:54] [DEBUG] [Worker] GraphQL response captured
+[16:52:54] [INFO] [Worker] Total: 1829ms
+[16:52:54] [ERROR] [Worker] ShortLink not found
+[16:52:54] [DEBUG] [Worker] GraphQL response captured
+[16:52:54] [DEBUG] [Worker] GraphQL response captured
+[16:52:55] [DEBUG] [Worker] GraphQL response captured
+[16:52:55] [DEBUG] [Worker] GraphQL response captured
+[16:52:55] [DEBUG] [Worker] GraphQL response captured
+[16:52:55] [DEBUG] [Worker] GraphQL response captured
+[16:52:55] [DEBUG] [Worker] GraphQL response captured
+[16:52:55] [DEBUG] [Worker] GraphQL response captured
+[16:52:55] [DEBUG] [Worker] GraphQL response captured
+[16:52:55] [DEBUG] [Worker] GraphQL response captured
+[16:52:55] [DEBUG] [Worker] GraphQL response captured
+[16:52:55] [DEBUG] [Worker] GraphQL response captured
+[16:52:55] [DEBUG] [Worker] GraphQL response captured
+[16:52:55] [DEBUG] [Worker] GraphQL response captured
+[16:52:55] [DEBUG] [Worker] GraphQL response captured
+[16:52:56] [DEBUG] [Worker] GraphQL response captured
+[16:52:56] [DEBUG] [Worker] GraphQL response captured
+[16:52:56] [DEBUG] [Worker] GraphQL response captured
+[16:52:56] [DEBUG] [Worker] GraphQL response captured
+[16:52:56] [DEBUG] [Worker] GraphQL response captured

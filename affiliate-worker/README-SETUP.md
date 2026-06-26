@@ -1,120 +1,76 @@
-# Shopee Affiliate Worker — CDP Setup
+# Shopee Affiliate Worker — Browser Extension
 
-## Cấu trúc module mới
+> **2026-06-26: Playwright/CDP đã chết.** Shopee detect DevTools Protocol và force captcha.
+> Giải pháp: Browser Extension (MV3) chạy JS thuần trong page — không CDP, không Playwright.
+
+## Kiến trúc mới
 
 ```
-playwright/cdp/
-├── ChromeManager.js      — CDP connectOverCDP, getContext, getPage
-├── AffiliateNavigator.js — SPA navigation (không goto)
-├── CustomLinkForm.js     — textarea input + submit
-├── ModalParser.js        — parse modal kết quả
-├── AffiliateWorker.js    — orchestrator
-└── Queue.js              — FIFO queue (mỗi lần 1 request)
+Laravel API ──poll──▶ Browser Extension ──msg──▶ Content Script ──inject──▶ Page JS
+     ▲                                                                         │
+     └────────────────────── POST kết quả ─────────────────────────────────────┘
 ```
 
 ## Yêu cầu
 
-- Node.js 18+
-- Playwright  (`npm install playwright`)
-- Chrome bản thường (đã cài sẵn)
+- Chrome bản thường (bất kỳ)
+- Đã đăng nhập `affiliate.shopee.vn` (làm tay)
 
-## BƯỚC 1 — Mở Chrome với Remote Debugging
+## Cài đặt Extension
 
-```bat
-"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" ^
-  --remote-debugging-port=9222 ^
-  --user-data-dir=C:\Users\Administrator\shopee-chrome-profile
-```
+1. Mở `chrome://extensions`
+2. Bật **Developer mode** (góc phải)
+3. **Load unpacked** → chọn thư mục `browser-extension/`
+4. Extension hiện ra với icon màu đỏ ở thanh toolbar
 
-Giải thích:
-- `--remote-debugging-port=9222` — cho phép CDP kết nối
-- `--user-data-dir=...` — profile riêng, không dùng User Data mặc định
+## Cấu hình
 
-## BƯỚC 2 — Đăng nhập
+Nhấn icon extension → điền:
 
-Sau khi Chrome mở:
+- **API URL**: `https://hoantien.xyz` (hoặc `http://localhost` nếu chạy local)
+- **Token**: xem trong `.env` ở `AFFILIATE_EXTENSION_TOKEN`
 
-1. Vào `https://affiliate.shopee.vn`
-2. Đăng nhập tài khoản Shopee Affiliate
-3. Vào trang **Custom Link** (`offer/custom_link`) và để đó
+Bấm **Lưu**, sau đó bấm **Poll ngay** để test kết nối.
 
-## BƯỚC 3 — Giữ nguyên Chrome
+## Luồng hoạt động
 
-- **Không đóng Chrome**
-- **Không tắt remote debugging**
-- Worker sẽ attach vào Chrome đang chạy qua CDP
+| Bước | Mô tả |
+|------|-------|
+| 1 | User dán URL trên website → `LinkRequest` tạo với status `pending` |
+| 2 | Extension poll `GET /api/affiliate/jobs` mỗi 1 phút |
+| 3 | Extension thấy job → gửi message đến Content Script |
+| 4 | Content Script dán URL vào textarea, bấm "Lấy link", chờ modal |
+| 5 | Xong → gửi kết quả về background → POST lên Laravel |
+| 6 | Laravel update `LinkRequest` thành `completed` |
 
-## BƯỚC 4 — Khởi động worker
+## Chi tiết kỹ thuật
 
-```bash
-cd affiliate-worker
-node server.js
-```
+### content.js
 
-## BƯỚC 5 — Kiểm tra CDP
+- Dùng đúng logic từ `shopee-bulk-link.user.js` (đã verify hoạt động)
+- `setReactValue()` — set value đúng cách cho React-controlled input
+- Batch 5 URLs mỗi lần, throttle 1.5-3.2s giữa các lô
+- Map kết quả theo index (không dùng URL matching)
+- Phát hiện captcha → báo lỗi, không submit tiếp
 
-```bash
-curl http://127.0.0.1:3001/diagnostic/cdp
-```
+### background.js
 
-Kết quả mong đợi:
-
-```json
-{
-  "connected": true,
-  "browserVersion": "...",
-  "contexts": 1,
-  "pages": [
-    { "url": "https://affiliate.shopee.vn/offer/custom_link", "title": "..." }
-  ]
-}
-```
-
-## BƯỚC 6 — Kiểm tra SPA Navigation
-
-```bash
-curl http://127.0.0.1:3001/diagnostic/custom-link
-```
-
-Kết quả mong đợi:
-
-```json
-{
-  "status": "ALREADY_ON_CUSTOM_LINK",
-  "url": "https://affiliate.shopee.vn/offer/custom_link",
-  "title": "...",
-  "screenshot": "storage/diagnostic-custom-link.png"
-}
-```
-
-## BƯỚC 7 — Tạo link
-
-```bash
-curl -X POST http://127.0.0.1:3001/shopee/create-link \
-  -H "Content-Type: application/json" \
-  -d '{"url":"https://shopee.vn/some-product"}'
-```
-
-Kết quả mong đợi:
-
-```json
-{
-  "success": true,
-  "shortLink": "https://short.link/...",
-  "results": [
-    { "original": "https://shopee.vn/some-product", "short": "https://short.link/..." }
-  ]
-}
-```
+- Service worker, dùng `chrome.alarms` để poll (1 phút)
+- Lưu API URL + token trong `chrome.storage.sync`
+- Nhận kết quả từ content script → POST lên Laravel
 
 ## Debug
 
-- Tất cả log đều có prefix: `[CDP]`, `[Navigator]`, `[Form]`, `[Parser]`, `[Worker]`
-- Nếu timeout → xem log biết Worker đang ở bước nào
-- Nếu `connected: false` → Chrome chưa mở remote debugging
+- Mở `chrome://extensions` → extension → **Service Worker** → console
+- Popup extension hiển thị log chi tiết
+- Poll manual bằng nút "Poll ngay" trong popup
 
-## Rollback
+## File cấu trúc
 
-Module cũ vẫn giữ nguyên ở `playwright/` (không xoá).
-Module CDP mới nằm trong `playwright/cdp/` riêng biệt.
-Để rollback: xoá routes CDP trong `server.js`, bỏ qua `playwright/cdp/`.
+```
+browser-extension/
+├── manifest.json      # MV3 manifest
+├── background.js      # Service worker (poll API)
+├── content.js         # Content script (thao tác form)
+└── popup.html/js      # Popup cấu hình
+```

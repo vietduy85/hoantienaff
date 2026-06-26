@@ -1,0 +1,21 @@
+{
+  "url": "https://affiliate.shopee.vn/api/v3/gql?q=batchCustomLink",
+  "method": "POST",
+  "headers": {
+    "sec-ch-ua-platform": "\"Windows\"",
+    "x-sap-ri": "f20f3e6a930cd38781f3333205015fa7689805252b388b35b4e9",
+    "af-ac-enc-dat": "8e9c1ed98746ade1",
+    "af-ac-enc-sz-token": "dBWE9tNK4wTD0ubmw9jcTA==|q7X6F1wdl2XgQnngqvqGMuajBSzOTu9Jhq1qAOoyXGZGUlQcGBoultBz+peWRpsiw9EfdvDH/kH0bQ==|IxcQoLdD5UgKl8dJ|08|3",
+    "referer": "https://affiliate.shopee.vn/offer/custom_link",
+    "sec-ch-ua": "\"Google Chrome\";v=\"149\", \"Chromium\";v=\"149\", \"Not)A;Brand\";v=\"24\"",
+    "affiliate-program-type": "1",
+    "csrf-token": "yy7qzHpA-7atk-jMJt50K4gPxEG6w7huzmeo",
+    "sec-ch-ua-mobile": "?0",
+    "x-sz-sdk-version": "1.12.21",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+    "accept": "application/json, text/plain, */*",
+    "content-type": "application/json; charset=UTF-8",
+    "x-sap-sec": "qXKIhiks8gr2Uyy2vg42vy72Og5bvwk2S84IvfT2lgINvmq2HgIjvj42wP5Fvm12gM5rviS2xM5Hvy029M4Bvgy2bg5+vC02tgI5vjy29P5zvid2g8IMvjT2ePIevG42Fg5pvyo25M46vmd2yMIQvyY2IM4sviy2egIrvwd2DM5Xvyd2sg5Uvg42dgS2vg42vgroZrXlvg42M8ohhsZzvM42vg42DSVq0KVNvM42ago2vaTqQ6o2vCZsbgS2vg42uzq2vG4DvgJuXFdLvg42wKbsmg42vb4Lvg4jvP42QPIuCg42vlrRv842Zgo2vg42/JOzsgBwvg426FehGH7jv842vgJEDkd0vg5ki84IfJgSAQ4cvZ3VvM42vgJKLWyKvgJNv842vYwcuxcqYurv1/CWvgIPXbq2vgJ/7e3Ru1d2saeBHOaIdS7+6HEIGdfLot3ma7NBRsyfqHOl3tZDtUtdCrbXst1+51Ihfy12FxCYPRJMos5IKsZKhy+qTxFkXbOyd8/Cv0J5SGmYlDJou6cRD6zhFvtI+s4pHWiJ4YMYCBuNUGWs5SLGKGcPRLHTYhDVLvP1hNIrcT4sZWk7v37CoVPvk40scU2LYzs+t7XAXFPuJ31gdatuFcr7xAlx7C0qdmTw88+kopa3Bvokx+5zlteFqA22Xhko/flmlOsqThtsKSFd0qML8ihot6tEJY9YKszb/lMFb3/kUI9bQNdbRIzOvgT2vgJ6nPPFAh2UM8d2vg4/vS4+5g42vgLdhs9HikjhNfnxn0TLlhZ29s7aCFHY+5sjIRXXzRYbob2ikDVPDK2bandaEwFS+GRxPEbvWX/3Yi2HwV/D/xTse6SSGkhD/NG/7XGQmEUC0sBnFh7raihXvo4X/muRUi2Noxrja0G1mBLpn5E7oGQdEui/dadB7xlDRc8q1HfXrfI34YUESYYTha1xIXgoJYIS114k6i67wrHpyHSjN7OAAeLcA+dXpQLP19S6vg42Cv702gy2vgJYt3PoIsv/BVSR0v42vg42vg42vg42vg5Svg42sAlj5xIBEtvFGLvRkttw5uR/EeF/ELWBhgEjs7cO/uvnCUGHIsnkQSThhEIaos8ncfh47qMl/YO1xntsKnvrQp6oOxMMohWnI4gPrpB/StLCm/Zorg42vg42vg42vg42nP42vYr6St89/3DvP8l5SaUO6w3FGGk2Fg42vb0sStsxoC88NWQRe1O3p1hGZ3erIZUNR6dsShsapKUWcO35Kg42vg4Xvg42PBP4K2sr6SvtnxfKIZCpBY7H0G3V6UCYdfIBeuOO6ShiZGl3JsFdMH0HLEDxontUPBcJEuQ57712vg421g42vxjmEVSM428Kvg42vg42vg4wvg42xigJaIo5rLcknFGnyKn/pvj/55FmTyZiYEecQ1+7io7Nvg42KjelQCBf4UoNvg428+XYmidumik2vg42"
+  },
+  "postData": "{\"operationName\":\"batchGetCustomLink\",\"query\":\"\\n    query batchGetCustomLink($linkParams: [CustomLinkParam!], $sourceCaller: SourceCaller){\\n      batchCustomLink(linkParams: $linkParams, sourceCaller: $sourceCaller){\\n        shortLink\\n        longLink\\n        failCode\\n      }\\n    }\\n    \",\"variables\":{\"linkParams\":[{\"originalLink\":\"https://shopee.vn/D%C3%A9p-k%E1%BA%B9p-d%C3%A9p-x%E1%BB%8F-ng%C3%B3n-quai-n%C6%A1-SI%C3%8AU-%C4%90%E1%BA%B8P-th%E1%BB%9Di-trang-hot-trend-MSP0778-i.95031712.16172932262?extraParams=%7B%22display_model_id%22%3A135952508673%2C%22model_selection_logic%22%3A3%7D\",\"advancedLinkParams\":{}}],\"sourceCaller\":\"CUSTOM_LINK_CALLER\"}}"
+}

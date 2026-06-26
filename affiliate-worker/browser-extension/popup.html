@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { width: 340px; font: 13px/1.4 system-ui, Arial; color: #222; background: #fff; }
+    .header { background: #ee4d2d; color: #fff; padding: 10px 14px; font-weight: 600; font-size: 14px; }
+    .body { padding: 12px 14px; }
+    .row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .label { color: #666; }
+    .value { font-weight: 500; }
+    .ok { color: #16a34a; }
+    .err { color: #dc2626; }
+    .btn { background: #ee4d2d; color: #fff; border: 0; border-radius: 6px; padding: 8px 14px; font-weight: 600; cursor: pointer; width: 100%; }
+    .btn:disabled { opacity: .5; cursor: default; }
+    .btn-sec { background: #fff; color: #333; border: 1px solid #ccc; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+    input { width: 100%; border: 1px solid #ccc; border-radius: 6px; padding: 7px; font: 12px monospace; margin-bottom: 8px; }
+    .log { background: #f5f5f5; border-radius: 6px; padding: 8px; font: 11px/1.4 monospace; max-height: 120px; overflow-y: auto; margin-top: 6px; white-space: pre-wrap; word-break: break-all; }
+    .flex { display: flex; gap: 6px; }
+    .flex .btn { flex: 1; }
+    .mt { margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="header">Hoàn Tiền Affiliate — Shopee Worker</div>
+  <div class="body">
+    <div class="row">
+      <span class="label">Trạng thái</span>
+      <span id="status" class="value err">⏳ Đang kết nối…</span>
+    </div>
+    <div class="row">
+      <span class="label">Extension</span>
+      <span id="toggleBtn" class="btn-sec" style="cursor:pointer">🔴 Tắt</span>
+    </div>
+    <div class="row">
+      <span class="label">Tab Custom Link</span>
+      <span id="tabStatus" class="value">—</span>
+    </div>
+    <hr style="border:0;border-top:1px solid #eee;margin:10px 0">
+    <label class="label">API URL</label>
+    <input id="apiUrl" type="text" placeholder="http://hoantien.xyz">
+    <label class="label">Token</label>
+    <input id="token" type="password" placeholder="API token">
+    <div class="flex">
+      <button id="saveBtn" class="btn">Lưu</button>
+      <button id="pollBtn" class="btn-sec">Poll ngay</button>
+    </div>
+    <div id="log" class="log">Sẵn sàng.</div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

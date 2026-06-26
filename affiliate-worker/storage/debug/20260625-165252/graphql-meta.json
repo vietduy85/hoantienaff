@@ -1,0 +1,9 @@
+{
+  "time": "2026-06-25T09:52:53.478Z",
+  "elapsed": 1782381173478,
+  "status": 200,
+  "url": "https://affiliate.shopee.vn/api/v3/gql?q=batchCustomLink",
+  "contentType": "application/json",
+  "requestSize": 3024,
+  "responseSize": 0
+}

@@ -1,286 +1,55 @@
-\# HOANTIENAFF PROJECT CONTEXT
+# HOANTIENAFF PROJECT CONTEXT
 
+## Mục tiêu dự án
 
+Website hoàn tiền khi mua sắm. Domain: hoantien.xyz
 
-\## Mục tiêu dự án
+Người dùng: Dán link → Tạo link affiliate → Mua hàng → Nhận hoàn tiền
 
+## Kiến trúc (2026-06-26 — ĐÃ CHUYỂN)
 
+```
+Laravel 12 → REST API → Browser Extension (MV3) → Content Script → Page JS
+```
 
-Website hoàn tiền khi mua sắm.
+### Đã bỏ
 
+- ❌ Playwright / CDP — Shopee detect DevTools Protocol, force captcha
+- ❌ ChromeManager, AffiliateNavigator, CustomLinkWorker, Queue, Logger, Benchmark
+- ❌ Tất cả module trong `playwright/cdp/`
 
+### Giữ lại
 
-Domain:
+- ✅ Laravel + Provider Pattern (đa nền tảng: Shopee, Lazada, TikTok...)
+- ✅ `AffiliateWorkerClient` — giao tiếp Laravel ↔ Worker (giờ là HTTP call đến API)
 
+## Luồng hệ thống
 
+```
+Dashboard → ProviderFactory → ShopeeProvider → LinkRequest (pending)
+    ↓
+Extension poll GET /api/affiliate/jobs
+    ↓
+Content Script xử lý (page JS, không CDP)
+    ↓
+Extension POST /api/affiliate/result
+    ↓
+LinkRequest (completed)
+```
 
-hoantien.xyz
+## Các Provider hiện có
 
+Shopee, Lazada, TikTok, Long Châu, Pharmacity, Traveloka, Agoda, Booking
 
+## Trạng thái
 
-Người dùng:
+- ProviderFactory: PASS
+- Laravel ↔ Worker: PASS
+- Shopee Affiliate (CDP): ❌ DEAD
+- Shopee Affiliate (Extension): ✅ ĐANG XÂY
 
+## Bước tiếp theo
 
-
-1\. Dán link sản phẩm
-
-2\. Tạo link affiliate
-
-3\. Mua hàng qua link
-
-4\. Nhận hoàn tiền
-
-
-
-\---
-
-
-
-\## Kiến trúc
-
-
-
-Laravel 12
-
-
-
-Provider Pattern
-
-
-
-Affiliate Worker (NodeJS)
-
-
-
-Playwright
-
-
-
-\---
-
-
-
-\## Luồng hệ thống
-
-
-
-Dashboard
-
-
-
-↓
-
-
-
-ProviderFactory
-
-
-
-↓
-
-
-
-ShopeeProvider
-
-
-
-↓
-
-
-
-AffiliateWorkerClient
-
-
-
-↓
-
-
-
-Affiliate Worker
-
-
-
-↓
-
-
-
-Playwright
-
-
-
-↓
-
-
-
-Shopee Affiliate
-
-
-
-\---
-
-
-
-\## Nguyên tắc
-
-
-
-Không gọi Playwright trực tiếp từ Laravel.
-
-
-
-Laravel chỉ giao tiếp với Worker thông qua HTTP.
-
-
-
-\---
-
-
-
-\## Các Provider hiện có
-
-
-
-\* Shopee
-
-\* Lazada
-
-\* TikTok
-
-\* Long Châu
-
-\* Pharmacity
-
-\* Traveloka
-
-\* Agoda
-
-\* Booking
-
-
-
-\---
-
-
-
-\## Trạng thái hiện tại
-
-
-
-\### TEST 5
-
-
-
-ProviderFactory PASS
-
-
-
-\### TEST 5.5
-
-
-
-Dependency Injection PASS
-
-
-
-\### TEST 6
-
-
-
-Laravel ↔ Worker PASS
-
-
-
-\### TEST 7
-
-
-
-Playwright PASS
-
-
-
-Máy nhà: PASS
-
-
-
-Máy công ty: PASS
-
-
-
-\---
-
-
-
-\## Bước tiếp theo
-
-
-
-TEST 8A
-
-
-
-Đăng nhập Shopee Affiliate
-
-
-
-Lưu session
-
-
-
-storage/shopee-state.json
-
-
-
-\---
-
-
-
-\## Chưa làm
-
-
-
-\* Tạo affiliate link thật
-
-\* Xử lý captcha tự động
-
-\* Cashback thật
-
-\* Shopee API
-
-
-
-\---
-
-
-
-\## Mục tiêu dài hạn
-
-
-
-Khi có Shopee API:
-
-
-
-ShopeeProvider
-
-
-
-sẽ chuyển từ:
-
-
-
-Worker → Playwright
-
-
-
-sang:
-
-
-
-Shopee API
-
-
-
-mà không ảnh hưởng Dashboard.
-
-
-
+1. Cài extension vào Chrome, test poll + process thật
+2. Xử lý edge case: captcha, session expire, network error
+3. Mở rộng cho các platform khác nếu cần

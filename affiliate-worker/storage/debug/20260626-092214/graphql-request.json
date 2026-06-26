@@ -1,0 +1,21 @@
+{
+  "url": "https://affiliate.shopee.vn/api/v3/gql?q=batchCustomLink",
+  "method": "POST",
+  "headers": {
+    "sec-ch-ua-platform": "\"Windows\"",
+    "x-sap-ri": "56e23d6a12047280aff343300501eff6af88db1f7adb3281fa16",
+    "af-ac-enc-dat": "84bf6c0609d39b84",
+    "af-ac-enc-sz-token": "w/Rk/WQZsSboIT8gKl6f3w==|Klki+43kouUR2fuPonNDX4q1PZAs0VEZLFzuSwcKHzl5CKDtlCW49oAgJM7MgiUuUA3KMshhbTb1LRY=|87UhTiOztqmblaLx|08|3",
+    "referer": "https://affiliate.shopee.vn/offer/custom_link",
+    "sec-ch-ua": "\"Google Chrome\";v=\"149\", \"Chromium\";v=\"149\", \"Not)A;Brand\";v=\"24\"",
+    "affiliate-program-type": "1",
+    "csrf-token": "Cafu7seh-EPgYFemkdk73ypLBgWzVvbFSOsg",
+    "sec-ch-ua-mobile": "?0",
+    "x-sz-sdk-version": "1.12.21",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+    "accept": "application/json, text/plain, */*",
+    "content-type": "application/json; charset=UTF-8",
+    "x-sap-sec": "W5RmkYIhPtI1e1f0EtO0E1K0WtOkEVO01tPME8f0TtOYEvx0NhPBE1K00tOnEUs0LtPUEqn0SLOdEUf07GkeEnB0utOyEqv0RtO1E1Q01hOiE8/0thk0EuB0KtPtEXC0etP7EVn0VLPFEXs0sLOTE8B0qtkaEus0+tP1EWO0ctkwE8D0pLPvEtO0lts0EtO0Et5ScE5WEtO0B8KtzLVaEhO0EtO0FSZoK9U0EhO0/tE0E1loqSK0EnVn3ts0EtO0qzC0E8OFEtPVpqfKEtO0YKVEctO0EDWKEtOYELO0cw5+ZGO0EDMdEGO0ktE0EtO0zVe1teS9EtO07F3eCHEiEGO0EtPsFoB2Etr40tkOgJ8oHQQmEUHyEhO0EtP/KnOLEtr0EGO0EquMrbjoIYNO4N/lEtOOpzv0EtP7VuLEYGmQeUDF3UogKt3fRSW/9zItgBuLwM0fEm7+kiQcnxZ7t9gdllqOF+/DSRFUte9tAgMfNoIUMRacw3BKFXPKQU1/jpVZP23x8Atd10l5kydtTpBG7bSQ396j+9v9bM7ITVYVJnFMsOVJb6Khbpt2WXJbie9Xbq6MCyQ3qUpumgvBJ7g6GhCy/KKZLzhKQuk4juuL2DMoxPYIoH9BNmKSMSjkkx72IlXilPee9V2llAXnnRPdNsBElRao6lrR6XWiwLQyNq/SASVGf+rS0iAVWeYh5sIp15JSokfNyWLhE+NyKlejXplyEtW0EtOWDO+9ml52rGB0EtOsRduMDLO0EDaXrT2kA9r9/ibJNDdk8m31I4JON0Ae+kG5+XdXi1OhQ4Sjz31Sukr2DCIg9qp429mJQGE5NqC7yfwtJcxxyhRKRGvZOyTq7BF43DHJ8UjvbWtzSJW/1XxGz6wk4fGwj+2NrlGje9VKYiHCUkyfsoW8D5EFT7qzg4U++vJW3O66b+T1Y+dCRS2foOqQMwV+AEkVZ8iRyTwybA3DkHtW2MFSMKB0etO0EnyitExdEtO0cq7X3AuoBLcZ5jJ6EtO0EtO0EtO0EtO0LGO0EnMRCqTrxacDk76noyr2hvDwc4U5VJ8ANKIGCt7AnYcIPSkU/zupRC3AORZ6zDJze6InFxjTFYM6OVrG3OXoRn/GBF80vQJA32L4Dpuybamtce7x3TQ0EtO0EtO0EtO0EnE0EtO1cyI4W8WT/0OzmnytnY8s+7RXEuB0EtPZOX/eXM3gESWuf3rmbVD2QbkW6AbHRntaQjQhXIsXLbMxfZB0EtO0ktO0EVJbf3o9Ubn2c0+GhkAoRvMwQrxSzlPfE6eYfK2zC6f7Q04m/zdLREKuQXGLXQ3iHoeYFK0FCHQ0EtO0EtW0EtODIuU1/RP5PLO0EtO0EtO0ohO0EFzlPaueLetq2qOUcpHpB6FkcI6AF6oBplw+EtO+EtO0LGSeMljw2Y/+EtO0PoWtkqKqcVs0EtO0"
+  },
+  "postData": "{\"operationName\":\"batchGetCustomLink\",\"query\":\"\\n    query batchGetCustomLink($linkParams: [CustomLinkParam!], $sourceCaller: SourceCaller){\\n      batchCustomLink(linkParams: $linkParams, sourceCaller: $sourceCaller){\\n        shortLink\\n        longLink\\n        failCode\\n      }\\n    }\\n    \",\"variables\":{\"linkParams\":[{\"originalLink\":\"https://shopee.vn/B%E1%BB%99-5-Qu%E1%BA%A7n-l%C3%B3t-nam-ERIVIS-l%C6%B0ng-nh%E1%BB%8F-Thun-l%E1%BA%A1nh-cao-c%E1%BA%A5p-i.18100749.1813236355?extraParams=%7B%22display_model_id%22%3A3076991824%2C%22model_selection_logic%22%3A3%7D\",\"advancedLinkParams\":{}}],\"sourceCaller\":\"CUSTOM_LINK_CALLER\"}}"
+}

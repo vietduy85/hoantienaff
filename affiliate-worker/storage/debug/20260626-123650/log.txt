@@ -1,0 +1,18 @@
+[12:36:50] [INFO] [Worker] createAffiliateLink: https://shopee.vn/D%C3%A9p-k%E1%BA%B9p-d%C3%A9p-x%E1%BB%8F-ng%C3%B3n-quai-n%C6%A1-SI%C3%8AU-%C4%90%E1%BA%B8P-th%E1%BB%9Di-trang-hot-trend-MSP0778-i.95031712.16172932262?extraParams=%7B%22display_model_id%22%3A135952508673%2C%22model_selection_logic%22%3A3%7D
+[12:36:50] [INFO] [Worker] Current URL: https://affiliate.shopee.vn/offer/custom_link
+[12:36:50] [INFO] [Worker] Looking for input field...
+[12:36:50] [INFO] [Worker] Input selector found: textarea
+[12:36:50] [INFO] [Worker] Input URL: https://shopee.vn/D%C3%A9p-k%E1%BA%B9p-d%C3%A9p-x%E1%BB%8F-ng%C3%B3n-quai-n%C6%A1-SI%C3%8AU-%C4%90%E1%BA%B8P-th%E1%BB%9Di-trang-hot-trend-MSP0778-i.95031712.16172932262?extraParams=%7B%22display_model_id%22%3A135952508673%2C%22model_selection_logic%22%3A3%7D
+[12:36:50] [INFO] [Worker] Looking for generate button...
+[12:36:50] [INFO] [Worker] Button found: button "Lấy link" rect(248,1080 82x32)
+[12:36:50] [INFO] [Worker] Button selector: button "Lấy link"
+[12:36:50] [INFO] [Worker] Registering GraphQL listeners...
+[12:36:50] [INFO] [Worker] Clicked Generate
+[12:36:50] [DEBUG] [Worker] GraphQL request captured
+[12:36:50] [DEBUG] [Worker] GraphQL response captured: 200
+[12:36:50] [INFO] [Worker] GraphQL received, status: 200
+[12:36:51] [DEBUG] [Worker] GraphQL request saved
+[12:36:51] [DEBUG] [Worker] GraphQL meta saved
+[12:36:51] [ERROR] [Worker] GraphQL error saved
+[12:36:54] [INFO] [Worker] Elapsed: 4192ms
+[12:36:54] [ERROR] [Worker] ShortLink not found in GraphQL or UI

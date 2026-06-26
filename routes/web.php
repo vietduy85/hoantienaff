@@ -37,3 +37,8 @@ Route::middleware('auth')->group(function () {
 });
 
 require __DIR__.'/auth.php';
+
+Route::prefix('api/affiliate')->group(function () {
+    Route::get('/jobs', [App\Http\Controllers\Api\AffiliateJobController::class, 'jobs']);
+    Route::post('/result', [App\Http\Controllers\Api\AffiliateJobController::class, 'result']);
+});

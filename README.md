@@ -1,59 +1,55 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Hoàn Tiền Affiliate
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Website hoàn tiền khi mua sắm qua link affiliate.
 
-## About Laravel
+## Kiến trúc
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+```
+User → Laravel Website → REST API → Browser Extension → Shopee Affiliate (page JS)
+```
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+- **Laravel 12** — Website chính + REST API queue
+- **Browser Extension (MV3)** — Worker chạy trong Chrome thật, inject JS vào trang Custom Link
+- **Content Script** — Chạy logic tạo short-link (dùng `setReactValue`, throttle, batch 5 URLs)
+- **Không Playwright / CDP** — Shopee chặn DevTools Protocol, chỉ page JS thuần mới qua được
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## Thành phần
 
-## Learning Laravel
+### 1. Laravel (`/`)
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+- `POST /link-requests` — User gửi URL → tạo `LinkRequest` với status `pending`
+- `GET /api/affiliate/jobs?token=...` — Extension poll các job Shopee đang chờ
+- `POST /api/affiliate/result?token=...` — Extension gửi kết quả short-link về
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+### 2. Browser Extension (`affiliate-worker/browser-extension/`)
 
-## Laravel Sponsors
+- `manifest.json` — Manifest V3, chỉ match `affiliate.shopee.vn/offer/custom_link`
+- `background.js` — Poll API mỗi 1 phút, gửi URL đến content script, nhận kết quả
+- `content.js` — Chạy trong trang Custom Link, thao tác form như người dùng
+- `popup.*` — Cấu hình API URL + token, bật/tắt polling
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+## Cài đặt
 
-### Premium Partners
+### Laravel
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+```bash
+composer install
+cp .env.example .env
+php artisan key:generate
+php artisan migrate
+php artisan serve
+```
 
-## Contributing
+### Browser Extension
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+1. Mở `chrome://extensions`
+2. Bật **Developer mode**
+3. **Load unpacked** → chọn `affiliate-worker/browser-extension/`
+4. Cấu hình API URL và token trong popup extension
 
-## Code of Conduct
+### Sử dụng
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
-
-## Security Vulnerabilities
-
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+1. Mở `https://affiliate.shopee.vn` và đăng nhập tay
+2. Vào menu **Hoa hồng** → **Custom Link**
+3. Bật extension (popup) — nó sẽ tự động poll và xử lý
+4. User gửi URL trên website → extension tự xử lý → kết quả về website
