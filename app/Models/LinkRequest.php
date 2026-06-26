@@ -47,6 +47,11 @@ class LinkRequest extends Model
         return $query->where('status', 'rejected');
     }
 
+    public function scopeFailed($query)
+    {
+        return $query->where('status', 'failed');
+    }
+
     public function scopePinned($query)
     {
         return $query->where('is_pinned', true);
@@ -90,6 +95,11 @@ class LinkRequest extends Model
     public function isRejected(): bool
     {
         return $this->status === 'rejected';
+    }
+
+    public function isFailed(): bool
+    {
+        return $this->status === 'failed';
     }
 
     public function user(): \Illuminate\Database\Eloquent\Relations\BelongsTo

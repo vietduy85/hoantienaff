@@ -16,12 +16,9 @@ class AffiliateJobController extends Controller
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
-        $limit = min((int) $request->query('limit', 20), 50);
-
-        $jobs = LinkRequest::query()
-            ->where('platform', 'shopee')
-            ->where('status', 'pending')
-            ->limit($limit)
+        $jobs = LinkRequest::where('status', 'pending')
+            ->orderBy('id')
+            ->limit(5)
             ->get(['id', 'original_url']);
 
         if ($jobs->isNotEmpty()) {
@@ -50,7 +47,8 @@ class AffiliateJobController extends Controller
             LinkRequest::where('id', $item['id'])
                 ->update([
                     'affiliate_url' => $item['affiliate_url'] ?? '',
-                    'status' => 'completed',
+                    'estimated_cashback' => $item['estimated_cashback'] ?? 15000,
+                    'status' => $item['status'] ?? 'completed',
                 ]);
         }
 

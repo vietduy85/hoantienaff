@@ -108,11 +108,9 @@
             affiliate_url: r.short || '',
           };
         });
-console.log("RETURNING RESULT TRUE");
         sendResponse({ ok: true, results });
       })
       .catch((e) => {
-console.log("RETURNING RESULT FALSE");
         sendResponse({ ok: false, error: e.message, results: [] });
       });
 

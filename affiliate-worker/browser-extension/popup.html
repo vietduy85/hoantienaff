@@ -13,25 +13,16 @@
     .ok { color: #16a34a; }
     .err { color: #dc2626; }
     .btn { background: #ee4d2d; color: #fff; border: 0; border-radius: 6px; padding: 8px 14px; font-weight: 600; cursor: pointer; width: 100%; }
-    .btn:disabled { opacity: .5; cursor: default; }
-    .btn-sec { background: #fff; color: #333; border: 1px solid #ccc; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
     input { width: 100%; border: 1px solid #ccc; border-radius: 6px; padding: 7px; font: 12px monospace; margin-bottom: 8px; }
     .log { background: #f5f5f5; border-radius: 6px; padding: 8px; font: 11px/1.4 monospace; max-height: 120px; overflow-y: auto; margin-top: 6px; white-space: pre-wrap; word-break: break-all; }
-    .flex { display: flex; gap: 6px; }
-    .flex .btn { flex: 1; }
-    .mt { margin-top: 8px; }
   </style>
 </head>
 <body>
   <div class="header">Hoàn Tiền Affiliate — Shopee Worker</div>
   <div class="body">
     <div class="row">
-      <span class="label">Trạng thái</span>
-      <span id="status" class="value err">⏳ Đang kết nối…</span>
-    </div>
-    <div class="row">
-      <span class="label">Extension</span>
-      <span id="toggleBtn" class="btn-sec" style="cursor:pointer">🔴 Tắt</span>
+      <span class="label">Service Worker</span>
+      <span id="status" class="value ok">✅ Đang chạy</span>
     </div>
     <div class="row">
       <span class="label">Tab Custom Link</span>
@@ -42,10 +33,7 @@
     <input id="apiUrl" type="text" placeholder="http://hoantien.xyz">
     <label class="label">Token</label>
     <input id="token" type="password" placeholder="API token">
-    <div class="flex">
-      <button id="saveBtn" class="btn">Lưu</button>
-      <button id="pollBtn" class="btn-sec">Poll ngay</button>
-    </div>
+    <button id="saveBtn" class="btn">Lưu</button>
     <div id="log" class="log">Sẵn sàng.</div>
   </div>
   <script src="popup.js"></script>

@@ -10,10 +10,6 @@ chrome.runtime.onInstalled.addListener(async () => {
   if (Object.keys(updates).length) await chrome.storage.sync.set(updates);
   scheduleNext(0);
 });
-chrome.runtime.onStartup.addListener(() => {
-  console.log('[Worker] onStartup');
-  scheduleNext(0);
-});
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.action === 'getStatus') {
@@ -55,36 +51,12 @@ async function poll() {
 
   const body = await res.json();
   const jobs = body.jobs ?? [];
-console.log('[Worker] Jobs:', jobs);
   if (!jobs.length) {
     scheduleNext(SLEEP_EMPTY);
     return;
   }
 
-  const tabs = await chrome.tabs.query({});
-
-console.log("[Worker] All tabs:");
-console.table(
-    tabs.map(t => ({
-        id: t.id,
-        url: t.url,
-        title: t.title
-    }))
-);
-
-const target = tabs.find(t =>
-    t.url &&
-    t.url.startsWith("https://affiliate.shopee.vn/")
-);
-
-console.log("[Worker] Target:", target);
-
-if (!target) {
-    console.log("[Worker] Không tìm thấy tab Shopee");
-    scheduleNext(SLEEP_EMPTY);
-    return;
-}
-console.log('[Worker] Tabs:', tabs);
+  const tabs = await chrome.tabs.query({ url: 'https://affiliate.shopee.vn/offer/custom_link*' });
   if (!tabs.length) {
     scheduleNext(SLEEP_EMPTY);
     return;
@@ -92,25 +64,7 @@ console.log('[Worker] Tabs:', tabs);
 
   let response;
   try {
-	console.log('[Worker] Sending to content script...');
-    console.log("Before sendMessage");
-
-try {
-    response = await chrome.tabs.sendMessage(
-        target.id,
-        {
-            action: "process",
-            urls: jobs
-        }
-    );
-
-    console.log("After sendMessage");
-    console.log(response);
-
-} catch (e) {
-    console.error("sendMessage error:", e);
-}
-console.log('[Worker] Response:', response);
+    response = await chrome.tabs.sendMessage(tabs[0].id, { action: 'process', urls: jobs });
   } catch {
     scheduleNext(SLEEP_EMPTY);
     return;
@@ -140,5 +94,3 @@ console.log('[Worker] Response:', response);
 
   scheduleNext(SLEEP_DONE);
 }
-console.log('[Worker] Loaded');
-scheduleNext(0);

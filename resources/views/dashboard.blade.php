@@ -6,12 +6,6 @@
 
             @include('dashboard.partials.link-generator')
 
-            @if ($latestResult)
-                @include('dashboard.partials.affiliate-result', [
-                    'result' => $latestResult
-                ])
-            @endif
-
             @include('dashboard.partials.pinned-links', [
                 'links' => $pinnedLinks
             ])

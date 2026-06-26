@@ -38,7 +38,11 @@ Route::middleware('auth')->group(function () {
 
 require __DIR__.'/auth.php';
 
-Route::prefix('api/affiliate')->group(function () {
+Route::prefix('api/extension')->group(function () {
     Route::get('/jobs', [App\Http\Controllers\Api\AffiliateJobController::class, 'jobs']);
-    Route::post('/result', [App\Http\Controllers\Api\AffiliateJobController::class, 'result']);
+    Route::post('/results', [App\Http\Controllers\Api\AffiliateJobController::class, 'result']);
+});
+
+Route::middleware('auth')->group(function () {
+    Route::get('/api/link-request/{id}', [App\Http\Controllers\Api\LinkRequestController::class, 'show']);
 });

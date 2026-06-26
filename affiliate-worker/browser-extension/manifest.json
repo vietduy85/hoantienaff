@@ -5,9 +5,7 @@
   "description": "Tạo affiliate short-link Shopee tự động trong trang Custom Link",
 
   "permissions": [
-    "storage",
-    "alarms",
-    "scripting"
+    "storage"
   ],
 
   "host_permissions": [
