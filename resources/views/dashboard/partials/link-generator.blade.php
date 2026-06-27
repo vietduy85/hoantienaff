@@ -15,7 +15,7 @@
             this.error = '';
             this.done = false;
             this.result = null;
-
+	    
             fetch('{{ route('link-requests.store') }}', {
                 method: 'POST',
                 headers: {
