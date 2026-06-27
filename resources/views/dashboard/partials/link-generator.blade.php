@@ -2,7 +2,6 @@
     x-data="{
         url: '',
         loading: false,
-        done: false,
         error: '',
         requestId: null,
         result: null,
@@ -13,7 +12,6 @@
             if (!this.url.trim()) return;
             this.loading = true;
             this.error = '';
-            this.done = false;
             this.result = null;
 	    
             fetch('{{ route('link-requests.store') }}', {
@@ -52,7 +50,10 @@
                         clearInterval(this.pollTimer);
                         this.result = data;
                         this.loading = false;
-                        this.done = true;
+                        this.$nextTick(() => {
+                            this.$refs.urlInput.focus();
+                            this.$refs.urlInput.select();
+                        });
                     } else if (data.status === 'failed' || data.status === 'rejected') {
                         clearInterval(this.pollTimer);
                         this.error = 'Không thể tạo affiliate link. Vui lòng thử lại sau.';
@@ -86,40 +87,38 @@
         </div>
     </template>
 
-    <template x-if="!loading && !done">
-        <div class="space-y-2.5">
-            <div>
-                <label for="original_url" class="sr-only">Dán link sản phẩm</label>
-                <input
-                    id="original_url"
-                    type="url"
-                    required
-                    placeholder="Dán link sản phẩm..."
-                    x-model="url"
-                    class="block w-full max-[390px]:h-11 h-12 max-[390px]:px-3 px-3.5 max-[390px]:text-sm text-base border-2 border-gray-200 rounded-xl focus:border-emerald-400 focus:ring-emerald-400 transition placeholder:text-gray-400"
-                >
-            </div>
-
-            <button
-                type="button"
-                @click="submit"
-                class="w-full max-[390px]:h-12 h-13 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white max-[390px]:text-sm text-base font-bold rounded-xl shadow-lg shadow-emerald-200 hover:shadow-emerald-300 transition-all duration-150 flex items-center justify-center gap-2"
+    <div class="space-y-2.5">
+        <div>
+            <label for="original_url" class="sr-only">Dán link sản phẩm</label>
+            <input
+                id="original_url"
+                x-ref="urlInput"
+                type="url"
+                required
+                placeholder="Dán link sản phẩm..."
+                x-model="url"
+                x-bind:disabled="loading"
+                class="block w-full max-[390px]:h-11 h-12 max-[390px]:px-3 px-3.5 max-[390px]:text-sm text-base border-2 border-gray-200 rounded-xl focus:border-emerald-400 focus:ring-emerald-400 transition placeholder:text-gray-400"
             >
+        </div>
+
+        <button
+            type="button"
+            @click="submit"
+            x-bind:disabled="loading"
+            class="w-full max-[390px]:h-12 h-13 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white max-[390px]:text-sm text-base font-bold rounded-xl shadow-lg shadow-emerald-200 hover:shadow-emerald-300 transition-all duration-150 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+            <template x-if="!loading">
                 <span class="max-[390px]:text-lg text-xl">🚀</span>
-                <span>Tạo Link Ngay</span>
-            </button>
-        </div>
-    </template>
+            </template>
+            <template x-if="loading">
+                <span class="inline-block w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+            </template>
+            <span x-text="loading ? 'Đang xử lý...' : 'Tạo Link Ngay'"></span>
+        </button>
+    </div>
 
-    <template x-if="loading && !done">
-        <div class="text-center max-[390px]:py-6 py-8">
-            <div class="inline-block w-8 h-8 border-4 border-emerald-200 border-t-emerald-500 rounded-full animate-spin max-[390px]:mb-2 mb-3"></div>
-            <p class="text-sm font-medium text-emerald-700">Đang tạo affiliate link...</p>
-            <p class="text-xs text-gray-400 mt-1">Vui lòng đợi trong giây lát</p>
-        </div>
-    </template>
-
-    <template x-if="done && result">
+    <template x-if="result">
         <div class="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-xl border border-emerald-200 max-[390px]:p-3 p-4">
             <div class="flex items-center gap-1.5 mb-2.5">
                 <span class="max-[390px]:text-base text-lg">🎉</span>
@@ -167,12 +166,6 @@
                         <span>Mua ngay</span>
                     </a>
                 </div>
-
-                <button
-                    type="button"
-                    @click="url = ''; loading = false; done = false; result = null; error = ''"
-                    class="w-full text-sm text-gray-500 hover:text-gray-700 py-1"
-                >Tạo link khác</button>
             </div>
         </div>
     </template>
