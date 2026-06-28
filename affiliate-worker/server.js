@@ -288,7 +288,9 @@ app.post('/shopee-login-interactive', async (_req, res) => {
   }
 });
 
-app.post('/create-link', (req, res) => {
+// DEPRECATED: kept for backward compatibility.
+// Use POST /shopee/create-link for the real Playwright-based implementation.
+app.post('/create-link', async (req, res) => {
   const { url } = req.body;
 
   if (!url) {
@@ -298,57 +300,22 @@ app.post('/create-link', (req, res) => {
     });
   }
 
-  const platform = detectPlatform(url);
+  try {
+    // Forward to real endpoint
+    const result = await new Promise((resolve, reject) => {
+      const queue = require('./playwright/cdp/Queue');
+      const CustomLinkWorker = require('./playwright/cdp/CustomLinkWorker');
 
-  if (platform === 'unknown') {
-    return res.status(400).json({
-      success: false,
-      error: `Unsupported platform for URL: ${url}`,
+      queue.enqueue(() => CustomLinkWorker.createAffiliateLink(url))
+        .then(resolve)
+        .catch(reject);
     });
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
-
-  const cashbackMap = {
-    shopee: 15000,
-    lazada: 12000,
-    tiktok: 18000,
-    longchau: 8000,
-    pharmacity: 7000,
-    traveloka: 25000,
-    agoda: 30000,
-    booking: 35000,
-  };
-
-  res.json({
-    success: true,
-    affiliate_url: `https://${platform}.vn/affiliate/${encodeURIComponent(url)}`,
-    estimated_cashback: cashbackMap[platform] ?? 0,
-    platform,
-  });
 });
-
-function detectPlatform(url) {
-  const lower = url.toLowerCase();
-  const rules = [
-    'booking',
-    'agoda',
-    'traveloka',
-    'pharmacity',
-    'nhathuoclongchau',
-    'longchau',
-    'tiktok',
-    'lazada',
-    'shopee',
-  ];
-
-  for (const keyword of rules) {
-    if (lower.includes(keyword)) {
-      if (keyword === 'nhathuoclongchau' || keyword === 'longchau') return 'longchau';
-      return keyword;
-    }
-  }
-
-  return 'unknown';
-}
 
 app.listen(PORT, () => {
   console.log(`[affiliate-worker] running on port ${PORT}`);

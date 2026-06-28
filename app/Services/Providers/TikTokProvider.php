@@ -13,7 +13,7 @@ class TikTokProvider implements AffiliateProviderInterface
             'success' => true,
             'affiliate_url' => 'https://tiktok.com/affiliate/' . urlencode($url),
             'platform' => Platform::TIKTOK,
-            'estimated_cashback' => 18000,
+            'estimated_cashback' => null,
             'message' => 'Link TikTok Shop đã được tạo thành công.',
         ];
     }

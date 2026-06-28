@@ -13,7 +13,7 @@ class AgodaProvider implements AffiliateProviderInterface
             'success' => true,
             'affiliate_url' => 'https://agoda.com/affiliate/' . urlencode($url),
             'platform' => Platform::AGODA,
-            'estimated_cashback' => 30000,
+            'estimated_cashback' => null,
             'message' => 'Link Agoda đã được tạo thành công.',
         ];
     }

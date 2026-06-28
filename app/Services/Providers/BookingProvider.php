@@ -13,7 +13,7 @@ class BookingProvider implements AffiliateProviderInterface
             'success' => true,
             'affiliate_url' => 'https://booking.com/affiliate/' . urlencode($url),
             'platform' => Platform::BOOKING,
-            'estimated_cashback' => 35000,
+            'estimated_cashback' => null,
             'message' => 'Link Booking.com đã được tạo thành công.',
         ];
     }

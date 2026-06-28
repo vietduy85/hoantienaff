@@ -47,7 +47,6 @@ class AffiliateJobController extends Controller
             LinkRequest::where('id', $item['id'])
                 ->update([
                     'affiliate_url' => $item['affiliate_url'] ?? '',
-                    'estimated_cashback' => $item['estimated_cashback'] ?? 15000,
                     'status' => $item['status'] ?? 'completed',
                 ]);
         }

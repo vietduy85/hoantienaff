@@ -3,12 +3,17 @@
 namespace App\Http\Controllers;
 
 use App\Models\LinkRequest;
+use App\Services\ProductDataService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 
 class DashboardController extends Controller
 {
+    public function __construct(
+        private readonly ProductDataService $productData,
+    ) {}
+
     public function index(): View
     {
         $user = auth()->user();
@@ -43,6 +48,29 @@ class DashboardController extends Controller
             'platform' => $platform,
             'status' => $isShopee ? 'pending' : 'completed',
         ]);
+
+        if ($isShopee) {
+            $productData = $this->productData->getByUrl($validated['original_url']);
+
+            if (($productData['success'] ?? false)) {
+                $link->update([
+                    'item_id'           => $productData['item_id'],
+                    'shop_id'           => $productData['shop_id'],
+                    'estimated_cashback' => $productData['commission'],
+                    'product_name'      => $productData['product_name'],
+                    'product_price'     => $productData['product_price'],
+                    'product_link'      => $productData['product_link'],
+                    'seller_commission' => $productData['seller_commission'],
+                    'shopee_commission' => $productData['shopee_commission'],
+                    'rating'            => $productData['rating'],
+                    'product_image'     => $productData['product_image'],
+                    'shop_name'         => $productData['shop_name'],
+                    'sales'             => $productData['sales'],
+                    'is_xtra'           => $productData['is_xtra'],
+                    'data_source'       => $productData['data_source'],
+                ]);
+            }
+        }
 
         if ($request->expectsJson() || $request->ajax()) {
             return response()->json([

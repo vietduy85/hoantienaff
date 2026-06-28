@@ -21,7 +21,7 @@ class AffiliateService
                 'success' => false,
                 'affiliate_url' => null,
                 'platform' => $this->providerFactory->detectPlatform($url),
-                'estimated_cashback' => 0,
+                'estimated_cashback' => null,
                 'message' => $e->getMessage(),
             ];
         }

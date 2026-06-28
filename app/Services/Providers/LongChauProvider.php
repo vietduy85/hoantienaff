@@ -13,7 +13,7 @@ class LongChauProvider implements AffiliateProviderInterface
             'success' => true,
             'affiliate_url' => 'https://nhathuoclongchau.com.vn/affiliate/' . urlencode($url),
             'platform' => Platform::LONG_CHAU,
-            'estimated_cashback' => 8000,
+            'estimated_cashback' => null,
             'message' => 'Link Nhà Thuốc Long Châu đã được tạo thành công.',
         ];
     }

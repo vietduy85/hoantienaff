@@ -13,7 +13,7 @@ class LazadaProvider implements AffiliateProviderInterface
             'success' => true,
             'affiliate_url' => 'https://lazada.vn/affiliate/' . urlencode($url),
             'platform' => Platform::LAZADA,
-            'estimated_cashback' => 12000,
+            'estimated_cashback' => null,
             'message' => 'Link Lazada đã được tạo thành công.',
         ];
     }

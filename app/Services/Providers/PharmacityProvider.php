@@ -13,7 +13,7 @@ class PharmacityProvider implements AffiliateProviderInterface
             'success' => true,
             'affiliate_url' => 'https://pharmacity.vn/affiliate/' . urlencode($url),
             'platform' => Platform::PHARMACITY,
-            'estimated_cashback' => 7000,
+            'estimated_cashback' => null,
             'message' => 'Link Pharmacity đã được tạo thành công.',
         ];
     }

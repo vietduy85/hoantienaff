@@ -13,7 +13,7 @@ class TravelokaProvider implements AffiliateProviderInterface
             'success' => true,
             'affiliate_url' => 'https://traveloka.com/affiliate/' . urlencode($url),
             'platform' => Platform::TRAVELOKA,
-            'estimated_cashback' => 25000,
+            'estimated_cashback' => null,
             'message' => 'Link Traveloka đã được tạo thành công.',
         ];
     }

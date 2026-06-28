@@ -20,7 +20,7 @@ class ShopeeProvider implements AffiliateProviderInterface
             'success' => $result['success'] ?? false,
             'affiliate_url' => $result['affiliate_url'] ?? null,
             'platform' => Platform::SHOPEE,
-            'estimated_cashback' => $result['estimated_cashback'] ?? 0,
+            'estimated_cashback' => null,
             'message' => $result['success']
                 ? 'Link Shopee đã được tạo thành công.'
                 : ($result['error'] ?? 'Worker không phản hồi.'),

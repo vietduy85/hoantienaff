@@ -16,6 +16,19 @@ class LinkRequest extends Model
         'notes',
         'is_pinned',
         'pinned_at',
+        'item_id',
+        'shop_id',
+        'product_name',
+        'product_price',
+        'product_link',
+        'seller_commission',
+        'shopee_commission',
+        'rating',
+        'is_xtra',
+        'product_image',
+        'shop_name',
+        'sales',
+        'data_source',
     ];
 
     protected function casts(): array
@@ -24,6 +37,8 @@ class LinkRequest extends Model
             'estimated_cashback' => 'decimal:2',
             'is_pinned' => 'boolean',
             'pinned_at' => 'datetime',
+            'is_xtra' => 'boolean',
+            'rating' => 'decimal:2',
         ];
     }
 

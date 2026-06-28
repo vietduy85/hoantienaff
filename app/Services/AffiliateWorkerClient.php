@@ -33,7 +33,7 @@ class AffiliateWorkerClient
 
     public function createLink(string $url): array
     {
-        $response = $this->http->post('/create-link', [
+        $response = $this->http->post('/shopee/create-link', [
             'url' => $url,
         ]);
 
