@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\LinkRequest;
+use App\Services\CashbackCalculator;
 use App\Services\ProductDataService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -12,6 +13,7 @@ class DashboardController extends Controller
 {
     public function __construct(
         private readonly ProductDataService $productData,
+        private readonly CashbackCalculator $cashbackCalculator,
     ) {}
 
     public function index(): View
@@ -53,21 +55,27 @@ class DashboardController extends Controller
             $productData = $this->productData->getByUrl($validated['original_url']);
 
             if (($productData['success'] ?? false)) {
+                $commission = (float) ($productData['commission'] ?? 0);
+                $price = (float) ($productData['product_price'] ?? 0);
+                $cashback = $this->cashbackCalculator->calculate($commission, $price);
+
                 $link->update([
-                    'item_id'           => $productData['item_id'],
-                    'shop_id'           => $productData['shop_id'],
-                    'estimated_cashback' => $productData['commission'],
-                    'product_name'      => $productData['product_name'],
-                    'product_price'     => $productData['product_price'],
-                    'product_link'      => $productData['product_link'],
-                    'seller_commission' => $productData['seller_commission'],
-                    'shopee_commission' => $productData['shopee_commission'],
-                    'rating'            => $productData['rating'],
-                    'product_image'     => $productData['product_image'],
-                    'shop_name'         => $productData['shop_name'],
-                    'sales'             => $productData['sales'],
-                    'is_xtra'           => $productData['is_xtra'],
-                    'data_source'       => $productData['data_source'],
+                    'item_id'               => $productData['item_id'],
+                    'shop_id'               => $productData['shop_id'],
+                    'estimated_cashback'     => $commission,
+                    'user_estimated_cashback' => $cashback['user_estimated_cashback'],
+                    'cashback_rate'          => $cashback['cashback_rate'],
+                    'product_name'           => $productData['product_name'],
+                    'product_price'          => $productData['product_price'],
+                    'product_link'           => $productData['product_link'],
+                    'seller_commission'      => $productData['seller_commission'],
+                    'shopee_commission'      => $productData['shopee_commission'],
+                    'rating'                 => $productData['rating'],
+                    'product_image'          => $productData['product_image'],
+                    'shop_name'              => $productData['shop_name'],
+                    'sales'                  => $productData['sales'],
+                    'is_xtra'                => $productData['is_xtra'],
+                    'data_source'            => $productData['data_source'],
                 ]);
             }
         }

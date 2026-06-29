@@ -21,6 +21,8 @@ class LinkRequest extends Model
         'product_name',
         'product_price',
         'product_link',
+        'user_estimated_cashback',
+        'cashback_rate',
         'seller_commission',
         'shopee_commission',
         'rating',
@@ -35,6 +37,8 @@ class LinkRequest extends Model
     {
         return [
             'estimated_cashback' => 'decimal:2',
+            'user_estimated_cashback' => 'decimal:2',
+            'cashback_rate' => 'decimal:2',
             'is_pinned' => 'boolean',
             'pinned_at' => 'datetime',
             'is_xtra' => 'boolean',

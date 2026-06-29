@@ -127,9 +127,9 @@
 
             <div class="space-y-2.5">
                 <div class="text-center bg-white rounded-xl border border-emerald-100 max-[390px]:px-3 max-[390px]:py-1.5 px-4 py-2">
-                    <p class="max-[390px]:text-[11px] text-xs text-gray-500">Ước tính hoàn tiền</p>
+                    <p class="max-[390px]:text-[11px] text-xs text-gray-500">Bạn sẽ được hoàn</p>
                     <p class="max-[390px]:text-2xl text-3xl font-extrabold text-emerald-600 leading-tight">
-                        ≈ <span x-text="Number(result.estimated_cashback || 0).toLocaleString('vi-VN')"></span>đ
+                        ≈ <span x-text="Number(result.user_estimated_cashback || 0).toLocaleString('vi-VN')"></span>đ
                     </p>
                 </div>
 

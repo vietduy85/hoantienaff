@@ -23,6 +23,8 @@ class LinkRequestController extends Controller
             'original_url' => $link->original_url,
             'affiliate_url' => $link->affiliate_url,
             'estimated_cashback' => $link->estimated_cashback,
+            'user_estimated_cashback' => $link->user_estimated_cashback,
+            'cashback_rate' => $link->cashback_rate,
             'platform' => $link->platform,
             'created_at' => $link->created_at,
         ]);
