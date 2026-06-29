@@ -15,28 +15,42 @@
             @foreach ($links as $link)
                 <div class="bg-white rounded-xl shadow-sm border border-gray-100 max-[390px]:px-3 max-[390px]:py-2 px-4 py-2.5 flex items-center gap-2">
                     <div class="min-w-0 flex-1">
-                        <div class="flex items-center gap-1.5">
-                            <span class="font-bold max-[390px]:text-sm text-base text-emerald-600">
-                                {{ number_format($link->estimated_cashback ?? 0, 0, ',', '.') }}đ
-                            </span>
-                            <x-dashboard.platform-badge :platform="$link->platform" />
-                        </div>
-                        <div class="flex items-center gap-1.5 mt-0.5">
-                            <span class="max-[390px]:text-[10px] text-xs text-gray-400">{{ $link->pinned_at->diffForHumans() }}</span>
-                        </div>
+                        @if ($link->product_name)
+                            @if ($link->affiliate_url)
+                                <a href="{{ $link->affiliate_url }}"
+                                   target="_blank"
+                                   rel="noopener noreferrer"
+                                   class="text-emerald-600 hover:text-emerald-700 hover:underline cursor-pointer truncate whitespace-nowrap overflow-hidden text-ellipsis max-[390px]:text-sm text-sm block">
+                                    {{ $link->product_name }}
+                                </a>
+                            @else
+                                <span class="text-gray-400 truncate whitespace-nowrap overflow-hidden text-ellipsis max-[390px]:text-sm text-sm block">
+                                    {{ $link->product_name }}
+                                </span>
+                            @endif
+                        @endif
                     </div>
-                    <form action="{{ route('link-requests.toggle-pin', $link) }}" method="POST" class="shrink-0">
-                        @csrf
-                        <button
-                            type="submit"
-                            class="max-[390px]:h-8 max-[390px]:w-8 h-9 w-9 flex items-center justify-center rounded-lg bg-amber-50 hover:bg-amber-100 active:bg-amber-200 text-amber-500 transition-colors"
-                            title="Bỏ ghim"
-                        >
-                            <svg class="max-[390px]:w-4 max-[390px]:h-4 w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/>
-                            </svg>
-                        </button>
-                    </form>
+                    <div class="flex items-center gap-1 shrink-0">
+                        @if ($link->affiliate_url)
+                            <a href="{{ $link->affiliate_url }}"
+                               target="_blank"
+                               rel="noopener noreferrer"
+                               class="max-[390px]:text-[11px] max-[390px]:px-2 max-[390px]:h-7 text-xs px-3 h-8 flex items-center rounded-lg bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white transition-colors font-medium whitespace-nowrap">
+                                Mua ngay
+                            </a>
+                        @endif
+                        <form action="{{ route('link-requests.toggle-pin', $link) }}" method="POST">
+                            @csrf
+                            <button type="submit"
+                                    class="max-[390px]:text-[11px] max-[390px]:px-1.5 max-[390px]:h-7 text-xs px-2 h-8 flex items-center gap-1 rounded-lg bg-amber-50 hover:bg-amber-100 active:bg-amber-200 text-amber-500 transition-colors whitespace-nowrap"
+                                    title="Bỏ ghim">
+                                <svg class="max-[390px]:w-3 max-[390px]:h-3 w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/>
+                                </svg>
+                                Bỏ ghim
+                            </button>
+                        </form>
+                    </div>
                 </div>
             @endforeach
         </div>

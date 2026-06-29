@@ -28,7 +28,8 @@ class CashbackCalculator
             default => self::RATE_50,
         };
 
-        $userCashback = (int) floor($estimatedCashback * $rate);
+        $netCashback = (int) floor($estimatedCashback * 0.90);
+        $userCashback = (int) floor($netCashback * $rate);
 
         return [
             'cashback_rate' => $rate,
