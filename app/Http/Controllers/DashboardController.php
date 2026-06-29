@@ -3,10 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Models\LinkRequest;
+use App\Services\AffiliateCacheService;
 use App\Services\CashbackCalculator;
 use App\Services\ProductDataService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
 
 class DashboardController extends Controller
@@ -14,6 +16,7 @@ class DashboardController extends Controller
     public function __construct(
         private readonly ProductDataService $productData,
         private readonly CashbackCalculator $cashbackCalculator,
+        private readonly AffiliateCacheService $cacheService,
     ) {}
 
     public function index(): View
@@ -52,31 +55,88 @@ class DashboardController extends Controller
         ]);
 
         if ($isShopee) {
-            $productData = $this->productData->getByUrl($validated['original_url']);
+            $itemId = $this->cacheService->extractItemId($validated['original_url']);
+            $cached = $itemId ? $this->cacheService->get($itemId) : null;
 
-            if (($productData['success'] ?? false)) {
-                $commission = (float) ($productData['commission'] ?? 0);
-                $price = (float) ($productData['product_price'] ?? 0);
-                $cashback = $this->cashbackCalculator->calculate($commission, $price);
-
+            if ($cached) {
+                $status = $cached->affiliate_url ? 'completed' : 'pending';
                 $link->update([
-                    'item_id'               => $productData['item_id'],
-                    'shop_id'               => $productData['shop_id'],
-                    'estimated_cashback'     => $commission,
-                    'user_estimated_cashback' => $cashback['user_estimated_cashback'],
-                    'cashback_rate'          => $cashback['cashback_rate'],
-                    'product_name'           => $productData['product_name'],
-                    'product_price'          => $productData['product_price'],
-                    'product_link'           => $productData['product_link'],
-                    'seller_commission'      => $productData['seller_commission'],
-                    'shopee_commission'      => $productData['shopee_commission'],
-                    'rating'                 => $productData['rating'],
-                    'product_image'          => $productData['product_image'],
-                    'shop_name'              => $productData['shop_name'],
-                    'sales'                  => $productData['sales'],
-                    'is_xtra'                => $productData['is_xtra'],
-                    'data_source'            => $productData['data_source'],
+                    'item_id'                => $cached->item_id,
+                    'shop_id'                => $cached->shop_id,
+                    'estimated_cashback'     => $cached->estimated_cashback,
+                    'user_estimated_cashback' => $cached->user_estimated_cashback,
+                    'cashback_rate'          => $cached->cashback_rate,
+                    'product_name'           => $cached->product_name,
+                    'product_price'          => $cached->product_price,
+                    'product_link'           => $cached->product_link,
+                    'seller_commission'      => $cached->seller_commission,
+                    'shopee_commission'      => $cached->shopee_commission,
+                    'rating'                 => $cached->rating,
+                    'product_image'          => $cached->product_image,
+                    'shop_name'              => $cached->shop_name,
+                    'sales'                  => $cached->sales,
+                    'is_xtra'                => $cached->is_xtra,
+                    'data_source'            => $cached->data_source,
+                    'affiliate_url'          => $cached->affiliate_url,
+                    'status'                 => $status,
                 ]);
+            } else {
+                if ($itemId) {
+                    $this->cacheService->logMiss($itemId);
+                }
+
+                $refreshStart = microtime(true);
+                $productData = $this->productData->getByUrl($validated['original_url']);
+                Log::info('[CACHE-Timing] Refresh Cache', [
+                    'item_id' => $itemId,
+                    'elapsed_ms' => (int) ((microtime(true) - $refreshStart) * 1000),
+                ]);
+
+                if (($productData['success'] ?? false)) {
+                    $commission = (float) ($productData['commission'] ?? 0);
+                    $price = (float) ($productData['product_price'] ?? 0);
+                    $cashback = $this->cashbackCalculator->calculate($commission, $price);
+
+                    $link->update([
+                        'item_id'               => $productData['item_id'],
+                        'shop_id'               => $productData['shop_id'],
+                        'estimated_cashback'     => $commission,
+                        'user_estimated_cashback' => $cashback['user_estimated_cashback'],
+                        'cashback_rate'          => $cashback['cashback_rate'],
+                        'product_name'           => $productData['product_name'],
+                        'product_price'          => $productData['product_price'],
+                        'product_link'           => $productData['product_link'],
+                        'seller_commission'      => $productData['seller_commission'],
+                        'shopee_commission'      => $productData['shopee_commission'],
+                        'rating'                 => $productData['rating'],
+                        'product_image'          => $productData['product_image'],
+                        'shop_name'              => $productData['shop_name'],
+                        'sales'                  => $productData['sales'],
+                        'is_xtra'                => $productData['is_xtra'],
+                        'data_source'            => $productData['data_source'],
+                    ]);
+
+                    $resolvedItemId = $productData['item_id'] ?? $itemId;
+                    if ($resolvedItemId) {
+                        $this->cacheService->put($resolvedItemId, [
+                            'shop_id'                => $productData['shop_id'],
+                            'product_name'           => $productData['product_name'],
+                            'product_price'          => $productData['product_price'],
+                            'seller_commission'      => $productData['seller_commission'],
+                            'shopee_commission'      => $productData['shopee_commission'],
+                            'estimated_cashback'     => $commission,
+                            'user_estimated_cashback' => $cashback['user_estimated_cashback'],
+                            'cashback_rate'          => $cashback['cashback_rate'],
+                            'rating'                 => $productData['rating'],
+                            'sales'                  => $productData['sales'],
+                            'product_image'          => $productData['product_image'],
+                            'product_link'           => $productData['product_link'],
+                            'shop_name'              => $productData['shop_name'],
+                            'is_xtra'                => $productData['is_xtra'],
+                            'data_source'            => $productData['data_source'],
+                        ]);
+                    }
+                }
             }
         }
 

@@ -4,11 +4,16 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\LinkRequest;
+use App\Services\AffiliateCacheService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class AffiliateJobController extends Controller
 {
+    public function __construct(
+        private readonly AffiliateCacheService $cacheService,
+    ) {}
+
     public function jobs(Request $request): JsonResponse
     {
         $token = $request->query('token');
@@ -44,11 +49,17 @@ class AffiliateJobController extends Controller
 
         foreach ($results as $item) {
             if (!isset($item['id'])) continue;
-            LinkRequest::where('id', $item['id'])
-                ->update([
-                    'affiliate_url' => $item['affiliate_url'] ?? '',
-                    'status' => $item['status'] ?? 'completed',
-                ]);
+            $lr = LinkRequest::find($item['id']);
+            if (!$lr) continue;
+
+            $lr->update([
+                'affiliate_url' => $item['affiliate_url'] ?? '',
+                'status' => $item['status'] ?? 'completed',
+            ]);
+
+            if ($lr->item_id && !empty($item['affiliate_url'])) {
+                $this->cacheService->updateAffiliateUrl($lr->item_id, $item['affiliate_url']);
+            }
         }
 
         return response()->json(['ok' => true, 'updated' => count($results)]);
