@@ -63,6 +63,11 @@ app.get('/diagnostic/custom-link', async (_req, res) => {
 });
 
 app.post('/shopee/create-link', async (req, res) => {
+console.log("############################");
+console.log("CREATE LINK REQUEST");
+console.log(new Date().toISOString());
+console.log(req.body);
+console.log("############################");
   const queue = require('./playwright/cdp/Queue');
   const CustomLinkWorker = require('./playwright/cdp/CustomLinkWorker');
   const { url } = req.body;

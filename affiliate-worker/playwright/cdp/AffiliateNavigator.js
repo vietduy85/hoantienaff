@@ -6,28 +6,35 @@ const STORAGE = path.resolve(__dirname, '..', '..', 'storage');
 
 class AffiliateNavigator {
   async ensureCustomLinkPage() {
+    const startTime = Date.now();
     const page = await ChromeManager.getPage();
     const currentUrl = page.url();
 
     console.log('[Navigator] Current URL:', currentUrl);
 
     if (currentUrl.includes('offer/custom_link')) {
-      console.log('[Navigator] Already on Custom Link page');
-      return page;
+      const inputReady = await page.$('textarea, input[type="url"], input[type="text"], .ant-input, textarea.ant-input, input.ant-input');
+      if (inputReady) {
+        console.log('[Navigator] Already on Custom Link page, input ready');
+        console.log(`[Navigator-Timing] Input Ready: ${Date.now() - startTime}ms`);
+        return page;
+      }
     }
 
     if (!currentUrl.includes('affiliate.shopee.vn')) {
       console.log('[Navigator] Not on affiliate.shopee.vn, navigating...');
+      const navStart = Date.now();
       await page.goto('https://affiliate.shopee.vn', {
         waitUntil: 'networkidle',
         timeout: 30000,
       });
+      console.log(`[Navigator-Timing] Navigate To Shopee: ${Date.now() - navStart}ms`);
       console.log('[Navigator] Landed on:', page.url());
     }
 
     try {
       await this._ensureSidebarExpanded(page);
-      await this._clickMenu(page);
+      await this._clickMenu(page, startTime);
     } catch (err) {
       console.log('[Navigator] Error:', err.message);
       console.log('[Navigator] Capturing diagnostic files...');
@@ -40,6 +47,7 @@ class AffiliateNavigator {
       throw err;
     }
 
+    console.log(`[Navigator-Timing] Navigate Custom Link: ${Date.now() - startTime}ms`);
     return page;
   }
 
@@ -65,18 +73,34 @@ class AffiliateNavigator {
       return;
     }
 
+    const _isExpanded = () => {
+      return sider.evaluate(el => el.offsetWidth >= 100 && !el.className.includes('ant-layout-sider-collapsed'));
+    };
+
+    const _waitExpanded = (label) => {
+      const start = Date.now();
+      return page.waitForFunction(
+        () => {
+          const el = document.querySelector('#aff-sider');
+          if (!el) return true;
+          return el.offsetWidth >= 100 && !el.className.includes('ant-layout-sider-collapsed');
+        },
+        { timeout: 2000 }
+      ).then(() => {
+        console.log(`[Navigator-Timing] ${label}: ${Date.now() - start}ms`);
+        return true;
+      }).catch(() => {
+        console.log(`[Navigator-Timing] ${label}: ${Date.now() - start}ms (timeout)`);
+        return false;
+      });
+    };
+
     // Try clicking the collapse trigger
     const trigger = await page.$('#aff-sider .ant-layout-sider-trigger, #aff-sider .ant-layout-sider-trigger *');
     if (trigger) {
       console.log('[Navigator] Clicking sidebar collapse trigger');
       await trigger.click();
-      await page.waitForTimeout(500);
-      const stillCollapsed = await sider.evaluate(el => {
-        const w = el.offsetWidth;
-        const cls = el.className || '';
-        return w < 100 || cls.includes('ant-layout-sider-collapsed');
-      });
-      if (!stillCollapsed) {
+      if (await _waitExpanded('Sidebar Trigger Expand')) {
         console.log('[Navigator] Expanded OK');
         return;
       }
@@ -87,13 +111,7 @@ class AffiliateNavigator {
     const box = await sider.boundingBox();
     if (box) {
       await page.mouse.move(box.x + box.width / 2, box.y + 50);
-      await page.waitForTimeout(800);
-      const hoverCollapsed = await sider.evaluate(el => {
-        const w = el.offsetWidth;
-        const cls = el.className || '';
-        return w < 100 || cls.includes('ant-layout-sider-collapsed');
-      });
-      if (!hoverCollapsed) {
+      if (await _waitExpanded('Sidebar Hover Expand')) {
         console.log('[Navigator] Expanded OK via hover');
         return;
       }
@@ -105,12 +123,7 @@ class AffiliateNavigator {
       el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
       el.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
     });
-    await page.waitForTimeout(500);
-    const afterMove = await sider.evaluate(el => {
-      const w = el.offsetWidth;
-      return w >= 100;
-    });
-    if (afterMove) {
+    if (await _waitExpanded('Sidebar Dispatch Expand')) {
       console.log('[Navigator] Expanded OK via mousemove');
       return;
     }
@@ -118,7 +131,7 @@ class AffiliateNavigator {
     console.log('[Navigator] Could not expand sidebar via UI, continuing anyway...');
   }
 
-  async _clickMenu(page) {
+  async _clickMenu(page, startTime) {
     // Wait for menu text to be visible
     console.log('[Navigator] Waiting for menu text...');
     let menuVisible = false;
@@ -145,14 +158,19 @@ class AffiliateNavigator {
         }
         return false;
       });
+      const menuStart = Date.now();
       if (parentLi) {
         console.log('[Navigator] Clicked Hoa hồng');
         await hoaHong.click();
-        await page.waitForTimeout(500);
       } else {
         console.log('[Navigator] Hoa hồng not in LI, clicking anyway');
         await hoaHong.click();
-        await page.waitForTimeout(500);
+      }
+      try {
+        await page.waitForSelector('a[href*="offer/custom_link"], a[href*="/custom-link"], span:has-text("Custom Link"), div:has-text("Custom Link")', { timeout: 3000 });
+        console.log(`[Navigator-Timing] Menu Ready: ${Date.now() - menuStart}ms`);
+      } catch {
+        console.log(`[Navigator-Timing] Menu Ready: ${Date.now() - menuStart}ms (timeout)`);
       }
     }
 
@@ -186,6 +204,14 @@ class AffiliateNavigator {
       console.log('[Navigator] Timeout waiting for offer/custom_link');
       console.log('[Navigator] Current URL:', page.url());
       throw new Error('Timeout waiting for navigation to offer/custom_link');
+    }
+
+    // Confirm input is ready
+    try {
+      const inputReady = await page.waitForSelector('textarea, input[type="url"], input[type="text"], .ant-input, textarea.ant-input, input.ant-input', { timeout: 5000 });
+      console.log(`[Navigator-Timing] Input Ready: ${Date.now() - startTime}ms`);
+    } catch {
+      console.log(`[Navigator-Timing] Input Ready: ${Date.now() - startTime}ms (timeout)`);
     }
   }
 

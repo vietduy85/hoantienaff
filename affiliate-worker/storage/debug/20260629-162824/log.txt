@@ -1,0 +1,4 @@
+[16:28:24] [INFO] [Worker] [REQ-0001] createAffiliateLink: https://shopee.vn/test
+[16:28:24] [ERROR] [Worker] [REQ-0001] Navigator failed: browserType.connectOverCDP: connect ECONNREFUSED 127.0.0.1:9222
+Call log:
+[2m  - <ws preparing> retrieving websocket url from http://127.0.0.1:9222[22m
