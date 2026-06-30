@@ -1,7 +1,14 @@
+const TIMING_ENABLED = process.env.AFFILIATE_TIMING === 'true';
+
 let _counter = 0;
 
 class Timer {
   constructor() {
+    if (!TIMING_ENABLED) {
+      this._enabled = false;
+      return;
+    }
+    this._enabled = true;
     _counter++;
     this.requestId = `REQ-${String(_counter).padStart(4, '0')}`;
     this._marks = [];
@@ -11,10 +18,12 @@ class Timer {
   }
 
   start(name) {
+    if (!this._enabled) return;
     this._startTimes[name] = Date.now();
   }
 
   end(name) {
+    if (!this._enabled) return;
     const start = this._startTimes[name];
     if (start === undefined) return;
     const elapsed = Date.now() - start;
@@ -24,6 +33,7 @@ class Timer {
   }
 
   log(name, elapsed) {
+    if (!this._enabled) return;
     this._marks.push({ name, elapsed });
     console.log(`[${this.requestId}] [Timing]\n[${this.requestId}] ${name}\n[${this.requestId}] ${elapsed} ms\n`);
   }
@@ -33,6 +43,7 @@ class Timer {
   }
 
   printSummary() {
+    if (!this._enabled) return;
     const lines = [];
     const now = Date.now();
     lines.push(`[${this.requestId}] ========== Timing Summary ==========`);

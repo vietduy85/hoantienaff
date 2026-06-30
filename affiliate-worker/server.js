@@ -1,3 +1,16 @@
+const fs = require('fs');
+const path = require('path');
+
+// Load AFFILIATE_TIMING from Laravel .env
+try {
+  const envPath = path.resolve(__dirname, '..', '.env');
+  const envContent = fs.readFileSync(envPath, 'utf-8');
+  const match = envContent.match(/^AFFILIATE_TIMING=(.+)$/m);
+  if (match) {
+    process.env.AFFILIATE_TIMING = match[1].trim();
+  }
+} catch {}
+
 const express = require('express');
 const cors = require('cors');
 

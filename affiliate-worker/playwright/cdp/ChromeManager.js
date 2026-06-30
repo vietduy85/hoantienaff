@@ -1,5 +1,6 @@
 const { chromium } = require('playwright');
 
+const TIMING_ENABLED = process.env.AFFILIATE_TIMING === 'true';
 const CDP_URL = 'http://127.0.0.1:9222';
 
 class ChromeManager {
@@ -36,14 +37,16 @@ class ChromeManager {
           const url = this._affiliatePage.url();
           if (url.includes('affiliate.shopee.vn')) {
             console.log('[CDP] Reuse cached affiliate tab');
-            console.log(`[CDP-Timing] Reuse Cached Page: 0ms`);
+            if (TIMING_ENABLED) {
+              console.log(`[CDP-Timing] Reuse Cached Page: 0ms`);
+            }
             return this._affiliatePage;
           }
         }
       } catch {}
     }
 
-    const startTime = Date.now();
+    const startTime = TIMING_ENABLED ? Date.now() : null;
     const ctx = await this.getContext();
     const pages = ctx.pages();
 
@@ -55,12 +58,16 @@ class ChromeManager {
 
     if (page) {
       console.log('[CDP] Found existing affiliate.shopee.vn tab');
-      console.log(`[CDP-Timing] Find Existing Page: ${Date.now() - startTime}ms`);
+      if (TIMING_ENABLED) {
+        console.log(`[CDP-Timing] Find Existing Page: ${Date.now() - startTime}ms`);
+      }
     } else {
       console.log('[CDP] No affiliate.shopee.vn tab found, creating new tab');
       page = await ctx.newPage();
       console.log('[CDP] Created new tab');
-      console.log(`[CDP-Timing] Create New Page: ${Date.now() - startTime}ms`);
+      if (TIMING_ENABLED) {
+        console.log(`[CDP-Timing] Create New Page: ${Date.now() - startTime}ms`);
+      }
     }
 
     this._affiliatePage = page;

@@ -5,6 +5,7 @@ const Timer = require('./Timer');
 const path = require('path');
 const fs = require('fs');
 
+const TIMING_ENABLED = process.env.AFFILIATE_TIMING === 'true';
 const STORAGE = path.resolve(__dirname, '..', '..', 'storage');
 const INPUT_SELECTORS = ['textarea', 'input[type="url"]', 'input[type="text"]', '.ant-input', 'textarea.ant-input', 'input.ant-input'];
 const BUTTON_SELECTORS = ['button', '.ant-btn', 'button[type="button"]'];
@@ -51,9 +52,9 @@ console.log(">>>>>>>>>>>>>>>>>>>>>>>>>>>>");
 console.log("ENTER createAffiliateLink()");
 console.log(productUrl);
 console.log("<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
-    const timer = new Timer();
-    const debugDir = this._createDebugDir();
-    const log = new Logger(debugDir, 'DEBUG');
+    const timer = TIMING_ENABLED ? new Timer() : null;
+    const debugDir = TIMING_ENABLED ? this._createDebugDir() : null;
+    const log = new Logger(debugDir, TIMING_ENABLED ? 'DEBUG' : 'INFO');
     let page = null;
     let requestHandler = null;
     let responseHandler = null;
@@ -62,36 +63,36 @@ console.log("<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
     let graphqlFound = false;
     let uiFallback = false;
 
-    timer.start('Receive HTTP Request');
-    timer.end('Receive HTTP Request');
-    log.info('Worker', `[${timer.requestId}] createAffiliateLink: ${productUrl}`);
+    if (timer) timer.start('Receive HTTP Request');
+    if (timer) timer.end('Receive HTTP Request');
+    log.info('Worker', `createAffiliateLink: ${productUrl}`);
 
     try {
       // Resolve Short Link
-      timer.start('Resolve Short Link');
+      if (timer) timer.start('Resolve Short Link');
       if (SHORT_LINK_PATTERN.test(productUrl)) {
         // URL is already a short link; resolution happens upstream in Laravel
       }
-      timer.end('Resolve Short Link');
+      if (timer) timer.end('Resolve Short Link');
 
       // B1 - Navigate to Custom Link page
-      timer.start('Open Custom Link Page');
+      if (timer) timer.start('Open Custom Link Page');
       try {
         page = await AffiliateNavigator.ensureCustomLinkPage();
-        log.info('Worker', `[${timer.requestId}] Current URL: ${page.url()}`);
+        log.info('Worker', `Current URL: ${page.url()}`);
       } catch (err) {
-        log.error('Worker', `[${timer.requestId}] Navigator failed: ${err.message}`);
+        log.error('Worker', `Navigator failed: ${err.message}`);
         await this._saveDebug(debugDir, log, page, 'navigator-fail');
-        timer.markError();
+        if (timer) timer.markError();
         throw err;
       }
-      timer.end('Open Custom Link Page');
+      if (timer) timer.end('Open Custom Link Page');
 
       // Wait page ready (after navigation)
-      timer.start('Wait Page Ready');
+      if (timer) timer.start('Wait Page Ready');
 
       // B2 - find input
-      log.info('Worker', `[${timer.requestId}] Looking for input field...`);
+      log.info('Worker', `Looking for input field...`);
       let inputLocator = null;
       let inputSelector = null;
       for (const sel of INPUT_SELECTORS) {
@@ -107,29 +108,29 @@ console.log("<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
       }
 
       if (!inputLocator) {
-        log.error('Worker', `[${timer.requestId}] Input field not found`);
+        log.error('Worker', `Input field not found`);
         await this._saveDebug(debugDir, log, page, 'input-not-found');
-        timer.markError();
-        throw new Error(`[${debugDir}] Input field not found on Custom Link page`);
+        if (timer) timer.markError();
+        throw new Error(`Input field not found on Custom Link page`);
       }
-      log.info('Worker', `[${timer.requestId}] Input selector found: ${inputSelector}`);
-      timer.end('Wait Page Ready');
+      log.info('Worker', `Input selector found: ${inputSelector}`);
+      if (timer) timer.end('Wait Page Ready');
 
       // B3 - fill input
-      timer.start('Paste URL');
-      log.info('Worker', `[${timer.requestId}] Input URL: ${productUrl}`);
+      if (timer) timer.start('Paste URL');
+      log.info('Worker', `Input URL: ${productUrl}`);
       try {
         await inputLocator.fill('');
         await inputLocator.fill(productUrl);
       } catch {
-        log.info('Worker', `[${timer.requestId}] fill() failed, trying Ctrl+A + Delete`);
+        log.info('Worker', `fill() failed, trying Ctrl+A + Delete`);
         await inputLocator.press('Control+a');
         await inputLocator.press('Delete');
         await inputLocator.fill(productUrl);
       }
 
       // B4 - find button
-      log.info('Worker', `[${timer.requestId}] Looking for generate button...`);
+      log.info('Worker', `Looking for generate button...`);
       let buttonLocator = null;
       let buttonLabel = '';
 
@@ -150,7 +151,7 @@ console.log("<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
             if (match) {
               buttonLocator = loc;
               buttonLabel = `${sel} "${text}"`;
-              log.info('Worker', `[${timer.requestId}] Button found: ${buttonLabel} rect(${Math.round(box.x)},${Math.round(box.y)} ${Math.round(box.width)}x${Math.round(box.height)})`);
+              log.info('Worker', `Button found: ${buttonLabel} rect(${Math.round(box.x)},${Math.round(box.y)} ${Math.round(box.width)}x${Math.round(box.height)})`);
               break;
             }
           } catch {}
@@ -159,19 +160,19 @@ console.log("<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
       }
 
       if (!buttonLocator) {
-        log.error('Worker', `[${timer.requestId}] Generate button not found`);
+        log.error('Worker', `Generate button not found`);
         await this._saveDebug(debugDir, log, page, 'button-not-found');
-        timer.markError();
-        throw new Error(`[${debugDir}] Generate button not found on Custom Link page`);
+        if (timer) timer.markError();
+        throw new Error(`Generate button not found on Custom Link page`);
       }
-      log.info('Worker', `[${timer.requestId}] Button selector: ${buttonLabel}`);
-      timer.end('Paste URL');
+      log.info('Worker', `Button selector: ${buttonLabel}`);
+      if (timer) timer.end('Paste URL');
 
       // B5 - register handlers (with references for cleanup)
-      log.info('Worker', `[${timer.requestId}] Registering GraphQL listeners...`);
+      log.info('Worker', `Registering GraphQL listeners...`);
       requestHandler = req => {
         if (req.url().includes('batchCustomLink') && req.method() === 'POST') {
-          log.debug('Worker', `[${timer.requestId}] GraphQL request captured`);
+          log.debug('Worker', `GraphQL request captured`);
           graphqlRequest = {
             url: req.url(),
             method: req.method(),
@@ -182,77 +183,81 @@ console.log("<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
       };
       responseHandler = res => {
         if (res.url().includes('batchCustomLink') && res.request().method() === 'POST') {
-          log.debug('Worker', `[${timer.requestId}] GraphQL response captured: ${res.status()}`);
+          log.debug('Worker', `GraphQL response captured: ${res.status()}`);
         }
       };
       page.on('request', requestHandler);
       page.on('response', responseHandler);
 
       // screenshot before click
-      try {
-        await page.screenshot({ path: path.join(debugDir, 'before-click.png'), fullPage: true });
-      } catch {}
+      if (TIMING_ENABLED) {
+        try {
+          await page.screenshot({ path: path.join(debugDir, 'before-click.png'), fullPage: true });
+        } catch {}
+      }
 
-      log.info('Worker', `[${timer.requestId}] Clicked Generate`);
-      timer.start('Click Create Link');
+      log.info('Worker', `Clicked Generate`);
+      if (timer) timer.start('Click Create Link');
       await buttonLocator.click();
-      timer.end('Click Create Link');
+      if (timer) timer.end('Click Create Link');
 
       // B6 - wait for GraphQL (single call)
-      timer.start('Wait Shopee Response');
+      if (timer) timer.start('Wait Shopee Response');
       let graphqlJson = null;
 
-      const graphqlResp = await this._waitGraphQL(page, log, debugDir, timer.requestId);
+      const graphqlResp = await this._waitGraphQL(page, log, debugDir, timer ? timer.requestId : null);
 
       try {
         graphqlJson = await graphqlResp.json();
-        log.info('Worker', `[${timer.requestId}] GraphQL JSON parsed`);
+        log.info('Worker', `GraphQL JSON parsed`);
       } catch (e) {
         graphqlError = { parseError: e.message, status: graphqlResp.status() };
         try { graphqlError.text = await graphqlResp.text(); } catch {}
       }
-      timer.end('Wait Shopee Response');
+      if (timer) timer.end('Wait Shopee Response');
 
-      // Save request
-      timer.start('Save Meta Files');
-      if (graphqlRequest) {
+      // Save meta files
+      if (timer) timer.start('Save Meta Files');
+      if (TIMING_ENABLED && graphqlRequest) {
         fs.writeFileSync(
           path.join(debugDir, 'graphql-request.json'),
           JSON.stringify(graphqlRequest, null, 2)
         );
-        log.debug('Worker', `[${timer.requestId}] GraphQL request saved`);
+        log.debug('Worker', `GraphQL request saved`);
       }
 
-      const now = Date.now();
-      const meta = {
-        time: new Date().toISOString(),
-        elapsed: now - timer._startTime,
-        status: graphqlResp.status(),
-        url: graphqlRequest ? graphqlRequest.url : null,
-        contentType: graphqlResp.headers()['content-type'] || '',
-        requestSize: graphqlRequest ? JSON.stringify(graphqlRequest).length : 0,
-        responseSize: graphqlJson ? JSON.stringify(graphqlJson).length : 0,
-      };
-      fs.writeFileSync(
-        path.join(debugDir, 'graphql-meta.json'),
-        JSON.stringify(meta, null, 2)
-      );
-      log.debug('Worker', `[${timer.requestId}] GraphQL meta saved`);
+      if (TIMING_ENABLED) {
+        const now = Date.now();
+        const meta = {
+          time: new Date().toISOString(),
+          elapsed: timer ? now - timer._startTime : 0,
+          status: graphqlResp.status(),
+          url: graphqlRequest ? graphqlRequest.url : null,
+          contentType: graphqlResp.headers()['content-type'] || '',
+          requestSize: graphqlRequest ? JSON.stringify(graphqlRequest).length : 0,
+          responseSize: graphqlJson ? JSON.stringify(graphqlJson).length : 0,
+        };
+        fs.writeFileSync(
+          path.join(debugDir, 'graphql-meta.json'),
+          JSON.stringify(meta, null, 2)
+        );
+        log.debug('Worker', `GraphQL meta saved`);
+      }
 
       // Save response + error
-      if (graphqlJson) {
+      if (TIMING_ENABLED && graphqlJson) {
         fs.writeFileSync(
           path.join(debugDir, 'graphql-response.json'),
           JSON.stringify(graphqlJson, null, 2)
         );
-        log.debug('Worker', `[${timer.requestId}] GraphQL response saved`);
+        log.debug('Worker', `GraphQL response saved`);
       }
-      if (graphqlError) {
+      if (TIMING_ENABLED && graphqlError) {
         fs.writeFileSync(
           path.join(debugDir, 'graphql-error.json'),
           JSON.stringify(graphqlError, null, 2)
         );
-        log.error('Worker', `[${timer.requestId}] GraphQL error saved`);
+        log.error('Worker', `GraphQL error saved`);
       }
 
       // Search for shortLinks via DFS
@@ -263,38 +268,42 @@ console.log("<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
         if (allLinks.length > 0) {
           shortLink = allLinks[0];
           graphqlFound = true;
-          log.info('Worker', `[${timer.requestId}] Found ${allLinks.length} short link(s), first: ${shortLink}`);
+          log.info('Worker', `Found ${allLinks.length} short link(s), first: ${shortLink}`);
         } else {
-          log.warn('Worker', `[${timer.requestId}] DFS scanned ${visited.size} nodes, no short links`);
+          log.warn('Worker', `DFS scanned ${visited.size} nodes, no short links`);
         }
       }
 
       // after-click screenshot
-      try {
-        await page.screenshot({ path: path.join(debugDir, 'after-click.png'), fullPage: true });
-      } catch {}
+      if (TIMING_ENABLED) {
+        try {
+          await page.screenshot({ path: path.join(debugDir, 'after-click.png'), fullPage: true });
+        } catch {}
+      }
 
       // B7 - UI fallback
-      timer.start('Read Affiliate URL');
+      if (timer) timer.start('Read Affiliate URL');
       if (!shortLink && graphqlJson) {
-        log.info('Worker', `[${timer.requestId}] ShortLink not in GraphQL, reading UI...`);
+        log.info('Worker', `ShortLink not in GraphQL, reading UI...`);
         uiFallback = true;
         shortLink = await this._readUiLink(page, log);
         if (shortLink) {
-          log.info('Worker', `[${timer.requestId}] ShortLink found in UI: ${shortLink}`);
+          log.info('Worker', `ShortLink found in UI: ${shortLink}`);
         }
       }
 
       // save page state
-      await this._savePageSnapshot(debugDir, page);
-      timer.end('Save Meta Files');
-      timer.end('Read Affiliate URL');
+      if (TIMING_ENABLED) {
+        await this._savePageSnapshot(debugDir, page);
+      }
+      if (timer) timer.end('Save Meta Files');
+      if (timer) timer.end('Read Affiliate URL');
 
-      const elapsed = Date.now() - timer._startTime;
-      log.info('Worker', `[${timer.requestId}] Elapsed: ${elapsed}ms`);
+      const elapsed = Date.now() - (timer ? timer._startTime : Date.now());
+      log.info('Worker', `Elapsed: ${elapsed}ms`);
 
       if (shortLink) {
-        timer.printSummary();
+        if (timer) timer.printSummary();
         return {
           success: true,
           shortLink,
@@ -307,19 +316,19 @@ console.log("<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
       }
 
       // B8 - fail
-      log.error('Worker', `[${timer.requestId}] ShortLink not found in GraphQL or UI`);
+      log.error('Worker', `ShortLink not found in GraphQL or UI`);
       await this._saveDebug(debugDir, log, page, 'create-link-fail');
-      timer.markError();
-      throw new Error(`[${debugDir}] ShortLink not found in GraphQL response or UI`);
+      if (timer) timer.markError();
+      throw new Error(`ShortLink not found in GraphQL response or UI`);
 
     } catch (err) {
-      timer.markError();
+      if (timer) timer.markError();
       throw err;
     } finally {
-      // FIX 7 — always clean up
+      // always clean up
       if (page && requestHandler) page.off('request', requestHandler);
       if (page && responseHandler) page.off('response', responseHandler);
-      timer.printSummary();
+      if (timer) timer.printSummary();
       log.save();
       log.flush();
     }
@@ -333,15 +342,15 @@ console.log("<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
 
     try {
       const resp = await responsePromise;
-      log.info('Worker', `[${requestId}] GraphQL received, status: ${resp.status()}`);
+      log.info('Worker', `GraphQL received, status: ${resp.status()}`);
       return resp;
     } catch (err) {
-      log.error('Worker', `[${requestId}] GraphQL timeout: ${err.message}`);
-      log.info('Worker', `[${requestId}] Current URL: ${page.url()}`);
+      log.error('Worker', `GraphQL timeout: ${err.message}`);
+      log.info('Worker', `Current URL: ${page.url()}`);
       const title = await page.title().catch(() => 'unknown');
-      log.info('Worker', `[${requestId}] Title: ${title}`);
+      log.info('Worker', `Title: ${title}`);
       const readyState = await page.evaluate(() => document.readyState).catch(() => 'unknown');
-      log.info('Worker', `[${requestId}] document.readyState: ${readyState}`);
+      log.info('Worker', `document.readyState: ${readyState}`);
       await this._saveDebug(debugDir, log, page, 'create-link-timeout');
       throw err;
     }
@@ -367,12 +376,13 @@ console.log("<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
   }
 
   async _saveDebug(debugDir, log, page, prefix) {
+    if (!TIMING_ENABLED || !debugDir) return;
     await this._savePageSnapshot(debugDir, page, prefix);
     log.save();
   }
 
   async _savePageSnapshot(debugDir, page, prefix) {
-    if (!page) return;
+    if (!TIMING_ENABLED || !page || !debugDir) return;
     const p = prefix ? `${prefix}-` : '';
     try {
       await page.screenshot({ path: path.join(debugDir, `${p}page.png`), fullPage: true });

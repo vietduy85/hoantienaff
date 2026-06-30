@@ -6,6 +6,7 @@ use App\Models\LinkRequest;
 use App\Services\AffiliateCacheService;
 use App\Services\CashbackCalculator;
 use App\Services\ProductDataService;
+use App\Services\UrlResolverService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -17,6 +18,7 @@ class DashboardController extends Controller
         private readonly ProductDataService $productData,
         private readonly CashbackCalculator $cashbackCalculator,
         private readonly AffiliateCacheService $cacheService,
+        private readonly UrlResolverService $urlResolver,
     ) {}
 
     public function index(): View
@@ -55,10 +57,26 @@ class DashboardController extends Controller
         ]);
 
         if ($isShopee) {
-            $itemId = $this->cacheService->extractItemId($validated['original_url']);
+            $resolvedUrl = $this->urlResolver->resolve($validated['original_url']);
+
+            if ($resolvedUrl === null) {
+                Log::warning('[Resolver] Fallback to original URL', [
+                    'original_url' => $validated['original_url'],
+                ]);
+                $resolvedUrl = $validated['original_url'];
+            }
+
+            $itemId = $this->cacheService->extractItemId($resolvedUrl);
             $cached = $itemId ? $this->cacheService->get($itemId) : null;
 
             if ($cached) {
+                if (config('app.affiliate_timing')) {
+                    Log::info('[CACHE]', [
+                        'item_id' => $cached->item_id,
+                        'status' => 'HIT',
+                    ]);
+                }
+
                 $status = $cached->affiliate_url ? 'completed' : 'pending';
                 $link->update([
                     'item_id'                => $cached->item_id,
@@ -85,12 +103,21 @@ class DashboardController extends Controller
                     $this->cacheService->logMiss($itemId);
                 }
 
-                $refreshStart = microtime(true);
-                $productData = $this->productData->getByUrl($validated['original_url']);
-                Log::info('[CACHE-Timing] Refresh Cache', [
-                    'item_id' => $itemId,
-                    'elapsed_ms' => (int) ((microtime(true) - $refreshStart) * 1000),
-                ]);
+                if (config('app.affiliate_timing')) {
+                    Log::info('[CACHE] ProductData URL', [
+                        'url' => $resolvedUrl,
+                        'item_id' => $itemId,
+                    ]);
+                }
+
+                $refreshStart = config('app.affiliate_timing') ? microtime(true) : null;
+                $productData = $this->productData->getByUrl($resolvedUrl);
+                if ($refreshStart !== null) {
+                    Log::info('[CACHE-Timing] Refresh Cache', [
+                        'item_id' => $itemId,
+                        'elapsed_ms' => (int) ((microtime(true) - $refreshStart) * 1000),
+                    ]);
+                }
 
                 if (($productData['success'] ?? false)) {
                     $commission = (float) ($productData['commission'] ?? 0);

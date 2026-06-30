@@ -28,6 +28,9 @@ Route::post('/debug/shopee-login/session-test', [App\Http\Controllers\Debug\Shop
 Route::post('/debug/shopee-login/dashboard-test', [App\Http\Controllers\Debug\ShopeeLoginController::class, 'dashboardTest']);
 Route::post('/debug/shopee-login/profile-test', [App\Http\Controllers\Debug\ShopeeLoginController::class, 'profileTest']);
 
+Route::get('/debug/cookies', [App\Http\Controllers\Debug\CookieDebugController::class, 'index']);
+Route::get('/debug/set-cookie', [App\Http\Controllers\Debug\CookieDebugController::class, 'setCookie']);
+
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::post('/link-requests', [DashboardController::class, 'store'])->name('link-requests.store');

@@ -9,17 +9,11 @@ class ProductDataService
 {
     private const API_URL = 'https://data.addlivetag.com/product-data/product-data.php';
 
-    private const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36';
-
-    private const SHORT_DOMAINS = ['s.shopee.vn', 'vn.shp.ee'];
-
     private const RETRY_TIMES = 2;
 
     private const TIMEOUT = 10;
 
     private const CONNECT_TIMEOUT = 5;
-
-    private const MAX_REDIRS = 15;
 
     /*
      * TODO: Add local cache layer for frequently accessed products.
@@ -29,16 +23,6 @@ class ProductDataService
 
     public function getByUrl(string $url): array
     {
-        if ($this->isShortLink($url)) {
-            $expanded = $this->expandShortUrl($url);
-
-            if ($expanded === null) {
-                return ['success' => false];
-            }
-
-            $url = $expanded;
-        }
-
         $ids = $this->extractProductIds($url);
 
         if ($ids === null || $ids['item_id'] === null) {
@@ -46,52 +30,6 @@ class ProductDataService
         }
 
         return $this->getByItemId($ids['item_id'], $ids['shop_id']);
-    }
-
-    private function isShortLink(string $url): bool
-    {
-        $host = strtolower(parse_url($url, PHP_URL_HOST) ?? '');
-
-        foreach (self::SHORT_DOMAINS as $domain) {
-            if ($host === $domain || str_ends_with($host, '.' . $domain)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function expandShortUrl(string $url): ?string
-    {
-        if (!preg_match('/^https?:\/\//i', $url)) {
-            $url = 'https://' . $url;
-        }
-
-        $ch = curl_init($url);
-
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_MAXREDIRS      => self::MAX_REDIRS,
-            CURLOPT_TIMEOUT        => self::TIMEOUT + 5,
-            CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT,
-            CURLOPT_USERAGENT      => self::USER_AGENT,
-            CURLOPT_HTTPHEADER     => ['Accept: text/html,application/xhtml+xml'],
-            CURLOPT_NOBODY         => false,
-        ]);
-
-        curl_exec($ch);
-
-        $finalUrl = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
-        $error    = curl_error($ch);
-
-        curl_close($ch);
-
-        if ($error !== '') {
-            return null;
-        }
-
-        return filter_var($finalUrl, FILTER_VALIDATE_URL) ? $finalUrl : null;
     }
 
     private function extractProductIds(string $url): ?array

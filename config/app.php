@@ -123,4 +123,6 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    'affiliate_timing' => filter_var(env('AFFILIATE_TIMING', false), FILTER_VALIDATE_BOOLEAN),
+
 ];

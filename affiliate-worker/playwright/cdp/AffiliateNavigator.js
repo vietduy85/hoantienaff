@@ -2,11 +2,12 @@ const ChromeManager = require('./ChromeManager');
 const path = require('path');
 const fs = require('fs');
 
+const TIMING_ENABLED = process.env.AFFILIATE_TIMING === 'true';
 const STORAGE = path.resolve(__dirname, '..', '..', 'storage');
 
 class AffiliateNavigator {
   async ensureCustomLinkPage() {
-    const startTime = Date.now();
+    const startTime = TIMING_ENABLED ? Date.now() : null;
     const page = await ChromeManager.getPage();
     const currentUrl = page.url();
 
@@ -16,19 +17,23 @@ class AffiliateNavigator {
       const inputReady = await page.$('textarea, input[type="url"], input[type="text"], .ant-input, textarea.ant-input, input.ant-input');
       if (inputReady) {
         console.log('[Navigator] Already on Custom Link page, input ready');
-        console.log(`[Navigator-Timing] Input Ready: ${Date.now() - startTime}ms`);
+        if (TIMING_ENABLED) {
+          console.log(`[Navigator-Timing] Input Ready: ${Date.now() - startTime}ms`);
+        }
         return page;
       }
     }
 
     if (!currentUrl.includes('affiliate.shopee.vn')) {
       console.log('[Navigator] Not on affiliate.shopee.vn, navigating...');
-      const navStart = Date.now();
+      const navStart = TIMING_ENABLED ? Date.now() : null;
       await page.goto('https://affiliate.shopee.vn', {
         waitUntil: 'networkidle',
         timeout: 30000,
       });
-      console.log(`[Navigator-Timing] Navigate To Shopee: ${Date.now() - navStart}ms`);
+      if (TIMING_ENABLED) {
+        console.log(`[Navigator-Timing] Navigate To Shopee: ${Date.now() - navStart}ms`);
+      }
       console.log('[Navigator] Landed on:', page.url());
     }
 
@@ -47,7 +52,9 @@ class AffiliateNavigator {
       throw err;
     }
 
-    console.log(`[Navigator-Timing] Navigate Custom Link: ${Date.now() - startTime}ms`);
+    if (TIMING_ENABLED) {
+      console.log(`[Navigator-Timing] Navigate Custom Link: ${Date.now() - startTime}ms`);
+    }
     return page;
   }
 
@@ -78,6 +85,16 @@ class AffiliateNavigator {
     };
 
     const _waitExpanded = (label) => {
+      if (!TIMING_ENABLED) {
+        return page.waitForFunction(
+          () => {
+            const el = document.querySelector('#aff-sider');
+            if (!el) return true;
+            return el.offsetWidth >= 100 && !el.className.includes('ant-layout-sider-collapsed');
+          },
+          { timeout: 2000 }
+        ).then(() => true).catch(() => false);
+      }
       const start = Date.now();
       return page.waitForFunction(
         () => {
@@ -158,7 +175,7 @@ class AffiliateNavigator {
         }
         return false;
       });
-      const menuStart = Date.now();
+      const menuStart = TIMING_ENABLED ? Date.now() : null;
       if (parentLi) {
         console.log('[Navigator] Clicked Hoa hồng');
         await hoaHong.click();
@@ -168,9 +185,13 @@ class AffiliateNavigator {
       }
       try {
         await page.waitForSelector('a[href*="offer/custom_link"], a[href*="/custom-link"], span:has-text("Custom Link"), div:has-text("Custom Link")', { timeout: 3000 });
-        console.log(`[Navigator-Timing] Menu Ready: ${Date.now() - menuStart}ms`);
+        if (TIMING_ENABLED) {
+          console.log(`[Navigator-Timing] Menu Ready: ${Date.now() - menuStart}ms`);
+        }
       } catch {
-        console.log(`[Navigator-Timing] Menu Ready: ${Date.now() - menuStart}ms (timeout)`);
+        if (TIMING_ENABLED) {
+          console.log(`[Navigator-Timing] Menu Ready: ${Date.now() - menuStart}ms (timeout)`);
+        }
       }
     }
 
@@ -209,9 +230,13 @@ class AffiliateNavigator {
     // Confirm input is ready
     try {
       const inputReady = await page.waitForSelector('textarea, input[type="url"], input[type="text"], .ant-input, textarea.ant-input, input.ant-input', { timeout: 5000 });
-      console.log(`[Navigator-Timing] Input Ready: ${Date.now() - startTime}ms`);
+      if (TIMING_ENABLED) {
+        console.log(`[Navigator-Timing] Input Ready: ${Date.now() - startTime}ms`);
+      }
     } catch {
-      console.log(`[Navigator-Timing] Input Ready: ${Date.now() - startTime}ms (timeout)`);
+      if (TIMING_ENABLED) {
+        console.log(`[Navigator-Timing] Input Ready: ${Date.now() - startTime}ms (timeout)`);
+      }
     }
   }
 
