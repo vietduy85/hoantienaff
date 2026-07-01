@@ -2,6 +2,29 @@ const SLEEP_EMPTY = 3000;
 const SLEEP_ERROR = 5000;
 const SLEEP_DONE = 1000;
 
+let cachedTab = null;
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (cachedTab && cachedTab.id === tabId) {
+    console.log('[BG] Affiliate tab removed, cache cleared');
+    cachedTab = null;
+  }
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (cachedTab && cachedTab.id === tabId) {
+    const url = changeInfo.url || tab.url;
+    if (url && !url.startsWith('https://affiliate.shopee.vn/')) {
+      console.log('[BG] Affiliate tab navigated away, cache cleared');
+      cachedTab = null;
+    }
+  }
+});
+
+chrome.runtime.onSuspend.addListener(() => {
+  cachedTab = null;
+});
+
 chrome.runtime.onInstalled.addListener(async () => {
   const { apiUrl, token } = await chrome.storage.sync.get(['apiUrl', 'token']);
   const updates = {};
@@ -21,6 +44,26 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return false;
   }
 });
+
+async function getAffiliateTab() {
+  if (cachedTab) {
+    console.log('[BG] Using cached tab id=' + cachedTab.id);
+    return { id: cachedTab.id };
+  }
+
+  console.log('[BG] Cached tab invalid, rediscover...');
+
+  const tabs = await chrome.tabs.query({ url: 'https://affiliate.shopee.vn/*' });
+  const target = tabs.find(t => t.url && t.url.startsWith('https://affiliate.shopee.vn/'));
+  if (target) {
+    cachedTab = { id: target.id, windowId: target.windowId, url: target.url };
+    console.log('[BG] Affiliate tab discovered id=' + target.id);
+    return { id: target.id };
+  }
+
+  console.log('[BG] Affiliate tab not found');
+  return null;
+}
 
 function scheduleNext(delay) {
   setTimeout(() => { poll(); }, delay);
@@ -61,31 +104,10 @@ console.log('[Worker] Jobs:', jobs);
     return;
   }
 
-  const tabs = await chrome.tabs.query({});
+  const target = await getAffiliateTab();
 
-console.log("[Worker] All tabs:");
-console.table(
-    tabs.map(t => ({
-        id: t.id,
-        url: t.url,
-        title: t.title
-    }))
-);
-
-const target = tabs.find(t =>
-    t.url &&
-    t.url.startsWith("https://affiliate.shopee.vn/")
-);
-
-console.log("[Worker] Target:", target);
-
-if (!target) {
+  if (!target) {
     console.log("[Worker] Không tìm thấy tab Shopee");
-    scheduleNext(SLEEP_EMPTY);
-    return;
-}
-console.log('[Worker] Tabs:', tabs);
-  if (!tabs.length) {
     scheduleNext(SLEEP_EMPTY);
     return;
   }
@@ -109,6 +131,7 @@ try {
 
 } catch (e) {
     console.error("sendMessage error:", e);
+    cachedTab = null;
 }
 console.log('[Worker] Response:', response);
   } catch {
