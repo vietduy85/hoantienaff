@@ -42,7 +42,7 @@
 
   async function processBatch(urls) {
     closeModals();
-    await sleep(400);
+    await sleep(200);
 
     if (isCaptcha()) throw new Error('CAPTCHA');
 
@@ -50,7 +50,7 @@
     if (!ta) throw new Error('NO_FORM');
 
     setReactValue(ta, urls.join('\n'));
-    await sleep(rnd(500, 900));
+    await sleep(rnd(300, 500));
 
     const btn = getLinkButton();
     if (!btn) throw new Error('NO_BUTTON');
@@ -75,7 +75,7 @@
       .filter(Boolean);
 
     closeModals();
-    await sleep(rnd(500, 900));
+    await sleep(rnd(200, 400));
 
     return urls.map((_, i) => links[i] ?? '');
   }
