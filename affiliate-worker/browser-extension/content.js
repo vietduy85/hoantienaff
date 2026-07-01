@@ -40,34 +40,59 @@
 
   const isCaptcha = () => location.href.includes('verify/captcha');
 
-  async function processBatch(urls) {
-    closeModals();
-    await sleep(200);
-
-    if (isCaptcha()) throw new Error('CAPTCHA');
-
-    const ta = mainTextarea();
-    if (!ta) throw new Error('NO_FORM');
-
-    setReactValue(ta, urls.join('\n'));
-    await sleep(rnd(300, 500));
-
-    const btn = getLinkButton();
-    if (!btn) throw new Error('NO_BUTTON');
-    btn.click();
-
-    const deadline = Date.now() + RESULT_TIMEOUT;
-    let raw = null;
+  const waitForMainTextarea = async (timeout = 5000) => {
+    const deadline = Date.now() + timeout;
     while (Date.now() < deadline) {
-      await sleep(400);
+      if (isCaptcha()) throw new Error('CAPTCHA');
+      const ta = mainTextarea();
+      if (ta) return ta;
+      await sleep(50);
+    }
+    if (isCaptcha()) throw new Error('CAPTCHA');
+    throw new Error('NO_FORM');
+  };
+
+  const waitForButtonReady = async (timeout = 3000) => {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      const btn = getLinkButton();
+      if (btn && !btn.disabled && !btn.classList.contains('ant-btn-disabled')) return btn;
+      await sleep(50);
+    }
+    const btn = getLinkButton();
+    if (btn) return btn;
+    throw new Error('NO_BUTTON');
+  };
+
+  const waitForResult = async (timeout = 18000) => {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
       if (isCaptcha()) throw new Error('CAPTCHA');
       const m = resultTextarea();
-      if (m && m.value && m.value.trim()) {
-        raw = m.value;
-        break;
-      }
+      if (m && m.value && m.value.trim()) return m.value;
+      await sleep(50);
     }
-    if (raw == null) throw new Error('TIMEOUT');
+    if (isCaptcha()) throw new Error('CAPTCHA');
+    throw new Error('TIMEOUT');
+  };
+
+  const waitForModalGone = async (timeout = 3000) => {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      if (!document.querySelector('.ant-modal')) return;
+      await sleep(50);
+    }
+  };
+
+  async function processBatch(urls) {
+    closeModals();
+    const ta = await waitForMainTextarea();
+
+    setReactValue(ta, urls.join('\n'));
+    const btn = await waitForButtonReady();
+    btn.click();
+
+    const raw = await waitForResult();
 
     const links = raw
       .split('\n')
@@ -75,7 +100,7 @@
       .filter(Boolean);
 
     closeModals();
-    await sleep(rnd(200, 400));
+    await waitForModalGone();
 
     return urls.map((_, i) => links[i] ?? '');
   }
