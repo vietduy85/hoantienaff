@@ -101,69 +101,82 @@ class DashboardController extends Controller
             } else {
                 if ($itemId) {
                     $this->cacheService->logMiss($itemId);
+
+                    $link->update(['item_id' => $itemId]);
+
+                    $this->cacheService->put($itemId, []);
                 }
 
-                if (config('app.affiliate_timing')) {
-                    Log::info('[CACHE] ProductData URL', [
-                        'url' => $resolvedUrl,
-                        'item_id' => $itemId,
-                    ]);
-                }
+                $linkId = $link->id;
+                $resolvedUrlClone = $resolvedUrl;
+                $itemIdClone = $itemId;
 
-                $refreshStart = config('app.affiliate_timing') ? microtime(true) : null;
-                $productData = $this->productData->getByUrl($resolvedUrl);
-                if ($refreshStart !== null) {
-                    Log::info('[CACHE-Timing] Refresh Cache', [
-                        'item_id' => $itemId,
-                        'elapsed_ms' => (int) ((microtime(true) - $refreshStart) * 1000),
-                    ]);
-                }
+                dispatch(function () use ($resolvedUrlClone, $itemIdClone, $linkId) {
+                    if (config('app.affiliate_timing')) {
+                        Log::info('[CACHE] ProductData URL', [
+                            'url' => $resolvedUrlClone,
+                            'item_id' => $itemIdClone,
+                        ]);
+                    }
 
-                if (($productData['success'] ?? false)) {
-                    $commission = (float) ($productData['commission'] ?? 0);
-                    $price = (float) ($productData['product_price'] ?? 0);
-                    $cashback = $this->cashbackCalculator->calculate($commission, $price);
+                    $refreshStart = config('app.affiliate_timing') ? microtime(true) : null;
+                    $productDataService = app(ProductDataService::class);
+                    $productData = $productDataService->getByUrl($resolvedUrlClone);
+                    if ($refreshStart !== null) {
+                        Log::info('[CACHE-Timing] Refresh Cache', [
+                            'item_id' => $itemIdClone,
+                            'elapsed_ms' => (int) ((microtime(true) - $refreshStart) * 1000),
+                        ]);
+                    }
 
-                    $link->update([
-                        'item_id'               => $productData['item_id'],
-                        'shop_id'               => $productData['shop_id'],
-                        'estimated_cashback'     => $commission,
-                        'user_estimated_cashback' => $cashback['user_estimated_cashback'],
-                        'cashback_rate'          => $cashback['cashback_rate'],
-                        'product_name'           => $productData['product_name'],
-                        'product_price'          => $productData['product_price'],
-                        'product_link'           => $productData['product_link'],
-                        'seller_commission'      => $productData['seller_commission'],
-                        'shopee_commission'      => $productData['shopee_commission'],
-                        'rating'                 => $productData['rating'],
-                        'product_image'          => $productData['product_image'],
-                        'shop_name'              => $productData['shop_name'],
-                        'sales'                  => $productData['sales'],
-                        'is_xtra'                => $productData['is_xtra'],
-                        'data_source'            => $productData['data_source'],
-                    ]);
+                    if (($productData['success'] ?? false)) {
+                        $commission = (float) ($productData['commission'] ?? 0);
+                        $price = (float) ($productData['product_price'] ?? 0);
+                        $cashbackCalculator = app(CashbackCalculator::class);
+                        $cashback = $cashbackCalculator->calculate($commission, $price);
 
-                    $resolvedItemId = $productData['item_id'] ?? $itemId;
-                    if ($resolvedItemId) {
-                        $this->cacheService->put($resolvedItemId, [
-                            'shop_id'                => $productData['shop_id'],
-                            'product_name'           => $productData['product_name'],
-                            'product_price'          => $productData['product_price'],
-                            'seller_commission'      => $productData['seller_commission'],
-                            'shopee_commission'      => $productData['shopee_commission'],
+                        LinkRequest::where('id', $linkId)->update([
+                            'item_id'               => $productData['item_id'],
+                            'shop_id'               => $productData['shop_id'],
                             'estimated_cashback'     => $commission,
                             'user_estimated_cashback' => $cashback['user_estimated_cashback'],
                             'cashback_rate'          => $cashback['cashback_rate'],
-                            'rating'                 => $productData['rating'],
-                            'sales'                  => $productData['sales'],
-                            'product_image'          => $productData['product_image'],
+                            'product_name'           => $productData['product_name'],
+                            'product_price'          => $productData['product_price'],
                             'product_link'           => $productData['product_link'],
+                            'seller_commission'      => $productData['seller_commission'],
+                            'shopee_commission'      => $productData['shopee_commission'],
+                            'rating'                 => $productData['rating'],
+                            'product_image'          => $productData['product_image'],
                             'shop_name'              => $productData['shop_name'],
+                            'sales'                  => $productData['sales'],
                             'is_xtra'                => $productData['is_xtra'],
                             'data_source'            => $productData['data_source'],
                         ]);
+
+                        $resolvedItemId = $productData['item_id'] ?? $itemIdClone;
+                        if ($resolvedItemId) {
+                            $cacheService = app(AffiliateCacheService::class);
+                            $cacheService->put($resolvedItemId, [
+                                'shop_id'                => $productData['shop_id'],
+                                'product_name'           => $productData['product_name'],
+                                'product_price'          => $productData['product_price'],
+                                'seller_commission'      => $productData['seller_commission'],
+                                'shopee_commission'      => $productData['shopee_commission'],
+                                'estimated_cashback'     => $commission,
+                                'user_estimated_cashback' => $cashback['user_estimated_cashback'],
+                                'cashback_rate'          => $cashback['cashback_rate'],
+                                'rating'                 => $productData['rating'],
+                                'sales'                  => $productData['sales'],
+                                'product_image'          => $productData['product_image'],
+                                'product_link'           => $productData['product_link'],
+                                'shop_name'              => $productData['shop_name'],
+                                'is_xtra'                => $productData['is_xtra'],
+                                'data_source'            => $productData['data_source'],
+                            ]);
+                        }
                     }
-                }
+                })->afterResponse();
             }
         }
 
