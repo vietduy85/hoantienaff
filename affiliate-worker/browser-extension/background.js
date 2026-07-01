@@ -2,27 +2,23 @@ const SLEEP_EMPTY = 3000;
 const SLEEP_ERROR = 5000;
 const SLEEP_DONE = 1000;
 
-let cachedTab = null;
+let cachedTabId = null;
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  if (cachedTab && cachedTab.id === tabId) {
+  if (cachedTabId === tabId) {
     console.log('[BG] Affiliate tab removed, cache cleared');
-    cachedTab = null;
+    cachedTabId = null;
   }
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (cachedTab && cachedTab.id === tabId) {
+  if (cachedTabId === tabId) {
     const url = changeInfo.url || tab.url;
     if (url && !url.startsWith('https://affiliate.shopee.vn/')) {
       console.log('[BG] Affiliate tab navigated away, cache cleared');
-      cachedTab = null;
+      cachedTabId = null;
     }
   }
-});
-
-chrome.runtime.onSuspend.addListener(() => {
-  cachedTab = null;
 });
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -46,19 +42,26 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 });
 
 async function getAffiliateTab() {
-  if (cachedTab) {
-    console.log('[BG] Using cached tab id=' + cachedTab.id);
-    return { id: cachedTab.id };
+  if (cachedTabId != null) {
+    try {
+      const tab = await chrome.tabs.get(cachedTabId);
+      if (tab && tab.url && tab.url.startsWith('https://affiliate.shopee.vn/')) {
+        console.log('[BG] Using cached tab id=' + cachedTabId);
+        return tab;
+      }
+    } catch {
+      // tab not found
+    }
+    console.log('[BG] Cached tab invalid, rediscover...');
+    cachedTabId = null;
   }
 
-  console.log('[BG] Cached tab invalid, rediscover...');
-
   const tabs = await chrome.tabs.query({ url: 'https://affiliate.shopee.vn/*' });
-  const target = tabs.find(t => t.url && t.url.startsWith('https://affiliate.shopee.vn/'));
+  const target = tabs[0];
   if (target) {
-    cachedTab = { id: target.id, windowId: target.windowId, url: target.url };
+    cachedTabId = target.id;
     console.log('[BG] Affiliate tab discovered id=' + target.id);
-    return { id: target.id };
+    return target;
   }
 
   console.log('[BG] Affiliate tab not found');
@@ -131,7 +134,7 @@ try {
 
 } catch (e) {
     console.error("sendMessage error:", e);
-    cachedTab = null;
+    cachedTabId = null;
 }
 console.log('[Worker] Response:', response);
   } catch {
