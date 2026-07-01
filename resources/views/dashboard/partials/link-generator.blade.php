@@ -13,7 +13,8 @@
             this.loading = true;
             this.error = '';
             this.result = null;
-	    
+            this.stopPolling();
+
             fetch('{{ route('link-requests.store') }}', {
                 method: 'POST',
                 headers: {
@@ -39,29 +40,57 @@
             });
         },
 
+        stopPolling() {
+            if (this.pollTimer) {
+                clearTimeout(this.pollTimer);
+                this.pollTimer = null;
+            }
+            this._pollStartTime = null;
+        },
+
         startPolling() {
-            this.pollTimer = setInterval(() => {
+            this.stopPolling();
+            this._pollStartTime = Date.now();
+
+            const poll = () => {
+                const elapsed = (Date.now() - this._pollStartTime) / 1000;
+                let delay;
+                if (elapsed < 3) delay = 300;
+                else if (elapsed < 8) delay = 800;
+                else delay = 2000;
+
                 fetch('/api/link-request/' + this.requestId, {
                     headers: { 'X-Requested-With': 'XMLHttpRequest' }
                 })
                 .then(r => r.json())
                 .then(data => {
+                    this._errorCount = 0;
                     if (data.status === 'completed') {
-                        clearInterval(this.pollTimer);
+                        this.stopPolling();
                         this.result = data;
                         this.loading = false;
                         this.$nextTick(() => {
                             this.$refs.urlInput.focus();
                             this.$refs.urlInput.select();
                         });
-                    } else if (data.status === 'failed' || data.status === 'rejected') {
-                        clearInterval(this.pollTimer);
+                        return;
+                    }
+                    if (data.status === 'failed' || data.status === 'rejected') {
+                        this.stopPolling();
                         this.error = 'Không thể tạo affiliate link. Vui lòng thử lại sau.';
                         this.loading = false;
+                        return;
                     }
+                    this.pollTimer = setTimeout(poll, delay);
                 })
-                .catch(() => {});
-            }, 2000);
+                .catch(() => {
+                    this._errorCount = (this._errorCount || 0) + 1;
+                    const backoff = Math.min(delay * Math.pow(2, this._errorCount), 5000);
+                    this.pollTimer = setTimeout(poll, backoff);
+                });
+            };
+
+            poll();
         },
 
         copyLink() {
