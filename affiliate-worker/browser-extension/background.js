@@ -4,23 +4,6 @@ const SLEEP_DONE = 1000;
 
 let cachedTabId = null;
 
-chrome.tabs.onRemoved.addListener((tabId) => {
-  if (cachedTabId === tabId) {
-    console.log('[BG] Affiliate tab removed, cache cleared');
-    cachedTabId = null;
-  }
-});
-
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (cachedTabId === tabId) {
-    const url = changeInfo.url || tab.url;
-    if (url && !url.startsWith('https://affiliate.shopee.vn/')) {
-      console.log('[BG] Affiliate tab navigated away, cache cleared');
-      cachedTabId = null;
-    }
-  }
-});
-
 chrome.runtime.onInstalled.addListener(async () => {
   const { apiUrl, token } = await chrome.storage.sync.get(['apiUrl', 'token']);
   const updates = {};
@@ -46,25 +29,26 @@ async function getAffiliateTab() {
     try {
       const tab = await chrome.tabs.get(cachedTabId);
       if (tab && tab.url && tab.url.startsWith('https://affiliate.shopee.vn/')) {
-        console.log('[BG] Using cached tab id=' + cachedTabId);
+        console.log('[BG] Use cached tabId=' + cachedTabId);
         return tab;
       }
     } catch {
       // tab not found
     }
-    console.log('[BG] Cached tab invalid, rediscover...');
+    console.log('[BG] Cached tab invalid');
     cachedTabId = null;
   }
 
+  console.log('[BG] Query affiliate tab...');
   const tabs = await chrome.tabs.query({ url: 'https://affiliate.shopee.vn/*' });
   const target = tabs[0];
   if (target) {
     cachedTabId = target.id;
-    console.log('[BG] Affiliate tab discovered id=' + target.id);
+    console.log('[BG] Cache tabId=' + target.id);
     return target;
   }
 
-  console.log('[BG] Affiliate tab not found');
+  console.log('[BG] Rediscover affiliate tab');
   return null;
 }
 
