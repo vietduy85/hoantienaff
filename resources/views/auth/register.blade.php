@@ -2,11 +2,15 @@
     <form method="POST" action="{{ route('register') }}">
         @csrf
 
-        <!-- Name -->
+        <!-- Username -->
         <div>
-            <x-input-label for="name" :value="__('Name')" />
-            <x-text-input id="name" class="block mt-1 w-full" type="text" name="name" :value="old('name')" required autofocus autocomplete="name" />
-            <x-input-error :messages="$errors->get('name')" class="mt-2" />
+            <x-input-label for="username" :value="__('Username')" />
+            <div class="relative">
+                <x-text-input id="username" class="block mt-1 w-full" type="text" name="username" :value="old('username')" required autofocus autocomplete="off" data-check-username />
+                <span id="username-status" class="absolute right-3 top-1/2 -translate-y-1/2 text-sm hidden"></span>
+            </div>
+            <x-input-error :messages="$errors->get('username')" class="mt-2" />
+            <p id="username-msg" class="mt-1 text-xs text-gray-400">Chữ thường, số, dấu gạch dưới (_) và dấu gạch ngang (-). 3-30 ký tự.</p>
         </div>
 
         <!-- Email Address -->
@@ -49,4 +53,41 @@
             </x-primary-button>
         </div>
     </form>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const input = document.querySelector('[data-check-username]');
+            if (!input) return;
+            const status = document.getElementById('username-status');
+            const msg = document.getElementById('username-msg');
+            let timer;
+
+            input.addEventListener('input', function () {
+                clearTimeout(timer);
+                const val = input.value.trim();
+                if (val.length < 3) {
+                    status.className = 'absolute right-3 top-1/2 -translate-y-1/2 text-sm hidden';
+                    msg.textContent = 'Chữ thường, số, dấu gạch dưới (_) và dấu gạch ngang (-). 3-30 ký tự.';
+                    msg.className = 'mt-1 text-xs text-gray-400';
+                    return;
+                }
+                timer = setTimeout(function () {
+                    fetch('/check-username?username=' + encodeURIComponent(val))
+                        .then(function (r) { return r.json(); })
+                        .then(function (data) {
+                            status.className = 'absolute right-3 top-1/2 -translate-y-1/2 text-sm';
+                            if (data.available) {
+                                status.textContent = '🟢';
+                                msg.textContent = 'Username khả dụng.';
+                                msg.className = 'mt-1 text-xs text-green-600';
+                            } else {
+                                status.textContent = '🔴';
+                                msg.textContent = data.message;
+                                msg.className = 'mt-1 text-xs text-red-500';
+                            }
+                        });
+                }, 400);
+            });
+        });
+    </script>
 </x-guest-layout>

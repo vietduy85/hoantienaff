@@ -16,7 +16,12 @@
 
                 <div class="space-y-4">
                     <div>
-                        <x-input-label for="name" :value="__('Tên')" />
+                        <x-input-label for="username" :value="__('Username')" />
+                        <x-text-input id="username" type="text" class="mt-1 block w-full bg-gray-50 text-gray-500" :value="$user->username" readonly disabled />
+                    </div>
+
+                    <div>
+                        <x-input-label for="name" :value="__('Tên hiển thị')" />
                         <x-text-input id="name" name="name" type="text" class="mt-1 block w-full" :value="old('name', $user->name)" required autofocus autocomplete="name" />
                         <x-input-error class="mt-2" :messages="$errors->get('name')" />
                     </div>

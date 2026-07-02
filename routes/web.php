@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\Auth\CheckUsernameController;
+use App\Http\Controllers\Auth\CompleteProfileController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\GuideController;
 use App\Http\Controllers\ProfileController;
@@ -32,6 +34,8 @@ Route::post('/debug/shopee-login/profile-test', [App\Http\Controllers\Debug\Shop
 Route::get('/debug/cookies', [App\Http\Controllers\Debug\CookieDebugController::class, 'index']);
 Route::get('/debug/set-cookie', [App\Http\Controllers\Debug\CookieDebugController::class, 'setCookie']);
 
+Route::get('/check-username', CheckUsernameController::class);
+
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::post('/link-requests', [DashboardController::class, 'store'])->name('link-requests.store');
@@ -42,6 +46,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+
+    Route::get('/complete-profile', [CompleteProfileController::class, 'create'])->name('complete-profile.create');
+    Route::post('/complete-profile', [CompleteProfileController::class, 'store'])->name('complete-profile.store');
 
     Route::view('/wallet', 'wallet.index')->name('wallet.index');
     Route::view('/orders', 'orders.index')->name('orders.index');

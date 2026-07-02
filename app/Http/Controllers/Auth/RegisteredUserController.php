@@ -15,29 +15,35 @@ use Illuminate\View\View;
 
 class RegisteredUserController extends Controller
 {
-    /**
-     * Display the registration view.
-     */
     public function create(): View
     {
         return view('auth.register');
     }
 
     /**
-     * Handle an incoming registration request.
-     *
      * @throws ValidationException
      */
     public function store(Request $request): RedirectResponse
     {
+        $request->merge([
+            'username' => strtolower(trim($request->username)),
+        ]);
+
         $request->validate([
-            'name' => ['required', 'string', 'max:255'],
+            'username' => ['required', 'string', 'min:3', 'max:30', 'regex:/^[a-z0-9_-]+$/', 'unique:'.User::class],
             'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:'.User::class],
             'password' => ['required', 'confirmed', Rules\Password::defaults()],
         ]);
 
+        if (in_array($request->username, config('usernames.reserved', []))) {
+            throw ValidationException::withMessages([
+                'username' => __('Username này không được phép sử dụng.'),
+            ]);
+        }
+
         $user = User::create([
-            'name' => $request->name,
+            'username' => $request->username,
+            'name' => $request->username,
             'email' => $request->email,
             'password' => Hash::make($request->password),
         ]);

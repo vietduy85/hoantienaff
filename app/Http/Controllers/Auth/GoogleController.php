@@ -32,18 +32,27 @@ class GoogleController extends Controller
                 'google_id' => $googleUser->getId(),
                 'avatar' => $googleUser->getAvatar(),
             ]);
-        } else {
-            $user = User::create([
-                'name' => $googleUser->getName(),
-                'email' => $googleUser->getEmail(),
-                'google_id' => $googleUser->getId(),
-                'avatar' => $googleUser->getAvatar(),
-                'password' => Hash::make(Str::random(32)),
-            ]);
+
+            Auth::login($user, true);
+
+            if ($user->username) {
+                return redirect()->intended(route('dashboard', absolute: false));
+            }
+
+            return redirect()->route('complete-profile.create');
         }
+
+        $user = User::create([
+            'username' => null,
+            'name' => $googleUser->getName(),
+            'email' => $googleUser->getEmail(),
+            'google_id' => $googleUser->getId(),
+            'avatar' => $googleUser->getAvatar(),
+            'password' => Hash::make(Str::random(32)),
+        ]);
 
         Auth::login($user, true);
 
-        return redirect()->intended(route('dashboard', absolute: false));
+        return redirect()->route('complete-profile.create');
     }
 }

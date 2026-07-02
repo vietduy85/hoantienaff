@@ -15,6 +15,7 @@ class User extends Authenticatable
     use HasFactory, HasRoles, Notifiable;
 
     protected $fillable = [
+        'username',
         'name',
         'email',
         'password',
@@ -48,6 +49,11 @@ class User extends Authenticatable
             'total_earned' => 'decimal:2',
             'total_withdrawn' => 'decimal:2',
         ];
+    }
+
+    public function affiliateSubId(): string
+    {
+        return strtolower($this->username);
     }
 
     protected static function boot(): void

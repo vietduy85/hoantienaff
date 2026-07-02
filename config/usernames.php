@@ -1,0 +1,32 @@
+<?php
+
+return [
+    'reserved' => [
+        'admin',
+        'administrator',
+        'api',
+        'login',
+        'logout',
+        'register',
+        'dashboard',
+        'wallet',
+        'orders',
+        'guide',
+        'profile',
+        'settings',
+        'support',
+        'help',
+        'docs',
+        'news',
+        'robots',
+        'favicon',
+        'www',
+        'mail',
+        'root',
+        'system',
+        'test',
+        'null',
+        'user',
+        'users',
+    ],
+];
