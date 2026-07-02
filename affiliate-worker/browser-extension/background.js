@@ -57,98 +57,95 @@ function scheduleNext(delay) {
 }
 
 async function poll() {
-  const { apiUrl, token, enabled } = await chrome.storage.sync.get(['apiUrl', 'token', 'enabled']);
-  if (enabled === false) {
-    scheduleNext(SLEEP_EMPTY);
-    return;
-  }
-  if (!apiUrl) {
-    scheduleNext(SLEEP_EMPTY);
-    return;
-  }
-
-  const params = new URLSearchParams({ token: token || '' });
-
-  let res;
   try {
-    res = await fetch(`${apiUrl}/api/extension/jobs?${params}`, {
-      headers: { Accept: 'application/json' },
-    });
-  } catch {
-    scheduleNext(SLEEP_ERROR);
-    return;
-  }
-  if (!res.ok) {
-    scheduleNext(SLEEP_ERROR);
-    return;
-  }
+    const { apiUrl, token, enabled } = await chrome.storage.sync.get(['apiUrl', 'token', 'enabled']);
+    if (enabled === false) {
+      scheduleNext(SLEEP_EMPTY);
+      return;
+    }
+    if (!apiUrl) {
+      scheduleNext(SLEEP_EMPTY);
+      return;
+    }
 
-  const body = await res.json();
-  const jobs = body.jobs ?? [];
-console.log('[Worker] Jobs:', jobs);
-  if (!jobs.length) {
+    const params = new URLSearchParams({ token: token || '' });
+
+    let res;
+    try {
+      res = await fetch(`${apiUrl}/api/extension/jobs?${params}`, {
+        headers: { Accept: 'application/json' },
+      });
+    } catch {
+      scheduleNext(SLEEP_ERROR);
+      return;
+    }
+    if (!res.ok) {
+      scheduleNext(SLEEP_ERROR);
+      return;
+    }
+
+    let body;
+    try {
+      body = await res.json();
+    } catch {
+      console.error('[Worker] Invalid JSON response');
+      scheduleNext(SLEEP_ERROR);
+      return;
+    }
+
+    const jobs = body.jobs ?? [];
+    console.log('[Worker] Jobs:', jobs);
+    if (!jobs.length) {
+      scheduleNext(SLEEP_EMPTY);
+      return;
+    }
+
+    const target = await getAffiliateTab();
+    if (!target) {
+      console.log("[Worker] Không tìm thấy tab Shopee");
+      scheduleNext(SLEEP_EMPTY);
+      return;
+    }
+
+    let response;
+    try {
+      console.log('[Worker] Sending to content script...');
+      response = await chrome.tabs.sendMessage(target.id, {
+        action: "process",
+        urls: jobs,
+      });
+      console.log('[Worker] Response:', response);
+    } catch (e) {
+      console.error("[Worker] sendMessage error:", e);
+      cachedTabId = null;
+    }
+
+    let results;
+    if (response?.ok && response?.results?.length) {
+      results = response.results;
+    } else {
+      results = jobs.map((j) => ({
+        id: j.id,
+        affiliate_url: '',
+        status: 'failed',
+      }));
+    }
+
+    try {
+      await fetch(`${apiUrl}/api/extension/results?${params}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ results }),
+      });
+    } catch {
+      // silent
+    }
+
+    scheduleNext(SLEEP_DONE);
+  } catch (e) {
+    console.error('[Worker] poll() unexpected error:', e);
     scheduleNext(SLEEP_EMPTY);
-    return;
   }
-
-  const target = await getAffiliateTab();
-
-  if (!target) {
-    console.log("[Worker] Không tìm thấy tab Shopee");
-    scheduleNext(SLEEP_EMPTY);
-    return;
-  }
-
-  let response;
-  try {
-	console.log('[Worker] Sending to content script...');
-    console.log("Before sendMessage");
-
-try {
-    response = await chrome.tabs.sendMessage(
-        target.id,
-        {
-            action: "process",
-            urls: jobs
-        }
-    );
-
-    console.log("After sendMessage");
-    console.log(response);
-
-} catch (e) {
-    console.error("sendMessage error:", e);
-    cachedTabId = null;
-}
-console.log('[Worker] Response:', response);
-  } catch {
-    scheduleNext(SLEEP_EMPTY);
-    return;
-  }
-
-  let results;
-
-  if (response?.ok && response?.results?.length) {
-    results = response.results;
-  } else {
-    results = jobs.map((j) => ({
-      id: j.id,
-      affiliate_url: '',
-      status: 'failed',
-    }));
-  }
-
-  try {
-    await fetch(`${apiUrl}/api/extension/results?${params}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ results }),
-    });
-  } catch {
-    // silent
-  }
-
-  scheduleNext(SLEEP_DONE);
 }
 console.log('[Worker] Loaded');
 scheduleNext(0);

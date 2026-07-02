@@ -35,7 +35,19 @@
 
                     <x-slot name="content">
                         <x-dropdown-link :href="route('profile.edit')">
-                            {{ __('Profile') }}
+                            {{ __('Tài khoản') }}
+                        </x-dropdown-link>
+
+                        <x-dropdown-link :href="route('wallet.index')">
+                            {{ __('Ví tiền') }}
+                        </x-dropdown-link>
+
+                        <x-dropdown-link :href="route('orders.index')">
+                            {{ __('Tra cứu đơn hàng') }}
+                        </x-dropdown-link>
+
+                        <x-dropdown-link :href="route('guide.index')">
+                            {{ __('Hướng dẫn') }}
                         </x-dropdown-link>
 
                         <!-- Authentication -->
@@ -45,7 +57,7 @@
                             <x-dropdown-link :href="route('logout')"
                                     onclick="event.preventDefault();
                                                 this.closest('form').submit();">
-                                {{ __('Log Out') }}
+                                {{ __('Đăng xuất') }}
                             </x-dropdown-link>
                         </form>
                     </x-slot>
@@ -81,7 +93,19 @@
 
             <div class="mt-3 space-y-1">
                 <x-responsive-nav-link :href="route('profile.edit')">
-                    {{ __('Profile') }}
+                    {{ __('Tài khoản') }}
+                </x-responsive-nav-link>
+
+                <x-responsive-nav-link :href="route('wallet.index')">
+                    {{ __('Ví tiền') }}
+                </x-responsive-nav-link>
+
+                <x-responsive-nav-link :href="route('orders.index')">
+                    {{ __('Tra cứu đơn hàng') }}
+                </x-responsive-nav-link>
+
+                <x-responsive-nav-link :href="route('guide.index')">
+                    {{ __('Hướng dẫn') }}
                 </x-responsive-nav-link>
 
                 <!-- Authentication -->
@@ -91,7 +115,7 @@
                     <x-responsive-nav-link :href="route('logout')"
                             onclick="event.preventDefault();
                                         this.closest('form').submit();">
-                        {{ __('Log Out') }}
+                        {{ __('Đăng xuất') }}
                     </x-responsive-nav-link>
                 </form>
             </div>
