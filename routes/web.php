@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\GuideController;
 use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
@@ -44,7 +45,8 @@ Route::middleware('auth')->group(function () {
 
     Route::view('/wallet', 'wallet.index')->name('wallet.index');
     Route::view('/orders', 'orders.index')->name('orders.index');
-    Route::view('/guide', 'guide.index')->name('guide.index');
+    Route::get('/guide', [GuideController::class, 'index'])->name('guide.index');
+    Route::get('/guide/{slug}', [GuideController::class, 'show'])->name('guide.show');
 });
 
 require __DIR__.'/auth.php';
