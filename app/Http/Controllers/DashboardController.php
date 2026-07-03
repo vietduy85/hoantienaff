@@ -228,6 +228,7 @@ class DashboardController extends Controller
 
         $platforms = [
             'shopee'  => 'Shopee',
+            'shp.ee' => 'Shopee',
             'lazada'  => 'Lazada',
             'tiktok'  => 'TikTok Shop',
             'tiki'    => 'Tiki',
