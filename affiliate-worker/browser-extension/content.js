@@ -23,6 +23,21 @@
   const getLinkButton = () =>
     [...document.querySelectorAll('button')].find((b) => b.innerText.trim().includes('Lấy link'));
 
+  const findSubIdInput = (ta) => {
+    const container = ta.closest('.ant-form') || ta.parentElement;
+    const inputs = [...container.querySelectorAll('input.ant-input')].filter(
+      (el) => !el.closest('.ant-modal')
+    );
+    if (inputs.length === 0) return null;
+    if (inputs.length === 1) return inputs[0];
+    let el = ta.nextElementSibling;
+    while (el) {
+      if (el instanceof HTMLInputElement && el.matches('input.ant-input')) return el;
+      el = el.nextElementSibling;
+    }
+    return inputs[0];
+  };
+
   const resultTextarea = () => document.querySelector('.ant-modal textarea');
 
   const closeModals = () => {
@@ -36,6 +51,17 @@
     ).set;
     setter.call(el, value);
     el.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+
+  const setReactInputValue = (el, value) => {
+    if (!(el instanceof HTMLInputElement)) return;
+    const setter = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      'value'
+    ).set;
+    setter.call(el, value);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
   };
 
   const isCaptcha = () => location.href.includes('verify/captcha');
@@ -84,11 +110,17 @@
     }
   };
 
-  async function processBatch(urls) {
+  async function processBatch(urls, username) {
     closeModals();
     const ta = await waitForMainTextarea();
 
     setReactValue(ta, urls.join('\n'));
+
+    const subIdInput = findSubIdInput(ta);
+    if (subIdInput && username) {
+      setReactInputValue(subIdInput, username);
+    }
+
     const btn = await waitForButtonReady();
     btn.click();
 
@@ -105,12 +137,12 @@
     return urls.map((_, i) => links[i] ?? '');
   }
 
-  async function processAll(urls, onProgress) {
+  async function processAll(urls, onProgress, username) {
     const results = [];
     const batches = chunk(urls, BATCH_SIZE);
     for (let b = 0; b < batches.length; b++) {
       onProgress(`Lô ${b + 1}/${batches.length}…`);
-      const shorts = await processBatch(batches[b]);
+      const shorts = await processBatch(batches[b], username);
       batches[b].forEach((u, i) => results.push({ url: u, short: shorts[i] }));
       onProgress(`Lô ${b + 1}/${batches.length} xong (${results.length}/${urls.length})`);
       if (b < batches.length - 1) await sleep(rnd(MIN_DELAY, MAX_DELAY));
@@ -123,7 +155,7 @@
 
     const urls = (msg.urls || []).map((j) => j.original_url ?? j.url ?? j);
 
-    processAll(urls, () => {})
+    processAll(urls, () => {}, msg.urls[0]?.username || '')
       .then((raw) => {
         const results = raw.map((r, i) => {
           const job = msg.urls[i];

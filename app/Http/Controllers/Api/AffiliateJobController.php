@@ -21,10 +21,12 @@ class AffiliateJobController extends Controller
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
-        $jobs = LinkRequest::where('status', 'pending')
-            ->orderBy('id')
+        $jobs = LinkRequest::select('link_requests.id', 'link_requests.original_url', 'users.username')
+            ->where('link_requests.status', 'pending')
+            ->join('users', 'link_requests.user_id', '=', 'users.id')
+            ->orderBy('link_requests.id')
             ->limit(5)
-            ->get(['id', 'original_url']);
+            ->get();
 
         if ($jobs->isNotEmpty()) {
             LinkRequest::whereIn('id', $jobs->pluck('id'))
