@@ -20,7 +20,6 @@ class OrderController extends Controller
             ->when($search, function ($q, $search) {
                 $q->where(function ($q) use ($search) {
                     $q->where('order_id', 'like', "%{$search}%")
-                      ->orWhere('username', 'like', "%{$search}%")
                       ->orWhere('shop_name', 'like', "%{$search}%")
                       ->orWhereIn('order_id', function ($q) use ($search) {
                           $q->select('order_id')

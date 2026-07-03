@@ -17,7 +17,7 @@
         <form method="GET" action="{{ route('orders.index') }}" class="space-y-3">
             <div class="relative">
                 <input type="search" name="search" value="{{ $search }}"
-                       placeholder="Tìm mã đơn, username, shop, sản phẩm..."
+                       placeholder="Tìm mã đơn, shop hoặc sản phẩm..."
                        class="w-full h-12 pl-4 pr-10 rounded-xl border border-gray-200 bg-white text-sm focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 transition-shadow shadow-sm">
                 <button type="submit" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -78,7 +78,6 @@
                 $sd = $statusDots[$order->affiliate_status] ?? '⚪';
 
                 $lastSync = $order->last_sync_at ? \Carbon\Carbon::parse($order->last_sync_at) : null;
-                $isRecentSync = $lastSync && $lastSync->diffInHours(now()) < 24;
             @endphp
 
             <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-5 space-y-3">
@@ -104,12 +103,16 @@
                             </svg>
                         </button>
                     </div>
-                    <span class="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border {{ $sc }}">
-                        {{ $sd }} {{ $order->affiliate_status }}
-                        @if ($isRecentSync)
-                            <span class="ml-1 text-[10px] bg-white/60 px-1 rounded">🟢 Mới</span>
+                    <div class="shrink-0 flex flex-col items-end gap-1.5">
+                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border {{ $sc }}">
+                            {{ $sd }} {{ $order->affiliate_status }}
+                        </span>
+                        @if ($lastSync)
+                            <span class="text-[11px] text-gray-400 leading-tight text-right">
+                                🕒 Cập nhật:<br>{{ $lastSync->format('d/m/Y H:i') }}
+                            </span>
                         @endif
-                    </span>
+                    </div>
                 </div>
 
                 {{-- Cashback --}}
@@ -135,14 +138,6 @@
                         {{ $order->ordered_at ? \Carbon\Carbon::parse($order->ordered_at)->format('d/m/Y') : '—' }}
                     </span>
                 </div>
-
-                {{-- Sync time --}}
-                @if ($lastSync)
-                    <div class="flex items-center gap-1 text-[11px] text-gray-400">
-                        <span>🕒</span>
-                        <span>Cập nhật: {{ $lastSync->format('d/m/Y H:i') }}</span>
-                    </div>
-                @endif
 
                 {{-- Arrow --}}
                 <a href="{{ route('orders.show', $order->order_id) }}" class="block">
