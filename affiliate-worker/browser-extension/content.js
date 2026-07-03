@@ -38,7 +38,12 @@
     return inputs[0];
   };
 
-  const resultTextarea = () => document.querySelector('.ant-modal textarea');
+  const resultTextarea = () => {
+    const modal = [...document.querySelectorAll('.ant-modal')].find(
+      (m) => getComputedStyle(m).display !== 'none' && getComputedStyle(m).visibility !== 'hidden'
+    );
+    return modal ? modal.querySelector('textarea') : null;
+  };
 
   const closeModals = () => {
     document.querySelectorAll('.ant-modal-close').forEach((b) => b.click());
@@ -90,12 +95,12 @@
     throw new Error('NO_BUTTON');
   };
 
-  const waitForResult = async (timeout = 18000) => {
+  const waitForResult = async (prevValue, timeout = 18000) => {
     const deadline = Date.now() + timeout;
     while (Date.now() < deadline) {
       if (isCaptcha()) throw new Error('CAPTCHA');
       const m = resultTextarea();
-      if (m && m.value && m.value.trim()) return m.value;
+      if (m && m.value && m.value.trim() && m.value !== prevValue) return m.value;
       await sleep(50);
     }
     if (isCaptcha()) throw new Error('CAPTCHA');
@@ -121,10 +126,11 @@
       setReactInputValue(subIdInput, username);
     }
 
+    const prevResult = (resultTextarea()?.value || '');
     const btn = await waitForButtonReady();
     btn.click();
 
-    const raw = await waitForResult();
+    const raw = await waitForResult(prevResult);
 
     const links = raw
       .split('\n')
