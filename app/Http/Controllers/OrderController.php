@@ -18,7 +18,16 @@ class OrderController extends Controller
 
         $orders = AffiliateOrderItem::where('user_id', $user->id)
             ->when($search, function ($q, $search) {
-                $q->where('order_id', 'like', "%{$search}%");
+                $q->where(function ($q) use ($search) {
+                    $q->where('order_id', 'like', "%{$search}%")
+                      ->orWhere('username', 'like', "%{$search}%")
+                      ->orWhere('shop_name', 'like', "%{$search}%")
+                      ->orWhereIn('order_id', function ($q) use ($search) {
+                          $q->select('order_id')
+                            ->from('affiliate_order_items')
+                            ->where('item_name', 'like', "%{$search}%");
+                      });
+                });
             })
             ->when($platform, function ($q, $platform) {
                 $q->where('platform', $platform);
@@ -35,6 +44,7 @@ class OrderController extends Controller
                 DB::raw('SUM(cashback_amount) as total_cashback'),
                 DB::raw('MAX(order_amount) as order_amount'),
                 DB::raw('COUNT(*) as item_count'),
+                DB::raw('MAX(last_shopee_sync_at) as last_sync_at'),
             ])
             ->groupBy('order_id', 'shop_name', 'ordered_at', 'affiliate_status', 'platform')
             ->orderBy('ordered_at', 'desc')
