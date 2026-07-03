@@ -343,9 +343,11 @@ class AffiliateImportShopee extends Command
                     $data['last_shopee_sync_at'] = $now;
 
                     // Recalculate cashback in case commission changed
+                    $itemAmount = (float) $data['item_price'] * (int) $data['quantity'];
+                    $productCommission = (float) $data['total_product_commission'];
                     $cashback = $this->calculateCashback(
-                        (float) $data['net_commission'],
-                        (float) $data['order_amount']
+                        $productCommission,
+                        $itemAmount
                     );
                     $data['cashback_rate'] = $cashback['rate'];
                     $data['cashback_amount'] = $cashback['amount'];
@@ -359,9 +361,11 @@ class AffiliateImportShopee extends Command
                     $data['first_imported_at'] = $now;
                     $data['last_shopee_sync_at'] = $now;
 
+                    $itemAmount = (float) $data['item_price'] * (int) $data['quantity'];
+                    $productCommission = (float) $data['total_product_commission'];
                     $cashback = $this->calculateCashback(
-                        (float) $data['net_commission'],
-                        (float) $data['order_amount']
+                        $productCommission,
+                        $itemAmount
                     );
                     $data['cashback_rate'] = $cashback['rate'];
                     $data['cashback_amount'] = $cashback['amount'];
@@ -519,23 +523,23 @@ class AffiliateImportShopee extends Command
     /**
      * Cashback business rule:
      *
-     * commission_rate = (net_commission × 0.9) / order_amount
+     * commission_rate = (total_product_commission × 0.9) / item_amount
      *
-     * If order_amount = 0 → cashback_rate = 0, cashback_amount = 0
+     * If item_amount <= 0 or total_product_commission <= 0 → cashback_rate = 0, cashback_amount = 0
      *
      * If commission_rate < 0.12   → cashback_rate = 50
      * If 0.12 <= commission_rate <= 0.52 → cashback_rate = 60
      * If commission_rate > 0.52   → cashback_rate = 70
      *
-     * cashback_amount = net_commission × cashback_rate / 100
+     * cashback_amount = total_product_commission × cashback_rate / 100
      */
-    private function calculateCashback(float $netCommission, float $orderAmount): array
+    private function calculateCashback(float $productCommission, float $itemAmount): array
     {
-        if ($orderAmount <= 0 || $netCommission <= 0) {
+        if ($itemAmount <= 0 || $productCommission <= 0) {
             return ['rate' => 0, 'amount' => 0];
         }
 
-        $commissionRate = ($netCommission * 0.9) / $orderAmount;
+        $commissionRate = ($productCommission * 0.9) / $itemAmount;
 
         if ($commissionRate < 0.12) {
             $cashbackRate = 50;
@@ -545,7 +549,7 @@ class AffiliateImportShopee extends Command
             $cashbackRate = 70;
         }
 
-        $cashbackAmount = $netCommission * $cashbackRate / 100;
+        $cashbackAmount = $productCommission * $cashbackRate / 100;
 
         return [
             'rate' => $cashbackRate,
