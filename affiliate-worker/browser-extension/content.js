@@ -138,7 +138,6 @@
       .filter(Boolean);
 
     closeModals();
-    await waitForModalGone();
 
     return urls.map((_, i) => links[i] ?? '');
   }
