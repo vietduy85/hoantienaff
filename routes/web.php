@@ -50,7 +50,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/complete-profile', [CompleteProfileController::class, 'create'])->name('complete-profile.create');
     Route::post('/complete-profile', [CompleteProfileController::class, 'store'])->name('complete-profile.store');
 
-    Route::view('/wallet', 'wallet.index')->name('wallet.index');
+    Route::get('/wallet', [App\Http\Controllers\WalletController::class, 'index'])->name('wallet.index');
     Route::get('/orders', [App\Http\Controllers\OrderController::class, 'index'])->name('orders.index');
     Route::get('/orders/{orderId}', [App\Http\Controllers\OrderController::class, 'show'])->name('orders.show');
     Route::get('/guide', [GuideController::class, 'index'])->name('guide.index');
