@@ -22,10 +22,16 @@ class WalletController extends Controller
             ")
             ->first();
 
+        $hasBankInfo = $user->bank_name && $user->bank_account_name && $user->bank_account_number;
+
         return view('wallet.index', [
             'available' => (float) $balances->available,
             'pending' => (float) $balances->pending,
             'paid' => (float) $balances->paid,
+            'hasBankInfo' => $hasBankInfo,
+            'bankName' => $user->bank_name,
+            'accountName' => $user->bank_account_name,
+            'accountNumber' => $user->bank_account_number,
         ]);
     }
 }
