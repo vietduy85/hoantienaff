@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ config('app.name', 'Hoàn Tiền') }}</title>
+    @vite(['resources/js/app.js', 'resources/js/in-app-browser.js'])
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=be-vietnam-pro:400,500,600,700,800&display=swap" rel="stylesheet" />
     <style>
@@ -204,61 +205,137 @@
     </style>
 </head>
 <body>
-    <div class="container">
-        <!-- Hero -->
-        <div class="hero">
-            <img src="{{ asset('images/hero-cashback.png') }}" alt="Hoàn Tiền">
+    <div x-data="{
+        showBrowserWarning: false,
+        isIOS: /iphone|ipad|ipod/.test(navigator.userAgent.toLowerCase()),
+        isAndroid: /android/.test(navigator.userAgent.toLowerCase()),
+        handleGoogleLogin() {
+            if (window.__inAppBrowser) {
+                this.showBrowserWarning = true;
+                return;
+            }
+            window.location.href = '{{ route('google.redirect') }}';
+        }
+    }">
+        <div class="container">
+            <!-- Hero -->
+            <div class="hero">
+                <img src="{{ asset('images/hero-cashback.png') }}" alt="Hoàn Tiền">
+            </div>
+
+            <!-- Badge -->
+            <div class="hero-badge">
+                <span class="hero-badge-fire">🔥</span>
+                <span class="hero-badge-text">Hoàn tiền đến 15% tại Shopee, Lazada, TikTok Shop</span>
+            </div>
+
+            <!-- Google CTA -->
+            <a href="{{ route('google.redirect') }}"
+               class="btn-google"
+           @click.prevent="handleGoogleLogin()"
+           aria-label="Đăng nhập bằng Google">
+                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
+                    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                </svg>
+                Đăng nhập bằng Google
+            </a>
+
+            <!-- Login / Register -->
+            @if (Route::has('login'))
+                <div class="auth-row">
+                    <a href="{{ route('login') }}" class="btn-login">Đăng nhập</a>
+                    @if (Route::has('register'))
+                        <a href="{{ route('register') }}" class="btn-register">Đăng ký</a>
+                    @endif
+                </div>
+            @endif
+
+            <!-- Benefits -->
+            <div class="benefits">
+                <div class="benefit-card">
+                    <span class="benefit-icon">💰</span>
+                    <div class="benefit-content">
+                        <div class="benefit-title">Hoàn tiền đến 15%</div>
+                        <div class="benefit-desc">Nhận tiền hoàn sau mỗi đơn hàng thành công.</div>
+                    </div>
+                </div>
+                <div class="benefit-card">
+                    <span class="benefit-icon">⚡</span>
+                    <div class="benefit-content">
+                        <div class="benefit-title">Tạo link hoàn tiền nhanh</div>
+                        <div class="benefit-desc">Dán link sản phẩm và nhận link chỉ trong vài giây.</div>
+                    </div>
+                </div>
+                <div class="benefit-card">
+                    <span class="benefit-icon">🛡</span>
+                    <div class="benefit-content">
+                        <div class="benefit-title">Theo dõi minh bạch</div>
+                        <div class="benefit-desc">Kiểm tra đơn hàng và hoa hồng dễ dàng.</div>
+                    </div>
+                </div>
+            </div>
         </div>
 
-        <!-- Badge -->
-        <div class="hero-badge">
-            <span class="hero-badge-fire">🔥</span>
-            <span class="hero-badge-text">Hoàn tiền đến 15% tại Shopee, Lazada, TikTok Shop</span>
-        </div>
+        {{-- Overlay in-app browser warning --}}
+        <div x-show="showBrowserWarning"
+             style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.75);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);z-index:2147483647;">
+            <div style="background:#1f2937;border-radius:20px;padding:28px;max-width:340px;width:calc(100% - 32px);box-shadow:0 25px 50px -12px rgba(0,0,0,0.5);text-align:center;">
 
-        <!-- Google CTA -->
-        <a href="{{ route('google.redirect') }}" class="btn-google">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
-                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-            </svg>
-            Đăng nhập bằng Google
-        </a>
+                {{-- Icon --}}
+                <div style="font-size:64px;margin-bottom:8px;line-height:1;">🌐</div>
 
-        <!-- Login / Register -->
-        @if (Route::has('login'))
-            <div class="auth-row">
-                <a href="{{ route('login') }}" class="btn-login">Đăng nhập</a>
-                @if (Route::has('register'))
-                    <a href="{{ route('register') }}" class="btn-register">Đăng ký</a>
-                @endif
-            </div>
-        @endif
+                {{-- Title --}}
+                <div style="color:white;font-weight:700;font-size:18px;line-height:1.4;margin-bottom:28px;">
+                    Đăng nhập Google cần mở bằng trình duyệt
+                </div>
 
-        <!-- Benefits -->
-        <div class="benefits">
-            <div class="benefit-card">
-                <span class="benefit-icon">💰</span>
-                <div class="benefit-content">
-                    <div class="benefit-title">Hoàn tiền đến 15%</div>
-                    <div class="benefit-desc">Nhận tiền hoàn sau mỗi đơn hàng thành công.</div>
+                {{-- Android: button --}}
+                <div x-show="isAndroid" style="margin-bottom:24px;">
+                    <button @click="window.__openInBrowser('https://hoantien.xyz')"
+                            style="width:100%;max-width:280px;height:56px;background:#10b981;color:white;font-weight:700;font-size:16px;border-radius:16px;border:none;cursor:pointer;box-shadow:0 20px 25px -5px rgba(0,0,0,0.3);"
+                            aria-label="Mở bằng trình duyệt">
+                        🌐 MỞ BẰNG TRÌNH DUYỆT
+                    </button>
                 </div>
-            </div>
-            <div class="benefit-card">
-                <span class="benefit-icon">⚡</span>
-                <div class="benefit-content">
-                    <div class="benefit-title">Tạo link hoàn tiền nhanh</div>
-                    <div class="benefit-desc">Dán link sản phẩm và nhận link chỉ trong vài giây.</div>
+
+                {{-- Instructions card --}}
+                <div style="background:rgba(255,255,255,0.08);border-radius:16px;padding:20px;text-align:left;">
+
+                    {{-- iOS steps --}}
+                    <div x-show="isIOS">
+                        <div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:14px;">
+                            <div style="background:rgba(255,255,255,0.15);border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:13px;flex-shrink:0;">1</div>
+                            <div style="color:rgba(255,255,255,0.9);font-size:14px;line-height:1.5;">Nhấn nút <strong style="font-size:18px;">⋯</strong> ở góc trên bên phải</div>
+                        </div>
+                        <div style="display:flex;gap:12px;align-items:flex-start;">
+                            <div style="background:rgba(255,255,255,0.15);border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:13px;flex-shrink:0;">2</div>
+                            <div style="color:rgba(255,255,255,0.9);font-size:14px;line-height:1.5;">Chọn <strong>"Mở bằng Safari"</strong></div>
+                        </div>
+                    </div>
+
+                    {{-- Android steps --}}
+                    <div x-show="isAndroid">
+                        <div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:14px;">
+                            <div style="background:rgba(255,255,255,0.15);border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:13px;flex-shrink:0;">1</div>
+                            <div style="color:rgba(255,255,255,0.9);font-size:14px;line-height:1.5;">Nhấn nút <strong style="font-size:18px;">⋮</strong> ở góc trên bên phải</div>
+                        </div>
+                        <div style="display:flex;gap:12px;align-items:flex-start;">
+                            <div style="background:rgba(255,255,255,0.15);border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:13px;flex-shrink:0;">2</div>
+                            <div style="color:rgba(255,255,255,0.9);font-size:14px;line-height:1.5;">Chọn <strong>"Mở bằng trình duyệt"</strong></div>
+                        </div>
+                    </div>
+
                 </div>
-            </div>
-            <div class="benefit-card">
-                <span class="benefit-icon">🛡</span>
-                <div class="benefit-content">
-                    <div class="benefit-title">Theo dõi minh bạch</div>
-                    <div class="benefit-desc">Kiểm tra đơn hàng và hoa hồng dễ dàng.</div>
-                </div>
+
+                {{-- Close button --}}
+                <button @click="showBrowserWarning = false"
+                        style="width:100%;height:48px;background:rgba(255,255,255,0.1);color:rgba(255,255,255,0.8);font-weight:600;font-size:15px;border:1px solid rgba(255,255,255,0.2);border-radius:12px;cursor:pointer;margin-top:24px;"
+                        aria-label="Đóng">
+                    Đóng
+                </button>
             </div>
         </div>
     </div>
