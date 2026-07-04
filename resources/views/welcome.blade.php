@@ -215,6 +215,20 @@
                 return;
             }
             window.location.href = '{{ route('google.redirect') }}';
+        },
+        handleLogin() {
+            if (window.__inAppBrowser) {
+                this.showBrowserWarning = true;
+                return;
+            }
+            window.location.href = '{{ route('login') }}';
+        },
+        handleRegister() {
+            if (window.__inAppBrowser) {
+                this.showBrowserWarning = true;
+                return;
+            }
+            window.location.href = '{{ route('register') }}';
         }
     }">
         <div class="container">
@@ -246,9 +260,9 @@
             <!-- Login / Register -->
             @if (Route::has('login'))
                 <div class="auth-row">
-                    <a href="{{ route('login') }}" class="btn-login">Đăng nhập</a>
+                    <a href="{{ route('login') }}" class="btn-login" @click.prevent="handleLogin()">Đăng nhập</a>
                     @if (Route::has('register'))
-                        <a href="{{ route('register') }}" class="btn-register">Đăng ký</a>
+                        <a href="{{ route('register') }}" class="btn-register" @click.prevent="handleRegister()">Đăng ký</a>
                     @endif
                 </div>
             @endif
@@ -288,8 +302,8 @@
                 <div style="font-size:64px;margin-bottom:8px;line-height:1;">🌐</div>
 
                 {{-- Title --}}
-                <div style="color:white;font-weight:700;font-size:18px;line-height:1.4;margin-bottom:28px;">
-                    Đăng nhập Google cần mở bằng trình duyệt
+                <div style="color:white;font-weight:600;font-size:16px;line-height:1.6;margin-bottom:28px;">
+                    Một số trình duyệt trong ứng dụng không hỗ trợ đăng nhập hoặc đăng ký.<br><br>Vui lòng mở trang bằng trình duyệt để tiếp tục.
                 </div>
 
                 {{-- Android: button --}}
