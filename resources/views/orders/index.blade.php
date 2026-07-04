@@ -6,7 +6,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/>
                 </svg>
             </a>
-            <h2 class="font-semibold text-xl text-gray-800 leading-tight">
+            <h2 class="font-bold text-2xl text-gray-800 leading-tight tracking-tight">
                 {{ __('Tra cứu đơn hàng') }}
             </h2>
         </div>
@@ -85,7 +85,7 @@
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2 min-w-0">
                         <span class="shrink-0">📦</span>
-                        <span class="font-mono text-sm font-semibold text-gray-800 truncate">{{ $order->order_id }}</span>
+                        <span class="font-mono text-sm text-gray-800 truncate">{{ $order->order_id }}</span>
                         <button @click="
                             navigator.clipboard.writeText('{{ $order->order_id }}').then(() => {
                                 show = true; message = '✓ Đã sao chép mã đơn';
@@ -108,8 +108,8 @@
                             {{ $sd }} {{ $order->affiliate_status }}
                         </span>
                         @if ($lastSync)
-                            <span class="text-[11px] text-gray-400 leading-tight text-right">
-                                🕒 Cập nhật:<br>{{ $lastSync->format('d/m/Y H:i') }}
+                            <span class="text-xs text-gray-400 text-right">
+                                🕒 Cập nhật<br>{{ $lastSync->format('d/m/Y H:i') }}
                             </span>
                         @endif
                     </div>
@@ -117,7 +117,7 @@
 
                 {{-- Cashback --}}
                 @if ($order->total_cashback > 0)
-                    <div class="text-emerald-600 font-bold text-xl sm:text-2xl">
+                    <div class="text-emerald-600 font-bold text-xl">
                         💵 +{{ number_format($order->total_cashback, 0, ',', '.') }}đ
                     </div>
                 @endif

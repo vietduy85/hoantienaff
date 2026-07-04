@@ -103,16 +103,16 @@
     class="bg-white rounded-2xl shadow-md border-2 border-emerald-400 max-[390px]:p-3 p-4 -mx-1"
 >
     <div class="text-center max-[390px]:mb-2 mb-2.5">
-        <h2 class="font-bold text-gray-900 max-[390px]:text-base text-lg">Tạo Link Hoàn Tiền</h2>
-        <p class="max-[390px]:text-[11px] text-xs text-gray-400 mt-0.5">
-            Hỗ trợ Shopee • Lazada • TikTok Shop • Tiki
-        </p>
+        <h2 class="font-semibold text-gray-900 text-lg" style="font-family: 'Inter', sans-serif">Tạo Link Hoàn Tiền</h2>
+            <p class="text-xs text-gray-400 mt-0.5">
+                Hỗ trợ Shopee • Lazada • TikTok Shop • Tiki
+            </p>
     </div>
 
     <template x-if="error">
         <div class="bg-red-50 border border-red-200 rounded-xl max-[390px]:px-2.5 max-[390px]:py-1.5 px-3 py-2 max-[390px]:mb-2 mb-2.5 flex items-start gap-1.5">
             <span class="max-[390px]:text-sm text-base shrink-0">❌</span>
-            <p class="max-[390px]:text-[11px] text-xs text-red-700 font-medium" x-text="error"></p>
+            <p class="text-xs text-red-700" x-text="error"></p>
         </div>
     </template>
 
@@ -135,7 +135,7 @@
             type="button"
             @click="submit"
             x-bind:disabled="loading"
-            class="w-full max-[390px]:h-12 h-13 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white max-[390px]:text-sm text-base font-bold rounded-xl shadow-lg shadow-emerald-200 hover:shadow-emerald-300 transition-all duration-150 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+            class="w-full h-13 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white text-sm font-semibold rounded-xl shadow-lg shadow-emerald-200 hover:shadow-emerald-300 transition-all duration-150 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed" style="font-family: 'Inter', sans-serif"
         >
             <template x-if="!loading">
                 <span class="max-[390px]:text-lg text-xl">🚀</span>
@@ -151,24 +151,24 @@
         <div class="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-xl border border-emerald-200 max-[390px]:p-3 p-4">
             <div class="flex items-center gap-1.5 mb-2.5">
                 <span class="max-[390px]:text-base text-lg">🎉</span>
-                <h3 class="max-[390px]:text-sm text-base font-bold text-emerald-800">Link Hoàn Tiền</h3>
+                <h3 class="text-sm font-semibold text-emerald-800">Link Hoàn Tiền</h3>
             </div>
 
             <div class="space-y-2.5">
                 <div class="text-center bg-white rounded-xl border border-emerald-100 max-[390px]:px-3 max-[390px]:py-1.5 px-4 py-2">
-                    <p class="max-[390px]:text-[11px] text-xs text-gray-500">Bạn sẽ được hoàn</p>
-                    <p class="max-[390px]:text-2xl text-3xl font-extrabold text-emerald-600 leading-tight">
+                    <p class="text-xs text-gray-500">Bạn sẽ được hoàn</p>
+                    <p class="text-3xl font-bold text-emerald-600 leading-tight">
                         ≈ <span x-text="Number(result.user_estimated_cashback || 0).toLocaleString('vi-VN')"></span>đ
                     </p>
                 </div>
 
                 <div class="text-center">
-                    <p class="max-[390px]:text-[11px] text-xs text-gray-500">🔗 Link hoàn tiền</p>
+                    <p class="text-xs text-gray-500">🔗 Link hoàn tiền</p>
                     <a
                         x-bind:href="result.affiliate_url"
                         target="_blank"
                         rel="noopener noreferrer"
-                        class="block text-lg font-bold text-gray-800 text-center mt-2 mb-4 font-mono break-all cursor-pointer hover:underline hover:opacity-90 min-h-[44px] flex items-center justify-center"
+                        class="block text-sm text-gray-800 text-center mt-2 mb-4 font-mono break-all cursor-pointer hover:underline hover:opacity-90 min-h-[44px] flex items-center justify-center"
                         x-text="result.affiliate_url"
                     ></a>
                 </div>
@@ -177,19 +177,19 @@
                     <button
                         type="button"
                         @click="copyLink"
-                        class="flex-1 max-[390px]:h-11 h-12 bg-white hover:bg-emerald-50 active:bg-emerald-100 text-emerald-700 font-semibold max-[390px]:text-xs text-sm rounded-xl border-2 border-emerald-200 transition-all duration-150 flex items-center justify-center gap-1.5"
+                        class="flex-1 h-12 bg-white hover:bg-emerald-50 active:bg-emerald-100 text-emerald-700 font-semibold text-sm rounded-xl border-2 border-emerald-200 transition-all duration-150 flex items-center justify-center gap-1.5"
                     >
                         <span x-show="!copied" class="max-[390px]:text-base text-lg">📋</span>
                         <span x-show="!copied">Sao chép</span>
                         <span x-show="copied" x-cloak>✅</span>
-                        <span x-show="copied" x-cloak class="font-bold">Đã sao chép!</span>
+                        <span x-show="copied" x-cloak class="font-semibold">Đã sao chép!</span>
                     </button>
 
                     <a
                         x-bind:href="result.affiliate_url"
                         target="_blank"
                         rel="noopener noreferrer"
-                        class="flex-1 max-[390px]:h-11 h-12 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white font-bold max-[390px]:text-xs text-sm rounded-xl transition-all duration-150 flex items-center justify-center gap-1.5"
+                        class="flex-1 h-12 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white font-semibold text-sm rounded-xl transition-all duration-150 flex items-center justify-center gap-1.5"
                     >
                         <span class="max-[390px]:text-base text-lg">🛒</span>
                         <span>Mua ngay</span>

@@ -4,7 +4,7 @@
 
             {{-- Back --}}
             <a href="{{ route('guide.index') }}"
-                class="inline-flex items-center text-sm font-medium text-sky-600 hover:text-sky-700 transition-colors">
+                class="inline-flex items-center text-sm text-sky-600 hover:text-sky-700 transition-colors">
                 <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
                 </svg>

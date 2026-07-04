@@ -6,7 +6,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/>
                 </svg>
             </a>
-            <h2 class="font-semibold text-xl text-gray-800 leading-tight">
+            <h2 class="font-bold text-2xl text-gray-800 leading-tight tracking-tight">
                 {{ __('Ví tiền') }}
             </h2>
         </div>
@@ -45,8 +45,8 @@
             <div class="flex items-center justify-between">
                 <span class="text-sm font-medium text-gray-500">💰 Số dư khả dụng</span>
             </div>
-            <div class="text-emerald-600 font-bold text-3xl sm:text-4xl tracking-tight">
-                {{ number_format($available, 0, ',', '.') }}<span class="text-lg sm:text-xl">đ</span>
+            <div class="text-emerald-600 font-extrabold text-3xl tracking-tight">
+                {{ number_format($available, 0, ',', '.') }}<span class="text-lg">đ</span>
             </div>
 
             @if ($hasBankInfo)
@@ -62,7 +62,7 @@
                     </div>
                     <div class="flex items-center gap-2 text-gray-600">
                         <span>🔢</span>
-                        <span class="font-mono tracking-wider">{{ $maskedAccount }}</span>
+                        <span class="font-mono tracking-tight">{{ $maskedAccount }}</span>
                     </div>
                     <div class="flex items-center gap-2 text-gray-600">
                         <span>👤</span>
@@ -70,7 +70,7 @@
                     </div>
                 </div>
                 <button @click="showWithdraw = true"
-                        class="w-full h-12 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white font-semibold text-base rounded-xl transition-colors shadow-sm">
+                        class="w-full h-12 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white font-semibold text-sm rounded-xl transition-colors shadow-sm">
                     Rút tiền
                 </button>
             @else
@@ -98,8 +98,8 @@
                 <span class="text-lg">🕒</span>
                 <span class="text-sm font-medium text-gray-500">Tiền đang chờ về</span>
             </div>
-            <div class="text-amber-500 font-bold text-2xl sm:text-3xl tracking-tight">
-                {{ number_format($pending, 0, ',', '.') }}<span class="text-base sm:text-lg">đ</span>
+            <div class="text-amber-500 font-bold text-xl tracking-tight">
+                {{ number_format($pending, 0, ',', '.') }}<span class="text-sm">đ</span>
             </div>
         </div>
 
@@ -109,8 +109,8 @@
                 <span class="text-lg">💸</span>
                 <span class="text-sm font-medium text-gray-500">Đã thanh toán</span>
             </div>
-            <div class="text-blue-500 font-bold text-2xl sm:text-3xl tracking-tight">
-                {{ number_format($paid, 0, ',', '.') }}<span class="text-base sm:text-lg">đ</span>
+            <div class="text-blue-500 font-bold text-xl tracking-tight">
+                {{ number_format($paid, 0, ',', '.') }}<span class="text-sm">đ</span>
             </div>
         </div>
 
@@ -135,10 +135,10 @@
                 <table class="w-full text-sm">
                     <thead>
                         <tr class="border-b border-gray-100">
-                            <th class="px-5 py-3 text-left text-gray-400 font-medium text-xs uppercase tracking-wider">Mã yêu cầu</th>
-                            <th class="px-5 py-3 text-right text-gray-400 font-medium text-xs uppercase tracking-wider">Số tiền</th>
-                            <th class="px-5 py-3 text-center text-gray-400 font-medium text-xs uppercase tracking-wider">Trạng thái</th>
-                            <th class="px-5 py-3 text-right text-gray-400 font-medium text-xs uppercase tracking-wider">Ngày</th>
+                            <th class="px-5 py-3 text-left text-gray-400 font-medium text-xs uppercase">Mã yêu cầu</th>
+                            <th class="px-5 py-3 text-right text-gray-400 font-medium text-xs uppercase">Số tiền</th>
+                            <th class="px-5 py-3 text-center text-gray-400 font-medium text-xs uppercase">Trạng thái</th>
+                            <th class="px-5 py-3 text-right text-gray-400 font-medium text-xs uppercase">Ngày</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -198,7 +198,7 @@
                 </div>
                 <div class="flex items-center gap-2 text-gray-600">
                     <span>🔢</span>
-                    <span class="font-mono tracking-wider">{{ $maskedAccount }}</span>
+                    <span class="font-mono tracking-tight">{{ $maskedAccount }}</span>
                 </div>
                 <div class="flex items-center gap-2 text-gray-600">
                     <span>👤</span>
@@ -252,11 +252,11 @@
                         :class="canSubmit
                             ? 'bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 shadow-sm'
                             : 'bg-gray-200 cursor-not-allowed'"
-                        class="w-full h-12 text-white font-semibold text-base rounded-xl transition-colors">
+                        class="w-full h-12 text-white font-semibold text-sm rounded-xl transition-colors">
                     Xác nhận
                 </button>
                 <button @click="showWithdraw = false"
-                        class="w-full h-12 bg-gray-100 hover:bg-gray-200 active:bg-gray-300 text-gray-700 font-semibold text-base rounded-xl transition-colors">
+                        class="w-full h-12 bg-gray-100 hover:bg-gray-200 active:bg-gray-300 text-gray-700 font-semibold text-sm rounded-xl transition-colors">
                     Hủy
                 </button>
             </div>

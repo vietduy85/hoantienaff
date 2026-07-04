@@ -7,7 +7,7 @@
                 </svg>
             </a>
             <div class="min-w-0">
-                <h2 class="font-semibold text-base sm:text-xl text-gray-800 leading-tight truncate">
+                <h2 class="font-bold text-sm text-gray-800 truncate">
                     {{ $summary->order_id }}
                 </h2>
             </div>
@@ -41,7 +41,7 @@
 
         <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-2">
             <div class="flex items-center justify-between">
-                <span class="font-mono text-sm font-semibold text-gray-800">📦 {{ $summary->order_id }}</span>
+                <span class="font-mono text-sm text-gray-800">📦 {{ $summary->order_id }}</span>
                 <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border {{ $sc }}">
                     {{ $sd }} {{ $summary->affiliate_status }}
                 </span>
@@ -64,7 +64,7 @@
                 {{-- Item name + platform --}}
                 <div class="flex items-start justify-between gap-2">
                     <div class="min-w-0">
-                        <p class="text-sm font-semibold text-gray-800 leading-snug line-clamp-2">{{ $item->item_name ?? '—' }}</p>
+                        <p class="text-sm font-medium text-gray-800 line-clamp-2">{{ $item->item_name ?? '—' }}</p>
                         @if ($item->model_id)
                             <p class="text-xs text-gray-400 mt-0.5">Model: {{ $item->model_id }}</p>
                         @endif
@@ -103,7 +103,7 @@
                 {{-- Cashback --}}
                 <div class="flex items-center justify-between">
                     <span class="text-sm text-gray-500">Cashback</span>
-                    <span class="text-base sm:text-lg font-bold text-emerald-600">💵 +{{ number_format($item->cashback_amount, 0, ',', '.') }}đ</span>
+                    <span class="text-lg font-bold text-emerald-600">💵 +{{ number_format($item->cashback_amount, 0, ',', '.') }}đ</span>
                 </div>
 
                 {{-- Status --}}

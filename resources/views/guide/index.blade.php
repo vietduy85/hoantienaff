@@ -59,7 +59,7 @@
                     </div>
 
                     {{-- Title --}}
-                    <h3 class="mt-4 text-base font-semibold text-gray-900 group-hover:text-sky-600 transition-colors">
+                    <h3 class="mt-4 text-lg font-semibold text-gray-900 group-hover:text-sky-600 transition-colors">
                         {{ $guide['title'] }}
                     </h3>
 
