@@ -1,14 +1,21 @@
-<nav x-data="{ open: false }" class="bg-white border-b border-gray-100">
+<nav x-data="{ open: false, showSupport: false }" class="bg-white border-b border-gray-100">
     <!-- Primary Navigation Menu -->
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex justify-between h-16">
-            <div class="flex">
-                <!-- Logo -->
-                <div class="shrink-0 flex items-center">
-                    <a href="{{ route('dashboard') }}">
-                        <x-application-logo class="block h-9 w-auto fill-current text-gray-800" />
-                    </a>
-                </div>
+        <div class="flex justify-between h-14 sm:h-16">
+            <div class="flex items-center gap-5 sm:gap-6">
+                <!-- Trang chủ -->
+                <a href="{{ route('dashboard') }}"
+                   class="font-semibold text-emerald-600 hover:text-emerald-700 active:text-emerald-800 transition-colors text-sm sm:text-base whitespace-nowrap"
+                   aria-label="Trang chủ">
+                    Trang chủ
+                </a>
+
+                <!-- Hỗ trợ -->
+                <button @click="showSupport = true"
+                        class="font-semibold text-emerald-600 hover:text-emerald-700 active:text-emerald-800 transition-colors text-sm sm:text-base whitespace-nowrap"
+                        aria-label="Hỗ trợ">
+                    Hỗ trợ
+                </button>
 
                 <!-- Navigation Links -->
                 <div class="hidden space-x-8 sm:-my-px sm:ms-10 sm:flex">
@@ -121,4 +128,66 @@
             </div>
         </div>
     </div>
+
+    {{-- Bottom Sheet: Hỗ trợ --}}
+    <x-bottom-sheet show="showSupport" title="Hỗ trợ">
+        {{-- Zalo cá nhân --}}
+        <div class="bg-gray-50 rounded-2xl p-4 space-y-3">
+            <div class="flex items-center gap-2">
+                <span class="text-lg" aria-hidden="true">💬</span>
+                <span class="font-semibold text-gray-800 text-sm">Zalo hỗ trợ</span>
+            </div>
+            <p class="text-sm text-gray-500 font-mono tracking-wide">090***990</p>
+            <a href="https://zalo.me/0908505990"
+               target="_blank" rel="noopener noreferrer"
+               class="inline-flex items-center justify-center w-full h-11 bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white font-semibold text-sm rounded-xl transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+               aria-label="Mở Zalo hỗ trợ">
+                Mở Zalo
+            </a>
+        </div>
+
+        {{-- Nhóm Zalo --}}
+        <div class="bg-gray-50 rounded-2xl p-4 space-y-3">
+            <div class="flex items-center gap-2">
+                <span class="text-lg" aria-hidden="true">👥</span>
+                <span class="font-semibold text-gray-800 text-sm">Nhóm Săn Voucher, Deal Hot Shopee</span>
+            </div>
+            <div class="text-sm text-gray-500 leading-relaxed space-y-1">
+                <p>Tham gia nhóm để nhận:</p>
+                <ul class="list-disc list-inside space-y-0.5">
+                    <li>Voucher Shopee mới nhất</li>
+                    <li>Mã giảm giá</li>
+                    <li>Deal Hot mỗi ngày</li>
+                    <li>Thông báo cập nhật HoanTien.xyz</li>
+                </ul>
+            </div>
+            <a href="https://zalo.me/g/zrlr2wd7pxkeqnjjfyus"
+               target="_blank" rel="noopener noreferrer"
+               class="inline-flex items-center justify-center w-full h-11 bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white font-semibold text-sm rounded-xl transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+               aria-label="Tham gia nhóm Zalo">
+                Tham gia nhóm
+            </a>
+        </div>
+
+        {{-- Email --}}
+        <div class="bg-gray-50 rounded-2xl p-4 space-y-3">
+            <div class="flex items-center gap-2">
+                <span class="text-lg" aria-hidden="true">📧</span>
+                <span class="font-semibold text-gray-800 text-sm">Email</span>
+            </div>
+            <p class="text-sm text-gray-500 select-all">tintuctonghop101@gmail.com</p>
+            <a href="mailto:tintuctonghop101@gmail.com"
+               class="inline-flex items-center justify-center w-full h-11 bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white font-semibold text-sm rounded-xl transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+               aria-label="Gửi Email">
+                Gửi Email
+            </a>
+        </div>
+
+        {{-- Thông điệp --}}
+        <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+            <p class="text-xs sm:text-sm text-amber-800 leading-relaxed">
+                🎁 Mua Shopee qua HoanTien.xyz để được hoàn lại từ 50%–70% hoa hồng Affiliate (tùy từng sản phẩm và chính sách áp dụng). Nếu đã mua sắm, đừng bỏ lỡ khoản tiền hoàn dành cho bạn!
+            </p>
+        </div>
+    </x-bottom-sheet>
 </nav>
