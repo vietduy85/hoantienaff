@@ -16,8 +16,12 @@ class AffiliateJobController extends Controller
 
     public function jobs(Request $request): JsonResponse
     {
+        \Illuminate\Support\Facades\Log::debug('[ENTER jobs] token=' . $request->query('token', '(none)') . ' ip=' . $request->ip() . ' ua=' . substr($request->userAgent() ?? 'unknown', 0, 80));
+
         $token = $request->query('token');
-        if ($token !== config('services.affiliate_extension.token')) {
+        $expected = config('services.affiliate_extension.token');
+        if ($token !== $expected) {
+            \Illuminate\Support\Facades\Log::debug('[ENTER jobs] UNAUTHORIZED: token provided=' . substr($token ?? 'null', 0, 20) . ' expected=' . substr($expected ?? 'null', 0, 20));
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
@@ -32,6 +36,8 @@ class AffiliateJobController extends Controller
             LinkRequest::whereIn('id', $jobs->pluck('id'))
                 ->update(['status' => 'processing']);
         }
+
+        \Illuminate\Support\Facades\Log::debug('[RETURN jobs] count=' . $jobs->count() . ' ids=' . $jobs->pluck('id')->implode(','));
 
         return response()->json(['jobs' => $jobs]);
     }

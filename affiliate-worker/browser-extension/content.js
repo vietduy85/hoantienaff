@@ -116,28 +116,54 @@
   };
 
   async function processBatch(urls, username) {
+    console.log('[CONTENT-BATCH] start, urls:', urls);
+
+    console.log('[CONTENT-BATCH] closeModals...');
     closeModals();
+
+    console.log('[CONTENT-BATCH] waitForMainTextarea...');
     const ta = await waitForMainTextarea();
+    console.log('[CONTENT-BATCH] mainTextarea found:', !!ta, ta?.id || ta?.className || '');
 
+    console.log('[CONTENT-BATCH] setReactValue with:', urls.join('\\n'));
     setReactValue(ta, urls.join('\n'));
+    console.log('[CONTENT-BATCH] setReactValue done, now value=', (ta?.value || '').substring(0, 60).replace(/\n/g, '\\n'));
 
+    console.log('[CONTENT-BATCH] findSubIdInput...');
     const subIdInput = findSubIdInput(ta);
+    console.log('[CONTENT-BATCH] subIdInput found:', !!subIdInput);
     if (subIdInput && username) {
+      console.log('[CONTENT-BATCH] setReactInputValue with username:', username);
       setReactInputValue(subIdInput, username);
+      console.log('[CONTENT-BATCH] subIdInput value after set:', subIdInput.value);
     }
 
+    console.log('[CONTENT-BATCH] get prevResult...');
     const prevResult = (resultTextarea()?.value || '');
+    console.log('[CONTENT-BATCH] prevResult:', prevResult ? prevResult.substring(0, 40) : '(empty)');
+
+    console.log('[CONTENT-BATCH] waitForButtonReady...');
     const btn = await waitForButtonReady();
+    console.log('[CONTENT-BATCH] button found:', !!btn, btn?.innerText?.trim());
+
+    console.log('[CONTENT-BATCH] clicking button...');
     btn.click();
+    console.log('[CONTENT-BATCH] clicked, waiting for result...');
 
+    console.log('[CONTENT-BATCH] waitForResult...');
     const raw = await waitForResult(prevResult);
+    console.log('[CONTENT-BATCH] result raw:', (raw || '').substring(0, 100).replace(/\n/g, '\\n'));
 
+    console.log('[CONTENT-BATCH] parsing links...');
     const links = raw
       .split('\n')
       .map((s) => s.trim())
       .filter(Boolean);
+    console.log('[CONTENT-BATCH] parsed links count:', links.length);
 
+    console.log('[CONTENT-BATCH] closeModals...');
     closeModals();
+    console.log('[CONTENT-BATCH] returning ' + urls.length + ' results');
 
     return urls.map((_, i) => links[i] ?? '');
   }
@@ -156,12 +182,25 @@
   }
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-    if (msg.action !== 'process') return;
+    console.log('[CONTENT] onMessage fired');
+    console.log('[CONTENT] msg.action:', msg.action);
+    console.log('[CONTENT] msg.urls count:', msg.urls?.length);
+    console.log('[CONTENT] msg.urls[0]:', msg.urls?.[0] ? JSON.stringify({ id: msg.urls[0].id, original_url: (msg.urls[0].original_url || '').substring(0, 60), username: msg.urls[0].username }) : 'undefined');
+    console.log('[CONTENT] _sender.tab?.id:', _sender.tab?.id);
+    console.log('[CONTENT] _sender.tab?.url:', _sender.tab?.url);
+
+    if (msg.action !== 'process') {
+      console.log('[CONTENT] wrong action, returning');
+      return;
+    }
 
     const urls = (msg.urls || []).map((j) => j.original_url ?? j.url ?? j);
+    console.log('[CONTENT] extracted urls:', urls);
 
-    processAll(urls, () => {}, msg.urls[0]?.username || '')
+    console.log('[CONTENT] calling processAll...');
+    processAll(urls, (progress) => { console.log('[CONTENT] progress:', progress); }, msg.urls[0]?.username || '')
       .then((raw) => {
+        console.log('[CONTENT] processAll resolved, raw results:', raw);
         const results = raw.map((r, i) => {
           const job = msg.urls[i];
           return {
@@ -170,11 +209,14 @@
             affiliate_url: r.short || '',
           };
         });
-console.log("RETURNING RESULT TRUE");
+        console.log('[CONTENT] mapped results:', results.map(r => ({ id: r.id, affiliate_url: (r.affiliate_url || '').substring(0, 40) })));
+        console.log('[CONTENT] calling sendResponse({ok:true})');
         sendResponse({ ok: true, results });
       })
       .catch((e) => {
-console.log("RETURNING RESULT FALSE");
+        console.error('[CONTENT] processAll rejected:', e.message);
+        console.error('[CONTENT] processAll stack:', e.stack);
+        console.log('[CONTENT] calling sendResponse({ok:false})');
         sendResponse({ ok: false, error: e.message, results: [] });
       });
 

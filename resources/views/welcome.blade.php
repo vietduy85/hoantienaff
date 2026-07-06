@@ -303,7 +303,7 @@
 
                 {{-- Title --}}
                 <div style="color:white;font-weight:600;font-size:16px;line-height:1.6;margin-bottom:28px;">
-                    Một số trình duyệt trong ứng dụng không hỗ trợ đăng nhập hoặc đăng ký.<br><br>Vui lòng mở trang bằng trình duyệt để tiếp tục.
+                    Trình duyệt tích hợp của Zalo, Facebook, Messenger và một số ứng dụng khác không hỗ trợ đăng nhập và đăng ký.<br><br>Vui lòng mở trang bằng Safari, Chrome hoặc trình duyệt mặc định để tiếp tục.
                 </div>
 
                 {{-- Android: button --}}
