@@ -19,7 +19,7 @@
     <div x-data="{
             showWithdraw: false,
             rawAmount: '',
-            minWithdraw: 50000,
+            minWithdraw: 10000,
             maxWithdraw: {{ (int) $available }},
             formatAmount(val) {
                 return val ? parseInt(val).toLocaleString('de-DE') : '';
@@ -186,7 +186,7 @@
                 </div>
                 <div class="flex items-center justify-between text-xs text-gray-400">
                     <span>Có thể rút: <span class="font-medium text-gray-600">{{ number_format($available, 0, ',', '.') }}đ</span></span>
-                    <span>Rút tối thiểu: <span class="font-medium text-gray-600">50.000đ</span></span>
+                    <span>Rút tối thiểu: <span class="font-medium text-gray-600">10.000đ</span></span>
                 </div>
             </div>
 

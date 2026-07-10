@@ -290,6 +290,20 @@ class AffiliateImportShopee extends Command
             $data['agreed_commission_rate'] = $this->parseDecimal($data['agreed_commission_rate'] ?? 0);
             $data['net_commission'] = $this->parseDecimal($data['net_commission'] ?? 0);
 
+            // If sub_id1 is empty, generate default username based on channel
+            $rawSubId1 = $data['sub_id1'] ?? null;
+            if (!$rawSubId1 || trim($rawSubId1) === '') {
+                $channel = isset($data['channel']) ? trim($data['channel']) : '';
+                $data['sub_id1'] = match ($channel) {
+                    'Shopee', 'shopee', 'SHOPEE'     => 'NonameShopee',
+                    'Zalo', 'zalo', 'ZALO'           => 'NonameZalo',
+                    'Facebook', 'facebook', 'FACEBOOK' => 'NonameFacebook',
+                    'TikTok', 'tiktok', 'TIKTOK'     => 'NonameTikTok',
+                    'Website', 'website', 'WEBSITE'   => 'NonameWebsite',
+                    default                           => 'NonameUnknown',
+                };
+            }
+
             // User mapping: sub_id1 → users.username → users.id
             $username = $data['sub_id1'] ?? null;
             if ($username && trim($username) !== '') {
