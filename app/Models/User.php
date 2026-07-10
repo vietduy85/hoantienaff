@@ -111,16 +111,29 @@ class User extends Authenticatable
         return $this->hasMany(Purchase::class, 'affiliate_id');
     }
 
+    public function walletTransactions(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(WalletTransaction::class);
+    }
+
+    public function withdrawRequests(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(WithdrawRequest::class);
+    }
+
+    /** @deprecated Sử dụng walletTransactions() thay thế */
     public function transactions(): \Illuminate\Database\Eloquent\Relations\HasMany
     {
         return $this->hasMany(Transaction::class);
     }
 
+    /** @deprecated Sử dụng withdrawRequests() thay thế */
     public function withdrawals(): \Illuminate\Database\Eloquent\Relations\HasMany
     {
         return $this->hasMany(Withdrawal::class);
     }
 
+    /** @deprecated Sử dụng withdrawRequests() thay thế */
     public function processedWithdrawals(): \Illuminate\Database\Eloquent\Relations\HasMany
     {
         return $this->hasMany(Withdrawal::class, 'processed_by');
