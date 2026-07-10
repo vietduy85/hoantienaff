@@ -51,6 +51,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/complete-profile', [CompleteProfileController::class, 'store'])->name('complete-profile.store');
 
     Route::get('/wallet', [App\Http\Controllers\WalletController::class, 'index'])->name('wallet.index');
+    Route::post('/wallet/withdraw', [App\Http\Controllers\WalletController::class, 'withdraw'])->name('wallet.withdraw');
     Route::get('/orders', [App\Http\Controllers\OrderController::class, 'index'])->name('orders.index');
     Route::get('/orders/{orderId}', [App\Http\Controllers\OrderController::class, 'show'])->name('orders.show');
     Route::get('/guide', [GuideController::class, 'index'])->name('guide.index');
@@ -66,4 +67,16 @@ Route::prefix('api/extension')->group(function () {
 
 Route::middleware('auth')->group(function () {
     Route::get('/api/link-request/{id}', [App\Http\Controllers\Api\LinkRequestController::class, 'show']);
+});
+
+Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () {
+    Route::get('/withdraw-requests', [App\Http\Controllers\Admin\WithdrawRequestController::class, 'index'])
+        ->middleware('permission:withdrawals.view')
+        ->name('withdraw-requests.index');
+    Route::post('/withdraw-requests/{withdrawRequest}/complete', [App\Http\Controllers\Admin\WithdrawRequestController::class, 'complete'])
+        ->middleware('permission:withdrawals.manage')
+        ->name('withdraw-requests.complete');
+    Route::post('/withdraw-requests/{withdrawRequest}/reject', [App\Http\Controllers\Admin\WithdrawRequestController::class, 'reject'])
+        ->middleware('permission:withdrawals.manage')
+        ->name('withdraw-requests.reject');
 });

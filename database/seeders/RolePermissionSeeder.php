@@ -12,7 +12,7 @@ class RolePermissionSeeder extends Seeder
     {
         app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
 
-        $permissions = [
+        $permissionNames = [
             'users.view',
             'users.manage',
             'campaigns.view',
@@ -24,15 +24,16 @@ class RolePermissionSeeder extends Seeder
             'settings.manage',
         ];
 
-        foreach ($permissions as $permission) {
-            Permission::create(['name' => $permission]);
+        $permissions = collect();
+        foreach ($permissionNames as $name) {
+            $permissions->push(Permission::firstOrCreate(['name' => $name]));
         }
 
-        $admin = Role::create(['name' => 'Admin']);
-        $merchant = Role::create(['name' => 'Merchant']);
-        $affiliate = Role::create(['name' => 'Affiliate']);
-        $member = Role::create(['name' => 'Member']);
+        $admin = Role::firstOrCreate(['name' => 'Admin']);
+        $merchant = Role::firstOrCreate(['name' => 'Merchant']);
+        $affiliate = Role::firstOrCreate(['name' => 'Affiliate']);
+        $member = Role::firstOrCreate(['name' => 'Member']);
 
-        $admin->givePermissionTo($permissions);
+        $admin->syncPermissions($permissions);
     }
 }

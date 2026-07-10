@@ -12,6 +12,7 @@ use App\Models\WalletTransaction;
 use App\Models\WithdrawRequest;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 
 class WalletService
 {
@@ -103,7 +104,7 @@ class WalletService
                 'running_no' => $runningNo,
                 'user_id' => $user->id,
                 'username' => $user->username,
-                'platform' => $request->platform,
+                'platform' => null,
                 'type' => WalletTransaction::TYPE_WITHDRAW,
                 'direction' => WalletTransaction::DIRECTION_DEBIT,
                 'amount' => $amount,
@@ -133,6 +134,106 @@ class WalletService
 
             return $transaction;
         });
+    }
+
+    public function completeWithdraw(WithdrawRequest $request, User $admin): WalletTransaction
+    {
+        return DB::transaction(function () use ($request, $admin) {
+            $request = WithdrawRequest::where('id', $request->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if (! $request->isPending()) {
+                throw new InvalidWithdrawException(
+                    sprintf(
+                        'Yêu cầu rút tiền #%d không ở trạng thái pending (hiện tại: %s).',
+                        $request->id,
+                        $request->status,
+                    )
+                );
+            }
+
+            $exists = WalletTransaction::where('reference_type', 'withdraw_request')
+                ->where('reference_id', $request->id)
+                ->where('type', WalletTransaction::TYPE_WITHDRAW)
+                ->where('status', WalletTransaction::STATUS_COMPLETED)
+                ->exists();
+
+            if ($exists) {
+                throw new DuplicateWithdrawException($request->id);
+            }
+
+            $user = User::where('id', $request->user_id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $balance = (float) $user->wallet_balance;
+            $amount = (float) $request->amount;
+
+            if ($balance < $amount) {
+                throw new InsufficientBalanceException($balance, $amount);
+            }
+
+            $runningNo = $this->generateRunningNo();
+            $balanceAfter = $balance - $amount;
+
+            $transaction = WalletTransaction::create([
+                'running_no' => $runningNo,
+                'user_id' => $user->id,
+                'username' => $user->username,
+                'platform' => null,
+                'type' => WalletTransaction::TYPE_WITHDRAW,
+                'direction' => WalletTransaction::DIRECTION_DEBIT,
+                'amount' => $amount,
+                'balance_before' => $balance,
+                'balance_after' => $balanceAfter,
+                'reference_type' => 'withdraw_request',
+                'reference_id' => $request->id,
+                'description' => 'Rút tiền ' . $request->bank_name,
+                'status' => WalletTransaction::STATUS_COMPLETED,
+                'completed_at' => now(),
+                'processed_by' => $admin->id,
+                'metadata' => [
+                    'bank' => $request->bank_name,
+                    'account_number' => $request->bank_account,
+                    'account_name' => $request->account_name,
+                ],
+            ]);
+
+            $user->wallet_balance = $balanceAfter;
+            $user->total_withdrawn = (float) $user->total_withdrawn + $amount;
+            $user->save();
+
+            $request->update([
+                'status' => WithdrawRequest::STATUS_PAID,
+                'processed_by_user_id' => $admin->id,
+                'processed_at' => now(),
+            ]);
+
+            return $transaction;
+        });
+    }
+
+    public function rejectWithdraw(WithdrawRequest $request, User $admin, ?string $note = null): WithdrawRequest
+    {
+        if (! $request->isPending()) {
+            throw new InvalidWithdrawException(
+                sprintf(
+                    'Yêu cầu rút tiền #%d không ở trạng thái pending (hiện tại: %s).',
+                    $request->id,
+                    $request->status,
+                )
+            );
+        }
+
+        $request->update([
+            'status' => WithdrawRequest::STATUS_REJECTED,
+            'processed_by_user_id' => $admin->id,
+            'processed_at' => now(),
+            'note' => $note,
+        ]);
+
+        return $request->fresh();
     }
 
     public function adjust(
@@ -197,6 +298,72 @@ class WalletService
             ->sum('amount');
 
         return max(0, $balance - $pendingWithdrawTotal);
+    }
+
+    public function createWithdrawRequest(User $user, float $amount): WithdrawRequest
+    {
+        return DB::transaction(function () use ($user, $amount) {
+            if (!$user->bank_name || !$user->bank_account_number || !$user->bank_account_name) {
+                throw ValidationException::withMessages([
+                    'bank_info' => __('Bạn chưa cập nhật thông tin ngân hàng.'),
+                ]);
+            }
+
+            if ($this->getAvailableBalance($user) < $amount) {
+                throw ValidationException::withMessages([
+                    'amount' => __('Số dư khả dụng không đủ.'),
+                ]);
+            }
+
+            $existsPending = WithdrawRequest::where('user_id', $user->id)
+                ->where('status', WithdrawRequest::STATUS_PENDING)
+                ->lockForUpdate()
+                ->exists();
+
+            if ($existsPending) {
+                throw ValidationException::withMessages([
+                    'amount' => __('Bạn đang có một yêu cầu rút tiền chờ xử lý. Vui lòng đợi hệ thống xử lý hoặc hủy yêu cầu hiện tại trước khi tạo yêu cầu mới.'),
+                ]);
+            }
+
+            $runningNo = $this->generateWithdrawRunningNo();
+
+            $request = WithdrawRequest::create([
+                'running_no' => $runningNo,
+                'user_id' => $user->id,
+                'username' => $user->username,
+                'amount' => $amount,
+                'bank_name' => $user->bank_name,
+                'bank_account' => $user->bank_account_number,
+                'account_name' => $user->bank_account_name,
+                'status' => WithdrawRequest::STATUS_PENDING,
+                'processed_by_user_id' => null,
+                'processed_at' => null,
+                'note' => null,
+            ]);
+
+            return $request;
+        });
+    }
+
+    // TODO: Use RunningNumberService for centralized running number generation
+    public function generateWithdrawRunningNo(): string
+    {
+        $today = now()->format('Ymd');
+        $prefix = 'WR' . $today;
+
+        $lastRunningNo = WithdrawRequest::where('running_no', 'like', $prefix . '%')
+            ->lockForUpdate()
+            ->max('running_no');
+
+        if ($lastRunningNo) {
+            $lastSeq = (int) substr($lastRunningNo, strlen($prefix));
+            $newSeq = $lastSeq + 1;
+        } else {
+            $newSeq = 1;
+        }
+
+        return $prefix . str_pad((string) $newSeq, self::SEQ_PAD_LENGTH, '0', STR_PAD_LEFT);
     }
 
     public function isWithdrawCredited(WithdrawRequest $request): bool

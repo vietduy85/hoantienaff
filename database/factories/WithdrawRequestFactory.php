@@ -13,7 +13,6 @@ class WithdrawRequestFactory extends Factory
             'running_no' => 'WR' . now()->format('Ymd') . str_pad((string) $this->faker->unique()->numberBetween(1, 9999), 4, '0', STR_PAD_LEFT),
             'user_id' => User::factory(),
             'username' => $this->faker->userName(),
-            'platform' => 'Shopee',
             'amount' => $this->faker->randomFloat(0, 10000, 500000),
             'bank_name' => $this->faker->randomElement(['BIDV', 'Vietcombank', 'Techcombank', 'MB Bank']),
             'bank_account' => $this->faker->numerify('##########'),

@@ -122,7 +122,6 @@ class WalletServiceTest extends TestCase
         $withdrawRequest = WithdrawRequest::factory()->create([
             'user_id' => $this->user->id,
             'username' => $this->user->username,
-            'platform' => 'Shopee',
             'amount' => 50000,
             'bank_name' => 'BIDV',
             'bank_account' => '1234567890',
@@ -160,7 +159,6 @@ class WalletServiceTest extends TestCase
         $withdrawRequest = WithdrawRequest::factory()->create([
             'user_id' => $this->user->id,
             'username' => $this->user->username,
-            'platform' => 'Shopee',
             'amount' => 50000,
             'bank_name' => 'BIDV',
             'bank_account' => '1234567890',
@@ -181,7 +179,6 @@ class WalletServiceTest extends TestCase
         $withdrawRequest = WithdrawRequest::factory()->create([
             'user_id' => $this->user->id,
             'username' => $this->user->username,
-            'platform' => 'Shopee',
             'amount' => 50000,
             'bank_name' => 'BIDV',
             'bank_account' => '1234567890',
@@ -202,7 +199,6 @@ class WalletServiceTest extends TestCase
         $withdrawRequest = WithdrawRequest::factory()->create([
             'user_id' => $this->user->id,
             'username' => $this->user->username,
-            'platform' => 'Shopee',
             'amount' => 50000,
             'bank_name' => 'BIDV',
             'bank_account' => '1234567890',
@@ -464,7 +460,6 @@ class WalletServiceTest extends TestCase
         $withdrawRequest = WithdrawRequest::factory()->create([
             'user_id' => $this->user->id,
             'username' => $this->user->username,
-            'platform' => 'Shopee',
             'amount' => 50000,
             'bank_name' => 'BIDV',
             'bank_account' => '1234567890',
@@ -491,7 +486,6 @@ class WalletServiceTest extends TestCase
         $withdrawRequest = WithdrawRequest::factory()->create([
             'user_id' => $this->user->id,
             'username' => $this->user->username,
-            'platform' => 'Shopee',
             'amount' => 50000,
             'bank_name' => 'BIDV',
             'bank_account' => '1234567890',
@@ -500,5 +494,131 @@ class WalletServiceTest extends TestCase
         ]);
 
         $this->assertFalse($this->service->isWithdrawCredited($withdrawRequest));
+    }
+
+    public function test_complete_withdraw_creates_transaction_and_updates_balance(): void
+    {
+        $this->user->wallet_balance = 100000;
+        $this->user->total_withdrawn = 0;
+        $this->user->save();
+
+        $withdrawRequest = WithdrawRequest::factory()->create([
+            'user_id' => $this->user->id,
+            'username' => $this->user->username,
+            'amount' => 50000,
+            'bank_name' => 'BIDV',
+            'bank_account' => '1234567890',
+            'account_name' => 'TEST USER',
+            'status' => 'pending',
+        ]);
+
+        $transaction = $this->service->completeWithdraw($withdrawRequest, $this->admin);
+
+        $this->assertInstanceOf(WalletTransaction::class, $transaction);
+        $this->assertSame('withdraw', $transaction->type);
+        $this->assertSame('debit', $transaction->direction);
+        $this->assertSame(50000.0, (float) $transaction->amount);
+        $this->assertSame(100000.0, (float) $transaction->balance_before);
+        $this->assertSame(50000.0, (float) $transaction->balance_after);
+        $this->assertSame('completed', $transaction->status);
+        $this->assertSame($this->admin->id, $transaction->processed_by);
+        $this->assertSame('withdraw_request', $transaction->reference_type);
+        $this->assertSame($withdrawRequest->id, $transaction->reference_id);
+
+        $this->user->refresh();
+        $this->assertSame(50000.0, (float) $this->user->wallet_balance);
+        $this->assertSame(50000.0, (float) $this->user->total_withdrawn);
+
+        $withdrawRequest->refresh();
+        $this->assertSame('paid', $withdrawRequest->status);
+        $this->assertSame($this->admin->id, $withdrawRequest->processed_by_user_id);
+        $this->assertNotNull($withdrawRequest->processed_at);
+    }
+
+    public function test_complete_withdraw_throws_when_not_pending(): void
+    {
+        $this->user->wallet_balance = 100000;
+        $this->user->save();
+
+        $withdrawRequest = WithdrawRequest::factory()->create([
+            'user_id' => $this->user->id,
+            'username' => $this->user->username,
+            'amount' => 50000,
+            'bank_name' => 'BIDV',
+            'bank_account' => '1234567890',
+            'account_name' => 'TEST USER',
+            'status' => 'paid',
+        ]);
+
+        $this->expectException(InvalidWithdrawException::class);
+
+        $this->service->completeWithdraw($withdrawRequest, $this->admin);
+    }
+
+    public function test_complete_withdraw_throws_on_insufficient_balance(): void
+    {
+        $this->user->wallet_balance = 10000;
+        $this->user->save();
+
+        $withdrawRequest = WithdrawRequest::factory()->create([
+            'user_id' => $this->user->id,
+            'username' => $this->user->username,
+            'amount' => 50000,
+            'bank_name' => 'BIDV',
+            'bank_account' => '1234567890',
+            'account_name' => 'TEST USER',
+            'status' => 'pending',
+        ]);
+
+        $this->expectException(InsufficientBalanceException::class);
+
+        $this->service->completeWithdraw($withdrawRequest, $this->admin);
+    }
+
+    public function test_reject_withdraw_updates_status_and_does_not_create_transaction(): void
+    {
+        $this->user->wallet_balance = 100000;
+        $this->user->total_withdrawn = 0;
+        $this->user->save();
+
+        $withdrawRequest = WithdrawRequest::factory()->create([
+            'user_id' => $this->user->id,
+            'username' => $this->user->username,
+            'amount' => 50000,
+            'bank_name' => 'BIDV',
+            'bank_account' => '1234567890',
+            'account_name' => 'TEST USER',
+            'status' => 'pending',
+        ]);
+
+        $result = $this->service->rejectWithdraw($withdrawRequest, $this->admin, 'Sai thông tin tài khoản');
+
+        $this->assertSame('rejected', $result->status);
+        $this->assertSame('Sai thông tin tài khoản', $result->note);
+        $this->assertSame($this->admin->id, $result->processed_by_user_id);
+        $this->assertNotNull($result->processed_at);
+
+        $this->user->refresh();
+        $this->assertSame(100000.0, (float) $this->user->wallet_balance);
+        $this->assertSame(0.0, (float) $this->user->total_withdrawn);
+
+        $this->assertDatabaseCount('wallet_transactions', 0);
+    }
+
+    public function test_reject_withdraw_throws_when_not_pending(): void
+    {
+        $withdrawRequest = WithdrawRequest::factory()->create([
+            'user_id' => $this->user->id,
+            'username' => $this->user->username,
+            'amount' => 50000,
+            'bank_name' => 'BIDV',
+            'bank_account' => '1234567890',
+            'account_name' => 'TEST USER',
+            'status' => 'paid',
+        ]);
+
+        $this->expectException(InvalidWithdrawException::class);
+
+        $this->service->rejectWithdraw($withdrawRequest, $this->admin);
     }
 }

@@ -16,8 +16,17 @@
         $maskedAccount = $accountNumber ? str_repeat('*', max(0, strlen($accountNumber) - 4)) . substr($accountNumber, -4) : '';
     @endphp
 
+    @if (session('success'))
+        <div class="py-6 px-4 max-w-lg mx-auto">
+            <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-sm text-emerald-700">
+                {{ session('success') }}
+            </div>
+        </div>
+    @endif
+
     <div x-data="{
             showWithdraw: false,
+            loading: false,
             rawAmount: '',
             minWithdraw: 10000,
             maxWithdraw: {{ (int) $available }},
@@ -142,11 +151,34 @@
                         </tr>
                     </thead>
                     <tbody>
-                        <tr>
-                            <td colspan="4" class="px-5 py-8 text-center text-gray-300">
-                                Chưa có yêu cầu rút tiền nào
-                            </td>
-                        </tr>
+                        @forelse ($withdrawRequests as $wr)
+                            <tr class="border-b border-gray-50">
+                                <td class="px-5 py-3 text-left text-gray-700 font-mono text-xs">{{ $wr->running_no }}</td>
+                                <td class="px-5 py-3 text-right font-semibold text-gray-800">{{ number_format($wr->amount, 0, ',', '.') }}đ</td>
+                                <td class="px-5 py-3 text-center">
+                                    <span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium
+                                        @if($wr->status === 'pending') bg-amber-100 text-amber-800
+                                        @elseif($wr->status === 'paid') bg-emerald-100 text-emerald-800
+                                        @elseif($wr->status === 'rejected') bg-red-100 text-red-800
+                                        @else bg-gray-100 text-gray-800
+                                        @endif
+                                    ">
+                                        @if($wr->status === 'pending') Chờ xử lý
+                                        @elseif($wr->status === 'paid') Đã thanh toán
+                                        @elseif($wr->status === 'rejected') Từ chối
+                                        @else Đã huỷ
+                                        @endif
+                                    </span>
+                                </td>
+                                <td class="px-5 py-3 text-right text-gray-400 text-xs whitespace-nowrap">{{ $wr->created_at->format('d/m/Y') }}</td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="4" class="px-5 py-8 text-center text-gray-300">
+                                    Chưa có yêu cầu rút tiền nào
+                                </td>
+                            </tr>
+                        @endforelse
                     </tbody>
                 </table>
             </div>
@@ -168,15 +200,31 @@
         <div class="absolute inset-0 bg-black/40" @click="showWithdraw = false"></div>
 
         {{-- Sheet --}}
-        <div class="relative w-full bg-white rounded-t-2xl shadow-2xl px-5 pt-6 pb-8 space-y-5 max-h-[75vh] overflow-y-auto">
+        <form method="POST" action="{{ route('wallet.withdraw') }}"
+              @submit="if (!canSubmit) $event.preventDefault(); loading = true"
+              class="relative w-full bg-white rounded-t-2xl shadow-2xl px-5 pt-6 pb-8 space-y-5 max-h-[75vh] overflow-y-auto">
+            @csrf
+            <input type="hidden" name="amount" :value="rawAmount">
+
             <div class="flex items-center justify-between">
                 <h3 class="text-lg font-semibold text-gray-800">Rút tiền</h3>
-                <button @click="showWithdraw = false" class="text-gray-400 hover:text-gray-600 p-1">
+                <button @click="showWithdraw = false" type="button" class="text-gray-400 hover:text-gray-600 p-1">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
                     </svg>
                 </button>
             </div>
+
+            {{-- Error messages --}}
+            @if ($errors->any())
+                <div class="bg-red-50 border border-red-200 rounded-xl p-3.5">
+                    <ul class="list-disc list-inside text-sm text-red-600 space-y-1">
+                        @foreach ($errors->all() as $error)
+                            <li>{{ $error }}</li>
+                        @endforeach
+                    </ul>
+                </div>
+            @endif
 
             {{-- Số dư khả dụng --}}
             <div class="space-y-1.5">
@@ -221,19 +269,19 @@
 
             {{-- Chips --}}
             <div class="flex gap-2">
-                <button @click="setAmount(100000)"
+                <button @click="setAmount(100000)" type="button"
                         class="h-10 px-4 rounded-xl bg-gray-100 hover:bg-gray-200 active:bg-gray-300 text-sm font-medium text-gray-700 transition-colors">
                     100.000
                 </button>
-                <button @click="setAmount(200000)"
+                <button @click="setAmount(200000)" type="button"
                         class="h-10 px-4 rounded-xl bg-gray-100 hover:bg-gray-200 active:bg-gray-300 text-sm font-medium text-gray-700 transition-colors">
                     200.000
                 </button>
-                <button @click="setAmount(500000)"
+                <button @click="setAmount(500000)" type="button"
                         class="h-10 px-4 rounded-xl bg-gray-100 hover:bg-gray-200 active:bg-gray-300 text-sm font-medium text-gray-700 transition-colors">
                     500.000
                 </button>
-                <button @click="setAmount(maxWithdraw)"
+                <button @click="setAmount(maxWithdraw)" type="button"
                         class="h-10 px-4 rounded-xl bg-gray-100 hover:bg-gray-200 active:bg-gray-300 text-sm font-medium text-gray-700 transition-colors">
                     Rút toàn bộ
                 </button>
@@ -248,19 +296,20 @@
 
             {{-- Buttons --}}
             <div class="space-y-3">
-                <button :disabled="!canSubmit"
-                        :class="canSubmit
+                <button type="submit" :disabled="!canSubmit || loading"
+                        :class="canSubmit && !loading
                             ? 'bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 shadow-sm'
                             : 'bg-gray-200 cursor-not-allowed'"
                         class="w-full h-12 text-white font-semibold text-sm rounded-xl transition-colors">
-                    Xác nhận
+                    <span x-show="!loading">Xác nhận</span>
+                    <span x-show="loading">Đang gửi...</span>
                 </button>
-                <button @click="showWithdraw = false"
+                <button @click="showWithdraw = false" type="button"
                         class="w-full h-12 bg-gray-100 hover:bg-gray-200 active:bg-gray-300 text-gray-700 font-semibold text-sm rounded-xl transition-colors">
                     Hủy
                 </button>
             </div>
-        </div>
+        </form>
     </div>
     </div>
 </x-app-layout>

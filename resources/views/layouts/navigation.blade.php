@@ -57,6 +57,12 @@
                             {{ __('Hướng dẫn') }}
                         </x-dropdown-link>
 
+                        @can('withdrawals.view')
+                            <x-dropdown-link :href="route('admin.withdraw-requests.index')">
+                                {{ __('Quản lý rút tiền') }}
+                            </x-dropdown-link>
+                        @endcan
+
                         <!-- Authentication -->
                         <form method="POST" action="{{ route('logout') }}">
                             @csrf
