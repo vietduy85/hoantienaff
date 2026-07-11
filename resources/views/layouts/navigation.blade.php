@@ -121,6 +121,12 @@
                     {{ __('Hướng dẫn') }}
                 </x-responsive-nav-link>
 
+                @can('withdrawals.view')
+                    <x-responsive-nav-link :href="route('admin.withdraw-requests.index')">
+                        {{ __('Quản lý rút tiền') }}
+                    </x-responsive-nav-link>
+                @endcan
+
                 <!-- Authentication -->
                 <form method="POST" action="{{ route('logout') }}">
                     @csrf

@@ -112,11 +112,11 @@
             </div>
         </div>
 
-        {{-- Card 3: Đã thanh toán --}}
+        {{-- Card 3: Tổng tiền đã thanh toán --}}
         <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-3">
             <div class="flex items-center gap-2">
                 <span class="text-lg">💸</span>
-                <span class="text-sm font-medium text-gray-500">Đã thanh toán</span>
+                <span class="text-sm font-medium text-gray-500">Tổng tiền đã thanh toán</span>
             </div>
             <div class="text-blue-500 font-bold text-xl tracking-tight">
                 {{ number_format($paid, 0, ',', '.') }}<span class="text-sm">đ</span>
