@@ -6,6 +6,7 @@ use App\Models\AffiliateOrderItem;
 use App\Models\User;
 use App\Models\WalletTransaction;
 use App\Models\WithdrawRequest;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -199,5 +200,71 @@ class WalletControllerTest extends TestCase
 
         $txs = $response->viewData('transactions');
         $this->assertCount(0, $txs);
+    }
+
+    public function test_index_shows_pending_withdraw_transaction(): void
+    {
+        WalletTransaction::factory()->create([
+            'user_id' => $this->user->id,
+            'username' => $this->user->username,
+            'type' => 'withdraw',
+            'direction' => 'debit',
+            'amount' => 30000,
+            'running_no' => 'WT202607100003',
+            'description' => 'Rút tiền BIDV',
+            'status' => 'pending',
+            'completed_at' => null,
+            'reference_type' => 'withdraw_request',
+            'reference_id' => 1,
+            'metadata' => ['withdraw_running_no' => 'WR202607100001'],
+        ]);
+
+        $response = $this->actingAs($this->user)->get(route('wallet.index'));
+
+        $response->assertViewHas('transactions');
+        $txs = $response->viewData('transactions');
+        $this->assertCount(1, $txs);
+        $this->assertSame('WT202607100003', $txs[0]->running_no);
+        $this->assertNull($txs[0]->completed_at);
+    }
+
+    public function test_pending_withdraw_appears_in_top_20_even_with_30_old_cashbacks(): void
+    {
+        for ($i = 0; $i < 30; $i++) {
+            WalletTransaction::factory()->create([
+                'user_id' => $this->user->id,
+                'username' => $this->user->username,
+                'type' => 'cashback',
+                'direction' => 'credit',
+                'amount' => 10000,
+                'status' => 'completed',
+                'completed_at' => now()->subDays(30)->addMinutes($i),
+                'created_at' => now()->subDays(30)->addMinutes($i),
+            ]);
+        }
+
+        WalletTransaction::factory()->create([
+            'user_id' => $this->user->id,
+            'username' => $this->user->username,
+            'type' => 'withdraw',
+            'direction' => 'debit',
+            'amount' => 20000,
+            'running_no' => 'WT202607110027',
+            'description' => 'Rút tiền BIDV',
+            'status' => 'pending',
+            'completed_at' => null,
+            'created_at' => now(),
+            'reference_type' => 'withdraw_request',
+            'reference_id' => 99,
+            'metadata' => ['withdraw_running_no' => 'WR202607110099'],
+        ]);
+
+        $response = $this->actingAs($this->user)->get(route('wallet.index'));
+
+        $response->assertViewHas('transactions');
+        $txs = $response->viewData('transactions');
+        $this->assertCount(20, $txs);
+        $this->assertSame('WT202607110027', $txs[0]->running_no);
+        $this->assertNull($txs[0]->completed_at);
     }
 }

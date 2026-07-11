@@ -155,6 +155,9 @@
                                         @if (!empty($tx->metadata['withdraw_running_no']))
                                             <span class="text-gray-400">({{ $tx->metadata['withdraw_running_no'] }})</span>
                                         @endif
+                                        @if ($tx->status === 'cancelled' && !empty($tx->metadata['reject_reason']))
+                                            <br><span class="text-red-400 text-xs">Lý do: {{ $tx->metadata['reject_reason'] }}</span>
+                                        @endif
                                     @elseif ($tx->type === 'adjustment')
                                         <span class="text-gray-600 font-medium">Điều chỉnh</span>
                                     @elseif ($tx->type === 'refund')
@@ -170,16 +173,18 @@
                                 </td>
                                 <td class="px-5 py-3 text-center">
                                     <span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium
-                                        @if($tx->status === 'completed') bg-emerald-100 text-emerald-800
+                                        @if($tx->type === 'withdraw' && $tx->status === 'pending') bg-red-100 text-red-800
+                                        @elseif($tx->status === 'completed') bg-emerald-100 text-emerald-800
                                         @elseif($tx->status === 'pending') bg-amber-100 text-amber-800
                                         @elseif($tx->status === 'cancelled') bg-gray-100 text-gray-600
                                         @elseif($tx->status === 'failed') bg-red-100 text-red-800
                                         @else bg-gray-100 text-gray-800
                                         @endif
                                     ">
-                                        @if($tx->status === 'completed') Hoàn thành
-                                        @elseif($tx->status === 'pending') Chờ xử lý
-                                        @elseif($tx->status === 'cancelled') Đã huỷ
+                                        @if($tx->type === 'withdraw' && $tx->status === 'completed') Đã thanh toán
+                                        @elseif($tx->status === 'completed') Hoàn thành
+                                        @elseif($tx->status === 'pending') Đang chờ xử lý
+                                        @elseif($tx->status === 'cancelled') Đã từ chối
                                         @elseif($tx->status === 'failed') Thất bại
                                         @else {{ $tx->status }}
                                         @endif

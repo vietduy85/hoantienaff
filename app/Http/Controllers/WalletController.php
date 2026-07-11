@@ -34,7 +34,7 @@ class WalletController extends Controller
         $hasBankInfo = $user->bank_name && $user->bank_account_name && $user->bank_account_number;
 
         $transactions = WalletTransaction::where('user_id', $user->id)
-            ->orderBy('completed_at', 'desc')
+            ->orderByRaw('COALESCE(completed_at, created_at) DESC')
             ->orderBy('id', 'desc')
             ->limit(20)
             ->get();

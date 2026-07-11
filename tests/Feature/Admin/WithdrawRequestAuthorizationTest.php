@@ -3,6 +3,7 @@
 namespace Tests\Feature\Admin;
 
 use App\Models\User;
+use App\Models\WalletTransaction;
 use App\Models\WithdrawRequest;
 use App\Services\WalletService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -54,6 +55,19 @@ class WithdrawRequestAuthorizationTest extends TestCase
             'bank_name' => 'BIDV',
             'bank_account' => '1234567890',
             'account_name' => 'MANAGER',
+            'status' => 'pending',
+        ]);
+
+        WalletTransaction::factory()->create([
+            'user_id' => $this->manager->id,
+            'username' => $this->manager->username,
+            'type' => 'withdraw',
+            'direction' => 'debit',
+            'amount' => 50000,
+            'balance_before' => 500000,
+            'balance_after' => 500000,
+            'reference_type' => 'withdraw_request',
+            'reference_id' => $this->pendingRequest->id,
             'status' => 'pending',
         ]);
     }
@@ -120,6 +134,19 @@ class WithdrawRequestAuthorizationTest extends TestCase
             'bank_name' => 'BIDV',
             'bank_account' => '1234567890',
             'account_name' => 'MANAGER',
+            'status' => 'pending',
+        ]);
+
+        WalletTransaction::factory()->create([
+            'user_id' => $this->manager->id,
+            'username' => $this->manager->username,
+            'type' => 'withdraw',
+            'direction' => 'debit',
+            'amount' => 30000,
+            'balance_before' => 450000,
+            'balance_after' => 450000,
+            'reference_type' => 'withdraw_request',
+            'reference_id' => $request2->id,
             'status' => 'pending',
         ]);
 

@@ -515,23 +515,50 @@ class WalletServiceTest extends TestCase
         $this->assertFalse($this->service->isWithdrawCredited($withdrawRequest));
     }
 
-    public function test_complete_withdraw_creates_transaction_and_updates_balance(): void
+    public function test_create_withdraw_creates_pending_transaction_without_deducting_balance(): void
+    {
+        $this->user->wallet_balance = 100000;
+        $this->user->total_earned = 0;
+        $this->user->total_withdrawn = 0;
+        $this->user->bank_name = 'BIDV';
+        $this->user->bank_account_number = '1234567890';
+        $this->user->bank_account_name = 'TEST USER';
+        $this->user->save();
+
+        $this->service->createWithdrawRequest($this->user, 50000);
+
+        $this->assertDatabaseHas('wallet_transactions', [
+            'reference_type' => 'withdraw_request',
+            'type' => 'withdraw',
+            'direction' => 'debit',
+            'status' => 'pending',
+            'amount' => 50000.0,
+            'balance_before' => 100000.0,
+            'balance_after' => 100000.0,
+        ]);
+
+        $this->user->refresh();
+        $this->assertSame(100000.0, (float) $this->user->wallet_balance);
+        $this->assertSame(0.0, (float) $this->user->total_earned);
+        $this->assertSame(0.0, (float) $this->user->total_withdrawn);
+    }
+
+    public function test_complete_withdraw_updates_existing_transaction_and_deducts_balance(): void
     {
         $this->user->wallet_balance = 100000;
         $this->user->total_withdrawn = 0;
+        $this->user->bank_name = 'BIDV';
+        $this->user->bank_account_number = '1234567890';
+        $this->user->bank_account_name = 'TEST USER';
         $this->user->save();
 
-        $withdrawRequest = WithdrawRequest::factory()->create([
-            'user_id' => $this->user->id,
-            'username' => $this->user->username,
-            'amount' => 50000,
-            'bank_name' => 'BIDV',
-            'bank_account' => '1234567890',
-            'account_name' => 'TEST USER',
-            'status' => 'pending',
-        ]);
+        $request = $this->service->createWithdrawRequest($this->user, 50000);
 
-        $transaction = $this->service->completeWithdraw($withdrawRequest, $this->admin);
+        $wtCount = WalletTransaction::count();
+
+        $transaction = $this->service->completeWithdraw($request, $this->admin);
+
+        $this->assertDatabaseCount('wallet_transactions', $wtCount);
 
         $this->assertInstanceOf(WalletTransaction::class, $transaction);
         $this->assertSame('withdraw', $transaction->type);
@@ -542,9 +569,9 @@ class WalletServiceTest extends TestCase
         $this->assertSame('completed', $transaction->status);
         $this->assertSame($this->admin->id, $transaction->processed_by);
         $this->assertSame('withdraw_request', $transaction->reference_type);
-        $this->assertSame($withdrawRequest->id, $transaction->reference_id);
+        $this->assertSame($request->id, $transaction->reference_id);
         $this->assertSame(
-            $withdrawRequest->running_no,
+            $request->running_no,
             $transaction->metadata['withdraw_running_no']
         );
 
@@ -552,10 +579,28 @@ class WalletServiceTest extends TestCase
         $this->assertSame(50000.0, (float) $this->user->wallet_balance);
         $this->assertSame(50000.0, (float) $this->user->total_withdrawn);
 
-        $withdrawRequest->refresh();
-        $this->assertSame('paid', $withdrawRequest->status);
-        $this->assertSame($this->admin->id, $withdrawRequest->processed_by_user_id);
-        $this->assertNotNull($withdrawRequest->processed_at);
+        $request->refresh();
+        $this->assertSame('paid', $request->status);
+        $this->assertSame($this->admin->id, $request->processed_by_user_id);
+        $this->assertNotNull($request->processed_at);
+    }
+
+    public function test_complete_withdraw_throws_when_already_completed(): void
+    {
+        $this->user->wallet_balance = 100000;
+        $this->user->total_withdrawn = 0;
+        $this->user->bank_name = 'BIDV';
+        $this->user->bank_account_number = '1234567890';
+        $this->user->bank_account_name = 'TEST USER';
+        $this->user->save();
+
+        $request = $this->service->createWithdrawRequest($this->user, 50000);
+
+        $this->service->completeWithdraw($request, $this->admin);
+
+        $this->expectException(InvalidWithdrawException::class);
+
+        $this->service->completeWithdraw($request, $this->admin);
     }
 
     public function test_complete_withdraw_throws_when_not_pending(): void
@@ -581,26 +626,6 @@ class WalletServiceTest extends TestCase
     public function test_complete_withdraw_throws_on_insufficient_balance(): void
     {
         $this->user->wallet_balance = 10000;
-        $this->user->save();
-
-        $withdrawRequest = WithdrawRequest::factory()->create([
-            'user_id' => $this->user->id,
-            'username' => $this->user->username,
-            'amount' => 50000,
-            'bank_name' => 'BIDV',
-            'bank_account' => '1234567890',
-            'account_name' => 'TEST USER',
-            'status' => 'pending',
-        ]);
-
-        $this->expectException(InsufficientBalanceException::class);
-
-        $this->service->completeWithdraw($withdrawRequest, $this->admin);
-    }
-
-    public function test_reject_withdraw_updates_status_and_does_not_create_transaction(): void
-    {
-        $this->user->wallet_balance = 100000;
         $this->user->total_withdrawn = 0;
         $this->user->save();
 
@@ -614,6 +639,35 @@ class WalletServiceTest extends TestCase
             'status' => 'pending',
         ]);
 
+        WalletTransaction::factory()->create([
+            'user_id' => $this->user->id,
+            'username' => $this->user->username,
+            'type' => 'withdraw',
+            'direction' => 'debit',
+            'amount' => 50000,
+            'balance_before' => 10000,
+            'balance_after' => 10000,
+            'reference_type' => 'withdraw_request',
+            'reference_id' => $withdrawRequest->id,
+            'status' => 'pending',
+        ]);
+
+        $this->expectException(InsufficientBalanceException::class);
+
+        $this->service->completeWithdraw($withdrawRequest, $this->admin);
+    }
+
+    public function test_reject_withdraw_cancels_transaction_and_keeps_balance(): void
+    {
+        $this->user->wallet_balance = 100000;
+        $this->user->total_withdrawn = 0;
+        $this->user->bank_name = 'BIDV';
+        $this->user->bank_account_number = '1234567890';
+        $this->user->bank_account_name = 'TEST USER';
+        $this->user->save();
+
+        $withdrawRequest = $this->service->createWithdrawRequest($this->user, 50000);
+
         $result = $this->service->rejectWithdraw($withdrawRequest, $this->admin, 'Sai thông tin tài khoản');
 
         $this->assertSame('rejected', $result->status);
@@ -621,11 +675,21 @@ class WalletServiceTest extends TestCase
         $this->assertSame($this->admin->id, $result->processed_by_user_id);
         $this->assertNotNull($result->processed_at);
 
+        $this->assertDatabaseHas('wallet_transactions', [
+            'reference_type' => 'withdraw_request',
+            'reference_id' => $withdrawRequest->id,
+            'type' => 'withdraw',
+            'status' => 'cancelled',
+        ]);
+
+        $tx = WalletTransaction::where('reference_type', 'withdraw_request')
+            ->where('reference_id', $withdrawRequest->id)
+            ->first();
+        $this->assertSame('Sai thông tin tài khoản', $tx->metadata['reject_reason']);
+
         $this->user->refresh();
         $this->assertSame(100000.0, (float) $this->user->wallet_balance);
         $this->assertSame(0.0, (float) $this->user->total_withdrawn);
-
-        $this->assertDatabaseCount('wallet_transactions', 0);
     }
 
     public function test_reject_withdraw_throws_when_not_pending(): void
@@ -644,4 +708,5 @@ class WalletServiceTest extends TestCase
 
         $this->service->rejectWithdraw($withdrawRequest, $this->admin);
     }
+
 }

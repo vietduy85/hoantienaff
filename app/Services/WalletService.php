@@ -154,15 +154,12 @@ class WalletService
                 );
             }
 
-            $exists = WalletTransaction::where('reference_type', 'withdraw_request')
+            $transaction = WalletTransaction::where('reference_type', 'withdraw_request')
                 ->where('reference_id', $request->id)
                 ->where('type', WalletTransaction::TYPE_WITHDRAW)
-                ->where('status', WalletTransaction::STATUS_COMPLETED)
-                ->exists();
-
-            if ($exists) {
-                throw new DuplicateWithdrawException($request->id);
-            }
+                ->where('status', WalletTransaction::STATUS_PENDING)
+                ->lockForUpdate()
+                ->firstOrFail();
 
             $user = User::where('id', $request->user_id)
                 ->lockForUpdate()
@@ -175,31 +172,14 @@ class WalletService
                 throw new InsufficientBalanceException($balance, $amount);
             }
 
-            $runningNo = $this->generateRunningNo();
             $balanceAfter = $balance - $amount;
 
-            $transaction = WalletTransaction::create([
-                'running_no' => $runningNo,
-                'user_id' => $user->id,
-                'username' => $user->username,
-                'platform' => null,
-                'type' => WalletTransaction::TYPE_WITHDRAW,
-                'direction' => WalletTransaction::DIRECTION_DEBIT,
-                'amount' => $amount,
+            $transaction->update([
+                'status' => WalletTransaction::STATUS_COMPLETED,
                 'balance_before' => $balance,
                 'balance_after' => $balanceAfter,
-                'reference_type' => 'withdraw_request',
-                'reference_id' => $request->id,
-                'description' => 'Rút tiền ' . $request->bank_name,
-                'status' => WalletTransaction::STATUS_COMPLETED,
                 'completed_at' => now(),
                 'processed_by' => $admin->id,
-                'metadata' => [
-                    'withdraw_running_no' => $request->running_no,
-                    'bank' => $request->bank_name,
-                    'account_number' => $request->bank_account,
-                    'account_name' => $request->account_name,
-                ],
             ]);
 
             $user->wallet_balance = $balanceAfter;
@@ -212,7 +192,7 @@ class WalletService
                 'processed_at' => now(),
             ]);
 
-            return $transaction;
+            return $transaction->fresh();
         });
     }
 
@@ -227,6 +207,21 @@ class WalletService
                 )
             );
         }
+
+        $transaction = WalletTransaction::where('reference_type', 'withdraw_request')
+            ->where('reference_id', $request->id)
+            ->where('type', WalletTransaction::TYPE_WITHDRAW)
+            ->where('status', WalletTransaction::STATUS_PENDING)
+            ->firstOrFail();
+
+        $transaction->update([
+            'status' => WalletTransaction::STATUS_CANCELLED,
+            'completed_at' => now(),
+            'processed_by' => $admin->id,
+            'metadata' => array_merge($transaction->metadata ?? [], [
+                'reject_reason' => $note,
+            ]),
+        ]);
 
         $request->update([
             'status' => WithdrawRequest::STATUS_REJECTED,
@@ -329,6 +324,7 @@ class WalletService
             }
 
             $runningNo = $this->generateWithdrawRunningNo();
+            $balance = $this->getBalance($user);
 
             $request = WithdrawRequest::create([
                 'running_no' => $runningNo,
@@ -342,6 +338,30 @@ class WalletService
                 'processed_by_user_id' => null,
                 'processed_at' => null,
                 'note' => null,
+            ]);
+
+            WalletTransaction::create([
+                'running_no' => $this->generateRunningNo(),
+                'user_id' => $user->id,
+                'username' => $user->username,
+                'platform' => null,
+                'type' => WalletTransaction::TYPE_WITHDRAW,
+                'direction' => WalletTransaction::DIRECTION_DEBIT,
+                'amount' => $amount,
+                'balance_before' => $balance,
+                'balance_after' => $balance,
+                'reference_type' => 'withdraw_request',
+                'reference_id' => $request->id,
+                'description' => 'Rút tiền ' . $user->bank_name,
+                'status' => WalletTransaction::STATUS_PENDING,
+                'completed_at' => null,
+                'processed_by' => null,
+                'metadata' => [
+                    'withdraw_running_no' => $runningNo,
+                    'bank' => $user->bank_name,
+                    'account_number' => $user->bank_account_number,
+                    'account_name' => $user->bank_account_name,
+                ],
             ]);
 
             return $request;

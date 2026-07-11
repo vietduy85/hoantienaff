@@ -21,6 +21,9 @@
                         <th class="px-4 py-3 text-left text-gray-500 font-medium text-xs uppercase">Mã</th>
                         <th class="px-4 py-3 text-left text-gray-500 font-medium text-xs uppercase">User</th>
                         <th class="px-4 py-3 text-right text-gray-500 font-medium text-xs uppercase">Số tiền</th>
+                        <th class="px-4 py-3 text-left text-gray-500 font-medium text-xs uppercase">Ngân hàng</th>
+                        <th class="px-4 py-3 text-left text-gray-500 font-medium text-xs uppercase">Số TK</th>
+                        <th class="px-4 py-3 text-left text-gray-500 font-medium text-xs uppercase">Chủ TK</th>
                         <th class="px-4 py-3 text-center text-gray-500 font-medium text-xs uppercase">Trạng thái</th>
                         <th class="px-4 py-3 text-right text-gray-500 font-medium text-xs uppercase">Ngày</th>
                         <th class="px-4 py-3 text-center text-gray-500 font-medium text-xs uppercase">Thao tác</th>
@@ -35,7 +38,10 @@
                                 <div class="text-gray-800 font-medium">{{ $wr->username }}</div>
                                 <div class="text-gray-400 text-xs">{{ $wr->user?->email }}</div>
                             </td>
-                            <td class="px-4 py-3 text-right font-semibold text-gray-800">{{ number_format($wr->amount, 0, ',', '.') }}đ</td>
+                            <td class="px-4 py-3 text-right font-semibold text-gray-800 whitespace-nowrap">{{ number_format($wr->amount, 0, ',', '.') }}đ</td>
+                            <td class="px-4 py-3 text-gray-800 text-xs">{{ $wr->bank_name ?? '—' }}</td>
+                            <td class="px-4 py-3 text-gray-800 font-mono text-xs">{{ $wr->bank_account ?? '—' }}</td>
+                            <td class="px-4 py-3 text-gray-800 text-xs">{{ $wr->account_name ?? '—' }}</td>
                             <td class="px-4 py-3 text-center">
                                 <span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium
                                     @if($wr->status === 'pending') bg-amber-100 text-amber-800
@@ -90,7 +96,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="7" class="px-4 py-8 text-center text-gray-300">
+                            <td colspan="10" class="px-4 py-8 text-center text-gray-300">
                                 Chưa có yêu cầu rút tiền nào
                             </td>
                         </tr>
@@ -131,7 +137,7 @@
                         </div>
                         <div>
                             <div class="text-gray-400 text-xs">Số tài khoản</div>
-                            <div class="text-gray-800 font-mono text-xs">{{ $wr->bank_account ? '******' . substr($wr->bank_account, -4) : '—' }}</div>
+                            <div class="text-gray-800 font-mono text-xs">{{ $wr->bank_account ?? '—' }}</div>
                         </div>
                         <div>
                             <div class="text-gray-400 text-xs">Chủ tài khoản</div>
