@@ -8,6 +8,9 @@ use Illuminate\Database\Eloquent\Model;
 class AffiliateOrderItem extends Model
 {
     use HasFactory;
+
+    public const STATUS_COMPLETED = 'Hoàn thành';
+
     protected $fillable = [
         // Shopee fields
         'order_id',

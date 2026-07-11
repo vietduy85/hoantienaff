@@ -379,6 +379,25 @@ class WalletServiceTest extends TestCase
         $this->assertFalse($this->service->isCashbackCredited($item));
     }
 
+    public function test_credit_cashback_updates_total_earned(): void
+    {
+        $this->user->total_earned = 0;
+        $this->user->save();
+
+        $item = AffiliateOrderItem::factory()->create([
+            'user_id' => $this->user->id,
+            'username' => $this->user->username,
+            'platform' => 'Shopee',
+            'cashback_amount' => 18500,
+            'order_id' => 'ORD001',
+        ]);
+
+        $this->service->creditCashback($item);
+
+        $this->user->refresh();
+        $this->assertSame(18500.0, (float) $this->user->total_earned);
+    }
+
     public function test_generateRunningNo_creates_unique_numbers(): void
     {
         $this->user->wallet_balance = 100000;
@@ -524,6 +543,10 @@ class WalletServiceTest extends TestCase
         $this->assertSame($this->admin->id, $transaction->processed_by);
         $this->assertSame('withdraw_request', $transaction->reference_type);
         $this->assertSame($withdrawRequest->id, $transaction->reference_id);
+        $this->assertSame(
+            $withdrawRequest->running_no,
+            $transaction->metadata['withdraw_running_no']
+        );
 
         $this->user->refresh();
         $this->assertSame(50000.0, (float) $this->user->wallet_balance);

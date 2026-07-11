@@ -94,6 +94,45 @@ class AffiliateImportShopeeTest extends TestCase
         $this->assertSame(5000.0, (float) $this->user->fresh()->wallet_balance);
     }
 
+    public function test_full_import_pending_to_cancelled_does_not_create_transaction(): void
+    {
+        // First import: pending status
+        $csv1 = $this->buildCsv([
+            'order_id' => 'ORD003',
+            'item_id' => 'ITEM003',
+            'item_price' => '100000',
+            'quantity' => '1',
+            'total_product_commission' => '10000',
+            'net_commission' => '10000',
+            'affiliate_status' => 'Đang chờ xử lý',
+        ]);
+        $path1 = $this->createTempCsv($csv1);
+
+        $this->artisan('affiliate:import-shopee', ['--file' => $path1])
+            ->assertSuccessful();
+
+        $this->assertDatabaseCount('wallet_transactions', 0);
+
+        // Second import: same order now cancelled
+        $csv2 = $this->buildCsv([
+            'order_id' => 'ORD003',
+            'item_id' => 'ITEM003',
+            'item_price' => '100000',
+            'quantity' => '1',
+            'total_product_commission' => '10000',
+            'net_commission' => '10000',
+            'affiliate_status' => 'Đã hủy',
+        ]);
+        $path2 = $this->createTempCsv($csv2);
+
+        $this->artisan('affiliate:import-shopee', ['--file' => $path2])
+            ->assertSuccessful();
+
+        $this->assertDatabaseCount('wallet_transactions', 0);
+        $this->user->refresh();
+        $this->assertSame(0.0, (float) $this->user->wallet_balance);
+    }
+
     private function buildCsv(array $overrides): string
     {
         $defaults = [

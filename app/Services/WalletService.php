@@ -65,6 +65,7 @@ class WalletService
             ]);
 
             $user->wallet_balance = $balanceAfter;
+            $user->total_earned = (float) $user->total_earned + $amount;
             $user->save();
 
             return $transaction;
@@ -194,6 +195,7 @@ class WalletService
                 'completed_at' => now(),
                 'processed_by' => $admin->id,
                 'metadata' => [
+                    'withdraw_running_no' => $request->running_no,
                     'bank' => $request->bank_name,
                     'account_number' => $request->bank_account,
                     'account_name' => $request->account_name,

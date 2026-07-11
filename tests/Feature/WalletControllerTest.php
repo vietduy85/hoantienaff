@@ -150,5 +150,54 @@ class WalletControllerTest extends TestCase
         $response = $this->actingAs($this->user)->get(route('wallet.index'));
 
         $response->assertViewIs('wallet.index');
+        $response->assertViewHas('transactions');
+    }
+
+    public function test_index_shows_transactions_from_wallet_transactions(): void
+    {
+        WalletTransaction::factory()->create([
+            'user_id' => $this->user->id,
+            'username' => $this->user->username,
+            'type' => 'cashback',
+            'direction' => 'credit',
+            'amount' => 15000,
+            'running_no' => 'WT202607100001',
+            'description' => 'Cashback đơn hàng ORD001',
+            'status' => 'completed',
+            'completed_at' => now(),
+            'reference_type' => 'affiliate_order_item',
+            'reference_id' => 1,
+            'metadata' => ['order_id' => 'ORD001'],
+        ]);
+
+        WalletTransaction::factory()->create([
+            'user_id' => $this->user->id,
+            'username' => $this->user->username,
+            'type' => 'withdraw',
+            'direction' => 'debit',
+            'amount' => 10000,
+            'running_no' => 'WT202607100002',
+            'description' => 'Rút tiền BIDV',
+            'status' => 'completed',
+            'completed_at' => now(),
+            'reference_type' => 'withdraw_request',
+            'reference_id' => 1,
+            'metadata' => ['withdraw_running_no' => 'WR202607100001'],
+        ]);
+
+        $response = $this->actingAs($this->user)->get(route('wallet.index'));
+
+        $response->assertViewHas('transactions');
+        $txs = $response->viewData('transactions');
+        $this->assertCount(2, $txs);
+        $this->assertSame('WT202607100002', $txs[0]->running_no);
+    }
+
+    public function test_index_transactions_empty_when_no_transactions(): void
+    {
+        $response = $this->actingAs($this->user)->get(route('wallet.index'));
+
+        $txs = $response->viewData('transactions');
+        $this->assertCount(0, $txs);
     }
 }

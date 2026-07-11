@@ -129,53 +129,68 @@
                 <span class="text-lg">📋</span>
                 <span class="text-sm font-medium text-gray-500">Lịch sử giao dịch</span>
             </div>
-            <div class="text-center py-8 text-gray-300">
-                Chưa có giao dịch nào
-            </div>
-        </div>
-
-        {{-- Card 5: Lịch sử yêu cầu rút tiền --}}
-        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4">
-            <div class="flex items-center gap-2">
-                <span class="text-lg">💳</span>
-                <span class="text-sm font-medium text-gray-500">Lịch sử yêu cầu rút tiền</span>
-            </div>
             <div class="overflow-x-auto -mx-5">
                 <table class="w-full text-sm">
                     <thead>
                         <tr class="border-b border-gray-100">
-                            <th class="px-5 py-3 text-left text-gray-400 font-medium text-xs uppercase">Mã yêu cầu</th>
+                            <th class="px-5 py-3 text-left text-gray-400 font-medium text-xs uppercase">Mã GD</th>
+                            <th class="px-5 py-3 text-left text-gray-400 font-medium text-xs uppercase">Mô tả</th>
                             <th class="px-5 py-3 text-right text-gray-400 font-medium text-xs uppercase">Số tiền</th>
                             <th class="px-5 py-3 text-center text-gray-400 font-medium text-xs uppercase">Trạng thái</th>
                             <th class="px-5 py-3 text-right text-gray-400 font-medium text-xs uppercase">Ngày</th>
                         </tr>
                     </thead>
                     <tbody>
-                        @forelse ($withdrawRequests as $wr)
+                        @forelse ($transactions as $tx)
                             <tr class="border-b border-gray-50">
-                                <td class="px-5 py-3 text-left text-gray-700 font-mono text-xs">{{ $wr->running_no }}</td>
-                                <td class="px-5 py-3 text-right font-semibold text-gray-800">{{ number_format($wr->amount, 0, ',', '.') }}đ</td>
+                                <td class="px-5 py-3 text-left text-gray-700 font-mono text-xs">{{ $tx->running_no }}</td>
+                                <td class="px-5 py-3 text-left text-gray-600 text-xs max-w-40 truncate">
+                                    @if ($tx->type === 'cashback')
+                                        <span class="text-emerald-600 font-medium">Cashback</span>
+                                        @if (!empty($tx->metadata['order_id']))
+                                            <span class="text-gray-400">({{ $tx->metadata['order_id'] }})</span>
+                                        @endif
+                                    @elseif ($tx->type === 'withdraw')
+                                        <span class="text-blue-600 font-medium">Rút tiền</span>
+                                        @if (!empty($tx->metadata['withdraw_running_no']))
+                                            <span class="text-gray-400">({{ $tx->metadata['withdraw_running_no'] }})</span>
+                                        @endif
+                                    @elseif ($tx->type === 'adjustment')
+                                        <span class="text-gray-600 font-medium">Điều chỉnh</span>
+                                    @elseif ($tx->type === 'refund')
+                                        <span class="text-orange-600 font-medium">Hoàn tiền</span>
+                                    @else
+                                        <span class="text-gray-600">{{ $tx->type }}</span>
+                                    @endif
+                                </td>
+                                <td class="px-5 py-3 text-right font-semibold text-gray-800 whitespace-nowrap">
+                                    <span class="{{ $tx->direction === 'credit' ? 'text-emerald-600' : 'text-red-500' }}">
+                                        {{ $tx->direction === 'credit' ? '+' : '-' }}{{ number_format($tx->amount, 0, ',', '.') }}đ
+                                    </span>
+                                </td>
                                 <td class="px-5 py-3 text-center">
                                     <span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium
-                                        @if($wr->status === 'pending') bg-amber-100 text-amber-800
-                                        @elseif($wr->status === 'paid') bg-emerald-100 text-emerald-800
-                                        @elseif($wr->status === 'rejected') bg-red-100 text-red-800
+                                        @if($tx->status === 'completed') bg-emerald-100 text-emerald-800
+                                        @elseif($tx->status === 'pending') bg-amber-100 text-amber-800
+                                        @elseif($tx->status === 'cancelled') bg-gray-100 text-gray-600
+                                        @elseif($tx->status === 'failed') bg-red-100 text-red-800
                                         @else bg-gray-100 text-gray-800
                                         @endif
                                     ">
-                                        @if($wr->status === 'pending') Chờ xử lý
-                                        @elseif($wr->status === 'paid') Đã thanh toán
-                                        @elseif($wr->status === 'rejected') Từ chối
-                                        @else Đã huỷ
+                                        @if($tx->status === 'completed') Hoàn thành
+                                        @elseif($tx->status === 'pending') Chờ xử lý
+                                        @elseif($tx->status === 'cancelled') Đã huỷ
+                                        @elseif($tx->status === 'failed') Thất bại
+                                        @else {{ $tx->status }}
                                         @endif
                                     </span>
                                 </td>
-                                <td class="px-5 py-3 text-right text-gray-400 text-xs whitespace-nowrap">{{ $wr->created_at->format('d/m/Y') }}</td>
+                                <td class="px-5 py-3 text-right text-gray-400 text-xs whitespace-nowrap">{{ $tx->completed_at?->format('d/m/Y H:i') ?? $tx->created_at->format('d/m/Y H:i') }}</td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="4" class="px-5 py-8 text-center text-gray-300">
-                                    Chưa có yêu cầu rút tiền nào
+                                <td colspan="5" class="px-5 py-8 text-center text-gray-300">
+                                    Chưa có giao dịch nào
                                 </td>
                             </tr>
                         @endforelse

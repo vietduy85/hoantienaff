@@ -256,7 +256,6 @@ class AffiliateImportShopee extends Command
                 if ($existing) {
                     if ($existing->locked_at !== null) {
                         $this->lockedCount++;
-                        continue;
                     }
 
                     $oldStatus = $existing->affiliate_status;
@@ -310,11 +309,13 @@ class AffiliateImportShopee extends Command
             return;
         }
 
-        if ($item->affiliate_status !== 'Hoàn thành') {
+        $completed = AffiliateOrderItem::STATUS_COMPLETED;
+
+        if ($item->affiliate_status !== $completed) {
             return;
         }
 
-        if ($oldStatus === 'Hoàn thành') {
+        if ($oldStatus === $completed) {
             return;
         }
 

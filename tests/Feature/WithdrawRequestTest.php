@@ -7,6 +7,7 @@ use App\Models\WithdrawRequest;
 use App\Services\WalletService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
+use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
 class WithdrawRequestTest extends TestCase
@@ -122,15 +123,25 @@ class WithdrawRequestTest extends TestCase
         $this->assertSame($balanceBefore, (float) $this->user->fresh()->wallet_balance);
     }
 
-    public function test_index_shows_withdraw_requests(): void
+    public function test_index_shows_completed_withdraw_in_transactions(): void
     {
+        Permission::create(['name' => 'withdrawals.manage']);
+
         $request = $this->service->createWithdrawRequest($this->user, 50000);
+
+        $this->user->wallet_balance = 100000;
+        $this->user->save();
+
+        $admin = User::factory()->create(['username' => 'admin']);
+        $admin->givePermissionTo('withdrawals.manage');
+
+        $this->service->completeWithdraw($request, $admin);
 
         $response = $this->actingAs($this->user)
             ->get(route('wallet.index'));
 
-        $response->assertSee($request->running_no);
         $response->assertSee('50.000');
+        $response->assertSee('WT');
     }
 
     public function test_does_not_require_platform(): void

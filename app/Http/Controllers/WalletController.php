@@ -4,10 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreWithdrawRequest;
 use App\Models\AffiliateOrderItem;
-use App\Models\WithdrawRequest;
+use App\Models\WalletTransaction;
 use App\Services\WalletService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 class WalletController extends Controller
@@ -34,9 +33,10 @@ class WalletController extends Controller
 
         $hasBankInfo = $user->bank_name && $user->bank_account_name && $user->bank_account_number;
 
-        $withdrawRequests = WithdrawRequest::where('user_id', $user->id)
-            ->latest()
-            ->limit(10)
+        $transactions = WalletTransaction::where('user_id', $user->id)
+            ->orderBy('completed_at', 'desc')
+            ->orderBy('id', 'desc')
+            ->limit(20)
             ->get();
 
         return view('wallet.index', [
@@ -47,7 +47,7 @@ class WalletController extends Controller
             'bankName' => $user->bank_name,
             'accountName' => $user->bank_account_name,
             'accountNumber' => $user->bank_account_number,
-            'withdrawRequests' => $withdrawRequests,
+            'transactions' => $transactions,
         ]);
     }
 
