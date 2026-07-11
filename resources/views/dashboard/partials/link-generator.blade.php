@@ -8,20 +8,7 @@
         copied: false,
         pollTimer: null,
         lastSubmittedUrl: '',
-
-        handleInput(e) {
-            if (this.loading) return;
-            const val = this.url.trim();
-            if (!val) return;
-            if (val === this.lastSubmittedUrl) return;
-            if (!val.startsWith('http://') && !val.startsWith('https://')) return;
-            const type = e.inputType;
-            if (type === 'insertFromPaste' || type === 'insertReplacementText') {
-                this.submit();
-            } else if (!type && val.length > 0) {
-                this.submit();
-            }
-        },
+        autoGenerateTimer: null,
 
         submit() {
             if (!this.url.trim()) return;
@@ -144,7 +131,17 @@
                 x-model="url"
                 x-bind:disabled="loading"
                 @click="if (url.trim()) { url = ''; }"
-                @input="handleInput($event)"
+                @input="
+                    clearTimeout(autoGenerateTimer);
+                    autoGenerateTimer = setTimeout(() => {
+                        if (loading) return;
+                        const val = url.trim();
+                        if (!val) return;
+                        if (val === lastSubmittedUrl) return;
+                        if (!/^https?:\/\//i.test(val)) return;
+                        submit();
+                    }, 300);
+                "
                 class="block w-full max-[390px]:h-11 h-12 max-[390px]:px-3 px-3.5 pr-14 max-[390px]:text-sm text-base border-2 border-gray-200 rounded-xl focus:border-emerald-400 focus:ring-emerald-400 transition placeholder:text-gray-400"
             >
             <button
