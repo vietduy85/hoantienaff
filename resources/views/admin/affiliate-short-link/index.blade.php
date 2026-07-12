@@ -22,7 +22,7 @@
                         this.result = null;
                         this.stopPolling();
 
-                        fetch('{{ route('link-requests.store') }}', {
+                        fetch('{{ route('admin.affiliate-short-link.store') }}', {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',

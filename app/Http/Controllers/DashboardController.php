@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\LinkRequest;
 use App\Services\AffiliateCacheService;
+use App\Services\AffiliateLinkService;
 use App\Services\CashbackCalculator;
 use App\Services\ProductDataService;
 use App\Services\UrlResolverService;
@@ -19,6 +20,7 @@ class DashboardController extends Controller
         private readonly CashbackCalculator $cashbackCalculator,
         private readonly AffiliateCacheService $cacheService,
         private readonly UrlResolverService $urlResolver,
+        private readonly AffiliateLinkService $affiliateLinkService,
     ) {}
 
     public function index(): View
@@ -179,6 +181,8 @@ class DashboardController extends Controller
                 })->afterResponse();
             }
         }
+
+        $this->affiliateLinkService->handle($link, 'dashboard');
 
         if ($request->expectsJson() || $request->ajax()) {
             return response()->json([

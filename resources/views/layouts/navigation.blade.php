@@ -65,6 +65,10 @@
                     <x-dropdown-link :href="route('admin.affiliate-short-link.index')">
                         {{ __('Tạo Short Link Affiliate') }}
                     </x-dropdown-link>
+
+                    <x-dropdown-link :href="route('admin.affiliate-config.index')">
+                        {{ __('Cấu hình tạo Link') }}
+                    </x-dropdown-link>
                 @endcan
 
                         <!-- Authentication -->
@@ -132,6 +136,10 @@
 
                     <x-responsive-nav-link :href="route('admin.affiliate-short-link.index')">
                         {{ __('Tạo Short Link Affiliate') }}
+                    </x-responsive-nav-link>
+
+                    <x-responsive-nav-link :href="route('admin.affiliate-config.index')">
+                        {{ __('Cấu hình tạo Link') }}
                     </x-responsive-nav-link>
                 @endcan
 

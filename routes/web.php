@@ -82,4 +82,11 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
 
     Route::get('/affiliate-short-link', [App\Http\Controllers\Admin\AffiliateShortLinkController::class, 'index'])
         ->name('affiliate-short-link.index');
+    Route::post('/affiliate-short-link', [App\Http\Controllers\Admin\AffiliateShortLinkController::class, 'store'])
+        ->name('affiliate-short-link.store');
+
+    Route::get('/affiliate-config', [App\Http\Controllers\Admin\AffiliateConfigController::class, 'index'])
+        ->name('affiliate-config.index');
+    Route::put('/affiliate-config', [App\Http\Controllers\Admin\AffiliateConfigController::class, 'update'])
+        ->name('affiliate-config.update');
 });
