@@ -79,4 +79,7 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
     Route::post('/withdraw-requests/{withdrawRequest}/reject', [App\Http\Controllers\Admin\WithdrawRequestController::class, 'reject'])
         ->middleware('permission:withdrawals.manage')
         ->name('withdraw-requests.reject');
+
+    Route::get('/affiliate-short-link', [App\Http\Controllers\Admin\AffiliateShortLinkController::class, 'index'])
+        ->name('affiliate-short-link.index');
 });

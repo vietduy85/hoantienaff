@@ -57,11 +57,15 @@
                             {{ __('Hướng dẫn') }}
                         </x-dropdown-link>
 
-                        @can('withdrawals.view')
-                            <x-dropdown-link :href="route('admin.withdraw-requests.index')">
-                                {{ __('Quản lý rút tiền') }}
-                            </x-dropdown-link>
-                        @endcan
+                @can('withdrawals.view')
+                    <x-dropdown-link :href="route('admin.withdraw-requests.index')">
+                        {{ __('Quản lý rút tiền') }}
+                    </x-dropdown-link>
+
+                    <x-dropdown-link :href="route('admin.affiliate-short-link.index')">
+                        {{ __('Tạo Short Link Affiliate') }}
+                    </x-dropdown-link>
+                @endcan
 
                         <!-- Authentication -->
                         <form method="POST" action="{{ route('logout') }}">
@@ -124,6 +128,10 @@
                 @can('withdrawals.view')
                     <x-responsive-nav-link :href="route('admin.withdraw-requests.index')">
                         {{ __('Quản lý rút tiền') }}
+                    </x-responsive-nav-link>
+
+                    <x-responsive-nav-link :href="route('admin.affiliate-short-link.index')">
+                        {{ __('Tạo Short Link Affiliate') }}
                     </x-responsive-nav-link>
                 @endcan
 
