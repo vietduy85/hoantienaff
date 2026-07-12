@@ -55,7 +55,7 @@ class DashboardController extends Controller
             'user_id' => $user->id,
             'original_url' => $validated['original_url'],
             'platform' => $platform,
-            'status' => $isShopee ? 'pending' : 'completed',
+            'status' => $isShopee ? 'processing' : 'completed',
         ]);
 
         if ($isShopee) {
@@ -79,7 +79,6 @@ class DashboardController extends Controller
                     ]);
                 }
 
-                $status = $cached->affiliate_url ? 'completed' : 'pending';
                 $link->update([
                     'item_id'                => $cached->item_id,
                     'shop_id'                => $cached->shop_id,
@@ -98,7 +97,6 @@ class DashboardController extends Controller
                     'is_xtra'                => $cached->is_xtra,
                     'data_source'            => $cached->data_source,
                     'affiliate_url'          => $cached->affiliate_url,
-                    'status'                 => $status,
                 ]);
             } else {
                 if ($itemId) {

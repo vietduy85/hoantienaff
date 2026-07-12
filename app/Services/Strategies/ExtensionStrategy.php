@@ -9,8 +9,6 @@ class ExtensionStrategy implements AffiliateLinkStrategy
 {
     public function handle(LinkRequest $linkRequest): void
     {
-        // LinkRequest already has status='pending' from DashboardController.
-        // Browser Extension polls pending jobs via GET /api/extension/jobs.
-        // No changes needed.
+        $linkRequest->update(['status' => 'pending']);
     }
 }

@@ -34,7 +34,7 @@ class AffiliateLinkStrategyTest extends TestCase
             'user_id'      => $this->user->id,
             'original_url' => $url,
             'platform'     => 'Shopee',
-            'status'       => 'pending',
+            'status'       => 'processing',
         ]);
     }
 
@@ -290,5 +290,101 @@ class AffiliateLinkStrategyTest extends TestCase
 
         $link->refresh();
         $this->assertEquals('pending', $link->status);
+    }
+
+    // ─── Case A: Dashboard + Direct ────────────────────────────
+    // create(processing) → DirectStrategy → completed
+    // Extension NOT pickup
+
+    public function test_case_a_dashboard_direct_processing_to_completed(): void
+    {
+        Setting::set('affiliate.dashboard.strategy', 'direct');
+        Setting::set('affiliate.direct.shopee_affiliate_id', '12345');
+        Setting::set('affiliate.direct.resolve_shortlink', 'false');
+
+        $link = $this->createShopeeLink();
+
+        $this->assertEquals('processing', $link->status);
+
+        $service = app(AffiliateLinkService::class);
+        $service->handle($link, 'dashboard');
+
+        $link->refresh();
+        $this->assertEquals('completed', $link->status);
+        $this->assertNotNull($link->affiliate_url);
+
+        $pendingCount = LinkRequest::where('status', 'pending')->count();
+        $this->assertEquals(0, $pendingCount);
+    }
+
+    // ─── Case B: Dashboard + Extension ─────────────────────────
+    // create(processing) → ExtensionStrategy → pending
+    // Extension pickup
+
+    public function test_case_b_dashboard_extension_processing_to_pending(): void
+    {
+        Setting::set('affiliate.dashboard.strategy', 'extension');
+
+        $link = $this->createShopeeLink();
+
+        $this->assertEquals('processing', $link->status);
+
+        $service = app(AffiliateLinkService::class);
+        $service->handle($link, 'dashboard');
+
+        $link->refresh();
+        $this->assertEquals('pending', $link->status);
+        $this->assertNull($link->affiliate_url);
+
+        $pendingCount = LinkRequest::where('status', 'pending')->count();
+        $this->assertEquals(1, $pendingCount);
+    }
+
+    // ─── Case C: Admin + Direct ────────────────────────────────
+    // create(processing) → DirectStrategy → completed
+    // No pending
+
+    public function test_case_c_admin_direct_processing_to_completed(): void
+    {
+        Setting::set('affiliate.admin.strategy', 'direct');
+        Setting::set('affiliate.direct.shopee_affiliate_id', '12345');
+        Setting::set('affiliate.direct.resolve_shortlink', 'false');
+
+        $link = $this->createShopeeLink();
+
+        $this->assertEquals('processing', $link->status);
+
+        $service = app(AffiliateLinkService::class);
+        $service->handle($link, 'admin');
+
+        $link->refresh();
+        $this->assertEquals('completed', $link->status);
+        $this->assertNotNull($link->affiliate_url);
+
+        $pendingCount = LinkRequest::where('status', 'pending')->count();
+        $this->assertEquals(0, $pendingCount);
+    }
+
+    // ─── Case D: Admin + Extension ─────────────────────────────
+    // create(processing) → ExtensionStrategy → pending
+    // Extension pickup
+
+    public function test_case_d_admin_extension_processing_to_pending(): void
+    {
+        Setting::set('affiliate.admin.strategy', 'extension');
+
+        $link = $this->createShopeeLink();
+
+        $this->assertEquals('processing', $link->status);
+
+        $service = app(AffiliateLinkService::class);
+        $service->handle($link, 'admin');
+
+        $link->refresh();
+        $this->assertEquals('pending', $link->status);
+        $this->assertNull($link->affiliate_url);
+
+        $pendingCount = LinkRequest::where('status', 'pending')->count();
+        $this->assertEquals(1, $pendingCount);
     }
 }

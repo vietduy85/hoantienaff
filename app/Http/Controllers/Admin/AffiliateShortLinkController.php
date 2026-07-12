@@ -37,7 +37,7 @@ class AffiliateShortLinkController extends Controller
             'user_id'      => $user->id,
             'original_url' => $validated['original_url'],
             'platform'     => $platform,
-            'status'       => 'pending',
+            'status'       => 'processing',
         ]);
 
         $this->affiliateLinkService->handle($link, 'admin');
