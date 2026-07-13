@@ -97,7 +97,6 @@ class DashboardCreateDirectLinkController extends Controller
 
                 $link->update([
                     'affiliate_url' => $affiliateUrl,
-                    'status'        => 'completed',
                 ]);
 
                 $linkId = $link->id;
@@ -145,6 +144,7 @@ class DashboardCreateDirectLinkController extends Controller
                             'sales'                  => $productData['sales'],
                             'is_xtra'                => $productData['is_xtra'],
                             'data_source'            => $productData['data_source'],
+                            'status'                 => 'completed',
                         ]);
 
                         $resolvedItemId = $productData['item_id'] ?? $itemIdClone;
