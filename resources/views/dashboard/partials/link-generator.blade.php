@@ -35,6 +35,10 @@
                     return;
                 }
                 this.requestId = data.request_id;
+                if (data.affiliate_url) {
+                    this.result = { ...data };
+                    this.loading = false;
+                }
                 this.startPolling();
             })
             .catch(e => {
@@ -70,7 +74,11 @@
                     this._errorCount = 0;
                     if (data.status === 'completed') {
                         this.stopPolling();
-                        this.result = data;
+                        if (this.result) {
+                            Object.assign(this.result, data);
+                        } else {
+                            this.result = data;
+                        }
                         this.loading = false;
                         this.$nextTick(() => {
                             this.$refs.urlInput.focus();
@@ -83,6 +91,9 @@
                         this.error = 'Không thể tạo affiliate link. Vui lòng thử lại sau.';
                         this.loading = false;
                         return;
+                    }
+                    if (this.result && data.user_estimated_cashback != null) {
+                        Object.assign(this.result, data);
                     }
                     this.pollTimer = setTimeout(poll, delay);
                 })
@@ -185,7 +196,7 @@
                 <div class="text-center bg-white rounded-xl border border-emerald-100 max-[390px]:px-3 max-[390px]:py-1.5 px-4 py-2">
                     <p class="text-xs text-gray-500">Bạn sẽ được hoàn</p>
                     <p class="text-3xl font-bold text-emerald-600 leading-tight">
-                        ≈ <span x-text="Number(result.user_estimated_cashback || 0).toLocaleString('vi-VN')"></span>đ
+                        <span x-text="result.user_estimated_cashback != null ? '≈ ' + Number(result.user_estimated_cashback).toLocaleString('vi-VN') + 'đ' : ''"></span>
                     </p>
                 </div>
 

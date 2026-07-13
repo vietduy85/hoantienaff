@@ -78,17 +78,7 @@ class DashboardCreateDirectLinkController extends Controller
                     'data_source'            => $cached->data_source,
                 ]);
 
-                $affiliateId = Setting::get('affiliate.direct.shopee_affiliate_id', '');
-                $originalUrl = $resolvedUrl;
-
-                $cleanUrl = explode('?', $originalUrl)[0];
-                $encodedUrl = rawurlencode($cleanUrl);
-                $subId = $user->username ?? '';
-
-                $affiliateUrl = 'https://s.shopee.vn/an_redir'
-                    . '?origin_link=' . $encodedUrl
-                    . '&affiliate_id=' . $affiliateId
-                    . '&sub_id=' . $subId;
+                $affiliateUrl = $this->buildAffiliateUrl($resolvedUrl, $user);
 
                 $link->update([
                     'affiliate_url' => $affiliateUrl,
@@ -103,11 +93,18 @@ class DashboardCreateDirectLinkController extends Controller
                     $this->cacheService->put($itemId, []);
                 }
 
+                $affiliateUrl = $this->buildAffiliateUrl($resolvedUrl, $user);
+
+                $link->update([
+                    'affiliate_url' => $affiliateUrl,
+                    'status'        => 'completed',
+                ]);
+
                 $linkId = $link->id;
                 $resolvedUrlClone = $resolvedUrl;
                 $itemIdClone = $itemId;
 
-                dispatch(function () use ($resolvedUrlClone, $itemIdClone, $linkId, $user) {
+                dispatch(function () use ($resolvedUrlClone, $itemIdClone, $linkId) {
                     if (config('app.affiliate_timing')) {
                         Log::info('[CACHE] ProductData URL', [
                             'url' => $resolvedUrlClone,
@@ -172,23 +169,6 @@ class DashboardCreateDirectLinkController extends Controller
                             ]);
                         }
                     }
-
-                    $affiliateId = Setting::get('affiliate.direct.shopee_affiliate_id', '');
-                    $originalUrl = $resolvedUrlClone;
-
-                    $cleanUrl = explode('?', $originalUrl)[0];
-                    $encodedUrl = rawurlencode($cleanUrl);
-                    $subId = $user->username ?? '';
-
-                    $affiliateUrl = 'https://s.shopee.vn/an_redir'
-                        . '?origin_link=' . $encodedUrl
-                        . '&affiliate_id=' . $affiliateId
-                        . '&sub_id=' . $subId;
-
-                    LinkRequest::where('id', $linkId)->update([
-                        'affiliate_url' => $affiliateUrl,
-                        'status'        => 'completed',
-                    ]);
                 })->afterResponse();
             }
         }
@@ -198,6 +178,8 @@ class DashboardCreateDirectLinkController extends Controller
                 'success' => true,
                 'request_id' => $link->id,
                 'platform' => $platform,
+                'affiliate_url' => $link->affiliate_url,
+                'status' => $link->status,
             ]);
         }
 
@@ -224,5 +206,18 @@ class DashboardCreateDirectLinkController extends Controller
         }
 
         return 'Khác';
+    }
+
+    private function buildAffiliateUrl(string $resolvedUrl, $user): string
+    {
+        $affiliateId = Setting::get('affiliate.direct.shopee_affiliate_id', '');
+        $cleanUrl = explode('?', $resolvedUrl)[0];
+        $encodedUrl = rawurlencode($cleanUrl);
+        $subId = $user->username ?? '';
+
+        return 'https://s.shopee.vn/an_redir'
+            . '?origin_link=' . $encodedUrl
+            . '&affiliate_id=' . $affiliateId
+            . '&sub_id=' . $subId;
     }
 }
