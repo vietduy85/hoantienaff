@@ -69,6 +69,10 @@
                     <x-dropdown-link :href="route('admin.affiliate-config.index')">
                         {{ __('Cấu hình tạo Link') }}
                     </x-dropdown-link>
+
+                    <x-dropdown-link :href="route('admin.finance.index')">
+                        {{ __('Quản lý tài chính') }}
+                    </x-dropdown-link>
                 @endcan
 
                         <!-- Authentication -->
@@ -140,6 +144,10 @@
 
                     <x-responsive-nav-link :href="route('admin.affiliate-config.index')">
                         {{ __('Cấu hình tạo Link') }}
+                    </x-responsive-nav-link>
+
+                    <x-responsive-nav-link :href="route('admin.finance.index')">
+                        {{ __('Quản lý tài chính') }}
                     </x-responsive-nav-link>
                 @endcan
 

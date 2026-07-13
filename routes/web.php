@@ -89,4 +89,8 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
         ->name('affiliate-config.index');
     Route::put('/affiliate-config', [App\Http\Controllers\Admin\AffiliateConfigController::class, 'update'])
         ->name('affiliate-config.update');
+
+    Route::get('/finance', [App\Http\Controllers\Admin\FinanceController::class, 'index'])
+        ->middleware('permission:withdrawals.view')
+        ->name('finance.index');
 });
