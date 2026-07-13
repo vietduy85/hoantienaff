@@ -76,18 +76,10 @@ class DashboardCreateDirectLinkController extends Controller
                     'sales'                  => $cached->sales,
                     'is_xtra'                => $cached->is_xtra,
                     'data_source'            => $cached->data_source,
-                    'affiliate_url'          => $cached->affiliate_url,
                 ]);
 
                 $affiliateId = Setting::get('affiliate.direct.shopee_affiliate_id', '');
-                $originalUrl = $link->original_url;
-
-                if (Setting::get('affiliate.direct.resolve_shortlink', 'true') === 'true') {
-                    $resolved = $this->urlResolver->resolve($originalUrl);
-                    if ($resolved !== null) {
-                        $originalUrl = $resolved;
-                    }
-                }
+                $originalUrl = $resolvedUrl;
 
                 $cleanUrl = explode('?', $originalUrl)[0];
                 $encodedUrl = rawurlencode($cleanUrl);
@@ -114,9 +106,8 @@ class DashboardCreateDirectLinkController extends Controller
                 $linkId = $link->id;
                 $resolvedUrlClone = $resolvedUrl;
                 $itemIdClone = $itemId;
-                $originalUrlClone = $validated['original_url'];
 
-                dispatch(function () use ($resolvedUrlClone, $itemIdClone, $linkId, $originalUrlClone, $user) {
+                dispatch(function () use ($resolvedUrlClone, $itemIdClone, $linkId, $user) {
                     if (config('app.affiliate_timing')) {
                         Log::info('[CACHE] ProductData URL', [
                             'url' => $resolvedUrlClone,
@@ -183,14 +174,7 @@ class DashboardCreateDirectLinkController extends Controller
                     }
 
                     $affiliateId = Setting::get('affiliate.direct.shopee_affiliate_id', '');
-                    $originalUrl = $originalUrlClone;
-
-                    if (Setting::get('affiliate.direct.resolve_shortlink', 'true') === 'true') {
-                        $resolved = app(UrlResolverService::class)->resolve($originalUrl);
-                        if ($resolved !== null) {
-                            $originalUrl = $resolved;
-                        }
-                    }
+                    $originalUrl = $resolvedUrlClone;
 
                     $cleanUrl = explode('?', $originalUrl)[0];
                     $encodedUrl = rawurlencode($cleanUrl);
