@@ -17,7 +17,7 @@ $travelPlatforms = collect(config('travel.platforms'))
                 </a>
 
                 <!-- Đặt vé máy bay, khách sạn (Desktop) -->
-                <div class="relative block" @click.away="showTravel = false">
+                <div class="relative hidden sm:block" @click.away="showTravel = false">
                     <button @click="showTravel = !showTravel"
                             class="font-semibold text-emerald-600 hover:text-emerald-700 active:text-emerald-800 transition-colors text-sm sm:text-base whitespace-nowrap inline-flex items-center gap-1"
                             aria-label="Đặt vé máy bay, khách sạn">
