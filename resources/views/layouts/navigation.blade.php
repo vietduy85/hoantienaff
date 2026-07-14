@@ -1,4 +1,10 @@
-<nav x-data="{ open: false, showSupport: false }" class="bg-white border-b border-gray-100">
+@php
+$travelPlatforms = collect(config('travel.platforms'))
+    ->where('enabled', true)
+    ->values();
+@endphp
+
+<nav x-data="{ open: false, showSupport: false, showTravel: false }" class="bg-white border-b border-gray-100">
     <!-- Primary Navigation Menu -->
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex justify-between h-14 sm:h-16">
@@ -9,6 +15,35 @@
                    aria-label="Trang chủ">
                     Trang chủ
                 </a>
+
+                <!-- Đặt vé máy bay, khách sạn (Desktop) -->
+                <div class="relative block" @click.away="showTravel = false">
+                    <button @click="showTravel = !showTravel"
+                            class="font-semibold text-emerald-600 hover:text-emerald-700 active:text-emerald-800 transition-colors text-sm sm:text-base whitespace-nowrap inline-flex items-center gap-1"
+                            aria-label="Đặt vé máy bay, khách sạn">
+                        Đặt vé máy bay, khách sạn
+                        <svg class="w-3 h-3" :class="{'rotate-180': showTravel}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+                    <div x-show="showTravel"
+                         x-transition:enter="transition ease-out duration-150"
+                         x-transition:enter-start="opacity-0 scale-95"
+                         x-transition:enter-end="opacity-100 scale-100"
+                         x-transition:leave="transition ease-in duration-100"
+                         x-transition:leave-start="opacity-100 scale-100"
+                         x-transition:leave-end="opacity-0 scale-95"
+                         class="absolute left-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-50"
+                         style="display: none;">
+                        @foreach($travelPlatforms as $platform)
+                            <a href="{{ $platform['url'] }}"
+                               target="_blank" rel="noopener noreferrer"
+                               class="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+                                {{ $platform['name'] }}
+                            </a>
+                        @endforeach
+                    </div>
+                </div>
 
                 <!-- Hỗ trợ -->
                 <button @click="showSupport = true"
@@ -107,6 +142,26 @@
             <x-responsive-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
                 {{ __('Dashboard') }}
             </x-responsive-nav-link>
+
+            <!-- Đặt vé máy bay, khách sạn (Mobile) -->
+            <div>
+                <button @click="showTravel = !showTravel"
+                        class="w-full text-start ps-3 pe-4 py-2 border-l-4 border-transparent text-base font-medium text-gray-600 hover:text-gray-800 hover:bg-gray-50 hover:border-gray-300 transition duration-150 ease-in-out inline-flex items-center justify-between">
+                    <span>Đặt vé máy bay, khách sạn</span>
+                    <svg class="w-4 h-4" :class="{'rotate-180': showTravel}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </button>
+                <div x-show="showTravel" x-collapse class="ms-6 space-y-1">
+                    @foreach($travelPlatforms as $platform)
+                        <a href="{{ $platform['url'] }}"
+                           target="_blank" rel="noopener noreferrer"
+                           class="block ps-3 pe-4 py-2 border-l-4 border-transparent text-base font-medium text-gray-600 hover:text-gray-800 hover:bg-gray-50 hover:border-gray-300 transition duration-150 ease-in-out">
+                            {{ $platform['name'] }}
+                        </a>
+                    @endforeach
+                </div>
+            </div>
         </div>
 
         <!-- Responsive Settings Options -->
