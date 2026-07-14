@@ -94,3 +94,34 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
         ->middleware('permission:withdrawals.view')
         ->name('finance.index');
 });
+
+// Static pages - explicit routes
+Route::get('/about', [App\Http\Controllers\StaticPageController::class, 'show'])
+    ->defaults('slug', 'about')
+    ->name('page.about');
+Route::get('/contact', [App\Http\Controllers\StaticPageController::class, 'show'])
+    ->defaults('slug', 'contact')
+    ->name('page.contact');
+Route::get('/faq', [App\Http\Controllers\StaticPageController::class, 'show'])
+    ->defaults('slug', 'faq')
+    ->name('page.faq');
+Route::get('/privacy-policy', [App\Http\Controllers\StaticPageController::class, 'show'])
+    ->defaults('slug', 'privacy-policy')
+    ->name('page.privacy');
+Route::get('/terms-of-service', [App\Http\Controllers\StaticPageController::class, 'show'])
+    ->defaults('slug', 'terms-of-service')
+    ->name('page.terms');
+Route::get('/refund-policy', [App\Http\Controllers\StaticPageController::class, 'show'])
+    ->defaults('slug', 'refund-policy')
+    ->name('page.refund');
+Route::get('/how-it-works', [App\Http\Controllers\StaticPageController::class, 'show'])
+    ->defaults('slug', 'how-it-works')
+    ->name('page.how_it_works');
+Route::get('/cookie-policy', [App\Http\Controllers\StaticPageController::class, 'show'])
+    ->defaults('slug', 'cookie-policy')
+    ->name('page.cookie');
+
+// 301 redirects from old URLs
+Route::redirect('/privacy', '/privacy-policy', 301);
+Route::redirect('/terms', '/terms-of-service', 301);
+Route::redirect('/refund', '/refund-policy', 301);

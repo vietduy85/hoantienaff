@@ -3,7 +3,19 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ config('app.name', 'Hoàn Tiền') }}</title>
+    <title>Hoàn Tiền Aff - Nền tảng hoàn tiền affiliate hàng đầu Việt Nam</title>
+    <meta name="description" content="Hoàn Tiền Aff giúp bạn tiết kiệm đến 15% khi mua sắm online tại Shopee, Lazada, TikTok Shop, Agoda, Booking.com và Traveloka. Đăng ký miễn phí.">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://hoantien.xyz/">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Hoàn Tiền Aff - Hoàn tiền đến 15% khi mua sắm online">
+    <meta property="og:description" content="Nền tảng hoàn tiền affiliate hàng đầu Việt Nam. Hoàn tiền tại Shopee, Lazada, TikTok Shop, Agoda, Booking.com, Traveloka.">
+    <meta property="og:url" content="https://hoantien.xyz/">
+    <meta property="og:site_name" content="Hoàn Tiền Aff">
+    <meta property="og:locale" content="vi_VN">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="Hoàn Tiền Aff - Hoàn tiền đến 15% khi mua sắm online">
+    <meta name="twitter:description" content="Nền tảng hoàn tiền affiliate hàng đầu Việt Nam. Đăng ký miễn phí.">
     @vite(['resources/js/app.js', 'resources/js/in-app-browser.js'])
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=be-vietnam-pro:400,500,600,700,800&display=swap" rel="stylesheet" />
@@ -185,6 +197,91 @@
             line-height: 1.45;
         }
 
+        /* ───── Trust Section ───── */
+        .trust-section {
+            margin-top: 24px;
+            background: #fff;
+            border-radius: 20px;
+            padding: 20px 16px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+            border: 1px solid rgba(0,0,0,0.04);
+        }
+        .trust-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: #1a1a1a;
+            margin-bottom: 14px;
+            text-align: center;
+        }
+        .trust-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .trust-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: #555;
+            font-weight: 500;
+        }
+        .trust-check {
+            color: #10b981;
+            font-weight: 700;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+
+        /* ───── Disclaimer ───── */
+        .disclaimer {
+            margin-top: 20px;
+            padding: 14px 16px;
+            background: #f9fafb;
+            border-radius: 14px;
+            border: 1px solid #f0f0f0;
+        }
+        .disclaimer p {
+            font-size: 11px;
+            color: #999;
+            line-height: 1.6;
+            margin: 0;
+        }
+
+        /* ───── Mini Footer ───── */
+        .mini-footer {
+            margin-top: 24px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            text-align: center;
+        }
+        .mini-footer-brand {
+            font-size: 14px;
+            font-weight: 700;
+            color: #1a1a1a;
+            margin-bottom: 8px;
+        }
+        .mini-footer-links {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+        .mini-footer-links a {
+            font-size: 12px;
+            color: #999;
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+        .mini-footer-links a:hover {
+            color: #FF6B35;
+        }
+        .mini-footer-copy {
+            font-size: 11px;
+            color: #ccc;
+        }
+
         /* ───── Responsive ───── */
         @media (min-width: 481px) {
             .container {
@@ -290,6 +387,47 @@
                         <div class="benefit-desc">Kiểm tra đơn hàng và hoa hồng dễ dàng.</div>
                     </div>
                 </div>
+            </div>
+
+            <!-- Trust Section -->
+            <div class="trust-section">
+                <div class="trust-title">Vì sao chọn HoanTien.xyz</div>
+                <div class="trust-grid">
+                    <div class="trust-item">
+                        <span class="trust-check">✓</span>
+                        <span>Hoàn tiền minh bạch</span>
+                    </div>
+                    <div class="trust-item">
+                        <span class="trust-check">✓</span>
+                        <span>Không thu phí</span>
+                    </div>
+                    <div class="trust-item">
+                        <span class="trust-check">✓</span>
+                        <span>Hỗ trợ nhiều nền tảng</span>
+                    </div>
+                    <div class="trust-item">
+                        <span class="trust-check">✓</span>
+                        <span>Rút tiền nhanh</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Affiliate Disclaimer -->
+            <div class="disclaimer">
+                <p>HoanTien.xyz là nền tảng hoàn tiền thông qua các chương trình Affiliate. Chúng tôi không bán hàng trực tiếp. Việc hoàn tiền phụ thuộc vào dữ liệu ghi nhận từ các đối tác Affiliate.</p>
+            </div>
+
+            <!-- Mini Footer -->
+            <div class="mini-footer">
+                <div class="mini-footer-brand">HoanTien.xyz</div>
+                <div class="mini-footer-links">
+                    <a href="{{ route('page.about') }}">Giới thiệu</a>
+                    <a href="{{ route('page.faq') }}">FAQ</a>
+                    <a href="{{ route('page.contact') }}">Liên hệ</a>
+                    <a href="{{ route('page.privacy') }}">Bảo mật</a>
+                    <a href="{{ route('page.terms') }}">Điều khoản</a>
+                </div>
+                <div class="mini-footer-copy">&copy; 2026 HoanTien.xyz. All Rights Reserved.</div>
             </div>
         </div>
 
