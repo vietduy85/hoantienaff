@@ -73,6 +73,9 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
     Route::get('/withdraw-requests', [App\Http\Controllers\Admin\WithdrawRequestController::class, 'index'])
         ->middleware('permission:withdrawals.view')
         ->name('withdraw-requests.index');
+    Route::post('/withdraw-requests/bulk-complete', [App\Http\Controllers\Admin\WithdrawRequestController::class, 'bulkComplete'])
+        ->middleware('permission:withdrawals.manage')
+        ->name('withdraw-requests.bulk-complete');
     Route::post('/withdraw-requests/{withdrawRequest}/complete', [App\Http\Controllers\Admin\WithdrawRequestController::class, 'complete'])
         ->middleware('permission:withdrawals.manage')
         ->name('withdraw-requests.complete');

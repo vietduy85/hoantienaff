@@ -77,8 +77,8 @@
 
                 <div class="space-y-4">
                     <div>
-                        <x-input-label for="bank_account_name" :value="__('Tên chủ tài khoản')" />
-                        <x-text-input id="bank_account_name" name="bank_account_name" type="text" class="mt-1 block w-full" :value="old('bank_account_name', $user->bank_account_name)" />
+                        <x-input-label for="bank_account_name" :value="__('Tên chủ tài khoản (KHÔNG DẤU)')" />
+                        <x-text-input id="bank_account_name" name="bank_account_name" type="text" class="mt-1 block w-full" :value="old('bank_account_name', $user->bank_account_name)" placeholder="NGUYEN VAN A" x-data="{ normalizeBankAccountName(el) { el.value = el.value.trim().replace(/\s+/g, ' ').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'D').toUpperCase() } }" x-on:blur="normalizeBankAccountName($el)" />
                         <x-input-error class="mt-2" :messages="$errors->get('bank_account_name')" />
                     </div>
 
@@ -88,16 +88,21 @@
                         <x-input-error class="mt-2" :messages="$errors->get('bank_account_number')" />
                     </div>
 
-                    <div>
-                        <x-input-label for="bank_name" :value="__('Ngân hàng')" />
-                        <x-text-input id="bank_name" name="bank_name" type="text" class="mt-1 block w-full" :value="old('bank_name', $user->bank_name)" />
-                        <x-input-error class="mt-2" :messages="$errors->get('bank_name')" />
-                    </div>
+                    @if($user->bank_name && !in_array($user->bank_name, config('banks.list')))
+                        <div class="p-4 bg-yellow-50 border border-yellow-300 rounded-md text-sm text-yellow-800">
+                            {{ __('Ngân hàng bạn đã lưu trước đây không còn nằm trong danh sách chuẩn. Vui lòng chọn lại ngân hàng để tiếp tục sử dụng chức năng rút tiền.') }}
+                        </div>
+                    @endif
 
                     <div>
-                        <x-input-label for="bank_branch" :value="__('Chi nhánh')" />
-                        <x-text-input id="bank_branch" name="bank_branch" type="text" class="mt-1 block w-full" :value="old('bank_branch', $user->bank_branch)" />
-                        <x-input-error class="mt-2" :messages="$errors->get('bank_branch')" />
+                        <x-input-label for="bank_name" :value="__('Ngân hàng')" />
+                        <select id="bank_name" name="bank_name" class="mt-1 block w-full">
+                            <option value="">-- Chọn hoặc nhập tên ngân hàng --</option>
+                            @foreach($banks as $bank)
+                                <option value="{{ $bank }}" {{ old('bank_name', $user->bank_name) === $bank ? 'selected' : '' }}>{{ $bank }}</option>
+                            @endforeach
+                        </select>
+                        <x-input-error class="mt-2" :messages="$errors->get('bank_name')" />
                     </div>
                 </div>
             </div>
@@ -117,4 +122,21 @@
             @endif
         </div>
     </form>
+
+    @push('scripts')
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            new TomSelect('#bank_name', {
+                placeholder: 'Chọn hoặc nhập tên ngân hàng...',
+                allowEmptyOption: true,
+                maxOptions: null,
+                closeAfterSelect: true,
+                persist: false,
+                create: false,
+                searchField: ['text'],
+                selectOnTab: true,
+            });
+        });
+    </script>
+    @endpush
 </section>

@@ -29,7 +29,6 @@ class User extends Authenticatable
         'bank_account_name',
         'bank_account_number',
         'bank_name',
-        'bank_branch',
         'avatar',
         'google_id',
         'status',

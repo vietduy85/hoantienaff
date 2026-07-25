@@ -5,10 +5,29 @@
         </h2>
     </x-slot>
 
-    <div class="py-6 px-4 max-w-5xl mx-auto space-y-4">
+    <div class="py-6 px-4 max-w-5xl mx-auto space-y-4" x-data="bulkActions()">
         @if (session('success'))
             <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-sm text-emerald-700">
                 {{ session('success') }}
+            </div>
+        @endif
+
+        @if (session('error'))
+            <div class="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
+                {{ session('error') }}
+            </div>
+        @endif
+
+        @if ($requests->count() > 0)
+            <div class="flex items-center gap-3">
+                <button
+                    type="button"
+                    @click="submitBulk()"
+                    :disabled="selectedIds.length === 0"
+                    class="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white text-sm font-medium rounded-xl transition-colors shadow-sm"
+                >
+                    Thực hiện đã chọn (<span x-text="selectedIds.length"></span>)
+                </button>
             </div>
         @endif
 
@@ -17,6 +36,9 @@
             <table class="w-full text-sm">
                 <thead>
                     <tr class="border-b border-gray-100 bg-gray-50">
+                        <th class="px-4 py-3 text-center text-gray-500 font-medium text-xs uppercase w-10">
+                            <input type="checkbox" @change="toggleAll($event)" :checked="allSelected" class="rounded border-gray-300 text-emerald-500 focus:ring-emerald-500">
+                        </th>
                         <th class="px-4 py-3 text-left text-gray-500 font-medium text-xs uppercase">ID</th>
                         <th class="px-4 py-3 text-left text-gray-500 font-medium text-xs uppercase">Mã</th>
                         <th class="px-4 py-3 text-left text-gray-500 font-medium text-xs uppercase">User</th>
@@ -32,6 +54,11 @@
                 <tbody>
                     @forelse ($requests as $wr)
                         <tr class="border-b border-gray-50">
+                            <td class="px-4 py-3 text-center">
+                                @if ($wr->isPending())
+                                    <input type="checkbox" value="{{ $wr->id }}" x-model="selectedIds" class="rounded border-gray-300 text-emerald-500 focus:ring-emerald-500">
+                                @endif
+                            </td>
                             <td class="px-4 py-3 text-gray-500 text-xs">{{ $wr->id }}</td>
                             <td class="px-4 py-3 text-gray-700 font-mono text-xs">{{ $wr->running_no }}</td>
                             <td class="px-4 py-3">
@@ -96,7 +123,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="10" class="px-4 py-8 text-center text-gray-300">
+                            <td colspan="11" class="px-4 py-8 text-center text-gray-300">
                                 Chưa có yêu cầu rút tiền nào
                             </td>
                         </tr>
@@ -110,7 +137,12 @@
             @forelse ($requests as $wr)
                 <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-3">
                     <div class="flex items-center justify-between">
-                        <span class="text-xs font-mono text-gray-400">{{ $wr->running_no }}</span>
+                        <div class="flex items-center gap-2">
+                            @if ($wr->isPending())
+                                <input type="checkbox" value="{{ $wr->id }}" x-model="selectedIds" class="rounded border-gray-300 text-emerald-500 focus:ring-emerald-500">
+                            @endif
+                            <span class="text-xs font-mono text-gray-400">{{ $wr->running_no }}</span>
+                        </div>
                         @if($wr->status === 'pending')
                             <span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">Chờ xử lý</span>
                         @elseif($wr->status === 'paid')
@@ -201,4 +233,59 @@
             {{ $requests->links() }}
         </div>
     </div>
+
+    @push('scripts')
+    <script>
+        function bulkActions() {
+            return {
+                selectedIds: [],
+                get allSelected() {
+                    const pendingCheckboxes = document.querySelectorAll('input[type="checkbox"][value]');
+                    const pendingIds = Array.from(pendingCheckboxes)
+                        .filter(cb => cb.value && !isNaN(cb.value))
+                        .map(cb => cb.value);
+                    return pendingIds.length > 0 && pendingIds.every(id => this.selectedIds.includes(id));
+                },
+                toggleAll(event) {
+                    const pendingCheckboxes = document.querySelectorAll('input[type="checkbox"][value]');
+                    const pendingIds = Array.from(pendingCheckboxes)
+                        .filter(cb => cb.value && !isNaN(cb.value))
+                        .map(cb => cb.value);
+                    if (event.target.checked) {
+                        this.selectedIds = [...new Set([...this.selectedIds, ...pendingIds])];
+                    } else {
+                        this.selectedIds = this.selectedIds.filter(id => !pendingIds.includes(id));
+                    }
+                },
+                submitBulk() {
+                    if (this.selectedIds.length === 0) return;
+                    if (!confirm('Xác nhận xử lý ' + this.selectedIds.length + ' yêu cầu đã chọn? File Excel sẽ được tải về sau khi xử lý.')) return;
+
+                    const form = document.createElement('form');
+                    form.method = 'POST';
+                    form.action = '{{ route("admin.withdraw-requests.bulk-complete") }}';
+                    form.style.display = 'none';
+
+                    const csrf = document.createElement('input');
+                    csrf.type = 'hidden';
+                    csrf.name = '_token';
+                    csrf.value = document.querySelector('meta[name="csrf-token"]').content;
+                    form.appendChild(csrf);
+
+                    this.selectedIds.forEach(id => {
+                        const input = document.createElement('input');
+                        input.type = 'hidden';
+                        input.name = 'ids[]';
+                        input.value = id;
+                        form.appendChild(input);
+                    });
+
+                    document.body.appendChild(form);
+                    form.submit();
+                    document.body.removeChild(form);
+                }
+            };
+        }
+    </script>
+    @endpush
 </x-app-layout>
