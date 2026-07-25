@@ -7,7 +7,7 @@ use App\Enums\Platform;
 
 class TravelokaProvider implements AffiliateProviderInterface
 {
-    public function createLink(string $url): array
+    public function createLink(string $url, ?string $subId = null): array
     {
         return [
             'success' => true,

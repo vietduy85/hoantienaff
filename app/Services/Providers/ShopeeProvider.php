@@ -12,7 +12,7 @@ class ShopeeProvider implements AffiliateProviderInterface
         private AffiliateWorkerClient $worker,
     ) {}
 
-    public function createLink(string $url): array
+    public function createLink(string $url, ?string $subId = null): array
     {
         $result = $this->worker->createLink($url);
 

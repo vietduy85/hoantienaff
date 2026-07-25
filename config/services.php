@@ -49,4 +49,10 @@ return [
         'token' => env('AFFILIATE_EXTENSION_TOKEN', ''),
     ],
 
+    'riohub' => [
+        'base_url' => env('RIOHUB_BASE_URL'),
+        'api_key' => env('RIOHUB_API_KEY'),
+        'creator_username' => env('RIOHUB_CREATOR_USERNAME'),
+    ],
+
 ];

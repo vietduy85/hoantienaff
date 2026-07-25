@@ -7,6 +7,7 @@ use App\Models\Setting;
 use App\Services\AffiliateCacheService;
 use App\Services\CashbackCalculator;
 use App\Services\ProductDataService;
+use App\Services\ProviderFactory;
 use App\Services\UrlResolverService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -19,6 +20,7 @@ class DashboardCreateDirectLinkController extends Controller
         private readonly CashbackCalculator $cashbackCalculator,
         private readonly AffiliateCacheService $cacheService,
         private readonly UrlResolverService $urlResolver,
+        private readonly ProviderFactory $providerFactory,
     ) {}
 
     public function store(Request $request): \Illuminate\Http\JsonResponse|RedirectResponse
@@ -170,6 +172,24 @@ class DashboardCreateDirectLinkController extends Controller
                         }
                     }
                 })->afterResponse();
+            }
+        } else {
+            if (str_contains(strtolower($validated['original_url']), 'tiktok')) {
+                try {
+                    $provider = $this->providerFactory->getProvider($validated['original_url']);
+                    $result = $provider->createLink($validated['original_url'], $user->username);
+
+                    if ($result['success'] && !empty($result['affiliate_url'])) {
+                        $link->update([
+                            'affiliate_url' => $result['affiliate_url'],
+                        ]);
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning('[DirectLink] Provider failed', [
+                        'url' => $validated['original_url'],
+                        'error' => $e->getMessage(),
+                    ]);
+                }
             }
         }
 
