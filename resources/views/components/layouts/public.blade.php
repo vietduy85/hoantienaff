@@ -8,6 +8,9 @@
     <meta name="robots" content="index, follow">
     <link rel="canonical" href="{{ $canonical ?? url()->current() }}">
 
+    {{-- PWA --}}
+    @include('components.pwa-meta')
+
     {{-- Open Graph --}}
     <meta property="og:type" content="website">
     <meta property="og:title" content="{{ $pageTitle ?? 'Hoàn Tiền Aff' }}">

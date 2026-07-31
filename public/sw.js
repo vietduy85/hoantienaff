@@ -9,7 +9,7 @@
  * POST, PUT, PATCH, DELETE. Không intercept navigation.
  */
 
-const CACHE_VERSION = '1.0.0';
+const CACHE_VERSION = '1.0.2';
 const CACHE_PREFIX = 'hoantien-cache-';
 const LEGACY_CACHE_PREFIX = 'hoantien-static-';
 const STATIC_CACHE = `${CACHE_PREFIX}static-${CACHE_VERSION}`;

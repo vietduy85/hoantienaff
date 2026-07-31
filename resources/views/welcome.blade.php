@@ -3,6 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    @include('components.pwa-meta')
     <title>Hoàn Tiền Aff - Nền tảng hoàn tiền affiliate hàng đầu Việt Nam</title>
     <meta name="description" content="Hoàn Tiền Aff giúp bạn tiết kiệm đến 15% khi mua sắm online tại Shopee, Lazada, TikTok Shop, Agoda, Booking.com và Traveloka. Đăng ký miễn phí.">
     <meta name="robots" content="index, follow">
