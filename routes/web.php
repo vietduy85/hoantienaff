@@ -84,13 +84,17 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
         ->name('withdraw-requests.reject');
 
     Route::get('/affiliate-short-link', [App\Http\Controllers\Admin\AffiliateShortLinkController::class, 'index'])
+        ->middleware('role:Admin|Operator')
         ->name('affiliate-short-link.index');
     Route::post('/affiliate-short-link', [App\Http\Controllers\Admin\AffiliateShortLinkController::class, 'store'])
+        ->middleware('role:Admin|Operator')
         ->name('affiliate-short-link.store');
 
     Route::get('/affiliate-config', [App\Http\Controllers\Admin\AffiliateConfigController::class, 'index'])
+        ->middleware('role:Admin|Operator')
         ->name('affiliate-config.index');
     Route::put('/affiliate-config', [App\Http\Controllers\Admin\AffiliateConfigController::class, 'update'])
+        ->middleware('role:Admin|Operator')
         ->name('affiliate-config.update');
 
     Route::get('/finance', [App\Http\Controllers\Admin\FinanceController::class, 'index'])

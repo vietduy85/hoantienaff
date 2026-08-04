@@ -96,7 +96,9 @@ $travelPlatforms = collect(config('travel.platforms'))
                     <x-dropdown-link :href="route('admin.withdraw-requests.index')">
                         {{ __('Quản lý rút tiền') }}
                     </x-dropdown-link>
+                @endcan
 
+                @role('Admin|Operator')
                     <x-dropdown-link :href="route('admin.affiliate-short-link.index')">
                         {{ __('Tạo Short Link Affiliate') }}
                     </x-dropdown-link>
@@ -104,7 +106,7 @@ $travelPlatforms = collect(config('travel.platforms'))
                     <x-dropdown-link :href="route('admin.affiliate-config.index')">
                         {{ __('Cấu hình tạo Link') }}
                     </x-dropdown-link>
-                @endcan
+                @endrole
 
                 @can('users.view')
                     <x-dropdown-link :href="route('admin.users.index')">
@@ -200,7 +202,9 @@ $travelPlatforms = collect(config('travel.platforms'))
                     <x-responsive-nav-link :href="route('admin.withdraw-requests.index')">
                         {{ __('Quản lý rút tiền') }}
                     </x-responsive-nav-link>
+                @endcan
 
+                @role('Admin|Operator')
                     <x-responsive-nav-link :href="route('admin.affiliate-short-link.index')">
                         {{ __('Tạo Short Link Affiliate') }}
                     </x-responsive-nav-link>
@@ -208,7 +212,7 @@ $travelPlatforms = collect(config('travel.platforms'))
                     <x-responsive-nav-link :href="route('admin.affiliate-config.index')">
                         {{ __('Cấu hình tạo Link') }}
                     </x-responsive-nav-link>
-                @endcan
+                @endrole
 
                 @can('users.view')
                     <x-responsive-nav-link :href="route('admin.users.index')">
