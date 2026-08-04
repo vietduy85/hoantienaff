@@ -96,6 +96,13 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
     Route::get('/finance', [App\Http\Controllers\Admin\FinanceController::class, 'index'])
         ->middleware('permission:withdrawals.view')
         ->name('finance.index');
+
+    Route::get('/users', [App\Http\Controllers\Admin\UserController::class, 'index'])
+        ->middleware('permission:users.view')
+        ->name('users.index');
+    Route::get('/users/{user}', [App\Http\Controllers\Admin\UserController::class, 'show'])
+        ->middleware('permission:users.view')
+        ->name('users.show');
 });
 
 // Static pages - explicit routes

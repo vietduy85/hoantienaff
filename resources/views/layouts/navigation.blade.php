@@ -104,7 +104,15 @@ $travelPlatforms = collect(config('travel.platforms'))
                     <x-dropdown-link :href="route('admin.affiliate-config.index')">
                         {{ __('Cấu hình tạo Link') }}
                     </x-dropdown-link>
+                @endcan
 
+                @can('users.view')
+                    <x-dropdown-link :href="route('admin.users.index')">
+                        {{ __('Quản lý người dùng') }}
+                    </x-dropdown-link>
+                @endcan
+
+                @can('withdrawals.view')
                     <x-dropdown-link :href="route('admin.finance.index')">
                         {{ __('Quản lý tài chính') }}
                     </x-dropdown-link>
@@ -200,7 +208,15 @@ $travelPlatforms = collect(config('travel.platforms'))
                     <x-responsive-nav-link :href="route('admin.affiliate-config.index')">
                         {{ __('Cấu hình tạo Link') }}
                     </x-responsive-nav-link>
+                @endcan
 
+                @can('users.view')
+                    <x-responsive-nav-link :href="route('admin.users.index')">
+                        {{ __('Quản lý người dùng') }}
+                    </x-responsive-nav-link>
+                @endcan
+
+                @can('withdrawals.view')
                     <x-responsive-nav-link :href="route('admin.finance.index')">
                         {{ __('Quản lý tài chính') }}
                     </x-responsive-nav-link>
