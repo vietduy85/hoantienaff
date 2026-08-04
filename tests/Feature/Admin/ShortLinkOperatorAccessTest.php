@@ -67,7 +67,7 @@ class ShortLinkOperatorAccessTest extends TestCase
             ->assertForbidden();
     }
 
-    public function test_operator_can_access_shortlink_routes(): void
+    public function test_operator_can_access_shortlink_but_not_config(): void
     {
         $this->actingAs($this->operator)
             ->get(route('admin.affiliate-short-link.index'))
@@ -75,7 +75,11 @@ class ShortLinkOperatorAccessTest extends TestCase
 
         $this->actingAs($this->operator)
             ->get(route('admin.affiliate-config.index'))
-            ->assertOk();
+            ->assertForbidden();
+
+        $this->actingAs($this->operator)
+            ->put(route('admin.affiliate-config.update'), [])
+            ->assertForbidden();
     }
 
     public function test_admin_can_access_shortlink_routes(): void
@@ -89,21 +93,23 @@ class ShortLinkOperatorAccessTest extends TestCase
             ->assertOk();
     }
 
-    public function test_operator_sees_shortlink_menu_but_not_withdraw_menu(): void
+    public function test_operator_sees_shortlink_menu_but_not_config_or_withdraw_menu(): void
     {
         $this->actingAs($this->operator)
             ->get(route('admin.affiliate-short-link.index'))
             ->assertOk()
             ->assertSee('Tạo Short Link Affiliate')
+            ->assertDontSee('Cấu hình tạo Link')
             ->assertDontSee('Quản lý rút tiền');
     }
 
-    public function test_admin_sees_both_menus(): void
+    public function test_admin_sees_shortlink_and_config_menus(): void
     {
         $this->actingAs($this->admin)
             ->get(route('admin.affiliate-short-link.index'))
             ->assertOk()
             ->assertSee('Tạo Short Link Affiliate')
+            ->assertSee('Cấu hình tạo Link')
             ->assertSee('Quản lý rút tiền');
     }
 }

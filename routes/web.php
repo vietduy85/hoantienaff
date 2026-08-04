@@ -91,10 +91,10 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
         ->name('affiliate-short-link.store');
 
     Route::get('/affiliate-config', [App\Http\Controllers\Admin\AffiliateConfigController::class, 'index'])
-        ->middleware('role:Admin|Operator')
+        ->middleware('role:Admin')
         ->name('affiliate-config.index');
     Route::put('/affiliate-config', [App\Http\Controllers\Admin\AffiliateConfigController::class, 'update'])
-        ->middleware('role:Admin|Operator')
+        ->middleware('role:Admin')
         ->name('affiliate-config.update');
 
     Route::get('/finance', [App\Http\Controllers\Admin\FinanceController::class, 'index'])

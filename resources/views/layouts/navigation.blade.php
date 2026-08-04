@@ -102,7 +102,9 @@ $travelPlatforms = collect(config('travel.platforms'))
                     <x-dropdown-link :href="route('admin.affiliate-short-link.index')">
                         {{ __('Tạo Short Link Affiliate') }}
                     </x-dropdown-link>
+                @endrole
 
+                @role('Admin')
                     <x-dropdown-link :href="route('admin.affiliate-config.index')">
                         {{ __('Cấu hình tạo Link') }}
                     </x-dropdown-link>
@@ -208,7 +210,9 @@ $travelPlatforms = collect(config('travel.platforms'))
                     <x-responsive-nav-link :href="route('admin.affiliate-short-link.index')">
                         {{ __('Tạo Short Link Affiliate') }}
                     </x-responsive-nav-link>
+                @endrole
 
+                @role('Admin')
                     <x-responsive-nav-link :href="route('admin.affiliate-config.index')">
                         {{ __('Cấu hình tạo Link') }}
                     </x-responsive-nav-link>
