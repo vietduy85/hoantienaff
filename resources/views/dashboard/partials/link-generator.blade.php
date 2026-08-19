@@ -200,15 +200,36 @@
                     </p>
                 </div>
 
-                <div class="text-center">
-                    <p class="text-xs text-gray-500">🔗 Link hoàn tiền</p>
+                <div>
+                    <p class="text-xs text-gray-500 text-center mb-2">🔗 Link hoàn tiền</p>
                     <a
                         x-bind:href="result.affiliate_url"
                         target="_blank"
                         rel="noopener noreferrer"
-                        class="block text-sm text-gray-800 text-center mt-2 mb-4 font-mono break-all cursor-pointer hover:underline hover:opacity-90 min-h-[44px] flex items-center justify-center"
-                        x-text="result.affiliate_url"
-                    ></a>
+                        class="block bg-white rounded-xl border border-emerald-100 overflow-hidden cursor-pointer hover:opacity-90 transition-opacity"
+                    >
+                        <div class="flex items-center gap-3 p-3">
+                            <div class="w-16 h-16 shrink-0 bg-gray-100 rounded-lg overflow-hidden flex items-center justify-center">
+                                <img
+                                    x-show="result.product_image"
+                                    x-bind:src="result.product_image"
+                                    alt=""
+                                    class="w-full h-full object-contain"
+                                    x-on:error="$el.style.display='none'"
+                                >
+                                <div
+                                    x-show="!result.product_image"
+                                    class="w-full h-full flex items-center justify-center text-gray-300"
+                                >
+                                    <svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.41a2.25 2.25 0 013.182 0l2.909 2.91m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/></svg>
+                                </div>
+                            </div>
+                            <p
+                                class="text-sm text-gray-800 font-medium leading-snug line-clamp-3 min-w-0"
+                                x-text="result.product_name || 'Sản phẩm'"
+                            ></p>
+                        </div>
+                    </a>
                 </div>
 
                 <div class="flex gap-2">

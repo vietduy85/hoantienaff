@@ -26,6 +26,8 @@ class LinkRequestController extends Controller
             'user_estimated_cashback' => $link->user_estimated_cashback,
             'cashback_rate' => $link->cashback_rate,
             'platform' => $link->platform,
+            'product_name' => $link->product_name,
+            'product_image' => $link->product_image,
             'created_at' => $link->created_at,
         ]);
     }
