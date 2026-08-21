@@ -55,7 +55,7 @@
                 <span class="text-sm font-medium text-gray-500">💰 Số dư khả dụng</span>
             </div>
             <div class="text-emerald-600 font-extrabold text-3xl tracking-tight">
-                {{ number_format($available, 0, ',', '.') }}<span class="text-lg">đ</span>
+                {{ number_format(floor($available), 0, ',', '.') }}<span class="text-lg">đ</span>
             </div>
 
             @if ($hasBankInfo)
@@ -108,7 +108,7 @@
                 <span class="text-sm font-medium text-gray-500">Tiền đang chờ về</span>
             </div>
             <div class="text-amber-500 font-bold text-xl tracking-tight">
-                {{ number_format($pending, 0, ',', '.') }}<span class="text-sm">đ</span>
+                {{ number_format(floor($pending), 0, ',', '.') }}<span class="text-sm">đ</span>
             </div>
         </div>
 
@@ -119,7 +119,7 @@
                 <span class="text-sm font-medium text-gray-500">Tổng tiền đã thanh toán</span>
             </div>
             <div class="text-blue-500 font-bold text-xl tracking-tight">
-                {{ number_format($paid, 0, ',', '.') }}<span class="text-sm">đ</span>
+                {{ number_format(floor($paid), 0, ',', '.') }}<span class="text-sm">đ</span>
             </div>
         </div>
 
@@ -250,10 +250,10 @@
             <div class="space-y-1.5">
                 <div class="flex items-center justify-between text-sm">
                     <span class="text-gray-500">Số dư khả dụng</span>
-                    <span class="font-semibold text-emerald-600">{{ number_format($available, 0, ',', '.') }}đ</span>
+                    <span class="font-semibold text-emerald-600">{{ number_format(floor($available), 0, ',', '.') }}đ</span>
                 </div>
                 <div class="flex items-center justify-between text-xs text-gray-400">
-                    <span>Có thể rút: <span class="font-medium text-gray-600">{{ number_format($available, 0, ',', '.') }}đ</span></span>
+                    <span>Có thể rút: <span class="font-medium text-gray-600">{{ number_format(floor($available), 0, ',', '.') }}đ</span></span>
                     <span>Rút tối thiểu: <span class="font-medium text-gray-600">10.000đ</span></span>
                 </div>
             </div>

@@ -24,10 +24,22 @@
                 <option value="Affiliate" {{ request('role') === 'Affiliate' ? 'selected' : '' }}>Affiliate</option>
                 <option value="Member" {{ request('role') === 'Member' ? 'selected' : '' }}>Member</option>
             </select>
+            <select
+                name="sort"
+                class="px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-emerald-400 transition-colors"
+            >
+                <option value="">Mới nhất</option>
+                <option value="orders_desc" {{ request('sort') === 'orders_desc' ? 'selected' : '' }}>Số đơn: Cao → thấp</option>
+                <option value="orders_asc" {{ request('sort') === 'orders_asc' ? 'selected' : '' }}>Số đơn: Thấp → cao</option>
+                <option value="order_value_desc" {{ request('sort') === 'order_value_desc' ? 'selected' : '' }}>Giá trị đơn: Cao → thấp</option>
+                <option value="order_value_asc" {{ request('sort') === 'order_value_asc' ? 'selected' : '' }}>Giá trị đơn: Thấp → cao</option>
+                <option value="cashback_desc" {{ request('sort') === 'cashback_desc' ? 'selected' : '' }}>Tiền hoàn: Cao → thấp</option>
+                <option value="cashback_asc" {{ request('sort') === 'cashback_asc' ? 'selected' : '' }}>Tiền hoàn: Thấp → cao</option>
+            </select>
             <button type="submit" class="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium rounded-xl transition-colors shadow-sm">
                 Tìm kiếm
             </button>
-            @if (request('search') || request('role'))
+            @if (request('search') || request('role') || request('sort'))
                 <a href="{{ route('admin.users.index') }}" class="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-600 text-sm font-medium rounded-xl transition-colors text-center">
                     Xóa bộ lọc
                 </a>
@@ -58,7 +70,8 @@
                         <th class="px-3 py-3 text-right text-gray-500 font-medium text-xs uppercase">Ví hiện tại</th>
                         <th class="px-3 py-3 text-right text-gray-500 font-medium text-xs uppercase">Tiền chờ về</th>
                         <th class="px-3 py-3 text-right text-gray-500 font-medium text-xs uppercase">Số đơn</th>
-                        <th class="px-3 py-3 text-right text-gray-500 font-medium text-xs uppercase">Tổng tiền đã hoàn</th>
+                        <th class="px-3 py-3 text-right text-gray-500 font-medium text-xs uppercase">Tổng giá trị đơn</th>
+                        <th class="px-3 py-3 text-right text-gray-500 font-medium text-xs uppercase">Tổng tiền hoàn</th>
                         <th class="px-3 py-3 text-right text-gray-500 font-medium text-xs uppercase">Đăng nhập cuối</th>
                         <th class="px-3 py-3 text-right text-gray-500 font-medium text-xs uppercase">Ngày tạo</th>
                         <th class="px-3 py-3 text-center text-gray-500 font-medium text-xs uppercase">Trạng thái</th>
@@ -113,8 +126,11 @@
                             <td class="px-3 py-3 text-right text-gray-700 text-xs">
                                 {{ number_format($user->orders_count, 0, ',', '.') }}
                             </td>
+                            <td class="px-3 py-3 text-right text-gray-700 text-xs whitespace-nowrap">
+                                {{ number_format($user->total_order_value, 0, ',', '.') }}đ
+                            </td>
                             <td class="px-3 py-3 text-right font-semibold text-emerald-700 text-xs whitespace-nowrap">
-                                {{ number_format($user->total_completed_amount, 0, ',', '.') }}đ
+                                {{ number_format($user->total_cashback_only, 0, ',', '.') }}đ
                             </td>
                             <td class="px-3 py-3 text-right text-gray-400 text-xs whitespace-nowrap">
                                 {{ $user->last_login_at ? \Carbon\Carbon::parse($user->last_login_at)->format('d/m/Y H:i') : '—' }}
@@ -134,7 +150,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="13" class="px-4 py-8 text-center text-gray-300">
+                            <td colspan="14" class="px-4 py-8 text-center text-gray-300">
                                 Không tìm thấy người dùng nào
                             </td>
                         </tr>
@@ -191,8 +207,12 @@
                             <div class="text-gray-800">{{ number_format($user->orders_count) }}</div>
                         </div>
                         <div>
+                            <div class="text-gray-400 text-xs">Giá trị đơn</div>
+                            <div class="text-gray-800">{{ number_format($user->total_order_value, 0, ',', '.') }}đ</div>
+                        </div>
+                        <div>
                             <div class="text-gray-400 text-xs">Tổng đã hoàn</div>
-                            <div class="text-emerald-700 font-medium">{{ number_format($user->total_completed_amount, 0, ',', '.') }}đ</div>
+                            <div class="text-emerald-700 font-medium">{{ number_format($user->total_cashback_only, 0, ',', '.') }}đ</div>
                         </div>
                         <div>
                             <div class="text-gray-400 text-xs">Ngày tạo</div>

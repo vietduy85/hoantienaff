@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\WalletTransaction;
 use App\Models\WithdrawRequest;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 class UserController extends Controller
@@ -30,14 +31,15 @@ class UserController extends Controller
 
         $query->selectSub($pendingCashbackSub, 'pending_cashback_amount');
 
-        $totalCompletedSub = WalletTransaction::selectRaw('COALESCE(SUM(amount), 0)')
+        $totalCashbackOnlySub = WalletTransaction::selectRaw('COALESCE(SUM(amount), 0)')
             ->whereColumn('user_id', 'users.id')
+            ->where('type', WalletTransaction::TYPE_CASHBACK)
             ->where('direction', WalletTransaction::DIRECTION_CREDIT)
             ->where('status', WalletTransaction::STATUS_COMPLETED);
 
-        $query->selectSub($totalCompletedSub, 'total_completed_amount');
+        $query->selectSub($totalCashbackOnlySub, 'total_cashback_only');
 
-        $ordersCountSub = AffiliateOrderItem::selectRaw('COUNT(*)')
+        $ordersCountSub = AffiliateOrderItem::selectRaw('COUNT(DISTINCT order_id)')
             ->whereColumn('user_id', 'users.id');
 
         $query->selectSub($ordersCountSub, 'orders_count');
@@ -57,7 +59,77 @@ class UserController extends Controller
             });
         }
 
-        $users = $query->latest()->paginate(50)->withQueryString();
+        $sort = $request->input('sort');
+        $sortByOrderValue = isset($sort) && in_array($sort, ['order_value_desc', 'order_value_asc']);
+        $orderValueDirection = $sortByOrderValue ? (str_ends_with($sort, '_asc') ? 'asc' : 'desc') : null;
+
+        if ($sortByOrderValue) {
+            $allUsers = $query->get();
+
+            $userIds = $allUsers->pluck('id')->filter()->values();
+            $orderTotals = [];
+            if ($userIds->isNotEmpty()) {
+                $rows = DB::select(
+                    'SELECT user_id, SUM(order_amount) AS total FROM ('
+                    . 'SELECT DISTINCT user_id, order_id, order_amount FROM affiliate_order_items'
+                    . ' WHERE user_id IN (' . $userIds->implode(',') . ')'
+                    . ') sub GROUP BY user_id'
+                );
+                foreach ($rows as $row) {
+                    $orderTotals[$row->user_id] = (float) $row->total;
+                }
+            }
+
+            foreach ($allUsers as $user) {
+                $user->total_order_value = $orderTotals[$user->id] ?? 0;
+            }
+
+            $sorted = $allUsers->sortBy('total_order_value', SORT_REGULAR, $orderValueDirection === 'asc');
+            $page = $request->input('page', 1);
+            $perPage = 50;
+            $paginated = $sorted->slice(($page - 1) * $perPage, $perPage)->values();
+
+            $users = new \Illuminate\Pagination\LengthAwarePaginator(
+                $paginated,
+                $allUsers->count(),
+                $perPage,
+                $page,
+                ['path' => $request->url(), 'query' => $request->query()]
+            );
+        } else {
+            $dbSorts = [
+                'orders_desc'   => ['column' => 'orders_count', 'direction' => 'desc'],
+                'orders_asc'    => ['column' => 'orders_count', 'direction' => 'asc'],
+                'cashback_desc' => ['column' => 'total_cashback_only', 'direction' => 'desc'],
+                'cashback_asc'  => ['column' => 'total_cashback_only', 'direction' => 'asc'],
+            ];
+
+            if ($sort && isset($dbSorts[$sort])) {
+                $query->orderBy($dbSorts[$sort]['column'], $dbSorts[$sort]['direction']);
+            } else {
+                $query->latest();
+            }
+
+            $users = $query->paginate(50)->withQueryString();
+
+            $userIds = $users->pluck('id')->filter()->values();
+            $orderTotals = [];
+            if ($userIds->isNotEmpty()) {
+                $rows = DB::select(
+                    'SELECT user_id, SUM(order_amount) AS total FROM ('
+                    . 'SELECT DISTINCT user_id, order_id, order_amount FROM affiliate_order_items'
+                    . ' WHERE user_id IN (' . $userIds->implode(',') . ')'
+                    . ') sub GROUP BY user_id'
+                );
+                foreach ($rows as $row) {
+                    $orderTotals[$row->user_id] = (float) $row->total;
+                }
+            }
+
+            foreach ($users as $user) {
+                $user->total_order_value = $orderTotals[$user->id] ?? 0;
+            }
+        }
 
         return view('admin.users.index', compact('users'));
     }
