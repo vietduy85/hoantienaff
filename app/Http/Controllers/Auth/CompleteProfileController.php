@@ -13,9 +13,15 @@ use Illuminate\View\View;
 
 class CompleteProfileController extends Controller
 {
-    public function create(): View
+    public function create(): View|RedirectResponse
     {
         $user = Auth::user();
+
+        if ($user->username) {
+            return redirect()->intended(route('dashboard'))
+                ->with('info', 'Bạn đã hoàn tất cập nhật thông tin tài khoản. Username không thể thay đổi.');
+        }
+
         $suggestion = null;
 
         if ($user->email) {
@@ -41,6 +47,11 @@ class CompleteProfileController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $user = Auth::user();
+
+        if ($user->username) {
+            return redirect()->intended(route('dashboard'))
+                ->with('info', 'Bạn đã hoàn tất cập nhật thông tin tài khoản. Username không thể thay đổi.');
+        }
 
         $request->merge([
             'username' => strtolower(trim($request->username)),

@@ -86,7 +86,7 @@
                 {{-- Commission --}}
                 <div class="flex items-center justify-between">
                     <span class="text-sm text-gray-500">Hoa hồng</span>
-                    <span class="text-sm font-semibold text-purple-600">{{ number_format($item->total_product_commission, 0, ',', '.') }}đ</span>
+                    <span class="text-sm font-semibold text-purple-600">{{ number_format((int) floor($item->total_product_commission * 0.90), 0, ',', '.') }}đ</span>
                 </div>
 
                 {{-- Cashback rate --}}

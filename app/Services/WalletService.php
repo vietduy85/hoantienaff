@@ -399,17 +399,19 @@ class WalletService
 
     public function syncBalance(User $user): float
     {
-        $calculated = (float) WalletTransaction::where('user_id', $user->id)
+        $totals = WalletTransaction::where('user_id', $user->id)
             ->where('status', WalletTransaction::STATUS_COMPLETED)
             ->selectRaw(
-                "COALESCE(SUM(CASE WHEN direction = 'credit' THEN amount ELSE 0 END), 0) - COALESCE(SUM(CASE WHEN direction = 'debit' THEN amount ELSE 0 END), 0) as balance"
+                "COALESCE(SUM(CASE WHEN direction = 'credit' THEN amount ELSE 0 END), 0) as total_credits,
+                 COALESCE(SUM(CASE WHEN direction = 'debit' THEN amount ELSE 0 END), 0) as total_debits"
             )
-            ->value('balance');
+            ->first();
 
-        $user->wallet_balance = $calculated;
+        $user->wallet_balance = (float) $totals->total_credits - (float) $totals->total_debits;
+        $user->total_earned = (float) $totals->total_credits;
         $user->save();
 
-        return $calculated;
+        return $user->wallet_balance;
     }
 
     public function isCashbackCredited(AffiliateOrderItem $item): bool

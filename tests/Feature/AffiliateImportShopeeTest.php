@@ -56,7 +56,7 @@ class AffiliateImportShopeeTest extends TestCase
         ]);
 
         $this->user->refresh();
-        $this->assertSame(5000.0, (float) $this->user->wallet_balance);
+        $this->assertSame(4500.0, (float) $this->user->wallet_balance);
     }
 
     public function test_full_import_status_transition_credits_cashback(): void
@@ -91,7 +91,7 @@ class AffiliateImportShopeeTest extends TestCase
             ->assertSuccessful();
 
         $this->assertDatabaseCount('wallet_transactions', 1);
-        $this->assertSame(5000.0, (float) $this->user->fresh()->wallet_balance);
+        $this->assertSame(4500.0, (float) $this->user->fresh()->wallet_balance);
     }
 
     public function test_full_import_pending_to_cancelled_does_not_create_transaction(): void

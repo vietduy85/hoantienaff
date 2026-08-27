@@ -138,9 +138,10 @@ class ShopeeCsvParserTest extends TestCase
     public function test_calculateCashback_rate_below_12_percent(): void
     {
         // commission_rate = (10000 * 0.9) / 100000 = 0.09 < 0.12 → rate = 50
+        // net = floor(floor(10000 * 0.90) * 50 / 100) = floor(9000 * 0.50) = 4500
         $result = $this->parser->calculateCashback(10000, 100000);
         $this->assertSame(50, $result['rate']);
-        $this->assertSame(5000.0, $result['amount']);
+        $this->assertSame(4500.0, $result['amount']);
     }
 
     public function test_calculateCashback_rate_between_12_and_52_percent(): void

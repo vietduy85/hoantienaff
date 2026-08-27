@@ -229,11 +229,12 @@ class ShopeeCsvParser
             $cashbackRate = 70;
         }
 
-        $cashbackAmount = $productCommission * $cashbackRate / 100;
+        $netCashback = (int) floor($productCommission * 0.90);
+        $cashbackAmount = (int) floor($netCashback * $cashbackRate / 100);
 
         return [
             'rate' => $cashbackRate,
-            'amount' => round($cashbackAmount, 2),
+            'amount' => round((float) $cashbackAmount, 2),
         ];
     }
 

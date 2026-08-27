@@ -336,12 +336,16 @@ class WalletServiceTest extends TestCase
             'status' => 'completed',
         ]);
 
+        $this->user->total_earned = 99999;
+        $this->user->save();
+
         $synced = $this->service->syncBalance($this->user);
 
         $this->assertSame(40000.0, $synced);
 
         $this->user->refresh();
         $this->assertSame(40000.0, (float) $this->user->wallet_balance);
+        $this->assertSame(50000.0, (float) $this->user->total_earned);
     }
 
     public function test_isCashbackCredited_returns_true_when_already_credited(): void
