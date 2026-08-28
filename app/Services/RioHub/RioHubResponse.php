@@ -36,11 +36,16 @@ class RioHubResponse
     }
 
     /**
-     * Get the 'data' sub-array (generic API envelope pattern).
+     * Get the full response body array (top-level).
+     *
+     * The RioHub API returns its payload fields at the top level of the JSON
+     * body (e.g. `affiliate_link`, `products`, `orders`), NOT wrapped under a
+     * `data` envelope. This returns the raw decoded body so callers can read
+     * the top-level fields directly.
      */
     public function getResult(): array
     {
-        return $this->data['data'] ?? [];
+        return $this->data;
     }
 
     public function isOk(): bool

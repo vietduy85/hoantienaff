@@ -33,7 +33,9 @@ class TikTokProductService
 
         $data = $response->getResult();
 
-        if (empty($data)) {
+        $found = $data['products'][0] ?? $data['product'] ?? null;
+
+        if (!is_array($found)) {
             throw new TikTokServiceException(
                 "[getProduct] No product data returned for id: {$productId}",
             );

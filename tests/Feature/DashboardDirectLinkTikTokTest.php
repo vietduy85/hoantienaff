@@ -80,6 +80,22 @@ class DashboardDirectLinkTikTokTest extends TestCase
 
         $this->app->instance(TikTokAffiliateService::class, $mockTiktokService);
 
+        $mockProductService = $this->createMock(\App\Services\TikTok\TikTokProductService::class);
+        $mockProductService
+            ->expects($this->once())
+            ->method('getProduct')
+            ->with('12345')
+            ->willReturn(new \App\Services\TikTok\DTOs\TikTokProductDTO(
+                productId: '12345',
+                name: 'Test TikTok Product',
+                imageUrl: 'https://img.tiktok.com/x.jpg',
+                price: 100000,
+                currency: 'VND',
+                commissionRatePct: 2300,
+            ));
+
+        $this->app->instance(\App\Services\TikTok\TikTokProductService::class, $mockProductService);
+
         $response = $this->actingAs($this->user)
             ->postJson('/link-requests', [
                 'original_url' => 'https://tiktok.com/item/12345',
@@ -91,6 +107,64 @@ class DashboardDirectLinkTikTokTest extends TestCase
         $this->assertEquals('TikTok Shop', $link->platform);
         $this->assertEquals('completed', $link->status);
         $this->assertEquals('https://riohub.vn/aff/abc123', $link->affiliate_url);
+        $this->assertEquals('Test TikTok Product', $link->product_name);
+        $this->assertEquals(23000.00, (float) $link->estimated_cashback); // 100000 * 23%
+        $this->assertEquals(0.60, (float) $link->cashback_rate);
+        $this->assertEquals(12420.00, (float) $link->user_estimated_cashback); // 23000*0.9=20700*0.6
+    }
+
+    // ------------------------------------------------------------------
+    //  Test 2b: RioHub HTTP is called exactly once per TikTok request
+    //  (POST /links exactly 1, GET /products exactly 1 — no duplicate)
+    // ------------------------------------------------------------------
+
+    public function test_tiktok_calls_riohub_links_and_products_exactly_once(): void
+    {
+        $linkCalls = 0;
+        $productCalls = 0;
+
+        \Illuminate\Support\Facades\Http::fake(function ($request) use (&$linkCalls, &$productCalls) {
+            $url = (string) $request->url();
+
+            if (str_contains($url, '/partner/tiktok/affiliate/links')) {
+                $linkCalls++;
+                return \Illuminate\Support\Facades\Http::response([
+                    'success' => true,
+                    'affiliate_link' => 'https://riohub.vn/aff/once',
+                    'product_id' => '515',
+                ], 200);
+            }
+
+            if (str_contains($url, '/partner/tiktok/affiliate/products')) {
+                $productCalls++;
+                return \Illuminate\Support\Facades\Http::response([
+                    'products' => [[
+                        'id' => '515',
+                        'title' => 'Once Product',
+                        'sales_price' => ['currency' => 'VND', 'minimum_amount' => 200000],
+                        'commission' => ['rate' => 1000],
+                    ]],
+                ], 200);
+            }
+
+            return \Illuminate\Support\Facades\Http::response(['success' => true], 200);
+        });
+
+        $response = $this->actingAs($this->user)
+            ->postJson('/link-requests', [
+                'original_url' => 'https://tiktok.com/item/515',
+            ]);
+
+        $response->assertOk();
+
+        $this->assertSame(1, $linkCalls, 'POST /links must be called exactly ONCE per TikTok request. Duplicate detected.');
+        $this->assertSame(1, $productCalls, 'GET /products must be called exactly ONCE per TikTok request.');
+
+        $link = LinkRequest::latest()->first();
+        $this->assertEquals('https://riohub.vn/aff/once', $link->affiliate_url);
+        $this->assertEquals('completed', $link->status);
+        $this->assertEquals(200000, $link->product_price);
+        $this->assertEquals(20000.00, (float) $link->estimated_cashback); // 200000 * 10%
     }
 
     // ------------------------------------------------------------------
@@ -132,11 +206,13 @@ class DashboardDirectLinkTikTokTest extends TestCase
                 'original_url' => 'https://tiktok.com/item/fail',
             ]);
 
-        $response->assertOk();
+        $response->assertStatus(422);
+        $response->assertJsonStructure(['success', 'error', 'request_id', 'platform']);
+        $response->assertJson(['success' => false]);
 
         $link = LinkRequest::latest()->first();
         $this->assertEquals('TikTok Shop', $link->platform);
-        $this->assertEquals('completed', $link->status);
+        $this->assertEquals('failed', $link->status);
         $this->assertNull($link->affiliate_url);
     }
 

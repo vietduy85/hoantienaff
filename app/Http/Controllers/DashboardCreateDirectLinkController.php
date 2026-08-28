@@ -7,7 +7,8 @@ use App\Models\Setting;
 use App\Services\AffiliateCacheService;
 use App\Services\CashbackCalculator;
 use App\Services\ProductDataService;
-use App\Services\ProviderFactory;
+use App\Services\TikTok\TikTokLinkEstimateService;
+use App\Services\TikTok\TikTokServiceException;
 use App\Services\UrlResolverService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -20,7 +21,7 @@ class DashboardCreateDirectLinkController extends Controller
         private readonly CashbackCalculator $cashbackCalculator,
         private readonly AffiliateCacheService $cacheService,
         private readonly UrlResolverService $urlResolver,
-        private readonly ProviderFactory $providerFactory,
+        private readonly TikTokLinkEstimateService $tiktokLinkEstimate,
     ) {}
 
     public function store(Request $request): \Illuminate\Http\JsonResponse|RedirectResponse
@@ -176,19 +177,53 @@ class DashboardCreateDirectLinkController extends Controller
         } else {
             if (str_contains(strtolower($validated['original_url']), 'tiktok')) {
                 try {
-                    $provider = $this->providerFactory->getProvider($validated['original_url']);
-                    $result = $provider->createLink($validated['original_url'], $user->username);
-
-                    if ($result['success'] && !empty($result['affiliate_url'])) {
-                        $link->update([
-                            'affiliate_url' => $result['affiliate_url'],
-                        ]);
-                    }
-                } catch (\Throwable $e) {
-                    Log::warning('[DirectLink] Provider failed', [
-                        'url' => $validated['original_url'],
-                        'error' => $e->getMessage(),
+                    $this->tiktokLinkEstimate->create($link, $validated['original_url'], $user);
+                } catch (TikTokServiceException $e) {
+                    $link->update([
+                        'status' => 'failed',
+                        'notes'  => $e->getRioHubMessage() ?? $e->getMessage(),
                     ]);
+
+                    Log::warning('[DirectLink] TikTok link creation failed', [
+                        'url'      => $validated['original_url'],
+                        'error'    => $e->getMessage(),
+                        'user_id'  => $user->id,
+                    ]);
+
+                    if ($request->expectsJson() || $request->ajax()) {
+                        return response()->json([
+                            'success' => false,
+                            'error'   => $this->friendlyTikTokError($e),
+                            'request_id' => $link->id,
+                            'platform'   => $platform,
+                        ], 422);
+                    }
+
+                    return redirect()->route('dashboard')
+                        ->with('error', $this->friendlyTikTokError($e));
+                } catch (\Throwable $e) {
+                    $link->update([
+                        'status' => 'failed',
+                        'notes'  => 'Lỗi hệ thống khi tạo link TikTok.',
+                    ]);
+
+                    Log::warning('[DirectLink] TikTok provider failed', [
+                        'url'     => $validated['original_url'],
+                        'error'   => $e->getMessage(),
+                    ]);
+
+                    $msg = 'Không thể kết nối TikTok lúc này, vui lòng thử lại sau.';
+
+                    if ($request->expectsJson() || $request->ajax()) {
+                        return response()->json([
+                            'success' => false,
+                            'error'   => $msg,
+                            'request_id' => $link->id,
+                            'platform'   => $platform,
+                        ], 502);
+                    }
+
+                    return redirect()->route('dashboard')->with('error', $msg);
                 }
             }
         }
@@ -226,6 +261,25 @@ class DashboardCreateDirectLinkController extends Controller
         }
 
         return 'Khác';
+    }
+
+    private function friendlyTikTokError(TikTokServiceException $e): string
+    {
+        $rioMsg = strtolower((string) $e->getRioHubMessage());
+
+        if (str_contains($rioMsg, 'not_promotable') || str_contains($rioMsg, 'promotable')) {
+            return 'Sản phẩm này hiện không hỗ trợ tạo link affiliate.';
+        }
+
+        if ($e->getCode() === 422) {
+            return 'Link TikTok Shop không hợp lệ hoặc sản phẩm không thể tạo link affiliate.';
+        }
+
+        if ($e->getCode() === 401 || $e->getCode() === 403) {
+            return 'Không thể kết nối TikTok lúc này, vui lòng thử lại sau.';
+        }
+
+        return 'Không thể tạo affiliate link TikTok. Vui lòng thử lại sau.';
     }
 
     private function buildAffiliateUrl(string $resolvedUrl, $user): string

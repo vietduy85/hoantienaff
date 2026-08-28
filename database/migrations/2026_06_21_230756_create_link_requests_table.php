@@ -15,7 +15,7 @@ return new class extends Migration
             $table->string('platform', 50);
             $table->string('affiliate_url', 2048)->nullable();
             $table->decimal('estimated_cashback', 15, 2)->nullable();
-            $table->enum('status', ['pending', 'processing', 'completed', 'rejected'])->default('pending');
+            $table->enum('status', ['pending', 'processing', 'completed', 'rejected', 'failed'])->default('pending');
             $table->text('notes')->nullable();
             $table->boolean('is_pinned')->default(false);
             $table->timestamps();

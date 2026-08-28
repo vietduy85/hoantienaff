@@ -40,9 +40,9 @@ class TikTokAffiliateLinkDTO
     public static function fromRioHubResponse(array $data, ?string $originalUrl = null): static
     {
         return new static(
-            affiliateUrl: $data['affiliate_url'] ?? $data['url'] ?? '',
-            productId: $data['product_id'] ?? $data['id'] ?? null,
-            productName: $data['product_name'] ?? $data['name'] ?? null,
+            affiliateUrl: $data['affiliate_link'] ?? $data['url'] ?? '',
+            productId: $data['product_id'] ?? null,
+            productName: $data['product_name'] ?? null,
             originalUrl: $originalUrl,
             raw: $data,
         );

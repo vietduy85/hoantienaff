@@ -32,9 +32,9 @@ class TikTokAffiliateService
 
         $data = $response->getResult();
 
-        if (empty($data['affiliate_url']) && empty($data['url'])) {
+        if (empty($data['affiliate_link']) && empty($data['url'])) {
             throw new TikTokServiceException(
-                '[createAffiliateLink] RioHub returned empty affiliate_url',
+                '[createAffiliateLink] RioHub returned empty affiliate_link',
                 0,
             );
         }

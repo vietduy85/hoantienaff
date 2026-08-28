@@ -24,21 +24,24 @@ class TikTokProductServiceTest extends TestCase
     }
 
     // ------------------------------------------------------------------
-    //  getProduct — success
+    //  getProduct — success (top-level products[])
     // ------------------------------------------------------------------
 
     public function test_get_product_success(): void
     {
         $riohubResponse = new RioHubResponse(200, [
-            'data' => [
-                'product_id' => '12345',
-                'product_name' => 'Test Product',
-                'image_url' => 'https://img.tiktok.com/product.jpg',
-                'price' => 150000,
-                'currency' => 'VND',
-                'commission_rate' => 0.10,
-                'product_url' => 'https://tiktok.com/item/12345',
-            ],
+            'success' => true,
+            'products' => [[
+                'id' => '12345',
+                'title' => 'Test Product',
+                'main_image_url' => 'https://img.tiktok.com/product.jpg',
+                'sales_price' => ['currency' => 'VND', 'minimum_amount' => 150000],
+                'original_price' => ['currency' => 'VND', 'minimum_amount' => 180000],
+                'commission' => ['rate' => 2300, 'amount' => 34500],
+                'shop_ads_commission' => ['rate' => 100],
+                'observed_commission' => ['commission_rate' => 2500],
+                'shop' => ['name' => 'Shop Test'],
+            ]],
         ]);
 
         $this->mockClient
@@ -55,14 +58,13 @@ class TikTokProductServiceTest extends TestCase
         $this->assertEquals('https://img.tiktok.com/product.jpg', $dto->getImageUrl());
         $this->assertEquals(150000.0, $dto->getPrice());
         $this->assertEquals('VND', $dto->getCurrency());
-        $this->assertEquals(0.10, $dto->getCommissionRate());
-        $this->assertEquals('https://tiktok.com/item/12345', $dto->getProductUrl());
+        $this->assertEquals('Shop Test', $dto->getShopName());
     }
 
     public function test_get_product_with_integer_id(): void
     {
         $riohubResponse = new RioHubResponse(200, [
-            'data' => ['product_id' => '999', 'product_name' => 'Product 999'],
+            'products' => [['id' => '999', 'title' => 'Product 999']],
         ]);
 
         $this->mockClient
@@ -74,12 +76,13 @@ class TikTokProductServiceTest extends TestCase
         $dto = $this->service->getProduct(999);
 
         $this->assertEquals('999', $dto->getProductId());
+        $this->assertEquals('Product 999', $dto->getName());
     }
 
-    public function test_get_product_maps_from_id_key(): void
+    public function test_get_product_supports_single_product_shape(): void
     {
         $riohubResponse = new RioHubResponse(200, [
-            'data' => ['id' => 'from-id-key', 'name' => 'From ID Key'],
+            'product' => ['id' => 'from-product-key', 'title' => 'Single Product'],
         ]);
 
         $this->mockClient
@@ -88,19 +91,19 @@ class TikTokProductServiceTest extends TestCase
 
         $dto = $this->service->getProduct('abc');
 
-        $this->assertEquals('from-id-key', $dto->getProductId());
-        $this->assertEquals('From ID Key', $dto->getName());
+        $this->assertEquals('from-product-key', $dto->getProductId());
+        $this->assertEquals('Single Product', $dto->getName());
     }
 
-    public function test_get_product_preserves_raw_data(): void
+    public function test_get_product_preserves_raw_product_data(): void
     {
-        $rawData = [
-            'product_id' => '500',
-            'product_name' => 'Raw Test',
+        $rawProduct = [
+            'id' => '500',
+            'title' => 'Raw Test',
             'custom_field' => 'custom_value',
         ];
 
-        $riohubResponse = new RioHubResponse(200, ['data' => $rawData]);
+        $riohubResponse = new RioHubResponse(200, ['products' => [$rawProduct]]);
 
         $this->mockClient
             ->method('getProduct')
@@ -108,7 +111,93 @@ class TikTokProductServiceTest extends TestCase
 
         $dto = $this->service->getProduct('500');
 
-        $this->assertEquals($rawData, $dto->getRaw());
+        $this->assertEquals($rawProduct, $dto->getRaw());
+    }
+
+    // ------------------------------------------------------------------
+    //  Commission rate resolution
+    // ------------------------------------------------------------------
+
+    public function test_effective_rate_prefers_observed_commission(): void
+    {
+        $riohubResponse = new RioHubResponse(200, [
+            'products' => [[
+                'id' => '1',
+                'commission' => ['rate' => 1000],
+                'shop_ads_commission' => ['rate' => 200],
+                'observed_commission' => ['commission_rate' => 2500],
+            ]],
+        ]);
+
+        $this->mockClient->method('getProduct')->willReturn($riohubResponse);
+
+        $dto = $this->service->getProduct('1');
+
+        $this->assertEquals(2500.0, $dto->getEffectiveCommissionRatePct());
+    }
+
+    public function test_effective_rate_falls_back_to_commission_plus_ads(): void
+    {
+        $riohubResponse = new RioHubResponse(200, [
+            'products' => [[
+                'id' => '2',
+                'commission' => ['rate' => 1000],
+                'shop_ads_commission' => ['rate' => 200],
+            ]],
+        ]);
+
+        $this->mockClient->method('getProduct')->willReturn($riohubResponse);
+
+        $dto = $this->service->getProduct('2');
+
+        $this->assertEquals(1200.0, $dto->getEffectiveCommissionRatePct());
+    }
+
+    public function test_effective_rate_with_commission_only(): void
+    {
+        $riohubResponse = new RioHubResponse(200, [
+            'products' => [[
+                'id' => '3',
+                'commission' => ['rate' => 500],
+            ]],
+        ]);
+
+        $this->mockClient->method('getProduct')->willReturn($riohubResponse);
+
+        $dto = $this->service->getProduct('3');
+
+        $this->assertEquals(500.0, $dto->getEffectiveCommissionRatePct());
+    }
+
+    public function test_effective_rate_null_when_no_commission(): void
+    {
+        $riohubResponse = new RioHubResponse(200, [
+            'products' => [['id' => '4']],
+        ]);
+
+        $this->mockClient->method('getProduct')->willReturn($riohubResponse);
+
+        $dto = $this->service->getProduct('4');
+
+        $this->assertNull($dto->getEffectiveCommissionRatePct());
+    }
+
+    public function test_effective_rate_null_when_observed_is_zero(): void
+    {
+        $riohubResponse = new RioHubResponse(200, [
+            'products' => [[
+                'id' => '5',
+                'observed_commission' => ['commission_rate' => 0],
+                'commission' => ['rate' => 0],
+                'shop_ads_commission' => ['rate' => 0],
+            ]],
+        ]);
+
+        $this->mockClient->method('getProduct')->willReturn($riohubResponse);
+
+        $dto = $this->service->getProduct('5');
+
+        $this->assertNull($dto->getEffectiveCommissionRatePct());
     }
 
     // ------------------------------------------------------------------
@@ -155,10 +244,11 @@ class TikTokProductServiceTest extends TestCase
         }
     }
 
-    public function test_get_product_throws_on_empty_data(): void
+    public function test_get_product_throws_when_no_product_found(): void
     {
         $riohubResponse = new RioHubResponse(200, [
-            'data' => [],
+            'success' => true,
+            'products' => [],
         ]);
 
         $this->mockClient

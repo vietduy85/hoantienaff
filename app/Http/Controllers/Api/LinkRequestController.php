@@ -28,6 +28,8 @@ class LinkRequestController extends Controller
             'platform' => $link->platform,
             'product_name' => $link->product_name,
             'product_image' => $link->product_image,
+            'product_price' => $link->product_price,
+            'shop_name' => $link->shop_name,
             'created_at' => $link->created_at,
         ]);
     }

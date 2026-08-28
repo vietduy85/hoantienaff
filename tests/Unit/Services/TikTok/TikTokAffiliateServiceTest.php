@@ -31,11 +31,9 @@ class TikTokAffiliateServiceTest extends TestCase
     {
         $riohubResponse = new RioHubResponse(200, [
             'success' => true,
-            'data' => [
-                'affiliate_url' => 'https://riohub.vn/aff/abc123',
-                'product_id' => '12345',
-                'product_name' => 'Test Product',
-            ],
+            'affiliate_link' => 'https://riohub.vn/aff/abc123',
+            'product_id' => '12345',
+            'creator_username' => 'testuser',
         ]);
 
         $this->mockClient
@@ -49,7 +47,6 @@ class TikTokAffiliateServiceTest extends TestCase
         $this->assertInstanceOf(TikTokAffiliateLinkDTO::class, $dto);
         $this->assertEquals('https://riohub.vn/aff/abc123', $dto->getAffiliateUrl());
         $this->assertEquals('12345', $dto->getProductId());
-        $this->assertEquals('Test Product', $dto->getProductName());
         $this->assertEquals('https://tiktok.com/item/12345', $dto->getOriginalUrl());
     }
 
@@ -57,7 +54,7 @@ class TikTokAffiliateServiceTest extends TestCase
     {
         $riohubResponse = new RioHubResponse(200, [
             'success' => true,
-            'data' => ['affiliate_url' => 'https://riohub.vn/aff/custom'],
+            'affiliate_link' => 'https://riohub.vn/aff/custom',
         ]);
 
         $this->mockClient
@@ -74,15 +71,12 @@ class TikTokAffiliateServiceTest extends TestCase
     public function test_create_affiliate_link_preserves_raw_data(): void
     {
         $rawData = [
-            'affiliate_url' => 'https://riohub.vn/aff/abc',
+            'affiliate_link' => 'https://riohub.vn/aff/abc',
             'product_id' => '99',
             'extra_field' => 'extra_value',
         ];
 
-        $riohubResponse = new RioHubResponse(200, [
-            'success' => true,
-            'data' => $rawData,
-        ]);
+        $riohubResponse = new RioHubResponse(200, $rawData);
 
         $this->mockClient
             ->method('createAffiliateLink')
@@ -143,7 +137,6 @@ class TikTokAffiliateServiceTest extends TestCase
     {
         $riohubResponse = new RioHubResponse(200, [
             'success' => true,
-            'data' => [],
         ]);
 
         $this->mockClient
@@ -151,7 +144,7 @@ class TikTokAffiliateServiceTest extends TestCase
             ->willReturn($riohubResponse);
 
         $this->expectException(TikTokServiceException::class);
-        $this->expectExceptionMessage('empty affiliate_url');
+        $this->expectExceptionMessage('empty affiliate_link');
 
         $this->service->createAffiliateLink('https://tiktok.com/item/1');
     }
@@ -203,7 +196,7 @@ class TikTokAffiliateServiceTest extends TestCase
     public function test_dto_maps_affiliate_url_from_url_key(): void
     {
         $riohubResponse = new RioHubResponse(200, [
-            'data' => ['url' => 'https://riohub.vn/aff/from-url-key'],
+            'url' => 'https://riohub.vn/aff/from-url-key',
         ]);
 
         $this->mockClient
@@ -215,10 +208,11 @@ class TikTokAffiliateServiceTest extends TestCase
         $this->assertEquals('https://riohub.vn/aff/from-url-key', $dto->getAffiliateUrl());
     }
 
-    public function test_dto_maps_product_id_from_id_key(): void
+    public function test_dto_maps_product_id_from_product_id_key(): void
     {
         $riohubResponse = new RioHubResponse(200, [
-            'data' => ['affiliate_url' => 'https://riohub.vn/aff/x', 'id' => 'from-id-key'],
+            'affiliate_link' => 'https://riohub.vn/aff/x',
+            'product_id' => 'from-product-id-key',
         ]);
 
         $this->mockClient
@@ -227,6 +221,6 @@ class TikTokAffiliateServiceTest extends TestCase
 
         $dto = $this->service->createAffiliateLink('https://tiktok.com/item/1');
 
-        $this->assertEquals('from-id-key', $dto->getProductId());
+        $this->assertEquals('from-product-id-key', $dto->getProductId());
     }
 }

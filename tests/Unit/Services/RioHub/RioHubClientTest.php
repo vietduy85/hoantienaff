@@ -34,10 +34,8 @@ class RioHubClientTest extends TestCase
     {
         $payload = [
             'success' => true,
-            'data'    => [
-                'affiliate_url' => 'https://riohub.vn/aff/abc123',
-                'product_id'    => '12345',
-            ],
+            'affiliate_link' => 'https://riohub.vn/aff/abc123',
+            'product_id'    => '12345',
         ];
 
         Http::fake([
@@ -49,8 +47,8 @@ class RioHubClientTest extends TestCase
         $this->assertInstanceOf(RioHubResponse::class, $response);
         $this->assertTrue($response->isOk());
         $this->assertEquals(200, $response->getStatusCode());
-        $this->assertEquals('https://riohub.vn/aff/abc123', $response->get('data.affiliate_url'));
-        $this->assertEquals(['affiliate_url' => 'https://riohub.vn/aff/abc123', 'product_id' => '12345'], $response->getResult());
+        $this->assertEquals('https://riohub.vn/aff/abc123', $response->get('affiliate_link'));
+        $this->assertEquals(['success' => true, 'affiliate_link' => 'https://riohub.vn/aff/abc123', 'product_id' => '12345'], $response->getResult());
 
         Http::assertSent(function (Request $request) {
             return $request->url() === 'https://riohub.vn/api/v1/partner/tiktok/affiliate/links'
@@ -65,7 +63,7 @@ class RioHubClientTest extends TestCase
     public function test_create_affiliate_link_uses_custom_sub_id(): void
     {
         Http::fake([
-            'https://riohub.vn/api/v1/partner/tiktok/affiliate/links' => Http::response(['success' => true, 'data' => []], 200),
+            'https://riohub.vn/api/v1/partner/tiktok/affiliate/links' => Http::response(['success' => true], 200),
         ]);
 
         $this->client->createAffiliateLink('https://example.com/product/1', 'custom-sub');
@@ -83,11 +81,11 @@ class RioHubClientTest extends TestCase
     public function test_get_product_success(): void
     {
         $payload = [
-            'data' => [
+            'products' => [[
                 'id'    => '12345',
-                'name'  => 'Test Product',
+                'title' => 'Test Product',
                 'price' => 100000,
-            ],
+            ]],
         ];
 
         Http::fake([
@@ -98,7 +96,7 @@ class RioHubClientTest extends TestCase
 
         $this->assertInstanceOf(RioHubResponse::class, $response);
         $this->assertTrue($response->isOk());
-        $this->assertEquals('Test Product', $response->get('data.name'));
+        $this->assertEquals('Test Product', $response->get('products.0.title'));
 
         Http::assertSent(function (Request $request) {
             return str_contains($request->url(), '/partner/tiktok/affiliate/products')
@@ -115,7 +113,7 @@ class RioHubClientTest extends TestCase
     public function test_get_orders_success(): void
     {
         $payload = [
-            'data' => [
+            'orders' => [
                 ['order_id' => 'ORD-001', 'status' => 'completed'],
                 ['order_id' => 'ORD-002', 'status' => 'pending'],
             ],
@@ -129,7 +127,7 @@ class RioHubClientTest extends TestCase
 
         $this->assertInstanceOf(RioHubResponse::class, $response);
         $this->assertTrue($response->isOk());
-        $this->assertCount(2, $response->getResult());
+        $this->assertCount(2, $response->getData()['orders']);
 
         Http::assertSent(function (Request $request) {
             return str_contains($request->url(), '/partner/tiktok/affiliate/orders')
@@ -141,7 +139,7 @@ class RioHubClientTest extends TestCase
     public function test_get_orders_no_filters(): void
     {
         Http::fake([
-            'https://riohub.vn/api/v1/partner/tiktok/affiliate/orders*' => Http::response(['data' => []], 200),
+            'https://riohub.vn/api/v1/partner/tiktok/affiliate/orders*' => Http::response(['orders' => []], 200),
         ]);
 
         $this->client->getOrders();
@@ -262,14 +260,14 @@ class RioHubClientTest extends TestCase
 
             return Http::response([
                 'success' => true,
-                'data' => ['affiliate_url' => 'https://riohub.vn/aff/retry-ok'],
+                'affiliate_link' => 'https://riohub.vn/aff/retry-ok',
             ], 200);
         });
 
         $response = $this->client->createAffiliateLink('https://example.com/product/1');
 
         $this->assertTrue($response->isOk());
-        $this->assertEquals('https://riohub.vn/aff/retry-ok', $response->get('data.affiliate_url'));
+        $this->assertEquals('https://riohub.vn/aff/retry-ok', $response->get('affiliate_link'));
         $this->assertEquals(2, $callCount);
     }
 
@@ -337,12 +335,12 @@ class RioHubClientTest extends TestCase
     public function test_response_get_result(): void
     {
         $response = new RioHubResponse(200, ['data' => ['id' => 1]]);
-        $this->assertEquals(['id' => 1], $response->getResult());
+        $this->assertEquals(['data' => ['id' => 1]], $response->getResult());
     }
 
-    public function test_response_get_result_empty_when_no_data_key(): void
+    public function test_response_get_result_empty_body(): void
     {
-        $response = new RioHubResponse(200, ['something' => 'else']);
+        $response = new RioHubResponse(200, []);
         $this->assertEquals([], $response->getResult());
     }
 }
