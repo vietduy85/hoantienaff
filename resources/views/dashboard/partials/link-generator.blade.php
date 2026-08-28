@@ -200,28 +200,6 @@
                     </p>
                 </div>
 
-                <div x-show="result.product_price || result.estimated_cashback || result.cashback_rate"
-                     class="bg-white rounded-xl border border-emerald-100 px-4 py-2.5 space-y-1.5">
-                    <div x-show="result.product_price" class="flex items-center justify-between text-xs">
-                        <span class="text-gray-500">Giá</span>
-                        <span class="font-semibold text-gray-800">
-                            <span x-text="result.product_price != null ? Number(result.product_price).toLocaleString('vi-VN') + 'đ' : ''"></span>
-                        </span>
-                    </div>
-                    <div x-show="result.estimated_cashback" class="flex items-center justify-between text-xs">
-                        <span class="text-gray-500">Hoa hồng ước tính</span>
-                        <span class="font-semibold text-purple-600">
-                            <span x-text="result.estimated_cashback != null ? Number(result.estimated_cashback).toLocaleString('vi-VN') + 'đ' : ''"></span>
-                        </span>
-                    </div>
-                    <div x-show="result.cashback_rate" class="flex items-center justify-between text-xs">
-                        <span class="text-gray-500">Tỷ lệ hoàn cho bạn</span>
-                        <span class="font-semibold text-emerald-700">
-                            <span x-text="result.cashback_rate != null ? Number(result.cashback_rate) + '%' : ''"></span>
-                        </span>
-                    </div>
-                </div>
-
                 <div>
                     <p class="text-xs text-gray-500 text-center mb-2">🔗 Link hoàn tiền</p>
                     <a
