@@ -29,11 +29,16 @@ class RegisteredUserController extends Controller
             'username' => strtolower(trim($request->username)),
         ]);
 
-        $request->validate([
-            'username' => ['required', 'string', 'min:3', 'max:30', 'regex:/^[a-z0-9_-]+$/', 'unique:'.User::class],
-            'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:'.User::class],
-            'password' => ['required', 'confirmed', Rules\Password::defaults()],
-        ]);
+        $request->validate(
+            [
+                'username' => ['required', 'string', 'min:3', 'max:30', 'regex:/^[a-z0-9_]+$/', 'unique:'.User::class],
+                'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:'.User::class],
+                'password' => ['required', 'confirmed', Rules\Password::defaults()],
+            ],
+            [
+                'username.regex' => 'Username chỉ được chứa chữ cái, số và dấu gạch dưới (_).',
+            ]
+        );
 
         if (in_array($request->username, config('usernames.reserved', []))) {
             throw ValidationException::withMessages([

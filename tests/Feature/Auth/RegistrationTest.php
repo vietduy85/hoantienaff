@@ -28,4 +28,61 @@ class RegistrationTest extends TestCase
         $this->assertAuthenticated();
         $response->assertRedirect(route('dashboard', absolute: false));
     }
+
+    public function test_username_with_hyphen_is_rejected(): void
+    {
+        $response = $this->post('/register', [
+            'name' => 'An Tuyet',
+            'username' => 'anhtuyet-82',
+            'email' => 'anhtuyet@example.com',
+            'password' => 'password',
+            'password_confirmation' => 'password',
+        ]);
+
+        $response->assertSessionHasErrors('username');
+        $response->assertSessionHasErrors(['username' => 'Username chỉ được chứa chữ cái, số và dấu gạch dưới (_).']);
+        $this->assertGuest();
+    }
+
+    public function test_username_with_underscore_is_accepted(): void
+    {
+        $response = $this->post('/register', [
+            'name' => 'An Tuyet',
+            'username' => 'anhtuyet_82',
+            'email' => 'anhtuyet@example.com',
+            'password' => 'password',
+            'password_confirmation' => 'password',
+        ]);
+
+        $this->assertAuthenticated();
+        $this->assertDatabaseHas('users', ['username' => 'anhtuyet_82', 'email' => 'anhtuyet@example.com']);
+    }
+
+    public function test_username_without_separators_is_accepted(): void
+    {
+        $response = $this->post('/register', [
+            'name' => 'An Tuyet',
+            'username' => 'anhtuyet82',
+            'email' => 'anhtuyet@example.com',
+            'password' => 'password',
+            'password_confirmation' => 'password',
+        ]);
+
+        $this->assertAuthenticated();
+        $this->assertDatabaseHas('users', ['username' => 'anhtuyet82', 'email' => 'anhtuyet@example.com']);
+    }
+
+    public function test_uppercase_username_with_hyphen_fails_after_normalize(): void
+    {
+        $response = $this->post('/register', [
+            'name' => 'An Tuyet',
+            'username' => 'ANHTUYET-82',
+            'email' => 'anhtuyet@example.com',
+            'password' => 'password',
+            'password_confirmation' => 'password',
+        ]);
+
+        $response->assertSessionHasErrors('username');
+        $this->assertGuest();
+    }
 }

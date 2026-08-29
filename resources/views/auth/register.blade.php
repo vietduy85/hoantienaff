@@ -10,7 +10,7 @@
                 <span id="username-status" class="absolute right-3 top-1/2 -translate-y-1/2 text-sm hidden"></span>
             </div>
             <x-input-error :messages="$errors->get('username')" class="mt-2" />
-            <p id="username-msg" class="mt-1 text-xs text-gray-400">Chữ thường, số, dấu gạch dưới (_) và dấu gạch ngang (-). 3-30 ký tự.</p>
+            <p id="username-msg" class="mt-1 text-xs text-gray-400">Username chỉ được chứa chữ cái, số và dấu gạch dưới (_). 3-30 ký tự.</p>
         </div>
 
         <!-- Email Address -->
@@ -67,7 +67,7 @@
                 const val = input.value.trim();
                 if (val.length < 3) {
                     status.className = 'absolute right-3 top-1/2 -translate-y-1/2 text-sm hidden';
-                    msg.textContent = 'Chữ thường, số, dấu gạch dưới (_) và dấu gạch ngang (-). 3-30 ký tự.';
+                    msg.textContent = 'Username chỉ được chứa chữ cái, số và dấu gạch dưới (_). 3-30 ký tự.';
                     msg.className = 'mt-1 text-xs text-gray-400';
                     return;
                 }

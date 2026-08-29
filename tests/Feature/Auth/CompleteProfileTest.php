@@ -171,4 +171,129 @@ class CompleteProfileTest extends TestCase
         $user->refresh();
         $this->assertSame('lockedname', $user->username);
     }
+
+    public function test_username_with_hyphen_is_rejected(): void
+    {
+        $user = User::factory()->create(['username' => null]);
+
+        $response = $this
+            ->actingAs($user)
+            ->post($this->completeProfileUrl, [
+                'username' => 'anhtuyet-82',
+                'name' => 'An Tuyet',
+            ]);
+
+        $response->assertSessionHasErrors('username');
+        $response->assertSessionHasErrors(['username' => 'Username chỉ được chứa chữ cái, số và dấu gạch dưới (_).']);
+        $user->refresh();
+        $this->assertNull($user->username);
+    }
+
+    public function test_username_with_underscore_is_accepted(): void
+    {
+        $user = User::factory()->create(['username' => null]);
+
+        $response = $this
+            ->actingAs($user)
+            ->post($this->completeProfileUrl, [
+                'username' => 'anhtuyet_82',
+                'name' => 'An Tuyet',
+            ]);
+
+        $response->assertRedirect();
+        $user->refresh();
+        $this->assertSame('anhtuyet_82', $user->username);
+    }
+
+    public function test_username_without_separators_is_accepted(): void
+    {
+        $user = User::factory()->create(['username' => null]);
+
+        $response = $this
+            ->actingAs($user)
+            ->post($this->completeProfileUrl, [
+                'username' => 'anhtuyet82',
+                'name' => 'An Tuyet',
+            ]);
+
+        $response->assertRedirect();
+        $user->refresh();
+        $this->assertSame('anhtuyet82', $user->username);
+    }
+
+    public function test_check_username_rejects_hyphen(): void
+    {
+        $user = User::factory()->create(['username' => null]);
+
+        $response = $this
+            ->actingAs($user)
+            ->getJson($this->checkUsernameUrl . '?username=anhtuyet-82');
+
+        $response->assertOk();
+        $response->assertJson([
+            'available' => false,
+            'message' => 'Username chỉ được chứa chữ cái, số và dấu gạch dưới (_).',
+        ]);
+    }
+
+    public function test_check_username_accepts_underscore(): void
+    {
+        $user = User::factory()->create(['username' => null]);
+
+        $response = $this
+            ->actingAs($user)
+            ->getJson($this->checkUsernameUrl . '?username=anhtuyet_82');
+
+        $response->assertOk();
+        $response->assertJson([
+            'available' => true,
+        ]);
+    }
+
+    public function test_suggestion_from_email_with_hyphens_is_stripped(): void
+    {
+        $user = User::factory()->create([
+            'username' => null,
+            'email' => 'anhtuyet-82@gmail.com',
+        ]);
+
+        $response = $this
+            ->actingAs($user)
+            ->get($this->completeProfileUrl);
+
+        $response->assertOk();
+        $response->assertViewHas('suggestion', 'anhtuyet82');
+        $this->assertStringNotContainsString('-', $response->viewData('suggestion'));
+    }
+
+    public function test_suggestion_from_email_with_multiple_hyphens_is_stripped(): void
+    {
+        $user = User::factory()->create([
+            'username' => null,
+            'email' => 'abc-def-123@gmail.com',
+        ]);
+
+        $response = $this
+            ->actingAs($user)
+            ->get($this->completeProfileUrl);
+
+        $response->assertOk();
+        $response->assertViewHas('suggestion', 'abcdef123');
+    }
+
+    public function test_suggestion_from_google_email_with_hyphen_is_stripped(): void
+    {
+        $user = User::factory()->create([
+            'username' => null,
+            'email' => 'hang-ngo070787@gmail.com',
+            'google_id' => 'google-99',
+        ]);
+
+        $response = $this
+            ->actingAs($user)
+            ->get($this->completeProfileUrl);
+
+        $response->assertOk();
+        $response->assertViewHas('suggestion', 'hangngo070787');
+    }
 }

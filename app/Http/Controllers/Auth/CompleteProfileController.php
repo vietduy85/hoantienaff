@@ -26,7 +26,7 @@ class CompleteProfileController extends Controller
 
         if ($user->email) {
             $base = strtolower(explode('@', $user->email)[0]);
-            $base = preg_replace('/[^a-z0-9_-]/', '', $base);
+            $base = preg_replace('/[^a-z0-9_]/', '', $base);
             if (strlen($base) < 3) {
                 $base = 'user' . $base;
             }
@@ -57,17 +57,22 @@ class CompleteProfileController extends Controller
             'username' => strtolower(trim($request->username)),
         ]);
 
-        $request->validate([
-            'username' => [
-                'required',
-                'string',
-                'min:3',
-                'max:30',
-                'regex:/^[a-z0-9_-]+$/',
-                Rule::unique(User::class)->ignore($user->id),
+        $request->validate(
+            [
+                'username' => [
+                    'required',
+                    'string',
+                    'min:3',
+                    'max:30',
+                    'regex:/^[a-z0-9_]+$/',
+                    Rule::unique(User::class)->ignore($user->id),
+                ],
+                'name' => ['required', 'string', 'max:255'],
             ],
-            'name' => ['required', 'string', 'max:255'],
-        ]);
+            [
+                'username.regex' => 'Username chỉ được chứa chữ cái, số và dấu gạch dưới (_).',
+            ]
+        );
 
         if (in_array($request->username, config('usernames.reserved', []))) {
             throw ValidationException::withMessages([

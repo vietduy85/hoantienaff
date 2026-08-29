@@ -25,7 +25,7 @@ class UsersGenerateUsername extends Command
 
         foreach ($users as $user) {
             $base = strtolower(explode('@', $user->email)[0]);
-            $base = preg_replace('/[^a-z0-9_-]/', '', $base);
+            $base = preg_replace('/[^a-z0-9_]/', '', $base);
             if (strlen($base) < 3) {
                 $base = 'user' . $base;
             }

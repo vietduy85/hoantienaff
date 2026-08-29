@@ -22,10 +22,10 @@ class CheckUsernameController extends Controller
 
         $username = strtolower(trim($request->query('username', '')));
 
-        if (!preg_match('/^[a-z0-9_-]{3,30}$/', $username)) {
+        if (!preg_match('/^[a-z0-9_]{3,30}$/', $username)) {
             return response()->json([
                 'available' => false,
-                'message' => 'Username không hợp lệ.',
+                'message' => 'Username chỉ được chứa chữ cái, số và dấu gạch dưới (_).',
             ]);
         }
 
