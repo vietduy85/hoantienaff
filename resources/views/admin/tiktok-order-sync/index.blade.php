@@ -21,13 +21,15 @@
 
         {{-- Form --}}
         <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-            <h3 class="font-semibold text-gray-800 mb-1">Đồng bộ thủ công từ RioHub</h3>
+            <h3 class="font-semibold text-gray-800 mb-1">Đồng bộ từ RioHub</h3>
             <p class="text-sm text-gray-500 mb-4">
-                Lấy toàn bộ đơn hàng TikTok từ RioHub, cập nhật vào kho đơn hàng và tính hoa hồng cho đơn đã thanh toán (SETTLED).
-                Không tự động chạy theo lịch trình — chỉ kích hoạt khi bạn nhấn nút bên dưới.
+                Lấy toàn bộ đơn hàng TikTok từ RioHub, cập nhật vào kho đơn hàng, tính hoa hồng cho đơn đã
+                thanh toán (SETTLED) và xử lý hoàn tiền (REFUNDED). Tự động chạy mỗi 3 giờ — nhấn nút bên dưới
+                để đồng bộ ngay lập tức.
             </p>
 
-            <form method="POST" action="{{ route('admin.tiktok-order-sync.sync') }}" class="space-y-4">
+            <form method="POST" action="{{ route('admin.tiktok-order-sync.sync') }}" class="space-y-4"
+                  onsubmit="this.querySelector('button[type=submit]').disabled = true; this.querySelector('button[type=submit]').textContent = 'Đang đồng bộ đơn hàng TikTok...';">
                 @csrf
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">

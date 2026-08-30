@@ -13,25 +13,38 @@ use App\Services\TikTok\TikTokOrderSyncService;
 use App\Services\TikTok\TikTokServiceException;
 use App\Services\TikTok\TikTokUserResolver;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 class AffiliateTikTokSync extends Command
 {
     protected $signature = 'affiliate:tiktok-sync
         {--dry-run : Chế độ chỉ đọc: gọi API + báo cáo, không ghi database}
         {--import : Phase 2.2: ghi affiliate_order_items từ API, KHÔNG credit wallet}
+        {--sync : Phase 3: đồng bộ đầy đủ (upsert + credit wallet idempotent) dành cho scheduler / Admin}
         {--page-size=50 : Số order mỗi trang RioHub}';
 
-    protected $description = 'Đồng bộ đơn hàng TikTok từ RioHub (dry-run / import Phase 2.2)';
+    protected $description = 'Đồng bộ đơn hàng TikTok từ RioHub (dry-run / import / sync)';
 
     private const MAX_PAGES = 1000;
 
     private const EXPECTED_CREATOR = 'hoan_tien_mua_sam';
 
+    private const SYNC_LOCK_KEY = 'affiliate-tiktok-sync:lock';
+
+    private const SYNC_LOCK_SECONDS = 1800;
+
     public function handle(): int
     {
-        if ($this->option('dry-run') && $this->option('import')) {
-            $this->error('[BLOCK] Không được dùng đồng thời --dry-run và --import.');
+        $flags = collect(['dry-run', 'import', 'sync'])->filter(fn ($f) => $this->option($f));
+
+        if ($flags->count() > 1) {
+            $this->error('[BLOCK] Chỉ được dùng MỘT trong các chế độ: --dry-run, --import, --sync.');
             return self::FAILURE;
+        }
+
+        if ($this->option('sync')) {
+            return $this->handleSync();
         }
 
         if ($this->option('import')) {
@@ -42,6 +55,7 @@ class AffiliateTikTokSync extends Command
             $this->error('[BLOCK] Production sync chưa được phép — phải chọn chế độ rõ ràng.');
             $this->line('  • php artisan affiliate:tiktok-sync --dry-run   (chỉ đọc, không ghi DB)');
             $this->line('  • php artisan affiliate:tiktok-sync --import    (ghi affiliate_order_items, KHÔNG credit wallet)');
+            $this->line('  • php artisan affiliate:tiktok-sync --sync      (đồng bộ đầy đủ + credit wallet implicit)');
             return self::FAILURE;
         }
 
@@ -358,6 +372,93 @@ class AffiliateTikTokSync extends Command
         $this->info(sprintf('Import hoàn tất: %d inserted / %d updated / %d skipped.', $result->inserted, $result->updated, $result->skipped));
 
         return self::SUCCESS;
+    }
+
+    private function handleSync(): int
+    {
+        $client = new RioHubClient();
+
+        $lock = Cache::lock(self::SYNC_LOCK_KEY, self::SYNC_LOCK_SECONDS);
+        if (! $lock->get()) {
+            $this->error('[BLOCK] Một phiên đồng bộ TikTok khác đang chạy — bỏ qua để tránh chạy song song.');
+            Log::warning('[TikTok Sync] scheduled_windows skipped (lock held)', [
+                'sync_type' => 'scheduled_windows',
+            ]);
+            return self::FAILURE;
+        }
+
+        $startedAt = now();
+
+        Log::info('[TikTok Sync] scheduled_windows started', [
+            'sync_type' => 'scheduled_windows',
+            'started_at' => $startedAt->toDateTimeString(),
+        ]);
+
+        try {
+            if (! config('services.riohub.base_url', '') || ! config('services.riohub.api_key', '')) {
+                $this->error('[BLOCK] Thiếu cấu hình RioHub — không sync.');
+                return self::FAILURE;
+            }
+
+            $service = new TikTokOrderSyncService($client);
+            $start   = microtime(true);
+            $result  = $service->run(creditWallet: true);
+            $elapsed = round(microtime(true) - $start, 3);
+
+            $this->info('--- KẾT QUẢ SYNC (Phase 3 — đầy đủ, credit wallet implicit) ---');
+            $this->table(['Tiêu chí', 'Giá trị'], [
+                ['Sync type', 'scheduled_windows'],
+                ['Orders fetched', (string) $result->ordersFetched],
+                ['Items fetched', (string) $result->itemsFetched],
+                ['INSERTED', (string) $result->inserted],
+                ['UPDATED', (string) $result->updated],
+                ['SKIPPED', (string) $result->skipped],
+                ['Wallet credits', (string) $result->cashbackCredited],
+                ['Wallet reversals', (string) $result->cashbackReversed],
+                ['Wallet skipped', (string) $result->cashbackSkipped],
+                ['Errors', (string) $result->errors],
+                ['Elapsed', "{$elapsed} s"],
+            ]);
+
+            if (count($result->errorsDetail) > 0) {
+                $this->warn('--- ERRORS (không bỏ qua) ---');
+                foreach ($result->errorsDetail as $err) {
+                    $this->line('  ! ' . $err);
+                }
+            }
+
+            Log::info('[TikTok Sync] scheduled_windows completed', [
+                'sync_type' => 'scheduled_windows',
+                'started_at' => $startedAt->toDateTimeString(),
+                'finished_at' => now()->toDateTimeString(),
+                'duration' => $elapsed,
+                'fetched' => $result->ordersFetched,
+                'inserted' => $result->inserted,
+                'updated' => $result->updated,
+                'skipped' => $result->skipped,
+                'credits' => $result->cashbackCredited,
+                'reversals' => $result->cashbackReversed,
+                'errors' => $result->errors,
+            ]);
+
+            return self::SUCCESS;
+        } catch (\Throwable $e) {
+            $elapsed = round(microtime(true) - (isset($start) ? $start : microtime(true)), 3);
+            $this->newLine();
+            $this->error('--- SYNC THẤT BẠI (fail-safe, không xóa / không reversal hàng loạt) ---');
+            $this->error('  Message : ' . $e->getMessage());
+            $this->error("  Elapsed : {$elapsed} s");
+
+            Log::error('[TikTok Sync] scheduled_windows failed', [
+                'sync_type' => 'scheduled_windows',
+                'error' => $e->getMessage(),
+                'started_at' => $startedAt->toDateTimeString(),
+            ]);
+
+            return self::FAILURE;
+        } finally {
+            $lock->release();
+        }
     }
 
     private function printConfig(RioHubClient $client): void
