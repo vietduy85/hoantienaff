@@ -90,6 +90,13 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
         ->middleware('role:Admin|Operator')
         ->name('affiliate-short-link.store');
 
+    Route::get('/tiktok-order-sync', [App\Http\Controllers\Admin\TikTokOrderSyncController::class, 'index'])
+        ->middleware('role:Admin|Operator')
+        ->name('tiktok-order-sync.index');
+    Route::post('/tiktok-order-sync', [App\Http\Controllers\Admin\TikTokOrderSyncController::class, 'sync'])
+        ->middleware('role:Admin|Operator')
+        ->name('tiktok-order-sync.sync');
+
     Route::get('/affiliate-config', [App\Http\Controllers\Admin\AffiliateConfigController::class, 'index'])
         ->middleware('role:Admin')
         ->name('affiliate-config.index');

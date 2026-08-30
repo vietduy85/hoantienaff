@@ -21,6 +21,7 @@ class TikTokOrderTest extends TestCase
             'settlement_status' => 'AWAITING PAYMENT',
             'status' => 1,
             'content_type' => 'LINKSHARE',
+            'sub_id' => 'creator_main',
             'sub1' => 'user123',
             'sub2' => 'm1780903356',
             'sub3' => '',
@@ -53,17 +54,20 @@ class TikTokOrderTest extends TestCase
         $this->assertEquals(1, $dbArray['quantity']);
         $this->assertEquals(199000.0, $dbArray['order_amount']);
         $this->assertEquals('Fixed commission', $dbArray['commission_type']);
-        $this->assertEquals(800.0, $dbArray['shopee_commission_rate']);
+        $this->assertEquals(8.0, $dbArray['shopee_commission_rate']);
         $this->assertEquals(15920.0, $dbArray['shopee_commission']);
         $this->assertEquals(39800.0, $dbArray['xtra_commission']);
         $this->assertEquals(55720.0, $dbArray['total_product_commission']);
         $this->assertEquals(55720.0, $dbArray['total_order_commission']);
-        $this->assertEquals(2800.0, $dbArray['agreed_commission_rate']);
+        $this->assertEquals(28.0, $dbArray['agreed_commission_rate']);
         $this->assertEquals(55720.0, $dbArray['net_commission']);
         $this->assertEquals('Đang xử lý', $dbArray['affiliate_status']);
         $this->assertEquals('AWAITING PAYMENT', $dbArray['buyer_status']);
-        $this->assertEquals('user123', $dbArray['sub_id1']);
-        $this->assertEquals('m1780903356', $dbArray['sub_id2']);
+        $this->assertEquals('creator_main', $dbArray['sub_id1']);
+        $this->assertEquals('user123', $dbArray['sub_id2']);
+        $this->assertEquals('m1780903356', $dbArray['sub_id3']);
+        $this->assertEquals('', $dbArray['sub_id4']);
+        $this->assertEquals('', $dbArray['sub_id5']);
         $this->assertEquals('LINKSHARE', $dbArray['channel']);
         $this->assertEquals('TikTok', $dbArray['platform']);
         $this->assertEquals(42, $dbArray['user_id']);
@@ -129,7 +133,8 @@ class TikTokOrderTest extends TestCase
 
         $this->assertNull($dbArray['user_id']);
         $this->assertEquals('unknown_user', $dbArray['username']);
-        $this->assertEquals('unknown_user', $dbArray['sub_id1']);
+        $this->assertNull($dbArray['sub_id1']);
+        $this->assertEquals('unknown_user', $dbArray['sub_id2']);
     }
 
     public function test_map_status_returns_correct_values(): void
@@ -159,5 +164,53 @@ class TikTokOrderTest extends TestCase
 
         $this->assertEquals('X', $order->getOrderId());
         $this->assertNull($order->getRefundedQuantity());
+    }
+
+    public function test_maps_new_riohub_fields(): void
+    {
+        $order = TikTokOrder::fromArray([
+            'order_id'                      => 'ORD-NEW',
+            'content_id'                    => '7495366414587628324',
+            'returned_quantity'             => 2,
+            'fully_refunded'                => 1,
+            'currency'                      => 'VND',
+            'actual_standard_commission'    => '8848.00',
+            'create_time'                   => 1785195821,
+            'update_time'                   => 1785420652,
+            'pit'                           => '0.00',
+            'time_created'                  => null,
+            'status'                        => 2,
+            'tt_order_status'               => 103,
+            'shop_ads_commission_rate'      => 0,
+            'est_shop_ads_commission'       => null,
+            'actual_shop_ads_commission'    => null,
+            'actual_bonus_commission'       => '500.00',
+            'actual_creator_commission_reward_fee' => 120.5,
+        ]);
+
+        $this->assertEquals('7495366414587628324', $order->getContentId());
+        $this->assertEquals(2, $order->getReturnedQuantity());
+        $this->assertTrue($order->isFullyRefunded());
+        $this->assertEquals('VND', $order->getCurrency());
+        $this->assertEquals(8848.0, $order->getActualStandardCommission());
+        $this->assertEquals(1785195821, $order->getCreateTime());
+        $this->assertEquals(1785420652, $order->getUpdateTime());
+        $this->assertEquals(103, $order->getTtOrderStatus());
+        $this->assertEquals(0.0, $order->getShopAdsCommissionRate());
+        $this->assertNull($order->getEstShopAdsCommission());
+        $this->assertNull($order->getActualShopAdsCommission());
+        $this->assertEquals(500.0, $order->getActualBonusCommission());
+        $this->assertEquals(120.5, $order->getActualCreatorCommissionRewardFee());
+        $this->assertEquals('0.00', $order->getPit());
+        $this->assertTrue($order->isSettled());
+
+        $dbArray = $order->toDatabaseArray('user1', 42, '20260721');
+
+        $this->assertSame('', $dbArray['checkout_id']);
+        $this->assertEquals('7495366414587628324', $dbArray['content_id']);
+        $this->assertEquals(date('Y-m-d H:i:s', 1785195821), $dbArray['ordered_at']);
+        $this->assertStringStartsWith(date('Y-m-d'), $dbArray['last_tiktok_sync_at']);
+        $this->assertArrayNotHasKey('last_shopee_sync_at', $dbArray);
+        $this->assertSame('Hoàn thành', $dbArray['affiliate_status']);
     }
 }

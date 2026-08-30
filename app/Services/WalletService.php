@@ -423,6 +423,114 @@ class WalletService
             ->exists();
     }
 
+    /**
+     * Reverse a previously credited cashback for a refunded/reversed order.
+     *
+     * Writes a TYPE_REFUND / DIRECTION_DEBIT ledger row keyed to the same
+     * affiliate_order_item. The database unique constraint on
+     * (reference_type, reference_id, type) guarantees a single reversal per
+     * item even under concurrent requests. total_earned is intentionally NOT
+     * decremented so it stays consistent with syncBalance() (which recomputes
+     * it as the sum of credit rows only).
+     *
+     * @param AffiliateOrderItem $item The order item that was refunded.
+     * @param bool $throwOnDuplicate When true throws DuplicateCashbackException
+     *        if a reversal already exists for this item; otherwise returns null.
+     *
+     * @return ?WalletTransaction The newly created reversal transaction, or
+     *         null if no credit exists to reverse or a reversal already exists
+     *         (throwOnDuplicate=false).
+     */
+    public function reverseCashback(AffiliateOrderItem $item, bool $throwOnDuplicate = true): ?WalletTransaction
+    {
+        if ($this->isCashbackReversed($item)) {
+            if ($throwOnDuplicate) {
+                throw new DuplicateCashbackException($item->id);
+            }
+
+            Log::warning('Duplicate cashback reversal skipped', [
+                'affiliate_order_item_id' => $item->id,
+                'order_id' => $item->order_id,
+                'user_id' => $item->user_id,
+            ]);
+
+            return null;
+        }
+
+        $credit = WalletTransaction::where('reference_type', 'affiliate_order_item')
+            ->where('reference_id', $item->id)
+            ->where('type', WalletTransaction::TYPE_CASHBACK)
+            ->where('status', WalletTransaction::STATUS_COMPLETED)
+            ->first();
+
+        if ($credit === null) {
+            return null;
+        }
+
+        $user = $item->user;
+
+        return DB::transaction(function () use ($item, $user, $credit) {
+            $runningNo = $this->generateRunningNo();
+            $balanceBefore = $this->getBalance($user);
+            $amount = (float) $credit->amount;
+            $balanceAfter = $balanceBefore - $amount;
+
+            $transaction = WalletTransaction::create([
+                'running_no' => $runningNo,
+                'user_id' => $user->id,
+                'username' => $user->username,
+                'platform' => $item->platform,
+                'type' => WalletTransaction::TYPE_REFUND,
+                'direction' => WalletTransaction::DIRECTION_DEBIT,
+                'amount' => $amount,
+                'balance_before' => $balanceBefore,
+                'balance_after' => $balanceAfter,
+                'reference_type' => 'affiliate_order_item',
+                'reference_id' => $item->id,
+                'description' => 'Hoàn tiền đơn hàng ' . $item->order_id,
+                'status' => WalletTransaction::STATUS_COMPLETED,
+                'completed_at' => now(),
+                'processed_by' => null,
+                'metadata' => [
+                    'order_id' => $item->order_id,
+                    'platform' => $item->platform,
+                    'reverses' => 'affiliate_order_item',
+                    'reverses_id' => $item->id,
+                ],
+            ]);
+
+            $user->wallet_balance = $balanceAfter;
+            $user->save();
+
+            return $transaction;
+        });
+    }
+
+    public function isCashbackReversed(AffiliateOrderItem $item): bool
+    {
+        return WalletTransaction::where('reference_type', 'affiliate_order_item')
+            ->where('reference_id', $item->id)
+            ->where('type', WalletTransaction::TYPE_REFUND)
+            ->where('status', WalletTransaction::STATUS_COMPLETED)
+            ->exists();
+    }
+
+    /**
+     * Return the amount that was credited for a given order item, or null if
+     * the item has no completed cashback credit. Used to detect commission
+     * drift and to size reversals.
+     */
+    public function creditedAmount(AffiliateOrderItem $item): ?float
+    {
+        $credit = WalletTransaction::where('reference_type', 'affiliate_order_item')
+            ->where('reference_id', $item->id)
+            ->where('type', WalletTransaction::TYPE_CASHBACK)
+            ->where('status', WalletTransaction::STATUS_COMPLETED)
+            ->first();
+
+        return $credit !== null ? (float) $credit->amount : null;
+    }
+
     public function generateRunningNo(): string
     {
         $today = now()->format('Ymd');

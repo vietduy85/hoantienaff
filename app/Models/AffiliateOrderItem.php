@@ -16,6 +16,7 @@ class AffiliateOrderItem extends Model
         'order_id',
         'order_status',
         'checkout_id',
+        'content_id',
         'ordered_at',
         'completed_at',
         'clicked_at',
@@ -70,6 +71,7 @@ class AffiliateOrderItem extends Model
         'source_file',
         'first_imported_at',
         'last_shopee_sync_at',
+        'last_tiktok_sync_at',
         'locked_at',
     ];
 
@@ -98,6 +100,7 @@ class AffiliateOrderItem extends Model
             'cashback_amount' => 'decimal:2',
             'first_imported_at' => 'datetime',
             'last_shopee_sync_at' => 'datetime',
+            'last_tiktok_sync_at' => 'datetime',
             'locked_at' => 'datetime',
         ];
     }

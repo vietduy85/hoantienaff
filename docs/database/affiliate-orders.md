@@ -60,7 +60,7 @@ Lưu chi tiết từng item trong đơn hàng affiliate từ Shopee (và các n�
 | 46 | `sub_id5` | string(100) | YES | Sub_id5 | Sub ID 5 |
 | 47 | `channel` | string(50) | YES | Kênh | VD: `Facebook`, `Websites` |
 
-### 1.2. Fields do hệ thống thêm (10 fields)
+### 1.2. Fields do hệ thống thêm (12 fields)
 
 | # | Column | Type | Mục đích |
 |---|--------|------|----------|
@@ -74,6 +74,8 @@ Lưu chi tiết từng item trong đơn hàng affiliate từ Shopee (và các n�
 | 55 | `first_imported_at` | datetime | Lần đầu record xuất hiện trong hệ thống |
 | 56 | `last_shopee_sync_at` | datetime | Lần cuối record được đồng bộ từ Shopee |
 | 57 | `locked_at` | datetime | Thời điểm khóa (đơn hoàn thành, không sync lại) |
+| 58 | `content_id` | string(64) nullable | TikTok content/link tracking ID (RioHub `content_id`) — "content nào sinh ra đơn". Không phải checkout id. |
+| 59 | `last_tiktok_sync_at` | datetime | Lần cuối record được đồng bộ từ TikTok/RioHub (song song với `last_shopee_sync_at`, không tái sử dụng field tên Shopee) |
 
 ---
 
@@ -85,12 +87,13 @@ Tên field được chuyển từ tiếng Việt sang snake_case tiếng Anh nh�
 
 ## 3. Field nào do hệ thống thêm
 
-10 fields từ mục 1.2:
+12 fields từ mục 1.2:
 - `platform` — hỗ trợ đa nền tảng
 - `user_id`, `username` — mapping user (xem mục 3a)
 - `cashback_rate`, `cashback_amount` — tính toán cashback
 - `import_batch`, `source_file` — tracking import
-- `first_imported_at`, `last_shopee_sync_at`, `locked_at` — vòng đời record
+- `first_imported_at`, `last_shopee_sync_at`, `last_tiktok_sync_at`, `locked_at` — vòng đời record
+- `content_id` — TikTok content/link tracking ID (provenance) |
 
 ### 3a. Luồng mapping user
 
@@ -245,9 +248,9 @@ Chi tiết implement ở Wallet Service — không nằm trong phạm vi databas
 
 ## 9. Tổng kết
 
-- Tổng số field: **57**
+- Tổng số field: **59**
 - Field từ Shopee: **47**
-- Field hệ thống thêm: **10**
+- Field hệ thống thêm: **12**
 - Khóa UNIQUE: **1** (`order_id` + `item_id`)
 - Index thường: **8**
 - Không có field nào bị lược bỏ — tất cả 47 field Shopee đều được giữ nguyên.

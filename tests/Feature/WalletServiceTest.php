@@ -713,4 +713,112 @@ class WalletServiceTest extends TestCase
         $this->service->rejectWithdraw($withdrawRequest, $this->admin);
     }
 
+    public function test_reverse_cashback_creates_debit_using_credited_amount(): void
+    {
+        $item = AffiliateOrderItem::factory()->create([
+            'user_id' => $this->user->id,
+            'username' => $this->user->username,
+            'platform' => 'TikTok',
+            'cashback_amount' => 4424,
+            'order_id' => 'ORD-T1',
+            'affiliate_status' => 'Hoàn thành',
+        ]);
+
+        $this->service->creditCashback($item);
+        $this->user->refresh();
+        $this->assertSame(4424.0, (float) $this->user->wallet_balance);
+
+        // The item's cashback may now be 0 (refunded), but the reversal must
+        // debit the amount that was actually credited (4424).
+        $item->cashback_amount = 0;
+        $item->affiliate_status = 'Đã hủy';
+        $item->save();
+
+        $refund = $this->service->reverseCashback($item);
+
+        $this->assertInstanceOf(WalletTransaction::class, $refund);
+        $this->assertSame('refund', $refund->type);
+        $this->assertSame('debit', $refund->direction);
+        $this->assertSame(4424.0, (float) $refund->amount);
+        $this->assertSame(4424.0, (float) $refund->balance_before);
+        $this->assertSame(0.0, (float) $refund->balance_after);
+        $this->assertSame($item->id, $refund->reference_id);
+        $this->assertSame('affiliate_order_item', $refund->metadata['reverses']);
+
+        $this->user->refresh();
+        $this->assertSame(0.0, (float) $this->user->wallet_balance);
+
+        // total_earned is NOT decremented by a reversal.
+        $this->assertSame(4424.0, (float) $this->user->total_earned);
+    }
+
+    public function test_reverse_cashback_is_idempotent(): void
+    {
+        $item = AffiliateOrderItem::factory()->create([
+            'user_id' => $this->user->id,
+            'username' => $this->user->username,
+            'platform' => 'TikTok',
+            'cashback_amount' => 4424,
+            'order_id' => 'ORD-T2',
+            'affiliate_status' => 'Hoàn thành',
+        ]);
+
+        $this->service->creditCashback($item);
+        $item->affiliate_status = 'Đã hủy';
+        $item->cashback_amount = 0;
+        $item->save();
+
+        $this->service->reverseCashback($item);
+        $this->user->refresh();
+        $this->assertSame(0.0, (float) $this->user->wallet_balance);
+
+        // Second reversal must be a no-op (idempotent).
+        $second = $this->service->reverseCashback($item, throwOnDuplicate: false);
+        $this->assertNull($second);
+
+        $this->assertSame(1, WalletTransaction::where('type', 'refund')->count());
+        $this->user->refresh();
+        $this->assertSame(0.0, (float) $this->user->wallet_balance);
+    }
+
+    public function test_reverse_cashback_with_no_credit_returns_null(): void
+    {
+        $item = AffiliateOrderItem::factory()->create([
+            'user_id' => $this->user->id,
+            'username' => $this->user->username,
+            'platform' => 'TikTok',
+            'cashback_amount' => 0,
+            'order_id' => 'ORD-T3',
+            'affiliate_status' => 'Đã hủy',
+        ]);
+
+        $refund = $this->service->reverseCashback($item, throwOnDuplicate: false);
+
+        $this->assertNull($refund);
+        $this->assertSame(0, WalletTransaction::count());
+        $this->user->refresh();
+        $this->assertSame(0.0, (float) $this->user->wallet_balance);
+    }
+
+    public function test_isCashbackReversed_returns_true_after_reversal(): void
+    {
+        $item = AffiliateOrderItem::factory()->create([
+            'user_id' => $this->user->id,
+            'username' => $this->user->username,
+            'platform' => 'TikTok',
+            'cashback_amount' => 1000,
+            'order_id' => 'ORD-T4',
+            'affiliate_status' => 'Hoàn thành',
+        ]);
+
+        $this->service->creditCashback($item);
+        $this->assertFalse($this->service->isCashbackReversed($item));
+
+        $item->affiliate_status = 'Đã hủy';
+        $item->save();
+        $this->service->reverseCashback($item);
+
+        $this->assertTrue($this->service->isCashbackReversed($item));
+        $this->assertTrue($this->service->isCashbackCredited($item));
+    }
 }

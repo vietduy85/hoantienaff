@@ -12,10 +12,14 @@ class TikTokOrder
         private readonly ?float $price = null,
         private readonly ?int $quantity = null,
         private readonly ?int $refundedQuantity = null,
+        private readonly ?int $returnedQuantity = null,
+        private readonly ?bool $fullyRefunded = null,
         private readonly ?string $shopName = null,
         private readonly ?string $settlementStatus = null,
         private readonly ?int $status = null,
         private readonly ?string $contentType = null,
+        private readonly ?string $contentId = null,
+        private readonly ?string $subId = null,
         private readonly ?string $sub1 = null,
         private readonly ?string $sub2 = null,
         private readonly ?string $sub3 = null,
@@ -29,9 +33,20 @@ class TikTokOrder
         private readonly ?float $estBonusCommission = null,
         private readonly ?float $estCommission = null,
         private readonly ?float $actualCommission = null,
+        private readonly ?float $actualStandardCommission = null,
+        private readonly ?float $actualBonusCommission = null,
+        private readonly ?float $shopAdsCommissionRate = null,
+        private readonly ?float $estShopAdsCommission = null,
+        private readonly ?float $actualShopAdsCommission = null,
+        private readonly ?float $actualCreatorCommissionRewardFee = null,
+        private readonly ?string $currency = null,
         private readonly ?string $timeCreated = null,
         private readonly ?string $timeDelivered = null,
+        private readonly ?int $createTime = null,
+        private readonly ?int $updateTime = null,
+        private readonly ?int $ttOrderStatus = null,
         private readonly ?string $paymentStatus = null,
+        private readonly ?string $pit = null,
         private readonly array $raw = [],
     ) {}
 
@@ -70,6 +85,16 @@ class TikTokOrder
         return $this->refundedQuantity;
     }
 
+    public function getReturnedQuantity(): ?int
+    {
+        return $this->returnedQuantity;
+    }
+
+    public function isFullyRefunded(): ?bool
+    {
+        return $this->fullyRefunded;
+    }
+
     public function getShopName(): ?string
     {
         return $this->shopName;
@@ -88,6 +113,16 @@ class TikTokOrder
     public function getContentType(): ?string
     {
         return $this->contentType;
+    }
+
+    public function getContentId(): ?string
+    {
+        return $this->contentId;
+    }
+
+    public function getSubId(): ?string
+    {
+        return $this->subId;
     }
 
     public function getSub1(): ?string
@@ -158,6 +193,41 @@ class TikTokOrder
         return $this->actualCommission;
     }
 
+    public function getActualStandardCommission(): ?float
+    {
+        return $this->actualStandardCommission;
+    }
+
+    public function getActualBonusCommission(): ?float
+    {
+        return $this->actualBonusCommission;
+    }
+
+    public function getShopAdsCommissionRate(): ?float
+    {
+        return $this->shopAdsCommissionRate;
+    }
+
+    public function getEstShopAdsCommission(): ?float
+    {
+        return $this->estShopAdsCommission;
+    }
+
+    public function getActualShopAdsCommission(): ?float
+    {
+        return $this->actualShopAdsCommission;
+    }
+
+    public function getActualCreatorCommissionRewardFee(): ?float
+    {
+        return $this->actualCreatorCommissionRewardFee;
+    }
+
+    public function getCurrency(): ?string
+    {
+        return $this->currency;
+    }
+
     public function getTimeCreated(): ?string
     {
         return $this->timeCreated;
@@ -168,9 +238,41 @@ class TikTokOrder
         return $this->timeDelivered;
     }
 
+    public function getCreateTime(): ?int
+    {
+        return $this->createTime;
+    }
+
+    public function getUpdateTime(): ?int
+    {
+        return $this->updateTime;
+    }
+
+    public function getTtOrderStatus(): ?int
+    {
+        return $this->ttOrderStatus;
+    }
+
     public function getPaymentStatus(): ?string
     {
         return $this->paymentStatus;
+    }
+
+    public function getPit(): ?string
+    {
+        return $this->pit;
+    }
+
+    public function isSettled(): bool
+    {
+        return $this->status === 2
+            || strtoupper((string) $this->settlementStatus) === 'SETTLED';
+    }
+
+    public function isRefunded(): bool
+    {
+        return $this->status === 3
+            || strtoupper((string) $this->settlementStatus) === 'REFUNDED';
     }
 
     public function getRaw(): array
@@ -188,26 +290,41 @@ class TikTokOrder
             price: isset($data['price']) ? (float) $data['price'] : null,
             quantity: isset($data['quantity']) ? (int) $data['quantity'] : null,
             refundedQuantity: isset($data['refunded_quantity']) ? (int) $data['refunded_quantity'] : null,
+            returnedQuantity: isset($data['returned_quantity']) ? (int) $data['returned_quantity'] : null,
+            fullyRefunded: isset($data['fully_refunded']) ? (bool) (int) $data['fully_refunded'] : null,
             shopName: $data['shop_name'] ?? null,
             settlementStatus: $data['settlement_status'] ?? null,
             status: isset($data['status']) ? (int) $data['status'] : null,
             contentType: $data['content_type'] ?? null,
+            contentId: $data['content_id'] ?? null,
+            subId: array_key_exists('sub_id', $data) ? (is_string($data['sub_id']) ? $data['sub_id'] : (string) $data['sub_id']) : null,
             sub1: $data['sub1'] ?? null,
             sub2: $data['sub2'] ?? null,
             sub3: $data['sub3'] ?? null,
             sub4: $data['sub4'] ?? null,
             commissionModel: $data['commission_model'] ?? null,
-            standardCommissionRate: isset($data['standard_commission_rate']) ? (float) $data['standard_commission_rate'] : null,
-            commissionRate: isset($data['commission_rate']) ? (float) $data['commission_rate'] : null,
-            commissionBonusRate: isset($data['commission_bonus_rate']) ? (float) $data['commission_bonus_rate'] : null,
+            standardCommissionRate: isset($data['standard_commission_rate']) && $data['standard_commission_rate'] !== '' ? (float) $data['standard_commission_rate'] / 100 : null,
+            commissionRate: isset($data['commission_rate']) && $data['commission_rate'] !== '' ? (float) $data['commission_rate'] / 100 : null,
+            commissionBonusRate: isset($data['commission_bonus_rate']) && $data['commission_bonus_rate'] !== '' ? (float) $data['commission_bonus_rate'] / 100 : null,
             commissionGmv: isset($data['commission_gmv']) ? (float) $data['commission_gmv'] : null,
             estStandardCommission: isset($data['est_standard_commission']) ? (float) $data['est_standard_commission'] : null,
-            estBonusCommission: isset($data['est_bonus_commission']) ? (float) $data['est_bonus_commission'] : null,
+            estBonusCommission: isset($data['est_bonus_commission']) && $data['est_bonus_commission'] !== null ? (float) $data['est_bonus_commission'] : null,
             estCommission: isset($data['est_commission']) ? (float) $data['est_commission'] : null,
-            actualCommission: isset($data['actual_commission']) ? (float) $data['actual_commission'] : null,
+            actualCommission: isset($data['actual_commission']) && $data['actual_commission'] !== null ? (float) $data['actual_commission'] : null,
+            actualStandardCommission: isset($data['actual_standard_commission']) && $data['actual_standard_commission'] !== null ? (float) $data['actual_standard_commission'] : null,
+            actualBonusCommission: isset($data['actual_bonus_commission']) && $data['actual_bonus_commission'] !== null ? (float) $data['actual_bonus_commission'] : null,
+            shopAdsCommissionRate: isset($data['shop_ads_commission_rate']) && $data['shop_ads_commission_rate'] !== '' ? (float) $data['shop_ads_commission_rate'] / 100 : null,
+            estShopAdsCommission: isset($data['est_shop_ads_commission']) && $data['est_shop_ads_commission'] !== null ? (float) $data['est_shop_ads_commission'] : null,
+            actualShopAdsCommission: isset($data['actual_shop_ads_commission']) && $data['actual_shop_ads_commission'] !== null ? (float) $data['actual_shop_ads_commission'] : null,
+            actualCreatorCommissionRewardFee: isset($data['actual_creator_commission_reward_fee']) && $data['actual_creator_commission_reward_fee'] !== null ? (float) $data['actual_creator_commission_reward_fee'] : null,
+            currency: $data['currency'] ?? null,
             timeCreated: $data['time_created'] ?? $data['created_at'] ?? $data['order_time'] ?? null,
             timeDelivered: $data['time_delivered'] ?? $data['completed_at'] ?? null,
+            createTime: isset($data['create_time']) ? (int) $data['create_time'] : null,
+            updateTime: isset($data['update_time']) ? (int) $data['update_time'] : null,
+            ttOrderStatus: isset($data['tt_order_status']) ? (int) $data['tt_order_status'] : null,
             paymentStatus: $data['payment_status'] ?? null,
+            pit: isset($data['pit']) && $data['pit'] !== null ? (string) $data['pit'] : null,
             raw: $data,
         );
     }
@@ -226,9 +343,10 @@ class TikTokOrder
             'order_id'                => $this->orderId,
             'order_status'            => $this->settlementStatus ?? $this->mapStatus($this->status),
             'checkout_id'             => '',
+            'content_id'              => $this->contentId !== null ? (string) $this->contentId : null,
 
             // Timestamps
-            'ordered_at'              => $this->timeCreated,
+            'ordered_at'              => $this->timeCreated ?? ($this->createTime ? date('Y-m-d H:i:s', $this->createTime) : null),
             'completed_at'            => $this->timeDelivered,
             'clicked_at'              => null,
 
@@ -286,10 +404,11 @@ class TikTokOrder
             'buyer_status'            => $this->paymentStatus,
 
             // Sub IDs & Channel
-            'sub_id1'                 => $this->sub1,
-            'sub_id2'                 => $this->sub2,
-            'sub_id3'                 => $this->sub3,
-            'sub_id4'                 => $this->sub4,
+            'sub_id1'                 => $this->subId,
+            'sub_id2'                 => $this->sub1,
+            'sub_id3'                 => $this->sub2,
+            'sub_id4'                 => $this->sub3,
+            'sub_id5'                 => $this->sub4,
             'sub_id5'                 => null,
             'channel'                 => $this->contentType,
 
@@ -306,7 +425,7 @@ class TikTokOrder
             'import_batch'            => $importBatch,
             'source_file'             => 'rioHub-api',
             'first_imported_at'       => now()->toDateTimeString(),
-            'last_shopee_sync_at'     => now()->toDateTimeString(),
+            'last_tiktok_sync_at'     => now()->toDateTimeString(),
             'locked_at'               => in_array($this->status, [2, 3]) ? now()->toDateTimeString() : null,
         ];
     }

@@ -43,7 +43,7 @@ class OrderController extends Controller
                 DB::raw('SUM(cashback_amount) as total_cashback'),
                 DB::raw('MAX(order_amount) as order_amount'),
                 DB::raw('COUNT(*) as item_count'),
-                DB::raw('MAX(last_shopee_sync_at) as last_sync_at'),
+                DB::raw("MAX(CASE WHEN platform = 'TikTok' THEN last_tiktok_sync_at ELSE last_shopee_sync_at END) as last_sync_at"),
             ])
             ->groupBy('order_id', 'shop_name', 'ordered_at', 'affiliate_status', 'platform')
             ->orderBy('ordered_at', 'desc')
