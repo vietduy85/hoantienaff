@@ -14,8 +14,20 @@
         @endif
 
         @if (session('tiktok_sync_result'))
-            <div class="bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-2xl p-4 text-sm">
-                {{ session('tiktok_sync_result') }}
+            @php $res = session('tiktok_sync_result'); @endphp
+            <div class="rounded-2xl p-4 text-sm {{ $res['success'] ? 'bg-emerald-50 border border-emerald-200 text-emerald-700' : 'bg-amber-50 border border-amber-200 text-amber-800' }}">
+                <div class="font-semibold mb-2">{{ $res['message'] }}</div>
+                <dl class="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1">
+                    <div class="flex justify-between"><dt class="text-gray-500">Orders fetched</dt><dd class="font-mono">{{ $res['orders_fetched'] }}</dd></div>
+                    <div class="flex justify-between"><dt class="text-gray-500">Items fetched</dt><dd class="font-mono">{{ $res['items_fetched'] }}</dd></div>
+                    <div class="flex justify-between"><dt class="text-gray-500">Inserted</dt><dd class="font-mono">{{ $res['inserted'] }}</dd></div>
+                    <div class="flex justify-between"><dt class="text-gray-500">Updated</dt><dd class="font-mono">{{ $res['updated'] }}</dd></div>
+                    <div class="flex justify-between"><dt class="text-gray-500">Skipped</dt><dd class="font-mono">{{ $res['skipped'] }}</dd></div>
+                    <div class="flex justify-between"><dt class="text-gray-500">Errors</dt><dd class="font-mono">{{ $res['errors'] }}</dd></div>
+                    <div class="flex justify-between"><dt class="text-gray-500">Wallet credits</dt><dd class="font-mono">{{ $res['wallet_credits'] }}</dd></div>
+                    <div class="flex justify-between"><dt class="text-gray-500">Wallet reversals</dt><dd class="font-mono">{{ $res['wallet_reversals'] }}</dd></div>
+                    <div class="flex justify-between"><dt class="text-gray-500">Duration</dt><dd class="font-mono">{{ $res['duration'] }}s</dd></div>
+                </dl>
             </div>
         @endif
 
@@ -27,6 +39,10 @@
                 thanh toán (SETTLED) và xử lý hoàn tiền (REFUNDED). Tự động chạy mỗi 3 giờ — nhấn nút bên dưới
                 để đồng bộ ngay lập tức.
             </p>
+            <div class="bg-gray-50 border border-gray-100 rounded-xl px-3 py-2 mb-4 text-sm text-gray-600">
+                <span class="font-medium text-gray-700">Lần đồng bộ TikTok gần nhất:</span>
+                <span class="font-mono">{{ $lastSyncAt ? \Illuminate\Support\Carbon::parse($lastSyncAt)->format('d/m/Y H:i:s') : 'Chưa có' }}</span>
+            </div>
 
             <form method="POST" action="{{ route('admin.tiktok-order-sync.sync') }}" class="space-y-4"
                   onsubmit="this.querySelector('button[type=submit]').disabled = true; this.querySelector('button[type=submit]').textContent = 'Đang đồng bộ đơn hàng TikTok...';">

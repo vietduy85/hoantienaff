@@ -36,7 +36,11 @@ class TikTokOrderSyncController extends Controller
             'refunded' => AffiliateOrderItem::where('platform', 'TikTok')->where('affiliate_status', 'Đã hủy')->count(),
         ];
 
-        return view('admin.tiktok-order-sync.index', compact('recentOrders', 'stats'));
+        $lastSyncAt = AffiliateOrderItem::where('platform', 'TikTok')
+            ->whereNotNull('last_tiktok_sync_at')
+            ->max('last_tiktok_sync_at');
+
+        return view('admin.tiktok-order-sync.index', compact('recentOrders', 'stats', 'lastSyncAt'));
     }
 
     public function sync(Request $request): RedirectResponse
@@ -83,22 +87,25 @@ class TikTokOrderSyncController extends Controller
         return redirect()->route('admin.tiktok-order-sync.index');
     }
 
-    private function formatSummary(\App\Services\TikTok\TikTokSyncResult $result): string
+    /**
+     * @return array<string, mixed>
+     */
+    private function formatSummary(\App\Services\TikTok\TikTokSyncResult $result): array
     {
         $data = $result->toArray();
 
-        return sprintf(
-            'Đồng bộ %s: %d đơn (%d dòng) | Thêm mới: %d | Cập nhật: %d | Bỏ qua: %d | Lỗi: %d | Wallet credits: %d | Reversals: %d | Thời gian: %s giây',
-            $result->errors > 0 ? 'KHÔNG HOÀN TOÀN' : 'thành công',
-            $data['orders_fetched'],
-            $data['items_fetched'],
-            $data['inserted'],
-            $data['updated'],
-            $data['skipped'],
-            $data['errors'],
-            $data['cashback_credited'],
-            $data['cashback_reversed'],
-            $data['elapsed_seconds'],
-        );
+        return [
+            'success'            => $result->errors === 0,
+            'message'            => $result->errors > 0 ? 'Đồng bộ TikTok không hoàn toàn' : 'Đồng bộ TikTok hoàn tất',
+            'orders_fetched'     => $data['orders_fetched'],
+            'items_fetched'      => $data['items_fetched'],
+            'inserted'           => $data['inserted'],
+            'updated'            => $data['updated'],
+            'skipped'            => $data['skipped'],
+            'wallet_credits'     => $data['cashback_credited'],
+            'wallet_reversals'   => $data['cashback_reversed'],
+            'errors'             => $data['errors'],
+            'duration'           => round($data['elapsed_seconds'], 2),
+        ];
     }
 }
