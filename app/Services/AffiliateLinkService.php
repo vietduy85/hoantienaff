@@ -37,4 +37,15 @@ class AffiliateLinkService
 
         $this->extensionStrategy->handle($linkRequest);
     }
+
+    public function handleViaExtension(LinkRequest $linkRequest): void
+    {
+        $platform = strtolower($linkRequest->platform ?? '');
+
+        if (!str_contains($platform, 'shopee')) {
+            return;
+        }
+
+        $this->extensionStrategy->handle($linkRequest);
+    }
 }

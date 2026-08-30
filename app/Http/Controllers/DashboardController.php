@@ -4,12 +4,17 @@ namespace App\Http\Controllers;
 
 use App\Models\LinkRequest;
 use App\Models\Setting;
+use App\Services\AffiliateLinkService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 
 class DashboardController extends Controller
 {
+    public function __construct(
+        private readonly AffiliateLinkService $affiliateLinkService,
+    ) {}
+
     public function index(): View
     {
         $user = auth()->user();
@@ -33,6 +38,10 @@ class DashboardController extends Controller
         $validated = $request->validate([
             'original_url' => ['required', 'url', 'max:2048'],
         ]);
+
+        if (str_contains(strtolower($validated['original_url']), 'shopeefood.vn')) {
+            return $this->storeViaExtensionWorker($request, $validated['original_url']);
+        }
 
         $strategy = Setting::get('affiliate.dashboard.strategy', 'direct');
 
@@ -73,6 +82,33 @@ class DashboardController extends Controller
         }
 
         return redirect()->route('dashboard');
+    }
+
+    private function storeViaExtensionWorker(Request $request, string $originalUrl): \Illuminate\Http\JsonResponse|RedirectResponse
+    {
+        $user = auth()->user();
+        $platform = $this->detectPlatform($originalUrl);
+
+        $link = LinkRequest::create([
+            'user_id'      => $user->id,
+            'original_url' => $originalUrl,
+            'platform'     => $platform,
+            'status'       => 'processing',
+        ]);
+
+        $this->affiliateLinkService->handleViaExtension($link);
+
+        if ($request->expectsJson() || $request->ajax()) {
+            return response()->json([
+                'success'    => true,
+                'request_id' => $link->id,
+                'platform'   => $platform,
+                'status'     => $link->status,
+            ]);
+        }
+
+        return redirect()->route('dashboard')
+            ->with('success', 'Đã nhận link. Đang tạo affiliate link...');
     }
 
     private function detectPlatform(string $url): string
