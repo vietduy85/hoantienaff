@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\AffiliateOrderItem;
 use App\Models\User;
 use App\Models\WalletTransaction;
 use App\Services\ShopeeCsvParser;
@@ -131,6 +132,58 @@ class AffiliateImportShopeeTest extends TestCase
         $this->assertDatabaseCount('wallet_transactions', 0);
         $this->user->refresh();
         $this->assertSame(0.0, (float) $this->user->wallet_balance);
+    }
+
+    public function test_import_distinguishes_same_order_and_item_across_platforms(): void
+    {
+        AffiliateOrderItem::create([
+            'platform' => 'TikTok',
+            'order_id' => 'ORD001',
+            'item_id' => 1,
+            'order_status' => 'Đã giao',
+            'checkout_id' => 'CHK_TT',
+            'shop_name' => 'TikTokShop',
+            'shop_id' => 1,
+            'item_name' => 'Sản phẩm TikTok',
+            'model_id' => 1,
+            'item_price' => 0,
+            'quantity' => 1,
+            'order_amount' => 0,
+            'commission_type' => 'Shopee Comm',
+            'shopee_commission_rate' => 50,
+            'shopee_commission' => 0,
+            'seller_commission_rate' => 0,
+            'total_product_commission' => 0,
+            'order_commission_shopee' => 0,
+            'order_commission_seller' => 0,
+            'total_order_commission' => 0,
+            'agreed_commission_rate' => 0,
+            'net_commission' => 0,
+            'affiliate_status' => 'Đang chờ xử lý',
+            'import_batch' => 'seed',
+        ]);
+
+        $csv = $this->buildCsv([
+            'item_id' => '1',
+            'affiliate_status' => 'Đang chờ xử lý',
+        ]);
+        $path = $this->createTempCsv($csv);
+
+        $this->artisan('affiliate:import-shopee', ['--file' => $path])
+            ->assertSuccessful();
+
+        $shopeeCount = AffiliateOrderItem::where('platform', 'Shopee')
+            ->where('order_id', 'ORD001')
+            ->where('item_id', 1)
+            ->count();
+        $tiktokCount = AffiliateOrderItem::where('platform', 'TikTok')
+            ->where('order_id', 'ORD001')
+            ->where('item_id', 1)
+            ->count();
+
+        $this->assertSame(1, $shopeeCount, 'Shopee import nên tạo record Shopee riêng biệt.');
+        $this->assertSame(1, $tiktokCount, 'Record TikTok hiện có không được bị xem là record Shopee.');
+        $this->assertSame(2, AffiliateOrderItem::count());
     }
 
     private function buildCsv(array $overrides): string

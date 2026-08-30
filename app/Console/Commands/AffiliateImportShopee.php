@@ -249,7 +249,8 @@ class AffiliateImportShopee extends Command
     {
         DB::transaction(function () use ($rows, $now) {
             foreach ($rows as $data) {
-                $existing = AffiliateOrderItem::where('order_id', $data['order_id'])
+                $existing = AffiliateOrderItem::where('platform', $data['platform'])
+                    ->where('order_id', $data['order_id'])
                     ->where('item_id', $data['item_id'])
                     ->first();
 
@@ -342,7 +343,8 @@ class AffiliateImportShopee extends Command
     private function processBatchDryRun(array &$rows): void
     {
         foreach ($rows as $data) {
-            $existing = AffiliateOrderItem::where('order_id', $data['order_id'])
+            $existing = AffiliateOrderItem::where('platform', $data['platform'])
+                ->where('order_id', $data['order_id'])
                 ->where('item_id', $data['item_id'])
                 ->first();
 
