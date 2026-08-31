@@ -213,21 +213,31 @@ class AffiliateImportShopee extends Command
                 };
             }
 
-            // User mapping: sub_id1 → users.username → users.id
-            $username = $data['sub_id1'] ?? null;
-            if ($username && trim($username) !== '') {
-                $user = User::where('username', trim($username))->first();
-                if ($user) {
-                    $data['username'] = $user->username;
-                    $data['user_id'] = $user->id;
+            // Legacy Shopee mapping (anhtuyet82 hotfix): preserve the user
+            // mapping already stored on existing records. Do NOT map from
+            // sub_id1 and do NOT overwrite user_id/username on re-import.
+            $data['_legacy_preserve_user'] = $this->isLegacyAnhtuyet(
+                $data['sub_id1'] ?? null,
+                $data['sub_id2'] ?? null
+            );
+
+            if (!$data['_legacy_preserve_user']) {
+                // User mapping: sub_id1 → users.username → users.id
+                $username = $data['sub_id1'] ?? null;
+                if ($username && trim($username) !== '') {
+                    $user = User::where('username', trim($username))->first();
+                    if ($user) {
+                        $data['username'] = $user->username;
+                        $data['user_id'] = $user->id;
+                    } else {
+                        $this->unmappedCount++;
+                        $data['username'] = $data['sub_id1'];
+                        $data['user_id'] = null;
+                    }
                 } else {
-                    $this->unmappedCount++;
-                    $data['username'] = $data['sub_id1'];
+                    $data['username'] = null;
                     $data['user_id'] = null;
                 }
-            } else {
-                $data['username'] = null;
-                $data['user_id'] = null;
             }
 
             $batch[] = $data;
@@ -245,10 +255,20 @@ class AffiliateImportShopee extends Command
         return true;
     }
 
+    private function isLegacyAnhtuyet(mixed $subId1, mixed $subId2): bool
+    {
+        return trim((string) $subId1) === 'anhtuyet'
+            && trim((string) $subId2) === '82';
+    }
+
     private function processBatch(array &$rows, \Illuminate\Support\Carbon $now): void
     {
         DB::transaction(function () use ($rows, $now) {
             foreach ($rows as $data) {
+                // Transient marker: never persist.
+                $legacyPreserveUser = !empty($data['_legacy_preserve_user']);
+                unset($data['_legacy_preserve_user']);
+
                 $existing = AffiliateOrderItem::where('platform', $data['platform'])
                     ->where('order_id', $data['order_id'])
                     ->where('item_id', $data['item_id'])
@@ -275,6 +295,11 @@ class AffiliateImportShopee extends Command
 
                     // Preserve first_imported_at from original record
                     unset($data['first_imported_at']);
+
+                    // Legacy Shopee hotfix: keep existing user_id/username.
+                    if ($legacyPreserveUser) {
+                        unset($data['user_id'], $data['username']);
+                    }
 
                     $existing->update($data);
                     $this->updatedCount++;
