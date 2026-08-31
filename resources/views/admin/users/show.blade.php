@@ -11,6 +11,34 @@
     </x-slot>
 
     <div class="py-6 px-4 max-w-5xl mx-auto space-y-4">
+        @if (session('success'))
+            <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-sm text-emerald-700">
+                {{ session('success') }}
+                @if (session('adjustment_before') !== null && session('adjustment_after') !== null)
+                    <div class="mt-1 text-emerald-600">
+                        Số dư trước: {{ number_format(session('adjustment_before'), 0, ',', '.') }}đ —
+                        Số dư sau: {{ number_format(session('adjustment_after'), 0, ',', '.') }}đ
+                    </div>
+                @endif
+            </div>
+        @endif
+
+        @if (session('error'))
+            <div class="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
+                {{ session('error') }}
+            </div>
+        @endif
+
+        @if ($errors->any())
+            <div class="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
+                <ul class="list-disc pl-4 space-y-1">
+                    @foreach ($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
+
         {{-- User Info Card --}}
         <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
             <div class="flex flex-col sm:flex-row items-start gap-5">
@@ -126,6 +154,62 @@
                 <div class="text-xl font-bold text-gray-800">{{ number_format($stats['total_order_amount'], 0, ',', '.') }}đ</div>
             </div>
         </div>
+
+        {{-- Điều chỉnh ví --}}
+        @can('users.manage')
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6" x-data="walletAdjust()">
+            <h4 class="text-sm font-semibold text-gray-700 mb-4">Điều chỉnh ví</h4>
+
+            <div class="mb-4 text-sm">
+                <span class="text-gray-400">Số dư hiện tại:</span>
+                <span class="text-gray-800 font-bold ml-1">{{ number_format($user->wallet_balance, 0, ',', '.') }}đ</span>
+            </div>
+
+            <form method="POST" action="{{ route('admin.users.wallet-adjust', $user) }}" @submit="confirmAdjust()">
+                @csrf
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Loại</label>
+                        <div class="flex gap-4 text-sm">
+                            <label class="inline-flex items-center">
+                                <input type="radio" name="direction" value="credit" x-model="direction" class="mr-1" checked>
+                                Cộng tiền
+                            </label>
+                            <label class="inline-flex items-center">
+                                <input type="radio" name="direction" value="debit" x-model="direction" class="mr-1">
+                                Trừ tiền
+                            </label>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Số tiền</label>
+                        <input type="number" name="amount" min="0.01" step="0.01" required
+                               x-model="amount"
+                               placeholder="0"
+                               class="w-full rounded-xl border-gray-200 text-sm">
+                    </div>
+
+                    <div class="sm:col-span-2">
+                        <label class="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Lý do (bắt buộc)</label>
+                        <textarea name="reason" rows="2" required maxlength="255"
+                                  x-model="reason"
+                                  placeholder="VD: Thưởng hỗ trợ tháng 8"
+                                  class="w-full rounded-xl border-gray-200 text-sm"></textarea>
+                    </div>
+                </div>
+
+                <div class="mt-4">
+                    <button type="submit"
+                            x-ref="submitBtn"
+                            class="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white text-sm font-medium rounded-xl transition-colors shadow-sm">
+                        Điều chỉnh ví
+                    </button>
+                </div>
+            </form>
+        </div>
+        @endcan
 
         {{-- Bank Info --}}
         @if ($user->bank_name || $user->bank_account_number || $user->bank_account_name)
@@ -335,3 +419,33 @@
         </div>
     </div>
 </x-app-layout>
+
+@push('scripts')
+<script>
+    function walletAdjust() {
+        return {
+            amount: '',
+            reason: '',
+            direction: 'credit',
+            confirmAdjust(event) {
+                const dir = this.direction;
+                const amount = this.amount;
+                const amt = Number(amount).toLocaleString('vi-VN');
+                const action = dir === 'credit' ? 'cong' : 'tru';
+                const label = action === 'cong'
+                    ? 'Bạn có chắc muốn cộng ' + amt + ' VNĐ vào ví User này?'
+                    : 'Bạn có chắc muốn trừ ' + amt + ' VNĐ khỏi ví User này?';
+                if (!confirm(label)) {
+                    event.preventDefault();
+                    return;
+                }
+                const btn = this.$refs.submitBtn;
+                if (btn) {
+                    btn.disabled = true;
+                    btn.textContent = 'Đang xử lý...';
+                }
+            }
+        }
+    }
+</script>
+@endpush

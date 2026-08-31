@@ -241,14 +241,21 @@ class WalletService
         ?User $admin = null,
         ?array $metadata = null,
     ): WalletTransaction {
-        if ($direction === WalletTransaction::DIRECTION_DEBIT) {
-            $balance = $this->getBalance($user);
-            if ($balance < $amount) {
-                throw new InsufficientBalanceException($balance, $amount);
-            }
-        }
-
         return DB::transaction(function () use ($user, $amount, $direction, $reason, $admin, $metadata) {
+            // Lock the user row so two concurrent adjustments cannot corrupt
+            // wallet_balance. The debit-amount check runs against the locked,
+            // fresh balance to prevent the balance going negative.
+            $user = User::where('id', $user->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($direction === WalletTransaction::DIRECTION_DEBIT) {
+                $balance = $this->getBalance($user);
+                if ($balance < $amount) {
+                    throw new InsufficientBalanceException($balance, $amount);
+                }
+            }
+
             $runningNo = $this->generateRunningNo();
             $balanceBefore = $this->getBalance($user);
             $balanceAfter = $direction === WalletTransaction::DIRECTION_CREDIT

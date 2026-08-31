@@ -228,6 +228,67 @@ class WalletControllerTest extends TestCase
         $this->assertNull($txs[0]->completed_at);
     }
 
+    public function test_adjustment_description_is_displayed(): void
+    {
+        WalletTransaction::factory()->create([
+            'user_id' => $this->user->id,
+            'username' => $this->user->username,
+            'type' => 'adjustment',
+            'direction' => 'credit',
+            'amount' => 20000,
+            'running_no' => 'WT202607120004',
+            'description' => 'Thưởng User tháng 8',
+            'status' => 'completed',
+            'completed_at' => now(),
+        ]);
+
+        $response = $this->actingAs($this->user)->get(route('wallet.index'));
+
+        $response->assertOk();
+        $response->assertSee('Thưởng User tháng 8');
+    }
+
+    public function test_adjustment_with_long_description_does_not_break_layout(): void
+    {
+        WalletTransaction::factory()->create([
+            'user_id' => $this->user->id,
+            'username' => $this->user->username,
+            'type' => 'adjustment',
+            'direction' => 'debit',
+            'amount' => 5000,
+            'running_no' => 'WT202607120005',
+            'description' => 'Phạt do hủy đơn với lý do khách hàng yêu cầu hủy nhiều lần trong tháng',
+            'status' => 'completed',
+            'completed_at' => now(),
+        ]);
+
+        $response = $this->actingAs($this->user)->get(route('wallet.index'));
+
+        $response->assertOk();
+        $response->assertSee('Phạt do hủy đơn với lý do khách hàng yêu cầu hủy nhiều lần trong tháng');
+        $response->assertSee('max-w-40 truncate', false);
+    }
+
+    public function test_adjustment_with_empty_description_falls_back_to_default(): void
+    {
+        WalletTransaction::factory()->create([
+            'user_id' => $this->user->id,
+            'username' => $this->user->username,
+            'type' => 'adjustment',
+            'direction' => 'credit',
+            'amount' => 10000,
+            'running_no' => 'WT202607120006',
+            'description' => '',
+            'status' => 'completed',
+            'completed_at' => now(),
+        ]);
+
+        $response = $this->actingAs($this->user)->get(route('wallet.index'));
+
+        $response->assertOk();
+        $response->assertSee('Điều chỉnh');
+    }
+
     public function test_pending_withdraw_appears_in_top_20_even_with_30_old_cashbacks(): void
     {
         for ($i = 0; $i < 30; $i++) {

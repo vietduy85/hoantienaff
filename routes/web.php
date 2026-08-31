@@ -114,6 +114,10 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
     Route::get('/users/{user}', [App\Http\Controllers\Admin\UserController::class, 'show'])
         ->middleware('permission:users.view')
         ->name('users.show');
+
+    Route::post('/users/{user}/wallet-adjust', [App\Http\Controllers\Admin\UserController::class, 'adjustWallet'])
+        ->middleware('permission:users.manage')
+        ->name('users.wallet-adjust');
 });
 
 // Static pages - explicit routes

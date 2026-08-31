@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Exceptions\InsufficientBalanceException;
 use App\Http\Controllers\Controller;
 use App\Models\AffiliateOrderItem;
 use App\Models\User;
 use App\Models\WalletTransaction;
 use App\Models\WithdrawRequest;
+use App\Services\WalletService;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
@@ -183,5 +186,41 @@ class UserController extends Controller
         ];
 
         return view('admin.users.show', compact('user', 'pendingCashbackItems', 'recentOrders', 'recentWithdrawals', 'recentTransactions', 'stats'));
+    }
+
+    public function adjustWallet(Request $request, User $user, WalletService $walletService): RedirectResponse
+    {
+        $validated = $request->validate([
+            'amount' => ['required', 'numeric', 'gt:0'],
+            'direction' => ['required', 'in:credit,debit'],
+            'reason' => ['required', 'string', 'max:255'],
+        ]);
+
+        $amount = (float) $validated['amount'];
+        $direction = $validated['direction'];
+        $reason = trim($validated['reason']);
+
+        try {
+            $transaction = $walletService->adjust(
+                $user,
+                $amount,
+                $direction,
+                $reason,
+                auth()->user(),
+            );
+        } catch (InsufficientBalanceException $e) {
+            return redirect()->back()->withInput()
+                ->with('error', __('Số dư ví không đủ để thực hiện giao dịch.'));
+        }
+
+        $formatted = number_format($amount, 0, ',', '.');
+        $message = $direction === 'credit'
+            ? __('Đã cộng :amount VNĐ vào ví User.', ['amount' => $formatted])
+            : __('Đã trừ :amount VNĐ khỏi ví User.', ['amount' => $formatted]);
+
+        return redirect()->route('admin.users.show', $user)
+            ->with('success', $message)
+            ->with('adjustment_before', (float) $transaction->balance_before)
+            ->with('adjustment_after', (float) $transaction->balance_after);
     }
 }

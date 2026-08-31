@@ -159,7 +159,7 @@
                                             <br><span class="text-red-400 text-xs">Lý do: {{ $tx->metadata['reject_reason'] }}</span>
                                         @endif
                                     @elseif ($tx->type === 'adjustment')
-                                        <span class="text-gray-600 font-medium">Điều chỉnh</span>
+                                        <span class="text-gray-600 font-medium">{{ $tx->description ?: 'Điều chỉnh' }}</span>
                                     @elseif ($tx->type === 'refund')
                                         <span class="text-orange-600 font-medium">Hoàn tiền</span>
                                     @else
