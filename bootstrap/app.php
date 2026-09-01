@@ -24,5 +24,20 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        // Khi POST /logout gặp lỗi CSRF (TokenMismatchException -> HttpException 419),
+        // user KHÔNG được thấy trang "419 PAGE EXPIRED".
+        // Thay vào đó: invalidate session + regenerate token + redirect /login.
+        // Chỉ áp dụng riêng cho route logout; các route khác giữ nguyên behavior.
+        $exceptions->render(function (Symfony\Component\HttpKernel\Exception\HttpException $e, Illuminate\Http\Request $request) {
+            if ($e->getStatusCode() !== 419 || ! $request->routeIs('logout') || ! $request->isMethod('POST')) {
+                return null;
+            }
+
+            if ($request->hasSession()) {
+                $request->session()->invalidate();
+                $request->session()->regenerateToken();
+            }
+
+            return redirect('/login');
+        });
     })->create();
