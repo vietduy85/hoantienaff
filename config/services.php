@@ -55,4 +55,9 @@ return [
         'creator_username' => env('RIOHUB_CREATOR_USERNAME'),
     ],
 
+    'shopeefood' => [
+        'base_url' => env('SHOPEEFOOD_API_URL', 'https://data.addlivetag.com/shopeefood'),
+        'cookie' => env('SHOPEEFOOD_COOKIE'),
+    ],
+
 ];

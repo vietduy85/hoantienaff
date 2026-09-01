@@ -72,6 +72,8 @@ class AffiliateOrderItem extends Model
         'first_imported_at',
         'last_shopee_sync_at',
         'last_tiktok_sync_at',
+        'last_shopeefood_sync_at',
+        'shopee_food_line_key',
         'locked_at',
     ];
 
@@ -101,6 +103,7 @@ class AffiliateOrderItem extends Model
             'first_imported_at' => 'datetime',
             'last_shopee_sync_at' => 'datetime',
             'last_tiktok_sync_at' => 'datetime',
+            'last_shopeefood_sync_at' => 'datetime',
             'locked_at' => 'datetime',
         ];
     }
