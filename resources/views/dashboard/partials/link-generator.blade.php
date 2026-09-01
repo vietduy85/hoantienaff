@@ -27,8 +27,16 @@
                 },
                 body: JSON.stringify({ original_url: this.url.trim() })
             })
-            .then(r => r.json())
-            .then(data => {
+            .then(async r => {
+                if (r.status === 401 || r.status === 419) {
+                    this.error = 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.';
+                    this.loading = false;
+                    setTimeout(() => {
+                        window.location.href = '{{ route('login') }}';
+                    }, 1200);
+                    return;
+                }
+                const data = await r.json().catch(() => ({}));
                 if (!data.success) {
                     this.error = data.error || 'Lỗi không xác định';
                     this.loading = false;

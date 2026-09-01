@@ -318,3 +318,64 @@ $travelPlatforms = collect(config('travel.platforms'))
         </div>
     </x-bottom-sheet>
 </nav>
+
+@push('scripts')
+<script>
+    (function () {
+        const actionUrl = new URL('{{ route('logout') }}', window.location.origin);
+        const loginPath = new URL('{{ route('login') }}', window.location.origin).pathname;
+        const logoutPath = actionUrl.pathname;
+
+        function sameLogout(url) {
+            try {
+                return new URL(url, window.location.origin).pathname === logoutPath;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        function runLogout(form, event) {
+            if (event) {
+                event.preventDefault();
+            }
+
+            const token = form.querySelector('input[name="_token"]');
+
+            fetch(actionUrl.href, {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': token ? token.value : ''
+                },
+                body: new FormData(form),
+                redirect: 'follow'
+            }).then(function (r) {
+                if (r.status === 401 || r.status === 419) {
+                    window.location.href = loginPath;
+                    return;
+                }
+                window.location.href = r.redirected ? r.url : actionUrl.href;
+            }).catch(function () {
+                if (event) {
+                    form.submit();
+                }
+            });
+        }
+
+        document.addEventListener('click', function (e) {
+            const anchor = e.target.closest('a[href]');
+            if (!anchor || !sameLogout(anchor.getAttribute('href'))) return;
+            const form = anchor.closest('form');
+            if (!form) return;
+            runLogout(form, e);
+        });
+
+        document.addEventListener('submit', function (e) {
+            const form = e.target;
+            if (!form || !form.method) return;
+            if (form.method.toLowerCase() !== 'post' || !sameLogout(form.action)) return;
+            e.preventDefault();
+            runLogout(form, null);
+        });
+    })();
+</script>
+@endpush
