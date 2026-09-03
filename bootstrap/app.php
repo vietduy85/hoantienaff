@@ -40,4 +40,15 @@ return Application::configure(basePath: dirname(__DIR__))
 
             return redirect('/login');
         });
+
+        // DIAGNOSTIC ONLY (AppKey Flight Recorder):
+        // when MissingAppKeyException is reported, capture the exact state of
+        // .env / environment / config WITHOUT changing how Laravel loads APP_KEY
+        // and WITHOUT modifying the root cause. Returns null so the normal
+        // reporting/logging flow is unchanged.
+        $exceptions->reportable(function (Illuminate\Encryption\MissingAppKeyException $e) {
+            \App\Support\AppKeyFlightRecorder::capture($e);
+
+            return null;
+        });
     })->create();
