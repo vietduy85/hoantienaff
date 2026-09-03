@@ -3,14 +3,6 @@
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
-use Illuminate\Support\Env;
-
-// Disable Laravel's PutenvAdapter so that Laravel loads environment purely from
-// the Dotenv/Repository (via $_SERVER / $_ENV) and does NOT let a stale
-// OS/PHP-process `getenv('APP_KEY')` shadow the real APP_KEY from .env.
-// Must run before the HTTP/Console kernel bootstraps LoadEnvironmentVariables
-// (kernel bootstrappers[0]); bootstrap/app.php is evaluated before handleRequest.
-Env::disablePutenv();
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
