@@ -35,6 +35,9 @@ class ShopeeFoodCheckout
         private readonly string $subId4,
         private readonly string $subId5,
         private readonly ?string $contentId,
+        private readonly ?string $clickedAt,
+        private readonly ?string $purchasedAt,
+        private readonly ?string $completedAt,
         private readonly array $orders = [],
         private readonly array $raw = [],
     ) {}
@@ -116,6 +119,30 @@ class ShopeeFoodCheckout
     public function getContentId(): ?string
     {
         return $this->contentId;
+    }
+
+    /**
+     * Unix click_time (Asia/Ho_Chi_Minh) or null when absent/never.
+     */
+    public function getClickedAt(): ?string
+    {
+        return $this->clickedAt;
+    }
+
+    /**
+     * Unix purchase_time (Asia/Ho_Chi_Minh) or null when absent/never.
+     */
+    public function getPurchasedAt(): ?string
+    {
+        return $this->purchasedAt;
+    }
+
+    /**
+     * Unix checkout_complete_time (Asia/Ho_Chi_Minh) or null when absent/never.
+     */
+    public function getCompletedAt(): ?string
+    {
+        return $this->completedAt;
     }
 
     /**

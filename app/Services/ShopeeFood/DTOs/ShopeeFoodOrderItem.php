@@ -9,7 +9,7 @@ namespace App\Services\ShopeeFood\DTOs;
  * because it may repeat within one checkout for different variants.
  *
  * All monetary values in this DTO are already normalised to VND (raw / 100000)
- * and rates are already normalised to percent (raw / 100000).
+ * and rates are already normalised to percent (raw / 1000).
  */
 class ShopeeFoodOrderItem
 {

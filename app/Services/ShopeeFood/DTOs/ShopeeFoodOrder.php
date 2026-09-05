@@ -14,6 +14,8 @@ class ShopeeFoodOrder
     public function __construct(
         private readonly string $checkoutId,
         private readonly ?string $orderSn,
+        private readonly ?string $completedAt,
+        private readonly ?string $fraudCompletedAt,
         private readonly array $items = [],
         private readonly array $raw = [],
     ) {}
@@ -26,6 +28,22 @@ class ShopeeFoodOrder
     public function getOrderSn(): ?string
     {
         return $this->orderSn;
+    }
+
+    /**
+     * Unix complete_time (Asia/Ho_Chi_Minh) or null when absent/never.
+     */
+    public function getCompletedAt(): ?string
+    {
+        return $this->completedAt;
+    }
+
+    /**
+     * Unix fraud_complete_time (Asia/Ho_Chi_Minh) or null when absent/never.
+     */
+    public function getFraudCompletedAt(): ?string
+    {
+        return $this->fraudCompletedAt;
     }
 
     /**

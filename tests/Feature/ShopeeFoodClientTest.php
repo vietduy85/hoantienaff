@@ -19,10 +19,10 @@ class ShopeeFoodClientTest extends TestCase
     private function okPayload(array $data = []): array
     {
         return [
-            'status' => 'ok',
+            'code' => 0,
+            'msg' => 'success',
             'data' => array_merge([
                 'total_count' => 1,
-                'page'        => 1,
                 'page_size'   => 100,
                 'list'        => [
                     [
@@ -137,7 +137,7 @@ class ShopeeFoodClientTest extends TestCase
         });
     }
 
-    public function test_json_status_ok_is_parsed(): void
+    public function test_json_code_zero_is_parsed(): void
     {
         Http::fake([
             'data.addlivetag.com/*' => Http::response($this->okPayload()),
@@ -187,12 +187,13 @@ class ShopeeFoodClientTest extends TestCase
         (new ShopeeFoodClient())->getOrders();
     }
 
-    public function test_status_ok_with_raw_html_is_expired_session(): void
+    public function test_code_zero_with_raw_html_is_expired_session(): void
     {
         Http::fake([
             'data.addlivetag.com/*' => Http::response([
-                'status' => 'ok',
-                'raw'    => '<!DOCTYPE html><html><head><title>Login</title></head><body></body></html>',
+                'code' => 0,
+                'msg'  => 'success',
+                'raw'  => '<!DOCTYPE html><html><head><title>Login</title></head><body></body></html>',
             ]),
         ]);
 
@@ -213,17 +214,39 @@ class ShopeeFoodClientTest extends TestCase
         (new ShopeeFoodClient())->getOrders();
     }
 
-    public function test_status_not_ok_throws(): void
+    public function test_code_nonzero_throws_with_api_message(): void
     {
         Http::fake([
             'data.addlivetag.com/*' => Http::response([
-                'status' => 'error',
-                'msg'    => 'something',
+                'code' => 401,
+                'msg'  => 'Unauthorized',
+            ]),
+        ]);
+
+        try {
+            (new ShopeeFoodClient())->getOrders();
+            $this->fail('Expected invalid status exception');
+        } catch (ShopeeFoodException $e) {
+            $this->assertSame('invalid_status', $e->getKind());
+            $this->assertStringContainsString('Unauthorized', $e->getMessage());
+        }
+    }
+
+    /**
+     * The real API has NO `status` field; a body built around `status` alone
+     * (without a `code` of 0) must be treated as invalid.
+     */
+    public function test_status_only_payload_is_invalid(): void
+    {
+        Http::fake([
+            'data.addlivetag.com/*' => Http::response([
+                'status' => 'ok',
+                'data'   => ['total_count' => 0, 'list' => []],
             ]),
         ]);
 
         $this->expectException(ShopeeFoodException::class);
-        $this->expectExceptionMessage('status không hợp lệ');
+        $this->expectExceptionMessage('mã trạng thái không hợp lệ');
         (new ShopeeFoodClient())->getOrders();
     }
 
@@ -247,7 +270,6 @@ class ShopeeFoodClientTest extends TestCase
         Http::fake([
             'data.addlivetag.com/*' => Http::response($this->okPayload([
                 'total_count' => 3,
-                'page'        => 1,
                 'page_size'   => 2,
                 'list'        => [
                     ['checkout_id' => 'X', 'orders' => []],
@@ -263,5 +285,167 @@ class ShopeeFoodClientTest extends TestCase
         $this->assertSame(2, $response->getPageSize());
         $this->assertCount(2, $response->getCheckouts());
         $this->assertTrue($response->hasMore()); // 1*2 < 3
+    }
+
+    /**
+     * Full real-API-parity: 2 checkouts -> 2 orders -> 4 items, `qty` field,
+     * checkout/order-level timestamps, capped checkout, FORMAT A utm, empty
+     * order_sn. Verifies end-to-end compatibility with the observed API shape.
+     */
+    public function test_real_api_response_shape_is_fully_parsed(): void
+    {
+        Http::fake([
+            'data.addlivetag.com/*' => Http::response([
+                'code' => 0,
+                'msg'  => 'success',
+                'data' => [
+                    'total_count' => 2,
+                    'page_size'   => 100,
+                    'list'        => [
+                        [
+                            'checkout_id'       => '1879578695',
+                            'checkout_status'   => 'Waiting for payment',
+                            'checkout_complete_time' => 1788436999,
+                            'purchase_time'     => 1788176218,
+                            'click_time'        => 1788176079,
+                            'is_shopee_capped'  => false,
+                            'gross_commission'  => 1640250000,
+                            'checkout_cap'      => 0,
+                            'capped_commission' => 0,
+                            'affiliate_net_commission' => '1640250000',
+                            'utm_content'       => 'tintuctonghop103----',
+                            'conversion_status' => 2,
+                            'orders'            => [
+                                [
+                                    'order_id'   => 1879578695,
+                                    'order_sn'   => '',
+                                    'complete_time'      => 1788436999,
+                                    'fraud_complete_time' => 1788222094,
+                                    'items'      => [
+                                        [
+                                            'promotion_id' => '0_0_1909678782',
+                                            'item_id' => 7819,
+                                            'item_name' => 'Pho Bo',
+                                            'shop_name' => 'Quan Pho',
+                                            'shop_id' => 800123,
+                                            'item_price' => 4500000000,
+                                            'qty' => 1,
+                                            'actual_amount' => 18225000000,
+                                            'refunded_amount' => 0,
+                                            'platform_commission_rate' => 9000,
+                                            'item_commission' => 1640250000,
+                                            'affiliate_item_status' => 0,
+                                            'item_status' => 'UNRATED',
+                                        ],
+                                        [
+                                            'promotion_id' => '0_0_1907255368',
+                                            'item_id' => 7820,
+                                            'item_name' => 'Tra da',
+                                            'shop_name' => 'Quan Pho',
+                                            'shop_id' => 800123,
+                                            'item_price' => 1000000000,
+                                            'qty' => 2,
+                                            'actual_amount' => 1000000000,
+                                            'refunded_amount' => 0,
+                                            'platform_commission_rate' => 5000,
+                                            'item_commission' => 50000000,
+                                            'affiliate_item_status' => 0,
+                                            'item_status' => 'UNRATED',
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                        [
+                            'checkout_id'       => '1877444014',
+                            'checkout_status'   => 'Waiting for payment',
+                            'checkout_complete_time' => 0,
+                            'purchase_time'     => 1788176219,
+                            'click_time'        => 1788176080,
+                            'is_shopee_capped'  => true,
+                            'gross_commission'  => 3006000000,
+                            'checkout_cap'      => 2500000000,
+                            'capped_commission' => 2500000000,
+                            'affiliate_net_commission' => '2500000000',
+                            'utm_content'       => 'tintuctonghop103----',
+                            'conversion_status' => 2,
+                            'orders'            => [
+                                [
+                                    'order_id'   => 1877444014,
+                                    'order_sn'   => '',
+                                    'complete_time'      => 0,
+                                    'fraud_complete_time' => 0,
+                                    'items'      => [
+                                        [
+                                            'promotion_id' => '0_0_1907255366',
+                                            'item_id' => 9001,
+                                            'item_name' => 'Banh mi',
+                                            'shop_name' => 'Tiem banh',
+                                            'shop_id' => 700456,
+                                            'item_price' => 2000000000,
+                                            'qty' => 1,
+                                            'actual_amount' => 2000000000,
+                                            'refunded_amount' => 0,
+                                            'platform_commission_rate' => 9000,
+                                            'item_commission' => 180000000,
+                                            'affiliate_item_status' => 0,
+                                            'item_status' => 'UNRATED',
+                                        ],
+                                        [
+                                            'promotion_id' => '0_0_1907255367',
+                                            'item_id' => 9002,
+                                            'item_name' => 'Nuoc mia',
+                                            'shop_name' => 'Tiem banh',
+                                            'shop_id' => 700456,
+                                            'item_price' => 1000000000,
+                                            'qty' => 1,
+                                            'actual_amount' => 1000000000,
+                                            'refunded_amount' => 0,
+                                            'platform_commission_rate' => 3000,
+                                            'item_commission' => 30000000,
+                                            'affiliate_item_status' => 0,
+                                            'item_status' => 'UNRATED',
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ]),
+        ]);
+
+        $response = (new ShopeeFoodClient())->setCookie('REAL_COOKIE_HEADER_VALUE')->getOrders();
+
+        $this->assertSame(2, $response->getTotalCount());
+        $checkouts = $response->getCheckouts();
+        $this->assertCount(2, $checkouts);
+
+        $capped = $checkouts[1];
+        $this->assertTrue($capped->isShopeeCapped());
+        $this->assertSame(25000.0, $capped->getCheckoutCap());
+        $this->assertSame(25000.0, $capped->getCappedCommission());
+        $this->assertSame(25000.0, $capped->getAffiliateNetCommission());
+        $this->assertSame('tintuctonghop103', $capped->getSubId1());
+        $this->assertNull($capped->getCompletedAt()); // checkout_complete_time == 0
+
+        $items = $response->getCheckouts()[0]->getOrders()[0]->getItems();
+        $this->assertCount(2, $items);
+        $this->assertSame('1879578695', $items[0]->getCheckoutId());
+        $this->assertSame(1, $items[0]->getQuantity()); // from `qty`
+        $this->assertSame(45000.0, $items[0]->getItemPrice());
+        $this->assertSame(182250.0, $items[0]->getActualAmount());
+        $this->assertSame(9.0, $items[0]->getPlatformCommissionRate());
+        $this->assertSame(16402.5, $items[0]->getItemCommission());
+        $this->assertNull($items[0]->getPaidAt());
+        $this->assertNull($items[0]->getSettledAt());
+        $this->assertSame('1879578695:0_0_1909678782', $items[0]->getLineKey());
+
+        $order = $response->getCheckouts()[0]->getOrders()[0];
+        $this->assertNull($order->getOrderSn()); // '' -> null
+        $this->assertSame(
+            \Carbon\Carbon::createFromTimestamp(1788436999, 'Asia/Ho_Chi_Minh')->toDateTimeString(),
+            $order->getCompletedAt(),
+        );
     }
 }

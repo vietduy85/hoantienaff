@@ -106,7 +106,7 @@ $travelPlatforms = collect(config('travel.platforms'))
 
                 @role('Admin|Operator')
                     <x-dropdown-link :href="route('admin.tiktok-order-sync.index')">
-                        {{ __('Đồng bộ đơn hàng TikTok') }}
+                        {{ __('Đồng bộ đơn hàng TikTok & ShopeeFood') }}
                     </x-dropdown-link>
                 @endrole
 
@@ -220,7 +220,7 @@ $travelPlatforms = collect(config('travel.platforms'))
 
                 @role('Admin|Operator')
                     <x-responsive-nav-link :href="route('admin.tiktok-order-sync.index')">
-                        {{ __('Đồng bộ đơn hàng TikTok') }}
+                        {{ __('Đồng bộ đơn hàng TikTok & ShopeeFood') }}
                     </x-responsive-nav-link>
                 @endrole
 

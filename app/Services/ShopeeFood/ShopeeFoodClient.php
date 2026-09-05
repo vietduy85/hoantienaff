@@ -148,9 +148,13 @@ class ShopeeFoodClient
             );
         }
 
-        if (($decoded['status'] ?? '') !== 'ok') {
+        if ((int) ($decoded['code'] ?? -1) !== 0) {
+            $message = isset($decoded['msg']) && (string) $decoded['msg'] !== ''
+                ? 'ShopeeFood API trả về lỗi: ' . (string) $decoded['msg']
+                : 'ShopeeFood API trả về mã trạng thái không hợp lệ.';
+
             throw new ShopeeFoodException(
-                'ShopeeFood API trả về status không hợp lệ.',
+                $message,
                 kind: 'invalid_status',
             );
         }

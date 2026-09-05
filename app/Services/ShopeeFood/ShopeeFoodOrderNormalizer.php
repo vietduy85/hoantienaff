@@ -66,6 +66,8 @@ class ShopeeFoodOrderNormalizer
             $orders[] = new ShopeeFoodOrder(
                 checkoutId: $checkoutId,
                 orderSn: isset($rawOrder['order_sn']) && $rawOrder['order_sn'] !== '' ? (string) $rawOrder['order_sn'] : null,
+                completedAt: $this->timestamp($rawOrder['complete_time'] ?? null),
+                fraudCompletedAt: $this->timestamp($rawOrder['fraud_complete_time'] ?? null),
                 items: $items,
                 raw: $rawOrder,
             );
@@ -86,6 +88,9 @@ class ShopeeFoodOrderNormalizer
             subId4: $utm['sub_id4'],
             subId5: $utm['sub_id5'],
             contentId: $utm['content_id'],
+            clickedAt: $this->timestamp($raw['click_time'] ?? null),
+            purchasedAt: $this->timestamp($raw['purchase_time'] ?? null),
+            completedAt: $this->timestamp($raw['checkout_complete_time'] ?? null),
             orders: $orders,
             raw: $raw,
         );
@@ -101,7 +106,7 @@ class ShopeeFoodOrderNormalizer
             shopName: $this->nullableString($raw['shop_name'] ?? null),
             shopId: $this->nullableString($raw['shop_id'] ?? null),
             itemPrice: $this->money($raw['item_price'] ?? null),
-            quantity: $this->nullableInt($raw['quantity'] ?? null),
+            quantity: $this->nullableInt($raw['qty'] ?? $raw['quantity'] ?? null),
             actualAmount: $this->money($raw['actual_amount'] ?? null),
             refundedAmount: $this->money($raw['refunded_amount'] ?? null),
             platformCommissionRate: $this->rate($raw['platform_commission_rate'] ?? null),
@@ -146,9 +151,15 @@ class ShopeeFoodOrderNormalizer
     }
 
     /**
-     * Gross commission for a line:
-     *   actual_amount * platform_commission_rate / 100
-     * where rate is the already-normalised percent value.
+     * Gross commission for a line from the NORMALISED percent rate:
+     *   actual_amount * rate_percent / 100
+     *
+     * Contract: $ratePercent must ALWAYS be the normalised DTO value
+     * (getPlatformCommissionRate(), e.g. 9.0 == raw 9000). Raw API scaling
+     * happens exactly once, inside rate(): 9000 -> 9.0. Never pass the raw
+     * 9000 here - that would divide by /100000 and produce 1/100 of the true
+     * gross. For raw 9000 the equivalent canonical result is
+     *   actual_amount * 9000 / 100000 == actual_amount * 9.0 / 100.
      */
     public function grossCommission(?float $actualAmount, ?float $ratePercent): ?float
     {
