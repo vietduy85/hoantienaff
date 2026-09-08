@@ -60,4 +60,11 @@ return [
         'cookie' => env('SHOPEEFOOD_COOKIE'),
     ],
 
+    'lazada' => [
+        'base_url' => env('LAZADA_BASE_URL', 'https://api.lazada.vn/rest'),
+        'app_key' => env('LAZADA_APP_KEY'),
+        'app_secret' => env('LAZADA_APP_SECRET'),
+        'user_token' => env('LAZADA_USER_TOKEN'),
+    ],
+
 ];

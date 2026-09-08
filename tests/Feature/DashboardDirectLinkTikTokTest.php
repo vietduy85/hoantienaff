@@ -168,22 +168,72 @@ class DashboardDirectLinkTikTokTest extends TestCase
     }
 
     // ------------------------------------------------------------------
-    //  Test 3: Lazada URL — existing behavior (no provider changes)
+    //  Test 3: Lazada URL — creates affiliate link via the Lazada Open API
     // ------------------------------------------------------------------
 
-    public function test_lazada_url_no_change(): void
+    public function test_lazada_url_creates_link_via_lazada_api(): void
     {
+        config([
+            'cache.default' => 'array',
+            'services.lazada.app_key' => '105000',
+            'services.lazada.app_secret' => 'secret-secret-secret-secret-secret-32',
+            'services.lazada.user_token' => 'ffffffffffffffffffffffffffffffff',
+            'services.lazada.base_url' => 'https://api.lazada.vn/rest',
+        ]);
+
+        $lazadaUrl = 'https://www.lazada.vn/products/ao-i123456789-s456.html';
+
+        \Illuminate\Support\Facades\Http::fake(function ($request) use ($lazadaUrl) {
+            $url = (string) $request->url();
+
+            if (str_contains($url, '/marketing/getlink')) {
+                return \Illuminate\Support\Facades\Http::response([
+                    'data' => [
+                        'urlBatchGetLinkInfoList' => [[
+                            'originalUrl' => $lazadaUrl,
+                            'productId' => '123456789',
+                            'productName' => null,
+                            'regularPromotionLink' => 'https://c.lazada.vn/t/c.LAZADA?subId1=1&subId2=testuser',
+                            'regularCommission' => '8.5%',
+                        ]],
+                    ],
+                    'success' => true,
+                    'error_code' => null,
+                    'error_msg' => null,
+                ], 200);
+            }
+
+            return \Illuminate\Support\Facades\Http::response([
+                'data' => [
+                    'productList' => [[
+                        'productId' => '123456789',
+                        'productName' => 'Áo Lazada',
+                        'pictures' => 'https://img.lazada.vn/a.jpg',
+                        'discountPrice' => '120000',
+                        'currency' => 'VND',
+                        'totalCommissionRate' => '8.5',
+                        'totalCommissionAmount' => '10200',
+                    ]],
+                ],
+                'success' => true,
+            ], 200);
+        });
+
         $response = $this->actingAs($this->user)
             ->postJson('/link-requests', [
-                'original_url' => 'https://lazada.vn/product/123',
+                'original_url' => $lazadaUrl,
             ]);
 
         $response->assertOk();
+        $response->assertJson(['success' => true, 'platform' => 'Lazada']);
 
         $link = LinkRequest::latest()->first();
         $this->assertEquals('Lazada', $link->platform);
         $this->assertEquals('completed', $link->status);
-        $this->assertNull($link->affiliate_url);
+        $this->assertEquals('https://c.lazada.vn/t/c.LAZADA?subId1=1&subId2=testuser', $link->affiliate_url);
+        $this->assertEquals('Áo Lazada', $link->product_name);
+        $this->assertEquals(10200.00, (float) $link->estimated_cashback);
+        $this->assertEquals(8.5, (float) $link->cashback_rate);
     }
 
     // ------------------------------------------------------------------

@@ -6,6 +6,8 @@ use App\Models\LinkRequest;
 use App\Models\Setting;
 use App\Services\AffiliateCacheService;
 use App\Services\CashbackCalculator;
+use App\Services\Lazada\LazadaException;
+use App\Services\Lazada\LazadaLinkEstimateService;
 use App\Services\ProductDataService;
 use App\Services\TikTok\TikTokLinkEstimateService;
 use App\Services\TikTok\TikTokServiceException;
@@ -22,6 +24,7 @@ class DashboardCreateDirectLinkController extends Controller
         private readonly AffiliateCacheService $cacheService,
         private readonly UrlResolverService $urlResolver,
         private readonly TikTokLinkEstimateService $tiktokLinkEstimate,
+        private readonly LazadaLinkEstimateService $lazadaLinkEstimate,
     ) {}
 
     public function store(Request $request): \Illuminate\Http\JsonResponse|RedirectResponse
@@ -213,6 +216,57 @@ class DashboardCreateDirectLinkController extends Controller
                     ]);
 
                     $msg = 'Không thể kết nối TikTok lúc này, vui lòng thử lại sau.';
+
+                    if ($request->expectsJson() || $request->ajax()) {
+                        return response()->json([
+                            'success' => false,
+                            'error'   => $msg,
+                            'request_id' => $link->id,
+                            'platform'   => $platform,
+                        ], 502);
+                    }
+
+                    return redirect()->route('dashboard')->with('error', $msg);
+                }
+            } elseif (str_contains(strtolower($validated['original_url']), 'lazada')) {
+                try {
+                    $this->lazadaLinkEstimate->create($link, $validated['original_url'], $user);
+                } catch (LazadaException $e) {
+                    $link->update([
+                        'status' => 'failed',
+                        'notes'  => $e->getUserMessage(),
+                    ]);
+
+                    Log::warning('[DirectLink] Lazada link creation failed', [
+                        'url'      => $validated['original_url'],
+                        'error'    => $e->getMessage(),
+                        'user_id'  => $user->id,
+                    ]);
+
+                    $friendly = $e->getUserMessage();
+
+                    if ($request->expectsJson() || $request->ajax()) {
+                        return response()->json([
+                            'success' => false,
+                            'error'   => $friendly,
+                            'request_id' => $link->id,
+                            'platform'   => $platform,
+                        ], 422);
+                    }
+
+                    return redirect()->route('dashboard')->with('error', $friendly);
+                } catch (\Throwable $e) {
+                    $link->update([
+                        'status' => 'failed',
+                        'notes'  => 'Lỗi hệ thống khi tạo link Lazada.',
+                    ]);
+
+                    Log::warning('[DirectLink] Lazada provider failed', [
+                        'url'     => $validated['original_url'],
+                        'error'   => $e->getMessage(),
+                    ]);
+
+                    $msg = 'Không thể kết nối Lazada lúc này, vui lòng thử lại sau.';
 
                     if ($request->expectsJson() || $request->ajax()) {
                         return response()->json([

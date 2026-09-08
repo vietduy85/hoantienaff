@@ -201,15 +201,24 @@
             </div>
 
             <div class="space-y-2.5">
-                <div class="text-center bg-white rounded-xl border border-emerald-100 max-[390px]:px-3 max-[390px]:py-1.5 px-4 py-2">
+                <div x-show="result.platform !== 'Lazada'" class="text-center bg-white rounded-xl border border-emerald-100 max-[390px]:px-3 max-[390px]:py-1.5 px-4 py-2">
                     <p class="text-xs text-gray-500">Bạn sẽ được hoàn</p>
                     <p class="text-3xl font-bold text-emerald-600 leading-tight">
                         <span x-text="result.user_estimated_cashback != null ? '≈ ' + Number(result.user_estimated_cashback).toLocaleString('vi-VN') + 'đ' : ''"></span>
                     </p>
                 </div>
 
+                <div x-show="result.platform === 'Lazada'" class="text-center bg-white rounded-xl border border-emerald-100 max-[390px]:px-3 max-[390px]:py-1.5 px-4 py-2">
+                    <p class="text-xs text-gray-500">Hoa hồng dự kiến</p>
+                    <p class="text-3xl font-bold text-emerald-600 leading-tight">
+                        <span x-show="result.estimated_cashback != null && result.estimated_cashback > 0" x-text="'≈ ' + Number(result.estimated_cashback).toLocaleString('vi-VN') + 'đ'"></span>
+                        <span x-show="!(result.estimated_cashback != null && result.estimated_cashback > 0) && result.cashback_rate > 0" x-text="'≈ ' + Number(result.cashback_rate).toLocaleString('vi-VN') + '%'"></span>
+                        <span x-show="!(result.estimated_cashback != null && result.estimated_cashback > 0) && !(result.cashback_rate > 0)" class="text-lg font-medium text-gray-400">Chưa có dữ liệu</span>
+                    </p>
+                </div>
+
                 <div>
-                    <p class="text-xs text-gray-500 text-center mb-2">🔗 Link hoàn tiền</p>
+                    <p class="text-xs text-gray-500 text-center mb-2" x-text="result.platform === 'Lazada' ? '🔗 Link Lazada' : '🔗 Link hoàn tiền'"></p>
                     <a
                         x-bind:href="result.affiliate_url"
                         target="_blank"

@@ -36,7 +36,7 @@ class SessionExpiredUxTest extends TestCase
     {
         $response = $this->actingAs($this->user)
             ->postJson('/link-requests', [
-                'original_url' => 'https://lazada.vn/product/123',
+                'original_url' => 'https://shopee.vn/product/123',
             ]);
 
         $response->assertStatus(200);
