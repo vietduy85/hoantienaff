@@ -1,7 +1,7 @@
 <x-app-layout>
     <x-slot name="header">
         <h2 class="font-bold text-2xl text-gray-800 leading-tight tracking-tight">
-            {{ __('Đồng bộ đơn hàng TikTok & ShopeeFood') }}
+            {{ __('Đồng bộ đơn hàng TikTok, ShopeeFood & Lazada') }}
         </h2>
     </x-slot>
 
@@ -62,25 +62,61 @@
                 </div>
             @endif
 
+        @if (session('lazada_sync_error'))
+            <div class="bg-red-50 border border-red-200 text-red-700 rounded-2xl p-4 text-sm">
+                {{ session('lazada_sync_error') }}
+            </div>
+        @endif
+
+@if (session('lazada_sync_result'))
+                @php $res = session('lazada_sync_result'); @endphp
+                <div class="rounded-2xl p-4 text-sm {{ $res['success'] ? 'bg-emerald-50 border border-emerald-200 text-emerald-700' : 'bg-amber-50 border border-amber-200 text-amber-800' }}">
+                    <div class="font-semibold mb-2">{{ $res['message'] }}</div>
+                    <dl class="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1">
+                        <div class="flex justify-between"><dt class="text-gray-500">Tháng đã quét</dt><dd class="font-mono">{{ $res['months_fetched'] }}</dd></div>
+                        <div class="flex justify-between"><dt class="text-gray-500">Số trang API</dt><dd class="font-mono">{{ $res['pages_fetched'] }}</dd></div>
+                        <div class="flex justify-between"><dt class="text-gray-500">Tổng record</dt><dd class="font-mono">{{ $res['records_fetched'] }}</dd></div>
+                        <div class="flex justify-between"><dt class="text-gray-500">Đơn mới (đã ghi)</dt><dd class="font-mono">{{ $res['inserted'] }}</dd></div>
+                        <div class="flex justify-between"><dt class="text-gray-500">Đơn cập nhật (đã ghi)</dt><dd class="font-mono">{{ $res['updated'] }}</dd></div>
+                        <div class="flex justify-between"><dt class="text-gray-500">Đang xử lý</dt><dd class="font-mono">{{ $res['pending'] }}</dd></div>
+                        <div class="flex justify-between"><dt class="text-gray-500">Hoàn thành</dt><dd class="font-mono">{{ $res['completed'] }}</dd></div>
+                        <div class="flex justify-between"><dt class="text-gray-500">Trả hàng/đã hủy</dt><dd class="font-mono">{{ $res['cancelled'] }}</dd></div>
+                        <div class="flex justify-between"><dt class="text-gray-500">Chưa xác định user</dt><dd class="font-mono">{{ $res['unresolved_users'] }}</dd></div>
+                        <div class="flex justify-between"><dt class="text-gray-500">Wallet credits</dt><dd class="font-mono">{{ $res['wallet_credits'] }}</dd></div>
+                        <div class="flex justify-between"><dt class="text-gray-500">Wallet reversals</dt><dd class="font-mono">{{ $res['wallet_reversals'] }}</dd></div>
+                        <div class="flex justify-between"><dt class="text-gray-500">Status ngoài mapping</dt><dd class="font-mono">{{ $res['unknown_statuses'] }}</dd></div>
+                        <div class="flex justify-between"><dt class="text-gray-500">Line invalid</dt><dd class="font-mono">{{ $res['invalid_lines'] }}</dd></div>
+                        <div class="flex justify-between"><dt class="text-gray-500">Errors</dt><dd class="font-mono">{{ $res['errors'] }}</dd></div>
+                        <div class="flex justify-between"><dt class="text-gray-500">Commission (estPayout)</dt><dd class="font-mono">{{ number_format((float) $res['total_commission'], 0, ',', '.') }}</dd></div>
+                        <div class="flex justify-between"><dt class="text-gray-500">Cashback estimate</dt><dd class="font-mono">{{ number_format((float) $res['cashback_estimate'], 0, ',', '.') }}</dd></div>
+                        <div class="flex justify-between"><dt class="text-gray-500">Duration</dt><dd class="font-mono">{{ $res['duration'] }}s</dd></div>
+                    </dl>
+                </div>
+            @endif
+
         {{-- Form --}}
         <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-            <h3 class="font-semibold text-gray-800 mb-1">Đồng bộ từ RioHub & ShopeeFood</h3>
+            <h3 class="font-semibold text-gray-800 mb-1">Đồng bộ từ RioHub, ShopeeFood & Lazada</h3>
             <p class="text-sm text-gray-500 mb-4">
-                Một nút đồng bộ chạy lần lượt TikTok (RioHub) rồi ShopeeFood (addlivetag). TikTok ghi đơn & ví;
-                ShopeeFood ghi đơn & ví ở chế độ <strong>REAL</strong> — đồng bộ lặp lại không nhân đôi cashback
+                Một nút đồng bộ chạy lần lượt TikTok (RioHub), ShopeeFood (addlivetag) rồi Lazada (conversion report).
+                Cả ba đều ghi đơn & ví ở chế độ <strong>REAL</strong> — đồng bộ lặp lại không nhân đôi cashback
                 (idempotent). Kết quả từng nền tảng hiển thị riêng.
             </p>
             <div class="bg-gray-50 border border-gray-100 rounded-xl px-3 py-2 mb-2 text-sm text-gray-600">
                 <span class="font-medium text-gray-700">Lần đồng bộ TikTok gần nhất:</span>
                 <span class="font-mono">{{ $lastTikTokSyncAt ? \Illuminate\Support\Carbon::parse($lastTikTokSyncAt)->format('d/m/Y H:i:s') : 'Chưa có' }}</span>
             </div>
-            <div class="bg-gray-50 border border-gray-100 rounded-xl px-3 py-2 mb-4 text-sm text-gray-600">
+            <div class="bg-gray-50 border border-gray-100 rounded-xl px-3 py-2 mb-2 text-sm text-gray-600">
                 <span class="font-medium text-gray-700">Lần đồng bộ ShopeeFood gần nhất:</span>
                 <span class="font-mono">{{ $lastShopeeFoodSyncAt ? \Illuminate\Support\Carbon::parse($lastShopeeFoodSyncAt)->format('d/m/Y H:i:s') : 'Chưa có' }}</span>
             </div>
+            <div class="bg-gray-50 border border-gray-100 rounded-xl px-3 py-2 mb-4 text-sm text-gray-600">
+                <span class="font-medium text-gray-700">Lần đồng bộ Lazada gần nhất:</span>
+                <span class="font-mono">{{ $lastLazadaSyncAt ? \Illuminate\Support\Carbon::parse($lastLazadaSyncAt)->format('d/m/Y H:i:s') : 'Chưa có' }}</span>
+            </div>
 
             <form method="POST" action="{{ route('admin.tiktok-order-sync.sync') }}" class="space-y-4"
-                  onsubmit="this.querySelector('button[type=submit]').disabled = true; this.querySelector('button[type=submit]').textContent = 'Đang đồng bộ TikTok & ShopeeFood...';">
+                  onsubmit="this.querySelector('button[type=submit]').disabled = true; this.querySelector('button[type=submit]').textContent = 'Đang đồng bộ TikTok & ShopeeFood & Lazada...';">
                 @csrf
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -104,13 +140,17 @@
                     <code class="font-mono">tintuctonghop103</code>.<br>
                     ShopeeFood: ghi đơn & ví thật (idempotent — không nhân đôi cashback khi bấm lại); line thiếu
                     <code class="font-mono">promotion_id</code> bị đánh dấu INVALID và không ghi; user không xác định sẽ
-                    không được cấp cashback.
+                    không được cấp cashback.<br>
+                    Lazada: API chỉ trả dữ liệu <strong>theo từng tháng dương lịch</strong> và commission lấy từ payout
+                    thực tế (<code class="font-mono">estPayout</code>), không tự tính. Line thiếu orderId/subOrderId/sku bị
+                    INVALID; status nằm ngoài mapping tài liệu được giữ là "Đang xử lý" (không credit) và đếm riêng để
+                    chốt mapping khi có dữ liệu thật.
                 </div>
 
                 <div>
                     <button type="submit"
                             class="inline-flex items-center justify-center px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-semibold text-sm rounded-xl transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-300">
-                        Đồng bộ đơn hàng TikTok & ShopeeFood
+                        Đồng bộ đơn hàng TikTok, ShopeeFood & Lazada
                     </button>
                 </div>
             </form>
@@ -142,6 +182,18 @@
                 <div class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">ShopeeFood hủy/hoàn</div>
                 <div class="text-2xl font-bold text-red-600">{{ number_format($stats['shopeefood']['refunded'], 0, ',', '.') }}</div>
             </div>
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <div class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">Tổng Lazada</div>
+                <div class="text-2xl font-bold text-gray-800">{{ number_format($stats['lazada']['total'], 0, ',', '.') }}</div>
+            </div>
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <div class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">Lazada hoàn thành</div>
+                <div class="text-2xl font-bold text-emerald-600">{{ number_format($stats['lazada']['settled'], 0, ',', '.') }}</div>
+            </div>
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <div class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">Lazada hủy/hoàn</div>
+                <div class="text-2xl font-bold text-red-600">{{ number_format($stats['lazada']['refunded'], 0, ',', '.') }}</div>
+            </div>
         </div>
 
         {{-- Recent orders --}}
@@ -149,7 +201,7 @@
             <h3 class="font-semibold text-gray-800 mb-3">Đơn gần đây</h3>
 
             @if ($recentOrders->isEmpty())
-                <p class="text-sm text-gray-500">Chưa có đơn TikTok / ShopeeFood nào được đồng bộ.</p>
+                <p class="text-sm text-gray-500">Chưa có đơn TikTok / ShopeeFood / Lazada nào được đồng bộ.</p>
             @else
                 <div>
                     <table class="w-full text-sm table-fixed">
