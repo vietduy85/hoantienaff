@@ -15,6 +15,10 @@ namespace App\Services\ShopeeFood;
  *   commissionRate = base / orderAmount
  *       >= 0.52 -> 70%   |   >= 0.12 -> 60%   |   otherwise -> 50%
  *
+ * Phase 1 ONLY ESTIMATES — this class never touches the wallet. Pending orders
+ * (not completed, not cancelled) are shown with an estimate so the UI can
+ * display "Cashback dự kiến"; only CANCELLED orders return 0.
+ *
  * Why a separate calculator (not the shared one):
  *   - `TikTokCashbackCalculator` is coupled to the TikTokOrder DTO signature,
  *     so ShopeeFood lines cannot be fed into it directly.
@@ -35,9 +39,9 @@ class ShopeeFoodCashbackCalculator
     /**
      * @return array{cashback_rate: float, cashback_amount: float}
      */
-    public function calculate(float $commissionBase, float $orderAmount, bool $isCompleted): array
+    public function calculate(float $commissionBase, float $orderAmount, bool $isCancelled): array
     {
-        if (! $isCompleted || $commissionBase <= 0) {
+        if ($isCancelled || $commissionBase <= 0) {
             return [
                 'cashback_rate'   => self::RATE_50,
                 'cashback_amount' => 0.0,

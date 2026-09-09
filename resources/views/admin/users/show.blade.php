@@ -289,7 +289,13 @@
                                     <td class="px-4 py-2.5 text-gray-700 font-mono text-xs">{{ $item->order_id }}</td>
                                     <td class="px-4 py-2.5 text-gray-600 text-xs">{{ $item->shop_name ?? '—' }}</td>
                                     <td class="px-4 py-2.5 text-right text-gray-800 text-xs">{{ number_format($item->order_amount, 0, ',', '.') }}đ</td>
-                                    <td class="px-4 py-2.5 text-right text-emerald-700 font-medium text-xs">{{ number_format($item->cashback_amount, 0, ',', '.') }}đ</td>
+                                    <td class="px-4 py-2.5 text-right font-medium text-xs">
+                                        @if ($item->affiliate_status === 'Hoàn thành')
+                                            <span class="text-emerald-700">{{ number_format($item->cashback_amount, 0, ',', '.') }}đ</span>
+                                        @else
+                                            <span class="text-amber-600">{{ number_format($item->cashback_amount, 0, ',', '.') }}đ</span>
+                                        @endif
+                                    </td>
                                     <td class="px-4 py-2.5 text-center">
                                         @if ($item->order_status === 'completed' || $item->order_status === 'Hoàn thành')
                                             <span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">Hoàn thành</span>

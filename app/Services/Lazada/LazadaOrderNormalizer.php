@@ -40,11 +40,11 @@ class LazadaOrderNormalizer
         string $importBatch,
         string $lineKey,
     ): array {
-        $isCompleted = $status === LazadaOrderStatusMapper::STATUS_COMPLETED;
+        $isCancelled = $status === LazadaOrderStatusMapper::STATUS_CANCELLED;
 
         $estPayout    = $record->getEstPayout();
         $orderAmt     = $record->getOrderAmt();
-        $cashback     = $this->cashback->calculate($estPayout, $orderAmt, $isCompleted);
+        $cashback     = $this->cashback->calculate($estPayout, $orderAmt, $isCancelled);
 
         $now = Carbon::now()->toDateTimeString();
 

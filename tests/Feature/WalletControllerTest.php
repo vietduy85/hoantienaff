@@ -120,13 +120,20 @@ class WalletControllerTest extends TestCase
         AffiliateOrderItem::factory()->create([
             'user_id' => $this->user->id,
             'username' => $this->user->username,
+            'affiliate_status' => 'Đang xử lý',
+            'cashback_amount' => 5000,
+        ]);
+
+        AffiliateOrderItem::factory()->create([
+            'user_id' => $this->user->id,
+            'username' => $this->user->username,
             'affiliate_status' => 'Hoàn thành',
             'cashback_amount' => 99999,
         ]);
 
         $response = $this->actingAs($this->user)->get(route('wallet.index'));
 
-        $response->assertViewHas('pending', 40000.0);
+        $response->assertViewHas('pending', 45000.0);
     }
 
     public function test_paid_is_from_users_total_withdrawn(): void

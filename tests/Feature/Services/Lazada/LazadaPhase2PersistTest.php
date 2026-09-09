@@ -125,7 +125,8 @@ class LazadaPhase2PersistTest extends TestCase
 
         $row = AffiliateOrderItem::where('platform', 'Lazada')->first();
         $this->assertSame('Đang xử lý', $row->affiliate_status);
-        $this->assertSame(0.0, (float) $row->cashback_amount);
+        $this->assertSame(6000.0, (float) $row->cashback_amount, 'pending shows estimate 12000@50% = 6000, wallet untouched');
+        $this->assertSame(0.50, (float) $row->cashback_rate);
     }
 
     public function test_fulfilled_credits_wallet_once(): void
@@ -189,6 +190,50 @@ class LazadaPhase2PersistTest extends TestCase
         $this->assertSame(1, $result->cashbackCredited);
         $this->assertSame(1, $this->credits());
         $this->assertSame(1, $this->walletTxCount());
+    }
+
+    public function test_pending_to_fulfilled_credit_uses_latest_payout_not_estimate(): void
+    {
+        $member = $this->createMember();
+        $service = $this->makeService();
+
+        $status = 'confirmed';
+        $payout = '12000.00';
+        Http::fake([
+            'https://api.lazada.vn/*' => function (HttpRequest $request) use (&$status, &$payout, $member) {
+                $query = [];
+                parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+                $page = (int) ($query['page'] ?? 1);
+
+                $records = $page === 1
+                    ? [array_merge(LazadaConversionFixture::base(), [
+                        'status'    => $status,
+                        'estPayout' => $payout,
+                        'subId1'    => (string) $member->id,
+                    ])]
+                    : [];
+
+                return Http::response($this->payload($records));
+            },
+        ]);
+
+        $service->run(persist: true, creditWallet: true);
+
+        $pendingRow = AffiliateOrderItem::where('platform', 'Lazada')->first();
+        $this->assertSame('Đang xử lý', $pendingRow->affiliate_status);
+        $this->assertSame(6000.0, (float) $pendingRow->cashback_amount, 'pending estimate 12000@50%');
+        $this->assertSame(0, $this->walletTxCount());
+
+        // Payout changes on settle -> wallet credits the REAL value only.
+        $status = 'fulfilled';
+        $payout = '14000.00';
+        $result = $service->run(persist: true, creditWallet: true);
+
+        $this->assertSame(1, $result->updated);
+        $this->assertSame(1, $result->cashbackCredited);
+        $this->assertSame(7000.0, (float) WalletTransaction::where('type', WalletTransaction::TYPE_CASHBACK)->first()->amount);
+        $this->assertSame(1, $this->walletTxCount());
+        $this->assertSame(7000.0, (float) $member->fresh()->wallet_balance);
     }
 
     public function test_pending_to_returned_never_credits_nor_reverses(): void

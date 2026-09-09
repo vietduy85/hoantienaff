@@ -84,6 +84,21 @@ class TikTokOrderSyncFlowTest extends TestCase
         ];
     }
 
+    private function pendingOrder(string $orderId, float $gmv, float $estCommission): array
+    {
+        return [
+            'order_id'          => $orderId,
+            'product_id'        => (string) (1000 + (int) substr($orderId, -3)),
+            'product_name'      => "Sản phẩm {$orderId}",
+            'status'            => 1,
+            'settlement_status' => 'AWAITING PAYMENT',
+            'commission_gmv'    => $gmv,
+            'est_commission'    => $estCommission,
+            'actual_commission' => null,
+            'time_created'      => '2026-07-28 10:00:00',
+        ];
+    }
+
     public function test_pagination_fetches_all_orders(): void
     {
         $orders = [
@@ -357,6 +372,81 @@ class TikTokOrderSyncFlowTest extends TestCase
         $this->assertSame(0, WalletTransaction::count());
         $this->fallback->refresh();
         $this->assertSame(0.0, (float) $this->fallback->wallet_balance);
+    }
+
+    public function test_pending_order_shows_estimate_but_never_credits(): void
+    {
+        // The two real unsettled orders from production data.
+        $orders = [
+            $this->pendingOrder('585963539853837946', 473064, 23653),
+            $this->pendingOrder('585963899836860196', 306800, 9204),
+        ];
+
+        $result = $this->service($this->mockPageClient($orders))->run();
+
+        $this->assertSame(2, $result->inserted);
+        $this->assertSame(0, $result->cashbackCredited);
+        $this->assertSame(0, WalletTransaction::count());
+
+        $rows = AffiliateOrderItem::where('platform', 'TikTok')->get()->keyBy('order_id');
+
+        // est 23653 / gmv 473064 -> ratio 0.05 -> 50% -> floor(23653*0.5) = 11826
+        $this->assertSame('Đang xử lý', $rows['585963539853837946']->affiliate_status);
+        $this->assertSame(11826.0, (float) $rows['585963539853837946']->cashback_amount);
+        $this->assertSame(0.50, (float) $rows['585963539853837946']->cashback_rate);
+
+        // est 9204 / gmv 306800 -> ratio 0.03 -> 50% -> floor(9204*0.5) = 4602
+        $this->assertSame('Đang xử lý', $rows['585963899836860196']->affiliate_status);
+        $this->assertSame(4602.0, (float) $rows['585963899836860196']->cashback_amount);
+        $this->assertSame(0.50, (float) $rows['585963899836860196']->cashback_rate);
+
+        // No wallet credit while pending.
+        $this->fallback->refresh();
+        $this->assertSame(0.0, (float) $this->fallback->wallet_balance);
+    }
+
+    public function test_pending_to_settled_credit_uses_actual_commission_not_estimate(): void
+    {
+        $pending = $this->pendingOrder('ORD-TX1', 100000, 5000);
+        $settled = $this->settledOrder('ORD-TX1', 100000, 12000);
+
+        $current = $pending;
+        $client = Mockery::mock(RioHubClient::class);
+        $client->shouldReceive('getOrders')
+            ->andReturnUsing(function () use (&$current) {
+                return new RioHubResponse(200, [
+                    'total'     => 1,
+                    'page'      => 1,
+                    'page_size' => 50,
+                    'orders'    => [$current],
+                ]);
+            });
+
+        $service = $this->service($client);
+
+        $service->run();
+
+        $item = AffiliateOrderItem::where('platform', 'TikTok')->where('order_id', 'ORD-TX1')->first();
+        $this->assertSame('Đang xử lý', $item->affiliate_status);
+        $this->assertSame(2500.0, (float) $item->cashback_amount, 'pending estimate 5000@50%');
+        $this->assertSame(0, WalletTransaction::count());
+
+        // Same order settles with a different (higher) actual commission.
+        $current = $settled;
+        $result = $service->run();
+
+        $this->assertSame(1, $result->updated);
+        $this->assertSame(1, $result->cashbackCredited);
+
+        $item->refresh();
+        $this->assertSame('Hoàn thành', $item->affiliate_status);
+        $this->assertSame(7200.0, (float) $item->cashback_amount, 'settled 12000@60%');
+
+        // Only the ACTUAL value is credited — never the estimate on top.
+        $this->assertSame(1, WalletTransaction::count());
+        $this->assertSame(7200.0, (float) WalletTransaction::where('type', WalletTransaction::TYPE_CASHBACK)->first()->amount);
+        $this->fallback->refresh();
+        $this->assertSame(7200.0, (float) $this->fallback->wallet_balance);
     }
 
     public function test_multiple_orders_credit_independently(): void

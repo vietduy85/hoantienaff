@@ -80,7 +80,7 @@ class LazadaLinkEstimateService
             $cashback = $this->cashbackCalculator->calculate(
                 (float) $amount,
                 (float) ($dto->getProductPrice() ?? 0.0),
-                true,
+                false,
             );
 
             $update['cashback_rate']           = $cashback['cashback_rate'];

@@ -80,7 +80,7 @@ class TikTokCashbackCalculatorTest extends TestCase
         $this->assertSame(0.0, $result['cashback_amount']);
     }
 
-    public function test_pending_order_produces_no_cashback(): void
+    public function test_pending_order_without_any_commission_produces_no_cashback(): void
     {
         $order = TikTokOrder::fromArray([
             'order_id'          => 'ORD-PENDING',
@@ -93,6 +93,44 @@ class TikTokCashbackCalculatorTest extends TestCase
         $result = $this->calculator->calculate($order);
 
         $this->assertSame(0.0, $result['cashback_amount']);
+    }
+
+    public function test_pending_order_with_est_commission_shows_estimate(): void
+    {
+        // Real case: est 23653 / gmv 473064 -> ratio 0.05 -> tier 50%
+        // -> floor(23653 * 0.50) = 11826 (display only, wallet untouched).
+        $order = TikTokOrder::fromArray([
+            'order_id'          => 'ORD-PENDING-EST',
+            'status'            => 1,
+            'settlement_status' => 'AWAITING PAYMENT',
+            'commission_gmv'    => 473064,
+            'est_commission'    => 23653,
+            'actual_commission' => null,
+        ]);
+
+        $result = $this->calculator->calculate($order);
+
+        $this->assertSame(0.50, $result['cashback_rate']);
+        $this->assertSame(11826.0, $result['cashback_amount']);
+    }
+
+    public function test_pending_order_with_low_est_commission_shows_estimate(): void
+    {
+        // Real case #2: est 9204 / gmv 306800 -> ratio 0.03 -> tier 50%
+        // -> floor(9204 * 0.50) = 4602.
+        $order = TikTokOrder::fromArray([
+            'order_id'          => 'ORD-PENDING-EST2',
+            'status'            => 1,
+            'settlement_status' => 'TO-SETTLE',
+            'commission_gmv'    => 306800,
+            'est_commission'    => 9204,
+            'actual_commission' => null,
+        ]);
+
+        $result = $this->calculator->calculate($order);
+
+        $this->assertSame(0.50, $result['cashback_rate']);
+        $this->assertSame(4602.0, $result['cashback_amount']);
     }
 
     public function test_settled_with_null_actual_commission_produces_no_cashback(): void

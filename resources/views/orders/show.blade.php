@@ -54,7 +54,11 @@
             <div class="flex items-center gap-3 text-sm text-gray-400">
                 <span>📦 {{ $summary->item_count }} sản phẩm</span>
                 <span>💰 {{ number_format($summary->order_amount, 0, ',', '.') }}đ</span>
-                <span>💵 +{{ number_format($summary->total_cashback, 0, ',', '.') }}đ</span>
+                @if ($summary->affiliate_status === 'Hoàn thành')
+                    <span class="text-emerald-600 font-semibold">💵 +{{ number_format($summary->total_cashback, 0, ',', '.') }}đ</span>
+                @else
+                    <span class="text-amber-600 font-semibold">💵 +{{ number_format($summary->total_cashback, 0, ',', '.') }}đ</span>
+                @endif
             </div>
         </div>
 
@@ -103,7 +107,11 @@
                 {{-- Cashback --}}
                 <div class="flex items-center justify-between">
                     <span class="text-sm text-gray-500">Cashback</span>
-                    <span class="text-lg font-bold text-emerald-600">💵 +{{ number_format($item->cashback_amount, 0, ',', '.') }}đ</span>
+                    @if ($item->affiliate_status === 'Hoàn thành')
+                        <span class="text-lg font-bold text-emerald-600">💵 +{{ number_format($item->cashback_amount, 0, ',', '.') }}đ</span>
+                    @else
+                        <span class="text-lg font-bold text-amber-600">💵 +{{ number_format($item->cashback_amount, 0, ',', '.') }}đ</span>
+                    @endif
                 </div>
 
                 {{-- Status --}}

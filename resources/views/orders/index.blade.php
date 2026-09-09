@@ -117,9 +117,15 @@
 
                 {{-- Cashback --}}
                 @if ($order->total_cashback > 0)
-                    <div class="text-emerald-600 font-bold text-xl">
-                        💵 +{{ number_format($order->total_cashback, 0, ',', '.') }}đ
-                    </div>
+                    @if ($order->affiliate_status === 'Hoàn thành')
+                        <div class="text-emerald-600 font-bold text-xl">
+                            💵 +{{ number_format($order->total_cashback, 0, ',', '.') }}đ
+                        </div>
+                    @else
+                        <div class="text-amber-600 font-bold text-xl">
+                            💵 +{{ number_format($order->total_cashback, 0, ',', '.') }}đ
+                        </div>
+                    @endif
                 @endif
 
                 {{-- Shop --}}

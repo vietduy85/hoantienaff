@@ -7,10 +7,15 @@ use App\Services\TikTok\DTOs\TikTokOrder;
 /**
  * Cashback calculation for TikTok/RioHub orders.
  *
- * TikTok cashback is based on the NET commission (thực nhận): we use
- * `actual_commission` directly and do NOT apply the extra 10% tax deduction
- * that the Shopee estimator uses. The rate (50/60/70) is derived from the
- * ratio actual_commission / order_amount using the same thresholds as Shopee.
+ * TikTok cashback is based on the NET commission (thực nhận): once an order is
+ * SETTLED we use `actual_commission` directly and do NOT apply the extra 10%
+ * tax deduction that the Shopee estimator uses. The rate (50/60/70) is derived
+ * from the ratio commission / order_amount using the same thresholds as Shopee.
+ *
+ * For PENDING (not yet settled) orders we still store a cashback_amount so the
+ * UI can show "Cashback dự kiến" — it is computed from `est_commission` with
+ * the same formula, but the wallet is only ever credited when the row's
+ * affiliate_status is "Hoàn thành".
  */
 class TikTokCashbackCalculator
 {
@@ -29,16 +34,41 @@ class TikTokCashbackCalculator
         $orderAmount = (float) ($order->getCommissionGmv() ?? 0);
         $actualCommission = $order->getActualCommission();
 
-        // Only settled orders carry a realised NET commission. If the order has
-        // not settled (or was refunded) there is nothing to pay out yet.
-        if (! $order->isSettled() || $actualCommission === null || $actualCommission <= 0) {
+        // Refunded / cancelled orders are never paid out.
+        if ($order->isRefunded()) {
             return [
                 'cashback_rate'   => self::RATE_50,
                 'cashback_amount' => 0.0,
             ];
         }
 
-        return $this->calculateFromCommission((float) $actualCommission, $orderAmount);
+        // Settled orders carry a realised NET commission and may be credited.
+        // If the actual commission is still missing there is nothing creditable
+        // yet — never fall back to the estimate here (a "Hoàn thành" row with a
+        // non-zero cashback would be credited by the wallet transition).
+        if ($order->isSettled()) {
+            if ($actualCommission !== null && $actualCommission > 0) {
+                return $this->calculateFromCommission((float) $actualCommission, $orderAmount);
+            }
+
+            return [
+                'cashback_rate'   => self::RATE_50,
+                'cashback_amount' => 0.0,
+            ];
+        }
+
+        // Pending / not settled yet: display an ESTIMATE from the estimated
+        // commission. This is display-only — the wallet transition only credits
+        // rows whose affiliate_status is "Hoàn thành".
+        $estCommission = $order->getEstCommission();
+        if ($estCommission !== null && $estCommission > 0) {
+            return $this->calculateFromCommission((float) $estCommission, $orderAmount);
+        }
+
+        return [
+            'cashback_rate'   => self::RATE_50,
+            'cashback_amount' => 0.0,
+        ];
     }
 
     /**

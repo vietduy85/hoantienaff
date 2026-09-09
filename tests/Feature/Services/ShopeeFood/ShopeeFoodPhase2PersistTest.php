@@ -54,6 +54,7 @@ class ShopeeFoodPhase2PersistTest extends TestCase
         string $utm = 'alice123----',
         ?array $items = null,
         string $id = 'C1',
+        ?string $netCommission = null,
     ): array {
         return [
             'checkout_id'          => $id,
@@ -61,7 +62,7 @@ class ShopeeFoodPhase2PersistTest extends TestCase
             'is_shopee_capped'     => false,
             'checkout_cap'         => 0,
             'capped_commission'    => 0,
-            'affiliate_net_commission' => '45000000', // 450 VND == sum(item_commission)
+            'affiliate_net_commission' => $netCommission ?? '45000000', // 450 VND == sum(item_commission)
             'utm_content'          => $utm,
             'orders'               => [
                 ['order_sn' => '', 'items' => $items ?? [$this->validItem()]],
@@ -201,7 +202,8 @@ class ShopeeFoodPhase2PersistTest extends TestCase
 
         $row = AffiliateOrderItem::where('platform', 'ShopeeFood')->first();
         $this->assertSame('Đang xử lý', $row->affiliate_status);
-        $this->assertSame(0.0, (float) $row->cashback_amount);
+        $this->assertSame(225.0, (float) $row->cashback_amount, 'pending estimate 450@50% = 225, wallet untouched');
+        $this->assertSame(0.50, (float) $row->cashback_rate);
     }
 
     public function test_completed_credits_wallet_once(): void
@@ -272,6 +274,53 @@ class ShopeeFoodPhase2PersistTest extends TestCase
         $this->assertSame(1, $result->cashbackCredited);
         $this->assertSame(1, $this->credits());
         $this->assertSame(1, $this->walletTxCount());
+    }
+
+    public function test_pending_to_completed_credit_uses_latest_commission_not_estimate(): void
+    {
+        $member = $this->createMember();
+        $service = $this->makeService();
+
+        $status = 1;
+        Http::fake([
+            'data.addlivetag.com/*' => function () use (&$status) {
+                $item = $this->validItem();
+                if ($status === 2) {
+                    $item['item_commission'] = 50000000; // 500 VND instead of 450
+                }
+
+                return Http::response([
+                    'code' => 0,
+                    'msg'  => 'success',
+                    'data' => [
+                        'total_count' => 1,
+                        'page_size'   => 100,
+                        'list'        => [$this->shopeeCheckout(
+                            conversionStatus: $status,
+                            netCommission: $status === 2 ? '50000000' : null,
+                            items: [$item],
+                        )],
+                    ],
+                ]);
+            },
+        ]);
+
+        $service->run(persist: true, creditWallet: true);
+
+        $pendingRow = AffiliateOrderItem::where('platform', 'ShopeeFood')->first();
+        $this->assertSame('Đang xử lý', $pendingRow->affiliate_status);
+        $this->assertSame(225.0, (float) $pendingRow->cashback_amount, 'pending estimate 450@50%');
+        $this->assertSame(0, $this->walletTxCount());
+
+        // Commission changes on completion -> credit the REAL value only.
+        $status = 2;
+        $result = $service->run(persist: true, creditWallet: true);
+
+        $this->assertSame(1, $result->updated);
+        $this->assertSame(1, $result->cashbackCredited);
+        $this->assertSame(250.0, (float) WalletTransaction::where('type', WalletTransaction::TYPE_CASHBACK)->first()->amount);
+        $this->assertSame(1, $this->walletTxCount());
+        $this->assertSame(250.0, (float) $member->fresh()->wallet_balance);
     }
 
     public function test_pending_to_rejected_never_credits_nor_reverses(): void

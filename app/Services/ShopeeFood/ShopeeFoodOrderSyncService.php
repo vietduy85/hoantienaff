@@ -225,8 +225,8 @@ class ShopeeFoodOrderSyncService
         $ratePercent = $item->getPlatformCommissionRate();
         $gross = $normalizer->grossCommission($actualAmount, $ratePercent);
 
-        $isCompleted = $status === self::STATUS_COMPLETED;
-        $cb = $cashback->calculate($itemCommission, $actualAmount, $isCompleted);
+        $isCancelled = $status === self::STATUS_CANCELLED;
+        $cb = $cashback->calculate($itemCommission, $actualAmount, $isCancelled);
 
         $lineKey = $this->lineKey($checkout, $item);
 

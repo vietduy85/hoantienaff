@@ -358,8 +358,8 @@ class LazadaOrderSyncService
         string $importBatch,
         LazadaOrderNormalizer $normalizer,
     ): array {
-        $isCompleted = $status === LazadaOrderStatusMapper::STATUS_COMPLETED;
-        $cb = $cashback->calculate($record->getEstPayout(), $record->getOrderAmt(), $isCompleted);
+        $isCancelled = $status === LazadaOrderStatusMapper::STATUS_CANCELLED;
+        $cb = $cashback->calculate($record->getEstPayout(), $record->getOrderAmt(), $isCancelled);
 
         $lineKey = $this->lineKey($record);
 

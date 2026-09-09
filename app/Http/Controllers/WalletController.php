@@ -26,7 +26,7 @@ class WalletController extends Controller
 
         $pending = (float) AffiliateOrderItem::query()
             ->where('user_id', $user->id)
-            ->where('affiliate_status', 'Đang chờ xử lý')
+            ->whereIn('affiliate_status', ['Đang chờ xử lý', 'Đang xử lý'])
             ->sum('cashback_amount');
 
         $paid = (float) $user->total_withdrawn;

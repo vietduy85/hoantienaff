@@ -241,7 +241,17 @@
                                         @endif
                                     </td>
                                     <td class="py-2 pr-4 align-top text-right font-mono text-xs break-words">{{ number_format((float) $order->net_commission, 0, ',', '.') }}</td>
-                                    <td class="py-2 pr-4 align-top text-right font-mono text-xs break-words">{{ number_format((float) $order->cashback_amount, 0, ',', '.') }}</td>
+                                    <td class="py-2 pr-4 align-top text-right font-mono text-xs break-words">
+                                        @if ((float) $order->cashback_amount > 0 && $order->affiliate_status === 'Hoàn thành')
+                                            <span class="text-emerald-700 font-semibold">{{ number_format((float) $order->cashback_amount, 0, ',', '.') }} đ</span>
+                                        @elseif ((float) $order->cashback_amount > 0)
+                                            <span class="text-amber-600">
+                                                {{ number_format((float) $order->cashback_amount, 0, ',', '.') }} đ
+                                            </span>
+                                        @else
+                                            <span class="text-gray-300">—</span>
+                                        @endif
+                                    </td>
                                     <td class="py-2 pr-4 align-top text-xs break-words">{{ $order->username }}</td>
                                 </tr>
                             @endforeach

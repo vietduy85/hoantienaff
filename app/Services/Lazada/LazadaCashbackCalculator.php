@@ -12,6 +12,11 @@ namespace App\Services\Lazada;
  *   commissionRate = base / orderAmount
  *       >= 0.52 -> 70%   |   >= 0.12 -> 60%   |   otherwise -> 50%
  *
+ * Lazada's conversion report carries a single payout figure (estPayout) at every
+ * status, so the SAME amount is used whether the order is pending or fulfilled —
+ * pending rows display it as "Cashback dự kiến", fulfilled rows get the wallet
+ * credit. Only CANCELLED (returned) orders show 0.
+ *
  * This calculator only estimates — the wallet is handled by WalletService via
  * the sync service transitions. `estimated_cashback` from Phase 1 link previews
  * is deliberately NOT used here; the credit is always computed from the real
@@ -32,9 +37,9 @@ class LazadaCashbackCalculator
     /**
      * @return array{cashback_rate: float, cashback_amount: float}
      */
-    public function calculate(float $commissionBase, float $orderAmount, bool $isCompleted): array
+    public function calculate(float $commissionBase, float $orderAmount, bool $isCancelled): array
     {
-        if (! $isCompleted || $commissionBase <= 0) {
+        if ($isCancelled || $commissionBase <= 0) {
             return [
                 'cashback_rate'   => self::RATE_50,
                 'cashback_amount' => 0.0,
