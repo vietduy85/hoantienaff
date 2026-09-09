@@ -4,10 +4,11 @@ namespace Tests\Unit\Services\TikTok;
 
 use App\Models\LinkRequest;
 use App\Models\User;
-use App\Services\CashbackCalculator;
 use App\Services\RioHub\RioHubResponse;
+use App\Services\TikTok\DTOs\TikTokOrder;
 use App\Services\TikTok\DTOs\TikTokProductDTO;
 use App\Services\TikTok\TikTokAffiliateService;
+use App\Services\TikTok\TikTokCashbackCalculator;
 use App\Services\TikTok\TikTokLinkEstimateService;
 use App\Services\TikTok\TikTokProductService;
 use App\Services\TikTok\TikTokServiceException;
@@ -19,7 +20,7 @@ class TikTokLinkEstimateServiceTest extends TestCase
     use RefreshDatabase;
     private TikTokAffiliateService $affiliateService;
     private TikTokProductService $productService;
-    private CashbackCalculator $calculator;
+    private TikTokCashbackCalculator $calculator;
     private TikTokLinkEstimateService $service;
 
     protected function setUp(): void
@@ -28,7 +29,7 @@ class TikTokLinkEstimateServiceTest extends TestCase
 
         $this->affiliateService = $this->createMock(TikTokAffiliateService::class);
         $this->productService = $this->createMock(TikTokProductService::class);
-        $this->calculator = new CashbackCalculator();
+        $this->calculator = new TikTokCashbackCalculator();
         $this->service = new TikTokLinkEstimateService(
             $this->affiliateService,
             $this->productService,
@@ -115,9 +116,9 @@ class TikTokLinkEstimateServiceTest extends TestCase
         $this->assertEquals('Test Product', $link->product_name);
         $this->assertEquals(100000, $link->product_price);
 
-        // commission = floor(100000 * 10%) = 10000; net = 9000; 50% = 4500
+        // commission = floor(100000 * 10%) = 10000; 50% = 5000 (no 10% cut)
         $this->assertEquals(10000.00, (float) $link->estimated_cashback);
-        $this->assertEquals(4500.00, (float) $link->user_estimated_cashback);
+        $this->assertEquals(5000.00, (float) $link->user_estimated_cashback);
         $this->assertEquals(0.50, (float) $link->cashback_rate);
     }
 
@@ -131,7 +132,7 @@ class TikTokLinkEstimateServiceTest extends TestCase
         $this->service->create($link, 'https://tiktok.com/item/pid', $this->user());
 
         $this->assertEquals(20000.00, (float) $link->estimated_cashback);
-        $this->assertEquals(10800.00, (float) $link->user_estimated_cashback); // 20000*0.9=18000*0.6
+        $this->assertEquals(12000.00, (float) $link->user_estimated_cashback); // 20000*0.6
         $this->assertEquals(0.60, (float) $link->cashback_rate);
     }
 
@@ -145,7 +146,7 @@ class TikTokLinkEstimateServiceTest extends TestCase
         $this->service->create($link, 'https://tiktok.com/item/pid', $this->user());
 
         $this->assertEquals(60000.00, (float) $link->estimated_cashback);
-        $this->assertEquals(37800.00, (float) $link->user_estimated_cashback); // 60000*0.9=54000*0.7
+        $this->assertEquals(42000.00, (float) $link->user_estimated_cashback); // 60000*0.7
         $this->assertEquals(0.70, (float) $link->cashback_rate);
     }
 
@@ -165,7 +166,7 @@ class TikTokLinkEstimateServiceTest extends TestCase
         // commission = floor(100000 * 25%) = 25000
         $this->assertEquals(25000.00, (float) $link->estimated_cashback);
         $this->assertEquals(0.60, (float) $link->cashback_rate);
-        $this->assertEquals(13500.00, (float) $link->user_estimated_cashback); // 25000*0.9=22500*0.6
+        $this->assertEquals(15000.00, (float) $link->user_estimated_cashback); // 25000*0.6
     }
 
     public function test_estimate_falls_back_to_commission_plus_ads(): void
@@ -179,7 +180,7 @@ class TikTokLinkEstimateServiceTest extends TestCase
 
         $this->assertEquals(12000.00, (float) $link->estimated_cashback);
         $this->assertEquals(0.60, (float) $link->cashback_rate);
-        $this->assertEquals(6480.00, (float) $link->user_estimated_cashback); // 12000*0.9=10800*0.6
+        $this->assertEquals(7200.00, (float) $link->user_estimated_cashback); // 12000*0.6
     }
 
     // ------------------------------------------------------------------
@@ -232,5 +233,87 @@ class TikTokLinkEstimateServiceTest extends TestCase
         $this->assertNull($link->estimated_cashback);
         $this->assertNull($link->user_estimated_cashback);
         $this->assertNull($link->cashback_rate);
+    }
+
+    // ------------------------------------------------------------------
+    //  Estimate must match the canonical wallet credit formula
+    // ------------------------------------------------------------------
+
+    public function test_estimate_equals_wallet_credit_for_same_commission_and_tier(): void
+    {
+        $cases = [
+            ['ratePct' => 1000, 'tier' => 0.50],
+            ['ratePct' => 1300, 'tier' => 0.60],
+            ['ratePct' => 2000, 'tier' => 0.60],
+            ['ratePct' => 6000, 'tier' => 0.70],
+        ];
+
+        // One stub per case; PHPUnit mock willReturn cannot be re-bound in a loop.
+        $this->stubAffiliateLink('https://riohub.vn/aff/l', 'pid');
+        $this->productService->method('getProduct')->willReturnOnConsecutiveCalls(
+            ...array_map(
+                fn ($case) => $this->product('pid', 100000, $case['ratePct']),
+                array_values($cases),
+            )
+        );
+
+        foreach ($cases as $case) {
+            $link = $this->link();
+            $this->service->create($link, 'https://tiktok.com/item/pid', $this->user());
+
+            $order = TikTokOrder::fromArray([
+                'order_id'          => 'ORD-PARITY-' . $case['ratePct'],
+                'status'            => 2,
+                'settlement_status' => 'SETTLED',
+                'commission_gmv'    => 100000,
+                'actual_commission' => floor(100000 * $case['ratePct'] / 10000),
+            ]);
+            $credit = $this->calculator->calculate($order);
+
+            $this->assertSame((float) $credit['cashback_amount'], (float) $link->user_estimated_cashback);
+            $this->assertSame($credit['cashback_rate'], (float) $link->cashback_rate);
+            $this->assertSame((float) $case['tier'], $credit['cashback_rate']);
+        }
+    }
+
+    public function test_estimate_13_100_commission_50_percent_gives_6550(): void
+    {
+        $this->stubAffiliateLink('https://riohub.vn/aff/l', 'pid');
+        // 6.55% commission → 50% tier; commission = floor(200000 * 6.55%) = 13100
+        $this->stubProduct($this->product('pid', 200000, 655));
+
+        $link = $this->link();
+        $this->service->create($link, 'https://tiktok.com/item/pid', $this->user());
+
+        $this->assertEquals(13100.00, (float) $link->estimated_cashback);
+        $this->assertEquals(0.50, (float) $link->cashback_rate);
+        // floor(13100 × 0.50) — identical to the wallet credit formula
+        $this->assertEquals(6550.00, (float) $link->user_estimated_cashback);
+    }
+
+    public function test_estimate_uses_same_tier_boundaries_as_wallet_credit(): void
+    {
+        $this->stubAffiliateLink('https://riohub.vn/aff/l', 'pid');
+        $this->productService->method('getProduct')->willReturnOnConsecutiveCalls(
+            $this->product('pid', 100000, 1200), // ratio exactly 0.12 -> 60%
+            $this->product('pid', 100000, 1190), // ratio just below 0.12 -> 50%
+            $this->product('pid', 100000, 5200), // ratio exactly 0.52 -> 70%
+            $this->product('pid', 100000, 5190), // ratio just below 0.52 -> 60%
+        );
+
+        $cases = [
+            ['tier' => 0.60, 'user' => 7200.0],   // floor(12000 × 0.60)
+            ['tier' => 0.50, 'user' => 5950.0],   // floor(11900 × 0.50)
+            ['tier' => 0.70, 'user' => 36400.0],  // floor(52000 × 0.70)
+            ['tier' => 0.60, 'user' => 31140.0],  // floor(51900 × 0.60)
+        ];
+
+        foreach ($cases as $case) {
+            $link = $this->link();
+            $this->service->create($link, 'https://tiktok.com/item/pid', $this->user());
+
+            $this->assertEquals($case['tier'], (float) $link->cashback_rate);
+            $this->assertEquals($case['user'], (float) $link->user_estimated_cashback);
+        }
     }
 }

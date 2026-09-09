@@ -201,19 +201,14 @@
             </div>
 
             <div class="space-y-2.5">
-                <div x-show="result.platform !== 'Lazada'" class="text-center bg-white rounded-xl border border-emerald-100 max-[390px]:px-3 max-[390px]:py-1.5 px-4 py-2">
+                <div class="text-center bg-white rounded-xl border border-emerald-100 max-[390px]:px-3 max-[390px]:py-1.5 px-4 py-2">
                     <p class="text-xs text-gray-500">Bạn sẽ được hoàn</p>
                     <p class="text-3xl font-bold text-emerald-600 leading-tight">
-                        <span x-text="result.user_estimated_cashback != null ? '≈ ' + Number(result.user_estimated_cashback).toLocaleString('vi-VN') + 'đ' : ''"></span>
+                        <span x-show="result.user_estimated_cashback != null && result.user_estimated_cashback > 0" x-text="'≈ ' + Number(result.user_estimated_cashback).toLocaleString('vi-VN') + 'đ'"></span>
+                        <span x-show="!(result.user_estimated_cashback != null && result.user_estimated_cashback > 0)" class="text-lg font-medium text-gray-400">Chưa có dữ liệu</span>
                     </p>
-                </div>
-
-                <div x-show="result.platform === 'Lazada'" class="text-center bg-white rounded-xl border border-emerald-100 max-[390px]:px-3 max-[390px]:py-1.5 px-4 py-2">
-                    <p class="text-xs text-gray-500">Hoa hồng dự kiến</p>
-                    <p class="text-3xl font-bold text-emerald-600 leading-tight">
-                        <span x-show="result.estimated_cashback != null && result.estimated_cashback > 0" x-text="'≈ ' + Number(result.estimated_cashback).toLocaleString('vi-VN') + 'đ'"></span>
-                        <span x-show="!(result.estimated_cashback != null && result.estimated_cashback > 0) && result.cashback_rate > 0" x-text="'≈ ' + Number(result.cashback_rate).toLocaleString('vi-VN') + '%'"></span>
-                        <span x-show="!(result.estimated_cashback != null && result.estimated_cashback > 0) && !(result.cashback_rate > 0)" class="text-lg font-medium text-gray-400">Chưa có dữ liệu</span>
+                    <p x-show="result.platform === 'Lazada' && result.estimated_cashback != null && result.estimated_cashback > 0" class="text-[11px] text-gray-400 mt-1">
+                        Hoa hồng đối tác ≈ <span x-text="Number(result.estimated_cashback).toLocaleString('vi-VN')"></span>đ
                     </p>
                 </div>
 

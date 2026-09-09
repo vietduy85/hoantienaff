@@ -38,8 +38,28 @@ class TikTokCashbackCalculator
             ];
         }
 
-        $rate = $this->resolveRate($actualCommission, $orderAmount);
-        $amount = (float) floor($actualCommission * $rate);
+        return $this->calculateFromCommission((float) $actualCommission, $orderAmount);
+    }
+
+    /**
+     * Reusable rate + amount from a raw commission and order amount. This is the
+     * canonical formula used both for order credits and link estimates, so an
+     * estimate of a given commission always equals the wallet credit for the
+     * same commission/tier (no extra 10% deduction).
+     *
+     * @return array{cashback_rate: float, cashback_amount: float}
+     */
+    public function calculateFromCommission(float $commission, float $orderAmount): array
+    {
+        if ($commission <= 0) {
+            return [
+                'cashback_rate'   => self::RATE_50,
+                'cashback_amount' => 0.0,
+            ];
+        }
+
+        $rate = $this->resolveRate($commission, $orderAmount);
+        $amount = (float) floor($commission * $rate);
 
         return [
             'cashback_rate'   => $rate,

@@ -154,4 +154,53 @@ class LazadaDirectLinkTest extends TestCase
         $response->assertStatus(422);
         $response->assertJsonValidationErrors(['original_url']);
     }
+
+    public function test_link_result_ui_shows_user_cashback_not_full_commission(): void
+    {
+        Http::fake(function ($request) {
+            if (str_contains((string) $request->url(), '/marketing/getlink')) {
+                return Http::response([
+                    'data' => [
+                        'urlBatchGetLinkInfoList' => [[
+                            'originalUrl' => self::LAZADA_URL,
+                            'productId' => '123456789',
+                            'regularPromotionLink' => 'https://c.lazada.vn/t/c.TRACK',
+                            'regularCommission' => '14%',
+                        ]],
+                    ],
+                    'success' => true,
+                ], 200);
+            }
+
+            return Http::response([
+                'data' => [
+                    'productList' => [[
+                        'productId' => '123456789',
+                        'productName' => 'Sữa tắm thiên nhiên',
+                        'pictures' => 'https://img.lazada.vn/x.jpg',
+                        'discountPrice' => '665000',
+                        'currency' => 'VND',
+                        'totalCommissionRate' => '14',
+                        'totalCommissionAmount' => '93100',
+                    ]],
+                ],
+                'success' => true,
+            ], 200);
+        });
+
+        $this->actingAs($this->user)
+            ->postJson('/link-requests', ['original_url' => self::LAZADA_URL])
+            ->assertOk();
+
+        $link = LinkRequest::latest()->first();
+        // 93100/665000 = 0.14 -> tier 60% -> floor(93100 × 0.60) = 55860
+        $this->assertSame(55860.0, (float) $link->user_estimated_cashback);
+
+        $response = $this->actingAs($this->user)->get('/dashboard');
+
+        $response->assertOk();
+        $response->assertSee('Bạn sẽ được hoàn');
+        $response->assertSee('Hoa hồng đối tác');
+        $response->assertDontSee('Hoa hồng dự kiến');
+    }
 }

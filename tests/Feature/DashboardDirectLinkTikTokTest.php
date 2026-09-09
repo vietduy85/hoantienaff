@@ -110,7 +110,7 @@ class DashboardDirectLinkTikTokTest extends TestCase
         $this->assertEquals('Test TikTok Product', $link->product_name);
         $this->assertEquals(23000.00, (float) $link->estimated_cashback); // 100000 * 23%
         $this->assertEquals(0.60, (float) $link->cashback_rate);
-        $this->assertEquals(12420.00, (float) $link->user_estimated_cashback); // 23000*0.9=20700*0.6
+        $this->assertEquals(13800.00, (float) $link->user_estimated_cashback); // 23000*0.6, no 10% cut
     }
 
     // ------------------------------------------------------------------
@@ -233,7 +233,9 @@ class DashboardDirectLinkTikTokTest extends TestCase
         $this->assertEquals('https://c.lazada.vn/t/c.LAZADA?subId1=1&subId2=testuser', $link->affiliate_url);
         $this->assertEquals('Áo Lazada', $link->product_name);
         $this->assertEquals(10200.00, (float) $link->estimated_cashback);
-        $this->assertEquals(8.5, (float) $link->cashback_rate);
+        // 10200/120000 = 0.085 -> tier 50% -> floor(10200 × 0.50) = 5100
+        $this->assertEquals(0.50, (float) $link->cashback_rate);
+        $this->assertEquals(5100.00, (float) $link->user_estimated_cashback);
     }
 
     // ------------------------------------------------------------------

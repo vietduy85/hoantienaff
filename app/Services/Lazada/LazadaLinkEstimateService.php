@@ -19,6 +19,7 @@ class LazadaLinkEstimateService
     public function __construct(
         private readonly LazadaUrlParser $urlParser,
         private readonly LazadaProductService $productService,
+        private readonly LazadaCashbackCalculator $cashbackCalculator,
     ) {}
 
     /**
@@ -72,6 +73,18 @@ class LazadaLinkEstimateService
         $amount = $dto->getCommissionAmount();
         if ($amount !== null && $amount > 0) {
             $update['estimated_cashback'] = $amount;
+
+            // User cashback must follow the same tier rule used at wallet
+            // credit time (LazadaCashbackCalculator): commission/price ratio
+            // >= 0.52 -> 70% | >= 0.12 -> 60% | otherwise 50%, no 10% cut.
+            $cashback = $this->cashbackCalculator->calculate(
+                (float) $amount,
+                (float) ($dto->getProductPrice() ?? 0.0),
+                true,
+            );
+
+            $update['cashback_rate']           = $cashback['cashback_rate'];
+            $update['user_estimated_cashback'] = $cashback['cashback_amount'];
         }
 
         $link->update($update);

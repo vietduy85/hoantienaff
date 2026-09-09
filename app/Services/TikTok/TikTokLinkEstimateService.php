@@ -4,7 +4,6 @@ namespace App\Services\TikTok;
 
 use App\Models\LinkRequest;
 use App\Models\User;
-use App\Services\CashbackCalculator;
 use App\Services\TikTok\DTOs\TikTokProductDTO;
 use Illuminate\Support\Facades\Log;
 
@@ -20,7 +19,7 @@ class TikTokLinkEstimateService
     public function __construct(
         private readonly TikTokAffiliateService $affiliateService,
         private readonly TikTokProductService $productService,
-        private readonly CashbackCalculator $cashbackCalculator,
+        private readonly TikTokCashbackCalculator $cashbackCalculator,
     ) {}
 
     /**
@@ -104,14 +103,15 @@ class TikTokLinkEstimateService
         if ($price > 0 && $ratePct !== null && $ratePct > 0) {
             // RioHub commission rates are basis points (e.g. 2300 = 23.00%),
             // so the gross estimated commission = price × rate ÷ 10000.
-            // Reuse the same business thresholds/rounding as Shopee: tier
-            // derived from ratio, then net = floor(commission × 0.90) × tier.
+            // Reuse the canonical TikTokCashbackCalculator so the estimate of a
+            // given commission always equals the wallet credit for the same
+            // commission/tier (tier from commission ratio, no 10% cut).
             $commissionAmount = floor($price * $ratePct / 10000);
 
-            $cashback = $this->cashbackCalculator->calculate($commissionAmount, $price);
+            $cashback = $this->cashbackCalculator->calculateFromCommission((float) $commissionAmount, $price);
 
             $update['estimated_cashback']     = $commissionAmount;
-            $update['user_estimated_cashback'] = $cashback['user_estimated_cashback'];
+            $update['user_estimated_cashback'] = $cashback['cashback_amount'];
             $update['cashback_rate']           = $cashback['cashback_rate'];
         }
     }
