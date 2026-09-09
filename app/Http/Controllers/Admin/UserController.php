@@ -144,6 +144,8 @@ class UserController extends Controller
         ]);
 
         $pendingCashbackItems = AffiliateOrderItem::where('user_id', $user->id)
+            ->where('cashback_amount', '>', 0)
+            ->where('affiliate_status', '!=', 'Đã hủy')
             ->whereNotIn('id', function ($q) use ($user) {
                 $q->select('reference_id')
                     ->from('wallet_transactions')
