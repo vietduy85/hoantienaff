@@ -1,6 +1,5 @@
 <?php
 
-use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -61,11 +60,4 @@ return Application::configure(basePath: dirname(__DIR__))
             return null;
         });
     })
-    ->withSchedule(function (Schedule $schedule): void {
-        // Phase 3: chốt cashback Lazada mỗi sáng sớm (giờ Việt Nam). Đơn đủ
-        // 10 ngày kể từ delivered_at sẽ được credit + LOCK. Idempotent nên chạy
-        // lại an toàn; không đụng TikTok / Shopee / ShopeeFood.
-        $schedule->command('affiliate:lazada-finalize')
-            ->dailyAt('03:30')
-            ->timezone('Asia/Ho_Chi_Minh');
-    })->create();
+    ->create();
