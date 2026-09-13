@@ -474,12 +474,23 @@ class WalletService
             return null;
         }
 
-        $user = $item->user;
+        return DB::transaction(function () use ($item, $credit) {
+            // Balance guard: lock the user row so the balance read is fresh and
+            // atomic. An insufficient balance ABORTS the whole transaction —
+            // no refund ledger row is created and the balance never goes
+            // negative.
+            $user = User::where('id', $item->user_id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        return DB::transaction(function () use ($item, $user, $credit) {
-            $runningNo = $this->generateRunningNo();
             $balanceBefore = $this->getBalance($user);
             $amount = (float) $credit->amount;
+
+            if ($balanceBefore < $amount) {
+                throw new InsufficientBalanceException($balanceBefore, $amount);
+            }
+
+            $runningNo = $this->generateRunningNo();
             $balanceAfter = $balanceBefore - $amount;
 
             $transaction = WalletTransaction::create([

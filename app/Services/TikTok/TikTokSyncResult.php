@@ -21,6 +21,7 @@ class TikTokSyncResult
         public int $cashbackCredited = 0,
         public int $cashbackSkipped = 0,
         public int $cashbackReversed = 0,
+        public int $protectedSkipped = 0,
         public array $errorsDetail = [],
         public ?\DateTimeInterface $startedAt = null,
         public ?\DateTimeInterface $finishedAt = null,
@@ -51,6 +52,7 @@ class TikTokSyncResult
             'cashback_credited' => $this->cashbackCredited,
             'cashback_skipped'  => $this->cashbackSkipped,
             'cashback_reversed' => $this->cashbackReversed,
+            'protected_skipped' => $this->protectedSkipped,
         ];
     }
 }

@@ -166,6 +166,60 @@ class TikTokOrderTest extends TestCase
         $this->assertNull($order->getRefundedQuantity());
     }
 
+    public function test_passes_finalize_belt_requires_every_settled_condition(): void
+    {
+        $belt = fn (array $extra = []) => TikTokOrder::fromArray(array_merge([
+            'order_id'          => 'BELT',
+            'status'            => 2,
+            'settlement_status' => 'SETTLED',
+            'tt_order_status'   => 103,
+            'est_commission'    => 10000,
+            'actual_commission' => 10000,
+        ], $extra));
+
+        $this->assertTrue($belt()->passesFinalizeBelt());
+
+        // status != 2
+        $this->assertFalse($belt(['status' => 1])->passesFinalizeBelt());
+        // settlement still To-SETTLE
+        $this->assertFalse($belt(['settlement_status' => 'To-SETTLE'])->passesFinalizeBelt());
+        // tt_order_status != 103
+        $this->assertFalse($belt(['tt_order_status' => 100])->passesFinalizeBelt());
+        $this->assertFalse($belt(['tt_order_status' => null])->passesFinalizeBelt());
+        // actual != est
+        $this->assertFalse($belt(['actual_commission' => 8848])->passesFinalizeBelt());
+        // missing actual / est
+        $this->assertFalse($belt(['actual_commission' => null])->passesFinalizeBelt());
+        $this->assertFalse($belt(['est_commission' => null])->passesFinalizeBelt());
+    }
+
+    public function test_is_refund_or_cancel_detects_all_refund_signals(): void
+    {
+        $this->assertTrue(TikTokOrder::fromArray(['status' => 3])->isRefundOrCancel());
+        $this->assertTrue(TikTokOrder::fromArray(['settlement_status' => 'REFUNDED'])->isRefundOrCancel());
+        $this->assertTrue(TikTokOrder::fromArray(['settlement_status' => 'CANCELLED'])->isRefundOrCancel());
+        $this->assertTrue(TikTokOrder::fromArray(['tt_order_status' => 104])->isRefundOrCancel());
+
+        $this->assertFalse(TikTokOrder::fromArray(['status' => 2, 'settlement_status' => 'SETTLED', 'tt_order_status' => 103])->isRefundOrCancel());
+        $this->assertFalse(TikTokOrder::fromArray(['status' => 1, 'settlement_status' => 'To-SETTLE', 'tt_order_status' => 100])->isRefundOrCancel());
+    }
+
+    public function test_to_database_array_persists_tt_order_status_and_settled_at(): void
+    {
+        $order = TikTokOrder::fromArray([
+            'order_id'          => 'PERSIST-001',
+            'status'            => 2,
+            'settlement_status' => 'SETTLED',
+            'tt_order_status'   => 103,
+            'settled_at'        => '2026-09-11 01:02:22',
+        ]);
+
+        $dbArray = $order->toDatabaseArray('user1', 1, '20260721');
+
+        $this->assertSame(103, $dbArray['tt_order_status']);
+        $this->assertSame('2026-09-11 01:02:22', $dbArray['settled_at']);
+    }
+
     public function test_maps_new_riohub_fields(): void
     {
         $order = TikTokOrder::fromArray([

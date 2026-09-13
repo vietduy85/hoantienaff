@@ -4,12 +4,21 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 
 class AffiliateOrderItem extends Model
 {
     use HasFactory;
 
+    public const STATUS_PENDING = 'Đang xử lý';
+
     public const STATUS_COMPLETED = 'Hoàn thành';
+
+    public const STATUS_CANCELLED = 'Đã hủy';
+
+    public const FINALIZE_GATE_TIKTOK_SETTLED = 'tiktok_settled';
+
+    public const FINALIZE_GATE_LAZADA_DELIVERED_10D = 'lazada_delivered_10d';
 
     protected $fillable = [
         // Shopee fields
@@ -77,6 +86,13 @@ class AffiliateOrderItem extends Model
         'lazada_line_key',
         'last_lazada_sync_at',
         'locked_at',
+        'delivered_at',
+        'finalized_at',
+        'finalize_gate',
+        'final_cashback_amount',
+        'reversed_at',
+        'tt_order_status',
+        'settled_at',
     ];
 
     protected function casts(): array
@@ -109,11 +125,99 @@ class AffiliateOrderItem extends Model
             'lazada_line_key' => 'string',
             'last_lazada_sync_at' => 'datetime',
             'locked_at' => 'datetime',
+            'delivered_at' => 'datetime',
+            'finalized_at' => 'datetime',
+            'final_cashback_amount' => 'decimal:2',
+            'reversed_at' => 'datetime',
+            'settled_at' => 'datetime',
         ];
     }
 
     public function user(): \Illuminate\Database\Eloquent\Relations\BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * True when this row has been finalized (LOCKED) by the lifecycle.
+     *
+     * Historical rows that were credited BEFORE the lifecycle keep this NULL —
+     * their protection signal is `hasCompletedCashbackCredit()` (a completed
+     * cashback WalletTransaction), not this flag.
+     */
+    public function isFinalized(): bool
+    {
+        return $this->finalized_at !== null;
+    }
+
+    /**
+     * True when a valid reversal has been recorded for this row.
+     */
+    public function isReversed(): bool
+    {
+        return $this->reversed_at !== null;
+    }
+
+    /**
+     * Frozen cashback amount captured at finalization time, or null when the
+     * row has never been finalized.
+     */
+    public function getFinalCashbackAmount(): ?float
+    {
+        return $this->final_cashback_amount !== null
+            ? (float) $this->final_cashback_amount
+            : null;
+    }
+
+    /**
+     * Mark the row as finalized (LOCKED) by the lifecycle.
+     *
+     * Captures a snapshot of cashback_amount into final_cashback_amount so the
+     * amount actually credited can never be recomputed/drifted afterwards.
+     * Idempotent: once finalized, a second call is a no-op and NEVER overwrites
+     * the existing snapshot (no downgrade, no recalculation).
+     */
+    public function markFinalized(string $gate, ?Carbon $at = null): static
+    {
+        if ($this->isFinalized()) {
+            return $this;
+        }
+
+        $this->finalize_gate = $gate;
+        $this->finalized_at = $at ?? Carbon::now();
+        $this->final_cashback_amount = (float) $this->cashback_amount;
+        $this->reversed_at = null;
+        $this->save();
+
+        return $this;
+    }
+
+    /**
+     * Record a valid platform reversal on a previously finalized row.
+     */
+    public function markReversed(?Carbon $at = null): static
+    {
+        $this->reversed_at = $at ?? Carbon::now();
+        $this->save();
+
+        return $this;
+    }
+
+    /**
+     * Historical-credit protection marker: a completed cashback credit exists
+     * on this order item regardless of lifecycle finalization fields.
+     *
+     * This is the AUTHORITATIVE "money already moved" signal — rows where it
+     * returns true must NEVER be re-credited, recalculated or downgraded by the
+     * lifecycle (Lazada 720/721/722 and all pre-deploy credits).
+     */
+    public function hasCompletedCashbackCredit(): bool
+    {
+        return WalletTransaction::query()
+            ->where('reference_type', 'affiliate_order_item')
+            ->where('reference_id', $this->id)
+            ->where('type', WalletTransaction::TYPE_CASHBACK)
+            ->where('status', WalletTransaction::STATUS_COMPLETED)
+            ->exists();
     }
 }

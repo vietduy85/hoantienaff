@@ -45,6 +45,7 @@ class TikTokOrder
         private readonly ?int $createTime = null,
         private readonly ?int $updateTime = null,
         private readonly ?int $ttOrderStatus = null,
+        private readonly ?string $settledAt = null,
         private readonly ?string $paymentStatus = null,
         private readonly ?string $pit = null,
         private readonly array $raw = [],
@@ -253,6 +254,11 @@ class TikTokOrder
         return $this->ttOrderStatus;
     }
 
+    public function getSettledAt(): ?string
+    {
+        return $this->settledAt;
+    }
+
     public function getPaymentStatus(): ?string
     {
         return $this->paymentStatus;
@@ -273,6 +279,69 @@ class TikTokOrder
     {
         return $this->status === 3
             || strtoupper((string) $this->settlementStatus) === 'REFUNDED';
+    }
+
+    /**
+     * True when the source reports a refund/cancellation on this order.
+     *
+     *  - status === 3          (RioHub cancelled/refunded terminal status)
+     *  - settlement_status     contains REFUND / CANCEL
+     *  - tt_order_status === 104  (TikTok refunded gateway status)
+     */
+    public function isRefundOrCancel(): bool
+    {
+        if ($this->status === 3 || $this->ttOrderStatus === 104) {
+            return true;
+        }
+
+        $settle = strtoupper((string) $this->settlementStatus);
+
+        return str_contains($settle, 'REFUND') || str_contains($settle, 'CANCEL');
+    }
+
+    /**
+     * SETTLED finalization belt. The order may only be finalized (credited +
+     * lifecycle locked) when EVERY condition holds:
+     *
+     *  - status === 2
+     *  - settlement_status === SETTLED
+     *  - tt_order_status === 103
+     *  - actual_commission === est_commission (both present)
+     *
+     * A missing/mismatched condition keeps the order PENDING with an estimate —
+     * the belt must never guess.
+     */
+    public function passesFinalizeBelt(): bool
+    {
+        if ($this->status !== 2) {
+            return false;
+        }
+
+        if (strtoupper((string) $this->settlementStatus) !== 'SETTLED') {
+            return false;
+        }
+
+        if ($this->ttOrderStatus !== 103) {
+            return false;
+        }
+
+        $actual = $this->actualCommission;
+        $estimate = $this->estCommission;
+
+        if ($actual === null || $estimate === null) {
+            return false;
+        }
+
+        return abs($actual - $estimate) < 0.005;
+    }
+
+    /**
+     * Vietnamese affiliate_status derived from the numeric status, used to
+     * detect API drift against a lifecycle-finalized row.
+     */
+    public function mappedAffiliateStatus(): string
+    {
+        return $this->mapStatus($this->status);
     }
 
     public function getRaw(): array
@@ -323,6 +392,7 @@ class TikTokOrder
             createTime: isset($data['create_time']) ? (int) $data['create_time'] : null,
             updateTime: isset($data['update_time']) ? (int) $data['update_time'] : null,
             ttOrderStatus: isset($data['tt_order_status']) ? (int) $data['tt_order_status'] : null,
+            settledAt: $data['settled_at'] ?? null,
             paymentStatus: $data['payment_status'] ?? null,
             pit: isset($data['pit']) && $data['pit'] !== null ? (string) $data['pit'] : null,
             raw: $data,
@@ -426,6 +496,8 @@ class TikTokOrder
             'source_file'             => 'rioHub-api',
             'first_imported_at'       => now()->toDateTimeString(),
             'last_tiktok_sync_at'     => now()->toDateTimeString(),
+            'tt_order_status'         => $this->ttOrderStatus,
+            'settled_at'              => $this->settledAt,
             'locked_at'               => in_array($this->status, [2, 3]) ? now()->toDateTimeString() : null,
         ];
     }

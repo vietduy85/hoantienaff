@@ -416,6 +416,7 @@ class AffiliateTikTokSync extends Command
                 ['Wallet credits', (string) $result->cashbackCredited],
                 ['Wallet reversals', (string) $result->cashbackReversed],
                 ['Wallet skipped', (string) $result->cashbackSkipped],
+                ['Lifecycle protected (historical / locked)', (string) $result->protectedSkipped],
                 ['Errors', (string) $result->errors],
                 ['Elapsed', "{$elapsed} s"],
             ]);

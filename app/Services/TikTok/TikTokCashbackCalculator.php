@@ -72,6 +72,33 @@ class TikTokCashbackCalculator
     }
 
     /**
+     * Display-only ESTIMATE for orders that have not (yet) passed the SETTLED
+     * finalization belt. Always derived from `est_commission` so a pending row
+     * never assumes the final/settled amount and is never credited.
+     *
+     * @return array{cashback_rate: float, cashback_amount: float}
+     */
+    public function calculateEstimate(TikTokOrder $order): array
+    {
+        if ($order->isRefundOrCancel()) {
+            return [
+                'cashback_rate'   => self::RATE_50,
+                'cashback_amount' => 0.0,
+            ];
+        }
+
+        $estCommission = $order->getEstCommission();
+        if ($estCommission !== null && $estCommission > 0) {
+            return $this->calculateFromCommission((float) $estCommission, (float) ($order->getCommissionGmv() ?? 0));
+        }
+
+        return [
+            'cashback_rate'   => self::RATE_50,
+            'cashback_amount' => 0.0,
+        ];
+    }
+
+    /**
      * Reusable rate + amount from a raw commission and order amount. This is the
      * canonical formula used both for order credits and link estimates, so an
      * estimate of a given commission always equals the wallet credit for the

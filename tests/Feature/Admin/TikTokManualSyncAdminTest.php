@@ -129,6 +129,7 @@ class TikTokManualSyncAdminTest extends TestCase
                 'content_id'        => '7495366414587628324',
                 'status'            => 2,
                 'settlement_status' => 'SETTLED',
+                'tt_order_status'   => 103,
                 'commission_gmv'    => 100000,
                 'actual_commission' => 8848,
                 'est_commission'    => 8848,

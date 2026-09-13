@@ -78,8 +78,10 @@ class TikTokOrderSyncFlowTest extends TestCase
             'product_name'      => "Sản phẩm {$orderId}",
             'status'            => 2,
             'settlement_status' => 'SETTLED',
+            'tt_order_status'   => 103,
             'commission_gmv'    => $gmv,
             'actual_commission' => $actualCommission,
+            'est_commission'    => $actualCommission,
             'time_created'      => '2026-07-28 10:00:00',
         ];
     }
@@ -127,10 +129,18 @@ class TikTokOrderSyncFlowTest extends TestCase
         $this->assertSame(1, $first->inserted);
         $this->assertSame(0, $first->updated);
 
+        // True Lock: the first run finalized + credited the row, so the second
+        // run must not bulk-overwrite it (no duplicate, no re-credit).
         $this->assertSame(0, $second->inserted);
-        $this->assertSame(1, $second->updated);
+        $this->assertSame(0, $second->updated);
+        $this->assertSame(1, $second->protectedSkipped);
 
         $this->assertSame(1, AffiliateOrderItem::where('platform', 'TikTok')->count());
+
+        $item = AffiliateOrderItem::where('platform', 'TikTok')->first();
+        $this->assertSame(10800.0, (float) $item->cashback_amount);
+        $this->assertNotNull($item->finalized_at);
+        $this->assertSame(1, WalletTransaction::where('type', WalletTransaction::TYPE_CASHBACK)->count());
     }
 
     public function test_cashback_credited_once_for_settled_order(): void

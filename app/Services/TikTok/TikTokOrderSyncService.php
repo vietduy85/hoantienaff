@@ -84,6 +84,7 @@ class TikTokOrderSyncService
 
         $range = $this->buildRange($from, $to);
         $importBatch = Carbon::now()->format('Ymd_His');
+        $cashback = new TikTokCashbackCalculator();
 
         foreach ($orders as $order) {
             $result->ordersFetched++;
@@ -94,8 +95,22 @@ class TikTokOrderSyncService
             }
 
             try {
-                DB::transaction(function () use ($order, $normalizer, $wallet, $importBatch, $result, $creditWallet) {
+                DB::transaction(function () use ($order, $normalizer, $cashback, $wallet, $importBatch, $result, $creditWallet) {
                     $data = $normalizer->normalize($order, $importBatch);
+
+                    // Belt eligibility decides the stored state for NEW lifecycle
+                    // orders. Refunded/cancelled orders are terminal (Đã hủy, 0).
+                    // Belt-incomplete orders stay PENDING with an ESTIMATE — they
+                    // are never locked, credited or finalized.
+                    if ($order->isRefundOrCancel()) {
+                        $data['affiliate_status'] = AffiliateOrderItem::STATUS_CANCELLED;
+                        $data['cashback_amount'] = 0.0;
+                    } elseif (! $order->passesFinalizeBelt()) {
+                        $estimate = $cashback->calculateEstimate($order);
+                        $data['cashback_amount'] = $estimate['cashback_amount'];
+                        $data['cashback_rate'] = $estimate['cashback_rate'];
+                        $data['affiliate_status'] = AffiliateOrderItem::STATUS_PENDING;
+                    }
 
                     $existing = AffiliateOrderItem::query()
                         ->where('platform', 'TikTok')
@@ -103,22 +118,33 @@ class TikTokOrderSyncService
                         ->where('item_id', $data['item_id'])
                         ->first();
 
-                    if ($existing) {
-                        $oldStatus = $existing->affiliate_status;
+                    $historical = false;
 
+                    if ($existing) {
                         unset($data['first_imported_at']);
 
-                        $existing->update($data);
-                        $item = $existing->fresh();
-                        $result->updated++;
+                        // HISTORICAL PROTECTION + TRUE LOCK: rows that already
+                        // moved money (credited before the lifecycle OR finalized
+                        // by the lifecycle) are NEVER bulk-overwritten. No
+                        // downgrade, no recalculation, no snapshot backfill.
+                        $historical = $existing->hasCompletedCashbackCredit() && ! $existing->isFinalized();
+                        $lockedFinalized = $existing->isFinalized();
+
+                        if ($historical || $lockedFinalized) {
+                            $item = $existing;
+                            $result->protectedSkipped++;
+                        } else {
+                            $existing->update($data);
+                            $item = $existing->fresh();
+                            $result->updated++;
+                        }
                     } else {
-                        $oldStatus = null;
                         $item = AffiliateOrderItem::create($data);
                         $result->inserted++;
                     }
 
-                    if ($creditWallet) {
-                        $this->applyWalletTransition($wallet, $item, $oldStatus, $result);
+                    if ($creditWallet && ! $historical) {
+                        $this->applyLifecycle($wallet, $order, $item, $result);
                     }
                 });
             } catch (\Throwable $e) {
@@ -230,75 +256,157 @@ class TikTokOrderSyncService
 
     /**
      * Evaluate and execute the correct idempotent wallet action for one order
-     * item after it has been upserted.
+     * item, honouring the TikTok lifecycle rules:
      *
-     *         SETTLED (completed)  -> CREDIT cashback_amount (once)
-     *         REFUNDED (cancelled) -> REVERSAL of the originally credited
-     *                                 amount if a credit exists (once)
+     *  1. HISTORICAL ORDERS MUST NEVER BE TOUCHED — any row with a completed
+     *     cashback credit that was NOT lifecycle-finalized predates the
+     *     lifecycle. It is skipped entirely: no reversal, no recalculation, no
+     *     downgrade, no finalized snapshot.
      *
-     * Both directions are guarded by the DB unique constraint on
-     * (reference_type, reference_id, type) plus the WalletService idempotency
-     * checks, so re-syncing any number of times never double-credits or
-     * double-reverses.
+     *  2. TRUE LOCK — finalized rows are never overwritten by normal sync. Only
+     *     a genuine REFUNDED/CANCELLED event triggers the idempotent reversal
+     *     flow (the lock must never block a real reversal).
+     *
+     *  3. NEW orders finalize ONLY when the SETTLED belt passes
+     *     (status=2 + settlement_status=SETTLED + tt_order_status=103 +
+     *     actual_commission==est_commission). Credit happens first; ONLY after a
+     *     successful credit is the order marked finalized (never
+     *     "finalized but wallet not credited").
      */
-    private function applyWalletTransition(
+    private function applyLifecycle(
         WalletService $wallet,
+        TikTokOrder $order,
         AffiliateOrderItem $item,
-        ?string $oldStatus,
         TikTokSyncResult $result,
     ): void {
         if ($item->user_id === null) {
-            return;
-        }
-
-        $completed = AffiliateOrderItem::STATUS_COMPLETED;
-        $isCompleted = $item->affiliate_status === $completed;
-
-        // REFUNDED / CANCELLED -> reverse a prior credit, exactly once.
-        if (!$isCompleted && $item->affiliate_status === 'Đã hủy') {
-            if ($wallet->isCashbackCredited($item) && !$wallet->isCashbackReversed($item)) {
-                $reversal = $wallet->reverseCashback($item, throwOnDuplicate: false);
-                if ($reversal !== null) {
-                    $result->cashbackReversed++;
-                    Log::info('[TikTokOrderSync] cashback reversal', $this->auditContext($item, 'REVERSAL'));
-                }
-            }
-            return;
-        }
-
-        if (!$isCompleted) {
-            return;
-        }
-
-        if ((float) $item->cashback_amount <= 0) {
             $result->cashbackSkipped++;
             return;
         }
 
-        // Already credited -> never re-credit. Detect a commission change and
-        // BLOCK (log only) rather than silently adjusting the wallet.
+        // 1) Historical protection (money already moved BEFORE the lifecycle).
+        if ($item->hasCompletedCashbackCredit() && ! $item->isFinalized()) {
+            $result->cashbackSkipped++;
+            Log::info('[TikTokOrderSync] historical protected order skipped (money already moved)', $this->auditContext($item, 'HISTORICAL_PROTECTED'));
+            return;
+        }
+
+        // 2) TRUE LOCK: finalized rows cannot be downgraded, recalculated or
+        //    double-credited by normal sync.
+        if ($item->isFinalized()) {
+            if ($order->isRefundOrCancel()) {
+                $this->applyReversal($wallet, $item, $result);
+
+                return;
+            }
+
+            if ($this->apiDriftsFromFinalized($order, $item)) {
+                Log::warning('[TikTokOrderSync] API drift BLOCKED by lifecycle lock (no downgrade)', array_merge(
+                    $this->auditContext($item, 'DRIFT_BLOCKED'),
+                    ['api_affiliate_status' => $order->mappedAffiliateStatus()],
+                ));
+            }
+
+            $result->cashbackSkipped++;
+
+            return;
+        }
+
+        // 3) NEW lifecycle orders.
+        if ($order->isRefundOrCancel()) {
+            $result->cashbackSkipped++;
+            return;
+        }
+
+        if (! $order->passesFinalizeBelt()) {
+            $result->cashbackSkipped++;
+            return;
+        }
+
+        $amount = (float) $item->cashback_amount;
+
+        if ($amount <= 0) {
+            $result->cashbackSkipped++;
+            return;
+        }
+
+        // Inconsistent state (credited but not lifecycle-finalized): snapshot
+        // the lock, but never re-credit and never auto-adjust a shifted amount.
         if ($wallet->isCashbackCredited($item)) {
             $credited = $wallet->creditedAmount($item);
-            $result->cashbackSkipped++;
-            if ($credited !== null && (float) $credited !== (float) $item->cashback_amount) {
+            if ($credited !== null && abs($credited - $amount) > 0.005) {
                 Log::warning('[TikTokOrderSync] commission change BLOCKED (no auto-adjust)', [
                     'affiliate_order_item_id' => $item->id,
                     'order_id' => $item->order_id,
                     'credited_amount' => $credited,
-                    'new_cashback' => $item->cashback_amount,
+                    'new_cashback' => $amount,
                 ]);
+                $result->cashbackSkipped++;
+                return;
             }
+
+            $item->markFinalized(AffiliateOrderItem::FINALIZE_GATE_TIKTOK_SETTLED);
+            $result->cashbackSkipped++;
             return;
         }
 
         $transaction = $wallet->creditCashback($item, throwOnDuplicate: false);
 
-        if ($transaction !== null) {
-            $result->cashbackCredited++;
-            Log::info('[TikTokOrderSync] cashback credited', $this->auditContext($item, 'CREDIT'));
-        } else {
+        if ($transaction === null) {
             $result->cashbackSkipped++;
+            return;
         }
+
+        // Wallet order of operations: ONLY after the credit succeeds do we
+        // snapshot final_cashback_amount + finalized_at + finalize_gate.
+        $item->markFinalized(AffiliateOrderItem::FINALIZE_GATE_TIKTOK_SETTLED);
+
+        $result->cashbackCredited++;
+        Log::info('[TikTokOrderSync] cashback credited + order finalized', $this->auditContext($item, 'CREDIT'));
+    }
+
+    /**
+     * Idempotent reversal for a finalized order that the platform now reports
+     * as refunded/cancelled. Reverses exactly the amount originally credited,
+     * creates a single refund (debit) transaction, marks the row reversed and
+     * clears the display cashback — while deliberately keeping the original
+     * cashback transaction and the finalized snapshot for audit.
+     */
+    private function applyReversal(
+        WalletService $wallet,
+        AffiliateOrderItem $item,
+        TikTokSyncResult $result,
+    ): void {
+        if (! $wallet->isCashbackCredited($item)) {
+            $result->cashbackSkipped++;
+            return;
+        }
+
+        $reversal = $wallet->reverseCashback($item, throwOnDuplicate: false);
+
+        if ($reversal === null) {
+            $result->cashbackSkipped++;
+            Log::info('[TikTokOrderSync] reversal already applied (idempotent skip)', $this->auditContext($item, 'REVERSAL_SKIP'));
+            return;
+        }
+
+        $item->affiliate_status = AffiliateOrderItem::STATUS_CANCELLED;
+        $item->cashback_amount = 0.0;
+        $item->markReversed();
+
+        $result->cashbackReversed++;
+        Log::info('[TikTokOrderSync] cashback reversal applied', $this->auditContext($item, 'REVERSAL'));
+    }
+
+    /**
+     * Whether the current API state would describe the finalized row
+     * differently (status or finalization belt) — i.e. a drift that the lock
+     * must neutralize.
+     */
+    private function apiDriftsFromFinalized(TikTokOrder $order, AffiliateOrderItem $item): bool
+    {
+        return $order->mappedAffiliateStatus() !== $item->affiliate_status
+            || ! $order->passesFinalizeBelt();
     }
 
     /**
