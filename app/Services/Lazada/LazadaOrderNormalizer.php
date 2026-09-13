@@ -48,8 +48,6 @@ class LazadaOrderNormalizer
 
         $now = Carbon::now()->toDateTimeString();
 
-        $terminal = LazadaOrderStatusMapper::isTerminal($status);
-
         $sellerIdRaw = $record->getSellerId();
 
         return [
@@ -58,7 +56,11 @@ class LazadaOrderNormalizer
             'order_status'           => $status,
             'checkout_id'            => $record->getOrderId(),
             'ordered_at'             => $record->getConversionTime(),
-            'completed_at'           => $record->getFulfilledTime() ?? $record->getDeliveredTime(),
+            // The ONLY lifecycle anchor is the raw deliveredTime (Phase 3).
+            // completed_at stays NULL until affiliate:lazada-finalize mints the
+            // final cashback — a fulfilled order is NOT completed yet.
+            'completed_at'           => null,
+            'delivered_at'           => $record->getDeliveredTime(),
 
             // Shop / seller
             'shop_name'              => $record->getSellerName() !== '' ? $record->getSellerName() : '?',
@@ -106,7 +108,7 @@ class LazadaOrderNormalizer
             'first_imported_at'      => $now,
             'last_lazada_sync_at'    => $now,
             'lazada_line_key'        => $lineKey,
-            'locked_at'              => $terminal ? $now : null,
+            'lazada_raw_status'      => $record->getStatus(),
         ];
     }
 }

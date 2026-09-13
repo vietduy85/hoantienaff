@@ -14,12 +14,15 @@ use Tests\Fixture\LazadaConversionFixture;
 use Tests\TestCase;
 
 /**
- * Phase 2 REAL-persist contract: line identity, status -> wallet transitions
- * and repeat-sync idempotency for Lazada.
+ * Phase 3 REAL-persist contract: line identity, status mapping and repeat-sync
+ * safety for Lazada.
  *
  * Everything here runs with persist=true and creditWallet=true against the
- * (test) DB, proving the same conversion feed can be re-synced any number of
- * times without double-crediting or double-reversing cashback.
+ * (test) DB. Since Phase 3 the sync layer NEVER credits — fulfilled/delivered
+ * rows are stored as pending (Đang xử lý) estimates and the final wallet
+ * decision belongs to affiliate:lazada-finalize (covered by
+ * tests/Feature/LazadaFinalizationTest). Re-syncing the same feed any number
+ * of times therefore never moves money.
  */
 class LazadaPhase2PersistTest extends TestCase
 {
@@ -108,13 +111,13 @@ class LazadaPhase2PersistTest extends TestCase
     }
 
     // ------------------------------------------------------------------
-    //  Status -> wallet transitions
+    //  Status -> row mapping (wallet decisions live in the finalizer)
     // ------------------------------------------------------------------
 
     public function test_pending_saved_but_no_wallet_credit(): void
     {
         $this->createMember();
-        $status = 'confirmed'; // not fulfilled/delivered/returned -> Đang xử lý
+        $status = 'confirmed'; // unknown -> Đang xử lý
         $this->fakeConversionStatus($status);
 
         $result = $this->makeService()->run(persist: true, creditWallet: true);
@@ -125,11 +128,12 @@ class LazadaPhase2PersistTest extends TestCase
 
         $row = AffiliateOrderItem::where('platform', 'Lazada')->first();
         $this->assertSame('Đang xử lý', $row->affiliate_status);
+        $this->assertSame('confirmed', $row->lazada_raw_status);
         $this->assertSame(6000.0, (float) $row->cashback_amount, 'pending shows estimate 12000@50% = 6000, wallet untouched');
         $this->assertSame(0.50, (float) $row->cashback_rate);
     }
 
-    public function test_fulfilled_credits_wallet_once(): void
+    public function test_fulfilled_is_pending_estimate_never_credited_by_sync(): void
     {
         $member = $this->createMember();
         $status = 'fulfilled';
@@ -137,17 +141,20 @@ class LazadaPhase2PersistTest extends TestCase
 
         $result = $this->makeService()->run(persist: true, creditWallet: true);
 
-        $this->assertSame(1, $result->cashbackCredited);
-        $this->assertSame(0, $result->cashbackSkipped);
-        $this->assertSame(1, $this->credits());
+        $this->assertSame(0, $result->cashbackCredited, 'sync must NEVER credit — finalizer owns that');
+        $this->assertSame(1, $result->cashbackSkipped);
+        $this->assertSame(0, $this->credits());
+        $this->assertSame(0, $this->walletTxCount());
 
-        // estPayout 12000, orderAmt 200000 -> ratio 0.06 -> 50% tier -> floor()
-        $credit = WalletTransaction::where('type', WalletTransaction::TYPE_CASHBACK)->first();
-        $this->assertSame(6000.0, (float) $credit->amount);
-        $this->assertSame(6000.0, (float) $member->fresh()->wallet_balance);
+        $row = AffiliateOrderItem::where('platform', 'Lazada')->first();
+        $this->assertSame('Đang xử lý', $row->affiliate_status);
+        $this->assertSame('fulfilled', $row->lazada_raw_status);
+        $this->assertSame('2026-08-04 09:00:00', $row->delivered_at->format('Y-m-d H:i:s'));
+        $this->assertSame(6000.0, (float) $row->cashback_amount);
+        $this->assertSame(0.0, (float) $member->fresh()->wallet_balance);
     }
 
-    public function test_repeat_fulfilled_sync_never_double_credits(): void
+    public function test_repeat_fulfilled_sync_never_credits(): void
     {
         $member = $this->createMember();
         $status = 'fulfilled';
@@ -158,20 +165,20 @@ class LazadaPhase2PersistTest extends TestCase
         $second = $service->run(persist: true, creditWallet: true);
 
         $this->assertSame(1, $first->inserted);
-        $this->assertSame(1, $first->cashbackCredited);
+        $this->assertSame(0, $first->cashbackCredited);
 
         $this->assertSame(0, $second->inserted);
         $this->assertSame(1, $second->updated);
         $this->assertSame(0, $second->cashbackCredited);
         $this->assertSame(1, $second->cashbackSkipped);
 
-        $this->assertSame(1, $this->credits());
-        $this->assertSame(1, $this->walletTxCount());
-        $this->assertSame(6000.0, (float) $member->fresh()->wallet_balance);
+        $this->assertSame(0, $this->credits());
+        $this->assertSame(0, $this->walletTxCount());
+        $this->assertSame(0.0, (float) $member->fresh()->wallet_balance);
         $this->assertSame(1, AffiliateOrderItem::where('platform', 'Lazada')->count());
     }
 
-    public function test_pending_to_fulfilled_transition_credits_once(): void
+    public function test_pending_to_fulfilled_transition_stays_pending(): void
     {
         $member = $this->createMember();
         $service = $this->makeService();
@@ -187,17 +194,21 @@ class LazadaPhase2PersistTest extends TestCase
 
         $this->assertSame(0, $result->inserted);
         $this->assertSame(1, $result->updated);
-        $this->assertSame(1, $result->cashbackCredited);
-        $this->assertSame(1, $this->credits());
-        $this->assertSame(1, $this->walletTxCount());
+        $this->assertSame(0, $result->cashbackCredited, 'still pending until finalizer');
+        $this->assertSame(0, $this->credits());
+        $this->assertSame(0, $this->walletTxCount());
+
+        $row = AffiliateOrderItem::where('platform', 'Lazada')->first();
+        $this->assertSame('Đang xử lý', $row->affiliate_status);
+        $this->assertNull($row->finalized_at);
     }
 
-    public function test_pending_to_fulfilled_credit_uses_latest_payout_not_estimate(): void
+    public function test_payout_change_refreshes_estimate_never_credits(): void
     {
         $member = $this->createMember();
         $service = $this->makeService();
 
-        $status = 'confirmed';
+        $status = 'fulfilled';
         $payout = '12000.00';
         Http::fake([
             'https://api.lazada.vn/*' => function (HttpRequest $request) use (&$status, &$payout, $member) {
@@ -224,16 +235,15 @@ class LazadaPhase2PersistTest extends TestCase
         $this->assertSame(6000.0, (float) $pendingRow->cashback_amount, 'pending estimate 12000@50%');
         $this->assertSame(0, $this->walletTxCount());
 
-        // Payout changes on settle -> wallet credits the REAL value only.
-        $status = 'fulfilled';
+        // Payout changes -> the ESTIMATE follows; money still never moves.
         $payout = '14000.00';
         $result = $service->run(persist: true, creditWallet: true);
 
         $this->assertSame(1, $result->updated);
-        $this->assertSame(1, $result->cashbackCredited);
-        $this->assertSame(7000.0, (float) WalletTransaction::where('type', WalletTransaction::TYPE_CASHBACK)->first()->amount);
-        $this->assertSame(1, $this->walletTxCount());
-        $this->assertSame(7000.0, (float) $member->fresh()->wallet_balance);
+        $this->assertSame(0, $result->cashbackCredited);
+        $this->assertSame(7000.0, (float) AffiliateOrderItem::where('platform', 'Lazada')->first()->cashback_amount);
+        $this->assertSame(0, $this->walletTxCount());
+        $this->assertSame(0.0, (float) $member->fresh()->wallet_balance);
     }
 
     public function test_pending_to_returned_never_credits_nor_reverses(): void
@@ -255,7 +265,7 @@ class LazadaPhase2PersistTest extends TestCase
         $this->assertSame('Đã hủy', AffiliateOrderItem::where('platform', 'Lazada')->first()->affiliate_status);
     }
 
-    public function test_fulfilled_to_returned_reverses_once(): void
+    public function test_fulfilled_then_returned_before_finalize_reverses_nothing(): void
     {
         $member = $this->createMember();
         $service = $this->makeService();
@@ -263,36 +273,33 @@ class LazadaPhase2PersistTest extends TestCase
         $status = 'fulfilled';
         $this->fakeConversionStatus($status, $member->id);
         $service->run(persist: true, creditWallet: true);
-        $this->assertSame(1, $this->credits());
+        $this->assertSame(0, $this->credits(), 'nothing credited before finalization');
 
         $status = 'returned';
-        $this->fakeConversionStatus($status);
+        $this->fakeConversionStatus($status, $member->id);
         $result = $service->run(persist: true, creditWallet: true);
 
-        $this->assertSame(1, $result->cashbackReversed);
-        $this->assertSame(1, $this->reversals());
-        $this->assertSame(2, $this->walletTxCount());
+        $this->assertSame(0, $result->cashbackReversed, 'nothing to reverse — never credited');
+        $this->assertSame(0, $this->reversals());
+        $this->assertSame(0, $this->walletTxCount());
         $this->assertSame(0.0, (float) $member->fresh()->wallet_balance);
+        $this->assertSame('Đã hủy', AffiliateOrderItem::where('platform', 'Lazada')->first()->affiliate_status);
     }
 
-    public function test_repeat_returned_does_not_double_reverse(): void
+    public function test_repeat_returned_does_not_create_refund(): void
     {
         $member = $this->createMember();
         $service = $this->makeService();
 
-        $status = 'fulfilled';
-        $this->fakeConversionStatus($status, $member->id);
-        $service->run(persist: true, creditWallet: true); // credit
-
         $status = 'returned';
-        $this->fakeConversionStatus($status);
-        $service->run(persist: true, creditWallet: true); // reverse once
+        $this->fakeConversionStatus($status, $member->id);
+        $service->run(persist: true, creditWallet: true); // stored cancelled, 0 cashback
 
-        $third = $service->run(persist: true, creditWallet: true); // must not reverse again
+        $third = $service->run(persist: true, creditWallet: true);
 
         $this->assertSame(0, $third->cashbackReversed);
-        $this->assertSame(1, $this->reversals());
-        $this->assertSame(2, $this->walletTxCount());
+        $this->assertSame(0, $this->reversals());
+        $this->assertSame(0, $this->walletTxCount());
         $this->assertSame(0.0, (float) $member->fresh()->wallet_balance);
     }
 
@@ -322,7 +329,9 @@ class LazadaPhase2PersistTest extends TestCase
         $row = AffiliateOrderItem::where('platform', 'Lazada')->first();
 
         $this->assertSame('839912345678901:839912345678902:6021831634002', $row->lazada_line_key);
-        $this->assertSame('Hoàn thành', $row->affiliate_status);
+        $this->assertSame('fulfilled', $row->lazada_raw_status);
+        $this->assertSame('Đang xử lý', $row->affiliate_status);
+        $this->assertSame('Đang xử lý', $row->order_status);
         $this->assertSame('Son Kem Brand X 01', $row->item_name);
         $this->assertSame('Seller X', $row->shop_name);
         $this->assertSame(12000.0, (float) $row->net_commission);
@@ -334,5 +343,9 @@ class LazadaPhase2PersistTest extends TestCase
         $this->assertSame('alice123', $row->sub_id2);
         $this->assertSame($member->id, $row->user_id);
         $this->assertNotNull($row->last_lazada_sync_at);
+        $this->assertSame('2026-08-04 09:00:00', $row->delivered_at->format('Y-m-d H:i:s'));
+        $this->assertNull($row->completed_at);
+        $this->assertNull($row->locked_at);
+        $this->assertNull($row->finalized_at);
     }
 }

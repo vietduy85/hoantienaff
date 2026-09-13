@@ -15,29 +15,33 @@ class LazadaOrderStatusMapperTest extends TestCase
         $this->mapper = new LazadaOrderStatusMapper();
     }
 
-    public function test_fulfilled_maps_to_completed(): void
+    public function test_fulfilled_maps_to_pending(): void
     {
         $mapped = $this->mapper->map('fulfilled');
 
-        $this->assertSame('Hoàn thành', $mapped['status']);
+        $this->assertSame('Đang xử lý', $mapped['status']);
         $this->assertFalse($mapped['unknown']);
     }
 
-    public function test_delivered_maps_to_completed(): void
+    public function test_delivered_maps_to_pending(): void
     {
         $mapped = $this->mapper->map('delivered');
 
-        $this->assertSame('Hoàn thành', $mapped['status']);
+        $this->assertSame('Đang xử lý', $mapped['status']);
         $this->assertFalse($mapped['unknown']);
     }
 
-    public function test_returned_maps_to_cancelled(): void
+    public function test_returned_maps_to_cancelled_and_unknown_forms_are_pending(): void
     {
-        $mapped = $this->mapper->map('returned');
+        foreach (['returned', 'rejected', 'cancelled'] as $raw) {
+            $mapped = $this->mapper->map($raw);
 
-        $this->assertSame('Đã hủy', $mapped['status']);
-        $this->assertFalse($mapped['unknown']);
+            $this->assertSame('Đã hủy', $mapped['status']);
+            $this->assertFalse($mapped['unknown']);
+        }
+
         $this->assertTrue(LazadaOrderStatusMapper::isTerminal('Đã hủy'));
+        $this->assertFalse(LazadaOrderStatusMapper::isTerminal('Đang xử lý'));
     }
 
     public function test_unknown_status_stays_pending_and_is_tallied(): void
@@ -59,7 +63,7 @@ class LazadaOrderStatusMapperTest extends TestCase
 
     public function test_mapping_is_case_and_whitespace_insensitive(): void
     {
-        $this->assertSame('Hoàn thành', $this->mapper->map(' Fulfilled ' )['status']);
+        $this->assertSame('Đang xử lý', $this->mapper->map(' Fulfilled ' )['status']);
         $this->assertSame('Đã hủy', $this->mapper->map('RETURNED')['status']);
     }
 }

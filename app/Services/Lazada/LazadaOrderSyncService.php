@@ -24,17 +24,30 @@ use Illuminate\Support\Facades\Schema;
  * uses the same 50/60/70 tier rule as ShopeeFood/TikTok.
  *
  * persist=false only reports what WOULD happen (dry-run); persist=true upserts
- * rows inside a transaction and applies idempotent wallet transitions (no
- * double-credit on re-sync).
+ * rows inside a transaction and applies the lifecycle — since Phase 3 the sync
+ * NEVER credits (finalization is owned by the affiliate:lazada-finalize
+ * command); the only wallet action here is an idempotent REVERSAL for a
+ * finalized order the platform now reports as returned/rejected/cancelled.
  *
  * Line identity is CLOSED: the business key == (orderId, subOrderId, sku) only.
  * A record missing/empty any of the three is marked INVALID — never guessed —
  * counted as an error, and never persisted.
  *
- * Status mapping is conservative: only fulfilled/delivered (→ Hoàn thành) and
- * returned (→ Đã hủy) from the documentation are mapped; anything else is
- * treated as Đang xử lý (never credited) and tallied as an UNKNOWN status in
- * the result so the mapping can be finalized once real data flows.
+ * Status mapping (Phase 3): fulfilled/delivered are PENDING (Đang xử lý) with
+ * a cashback ESTIMATE — they stay that way until the finalizer command
+ * (affiliate:lazada-finalize) credits the wallet once delivered_at is 10 days
+ * old. returned/rejected/cancelled map to Đã hủy (0 cashback, never credited).
+ * Anything else is treated as Đang xử lý (never credited) and tallied as an
+ * UNKNOWN status in the result so the mapping can be finalized once real data
+ * flows.
+ *
+ * Sync NEVER credits: the 10-day finalization is owned exclusively by the
+ * finalizer, so callers can re-sync the same window any number of times
+ * without moving money. The sync DOES handle one wallet action: idempotent
+ * REVERSAL of a genuinely refunded/rejected/cancelled FINALIZED order (see
+ * applyLifecycle), which is time-sensitive and belongs to raw API truth.
+ * Historical rows (credited before the lifecycle) are never touched, and
+ * FINALIZED rows are never bulk-overwritten by sync.
  */
 class LazadaOrderSyncService
 {
@@ -265,7 +278,7 @@ class LazadaOrderSyncService
         if ($mapped['unknown']) {
             $result->unknownStatuses++;
             $result->errorsDetail[] = sprintf(
-                'Order %s: status "%s" ngoài mapping tài liệu (fulfilled/delivered/returned) — xử lý như %s, không credit. Cần chốt mapping khi có dữ liệu thật.',
+                'Order %s: status "%s" ngoài mapping tài liệu (fulfilled/delivered/returned/rejected/cancelled) — xử lý như %s, không credit, không finalize. Cần chốt mapping khi có dữ liệu thật.',
                 $record->getOrderId(),
                 $record->getStatus(),
                 LazadaOrderStatusMapper::STATUS_PENDING,
@@ -435,21 +448,36 @@ class LazadaOrderSyncService
                     ->where('lazada_line_key', $line['line_key'])
                     ->first();
 
-                $oldStatus = $existing?->affiliate_status;
+                $historical = false;
 
                 if ($existing !== null) {
                     unset($row['first_imported_at']);
                     unset($row['created_at']);
-                    $existing->update($row);
-                    $item = $existing->fresh();
-                    $result->updated++;
+
+                    // HISTORICAL PROTECTION + TRUE LOCK: rows that already moved
+                    // money (credited before the lifecycle OR finalized by the
+                    // lifecycle) are NEVER bulk-overwritten by sync. No downgrade,
+                    // no recalculation, no snapshot backfill, no status flip.
+                    $historical = $existing->hasCompletedCashbackCredit() && ! $existing->isFinalized();
+                    $lockedFinalized = $existing->isFinalized();
+
+                    if ($historical || $lockedFinalized) {
+                        $item = $existing;
+                        $result->protectedSkipped++;
+                    } else {
+                        $existing->update($row);
+                        $item = $existing->fresh();
+                        $result->updated++;
+                    }
                 } else {
                     $item = AffiliateOrderItem::create($row);
                     $result->inserted++;
                 }
 
-                if ($creditWallet) {
-                    $this->applyWalletTransition($wallet, $item, $oldStatus, $result);
+                // Historical rows are skipped entirely — the lifecycle must
+                // never flip-flop them (money already moved).
+                if ($creditWallet && ! $historical) {
+                    $this->applyLifecycle($wallet, $line, $item, $result);
                 }
             });
         } catch (\Throwable $e) {
@@ -463,48 +491,119 @@ class LazadaOrderSyncService
         }
     }
 
-    private function applyWalletTransition(WalletService $wallet, AffiliateOrderItem $item, ?string $oldStatus, LazadaSyncResult $result): void
+    /**
+     * Lifecycle decision for one Lazada order item (persist=true only).
+     *
+     * Since Phase 3 the sync NEVER credits: 10-day finalization belongs to the
+     * affiliate:lazada-finalize command. The one wallet action here is an
+     * idempotent REVERSAL when the platform reports a FINALIZED order as
+     * returned/rejected/cancelled ($line['status'] === Đã hủy). Everything else
+     * is counted as skipped so money never moves through plain sync.
+     */
+    private function applyLifecycle(WalletService $wallet, array $line, AffiliateOrderItem $item, LazadaSyncResult $result): void
     {
         if ($item->user_id === null) {
-            return;
-        }
-
-        if ($item->affiliate_status === LazadaOrderStatusMapper::STATUS_CANCELLED) {
-            if ($wallet->isCashbackCredited($item) && ! $wallet->isCashbackReversed($item)) {
-                $reversal = $wallet->reverseCashback($item, throwOnDuplicate: false);
-                if ($reversal !== null) {
-                    $result->cashbackReversed++;
-                }
-            }
-
-            return;
-        }
-
-        if ($item->affiliate_status !== LazadaOrderStatusMapper::STATUS_COMPLETED) {
-            return;
-        }
-
-        if ((float) $item->cashback_amount <= 0) {
-            return;
-        }
-
-        if ($wallet->isCashbackCredited($item)) {
-            $credited = $wallet->creditedAmount($item);
             $result->cashbackSkipped++;
-            if ($credited !== null && (float) $credited !== (float) $item->cashback_amount) {
-                Log::warning('[LazadaOrderSync] commission change BLOCKED (no auto-adjust)', [
-                    'line_key'   => $item->lazada_line_key,
-                    'credited'   => (float) $credited,
-                    'new_amount' => (float) $item->cashback_amount,
-                ]);
-            }
-
             return;
         }
 
-        $transaction = $wallet->creditCashback($item, throwOnDuplicate: false);
-        if ($transaction !== null) {
-            $result->cashbackCredited++;
+        $isCancelled = $line['status'] === LazadaOrderStatusMapper::STATUS_CANCELLED;
+
+        // 1) Historical protection (money already moved BEFORE the lifecycle).
+        if ($item->hasCompletedCashbackCredit() && ! $item->isFinalized()) {
+            $result->cashbackSkipped++;
+            Log::info('[LazadaOrderSync] historical protected order skipped (money already moved)', $this->auditContext($wallet, $item, 'HISTORICAL_PROTECTED'));
+            return;
         }
+
+        // 2) TRUE LOCK: finalized rows cannot be downgraded, recalculated or
+        //    double-credited by normal sync — but a genuine platform
+        //    returned/rejected/cancelled signal IS reversed (exactly once).
+        if ($item->isFinalized()) {
+            if ($isCancelled) {
+                $this->applyReversal($wallet, $item, $result);
+                return;
+            }
+
+            if ($this->apiDriftsFromFinalized($line, $item)) {
+                Log::warning('[LazadaOrderSync] API drift BLOCKED by lifecycle lock (no downgrade)', array_merge(
+                    $this->auditContext($wallet, $item, 'DRIFT_BLOCKED'),
+                    ['api_raw_status' => $line['raw_status'], 'stored_raw_status' => $item->lazada_raw_status],
+                ));
+            }
+
+            $result->cashbackSkipped++;
+            return;
+        }
+
+        // 3) NEW lifecycle rows: refund/cancel is already stored as Đã hủy / 0
+        //    (never credited), delivered/fulfilled stay pending with their
+        //    estimate — the finalizer makes the credit decision.
+        $result->cashbackSkipped++;
+    }
+
+    /**
+     * Idempotent reversal for a finalized order that the platform now reports
+     * as returned/rejected/cancelled. Reverses exactly the amount originally
+     * credited, creates a single refund (debit) transaction, marks the row
+     * reversed and clears the display cashback — while deliberately keeping
+     * the original cashback transaction and the finalized snapshot for audit.
+     */
+    private function applyReversal(WalletService $wallet, AffiliateOrderItem $item, LazadaSyncResult $result): void
+    {
+        if (! $wallet->isCashbackCredited($item)) {
+            $result->cashbackSkipped++;
+            return;
+        }
+
+        $reversal = $wallet->reverseCashback($item, throwOnDuplicate: false);
+
+        if ($reversal === null) {
+            $result->cashbackSkipped++;
+            Log::info('[LazadaOrderSync] reversal already applied (idempotent skip)', $this->auditContext($wallet, $item, 'REVERSAL_SKIP'));
+            return;
+        }
+
+        $item->affiliate_status = AffiliateOrderItem::STATUS_CANCELLED;
+        $item->cashback_amount = 0.0;
+        $item->markReversed();
+
+        $result->cashbackReversed++;
+        Log::info('[LazadaOrderSync] cashback reversal applied', $this->auditContext($wallet, $item, 'REVERSAL'));
+    }
+
+    /**
+     * True when the API now reports a raw status that contradicts the locked
+     * raw status (e.g. delivered → fulfilled drift after finalization). Used
+     * for audit only — the lock always wins, nothing is written.
+     *
+     * @param  array<string, mixed>  $line
+     */
+    private function apiDriftsFromFinalized(array $line, AffiliateOrderItem $item): bool
+    {
+        return $line['raw_status'] !== $item->lazada_raw_status;
+    }
+
+    /**
+     * Structured context for lifecycle audit logs.
+     *
+     * @return array<string, mixed>
+     */
+    private function auditContext(WalletService $wallet, AffiliateOrderItem $item, string $action): array
+    {
+        return [
+            'action'                    => $action,
+            'platform'                  => $item->platform,
+            'affiliate_order_item_id'   => $item->id,
+            'lazada_line_key'           => $item->lazada_line_key,
+            'order_id'                  => $item->order_id,
+            'user_id'                   => $item->user_id,
+            'affiliate_status'          => $item->affiliate_status,
+            'cashback_amount'           => $item->cashback_amount,
+            'cashback_credited'         => $wallet->isCashbackCredited($item),
+            'finalized_at'              => $item->finalized_at?->toDateTimeString(),
+            'final_cashback_amount'     => $item->final_cashback_amount,
+            'reversed_at'               => $item->reversed_at?->toDateTimeString(),
+        ];
     }
 }

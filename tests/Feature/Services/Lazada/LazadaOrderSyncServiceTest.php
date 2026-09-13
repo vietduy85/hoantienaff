@@ -122,9 +122,11 @@ class LazadaOrderSyncServiceTest extends TestCase
         $result = $this->makeService()->run('2026-08-01', '2026-08-31');
 
         $this->assertSame(4, $result->recordsFetched);
-        $this->assertSame(2, $result->completed);
+        // Phase 3: fulfilled/delivered are PENDING (finalization owns completion),
+        // so the sync itself reports zero completed rows.
+        $this->assertSame(0, $result->completed);
         $this->assertSame(1, $result->cancelled);
-        $this->assertSame(1, $result->pending);
+        $this->assertSame(3, $result->pending);
         $this->assertSame(1, $result->unknownStatuses, 'confirmed is not in the documented mapping');
         $this->assertSame(4, $result->wouldInsert);
         $this->assertSame(0, $result->inserted);
