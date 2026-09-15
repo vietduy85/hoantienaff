@@ -5,14 +5,19 @@ namespace App\Http\Controllers;
 use App\Models\LinkRequest;
 use App\Models\Setting;
 use App\Services\AffiliateLinkService;
+use App\Services\ShopeeFood\ShopeeFoodAffiliateLinkService;
+use App\Services\ShopeeFood\ShopeeFoodPreviewService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
 
 class DashboardController extends Controller
 {
     public function __construct(
         private readonly AffiliateLinkService $affiliateLinkService,
+        private readonly ShopeeFoodPreviewService $shopeeFoodPreview,
+        private readonly ShopeeFoodAffiliateLinkService $shopeeFoodAffiliateLink,
     ) {}
 
     public function index(): View
@@ -39,8 +44,8 @@ class DashboardController extends Controller
             'original_url' => ['required', 'url', 'max:2048'],
         ]);
 
-        if (str_contains(strtolower($validated['original_url']), 'shopeefood.vn')) {
-            return $this->storeViaExtensionWorker($request, $validated['original_url']);
+        if ($this->isShopeeFoodUrl($validated['original_url'])) {
+            return $this->storeViaShopeeFoodDeepLink($request, $validated['original_url']);
         }
 
         $strategy = Setting::get('affiliate.dashboard.strategy', 'direct');
@@ -84,31 +89,63 @@ class DashboardController extends Controller
         return redirect()->route('dashboard');
     }
 
-    private function storeViaExtensionWorker(Request $request, string $originalUrl): \Illuminate\Http\JsonResponse|RedirectResponse
+    private function storeViaShopeeFoodDeepLink(Request $request, string $originalUrl): \Illuminate\Http\JsonResponse|RedirectResponse
     {
         $user = auth()->user();
-        $platform = $this->detectPlatform($originalUrl);
 
         $link = LinkRequest::create([
             'user_id'      => $user->id,
             'original_url' => $originalUrl,
-            'platform'     => $platform,
+            'platform'     => 'ShopeeFood',
             'status'       => 'processing',
         ]);
 
-        $this->affiliateLinkService->handleViaExtension($link);
+        $this->shopeeFoodPreview->preview($link, $originalUrl);
+
+        $affiliateUrl = $this->shopeeFoodAffiliateLink->generateAffiliateUrl(
+            $originalUrl,
+            $user->affiliateSubId(),
+        );
+
+        if ($affiliateUrl === null) {
+            Log::warning('[ShopeeFood] Deep link generation failed', [
+                'link_request_id' => $link->id,
+                'original_url'    => $originalUrl,
+            ]);
+
+            $link->update([
+                'status' => 'failed',
+                'notes'  => 'Không thể tạo affiliate link ShopeeFood.',
+            ]);
+        } else {
+            $link->update([
+                'affiliate_url' => $affiliateUrl,
+                'status'        => 'completed',
+            ]);
+        }
 
         if ($request->expectsJson() || $request->ajax()) {
             return response()->json([
-                'success'    => true,
-                'request_id' => $link->id,
-                'platform'   => $platform,
-                'status'     => $link->status,
+                'success'       => true,
+                'request_id'    => $link->id,
+                'platform'      => $link->platform,
+                'status'        => $link->status,
+                'affiliate_url' => $link->affiliate_url,
             ]);
         }
 
         return redirect()->route('dashboard')
-            ->with('success', 'Đã nhận link. Đang tạo affiliate link...');
+            ->with('success', 'Đã tạo affiliate link ShopeeFood.');
+    }
+
+    private function isShopeeFoodUrl(string $url): bool
+    {
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+
+        return str_ends_with($host, 'shopeefood.vn')
+            || str_ends_with($host, 'shopeefood.shopee.vn')
+            || $host === 'spf.shopee.vn'
+            || str_ends_with($host, '.spf.shopee.vn');
     }
 
     private function detectPlatform(string $url): string

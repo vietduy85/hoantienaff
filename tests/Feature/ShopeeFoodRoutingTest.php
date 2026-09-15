@@ -9,6 +9,7 @@ use App\Services\AffiliateCacheService;
 use App\Services\ProductDataService;
 use App\Services\UrlResolverService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -35,6 +36,10 @@ class ShopeeFoodRoutingTest extends TestCase
         Setting::set('affiliate.admin.strategy', 'extension');
         Setting::set('affiliate.direct.shopee_affiliate_id', '12345');
         Setting::set('affiliate.direct.resolve_shortlink', 'false');
+
+        Http::fake([
+            'data.addlivetag.com/*' => Http::response(['status' => 'ok', 'data' => []], 200),
+        ]);
     }
 
     private function mockDirectLinkDependencies(): void
@@ -50,6 +55,16 @@ class ShopeeFoodRoutingTest extends TestCase
         $productData = $this->createMock(ProductDataService::class);
         $productData->method('getByUrl')->willReturn(['success' => false]);
         $this->app->instance(ProductDataService::class, $productData);
+    }
+
+    private function expectedShopeeFoodDeepLink(int $restaurantId, string $username): string
+    {
+        return 'https://shopeefood.shopee.vn/now-food/shop/' . $restaurantId
+            . '?shareChannel=copy_link'
+            . '&utm_source=an_12345'
+            . '&utm_medium=affiliate_food'
+            . '&utm_campaign=-'
+            . '&utm_content=' . rawurlencode($username);
     }
 
     // ─── 1. shopee.vn → Direct Link ─────────────────────────────
@@ -72,64 +87,61 @@ class ShopeeFoodRoutingTest extends TestCase
         $this->assertStringContainsString('sub_id=test_user', $link->affiliate_url);
     }
 
-    // ─── 2. shopeefood.shopee.vn → Direct Link ──────────────────
+    // ─── 2. shopeefood.shopee.vn → ShopeeFood Deep Link ──────────
 
-    public function test_shopeefood_shopee_vn_uses_direct_link_flow(): void
+    public function test_shopeefood_shopee_vn_uses_deep_link_flow(): void
     {
-        $this->mockDirectLinkDependencies();
-
         $response = $this->actingAs($this->user)
             ->postJson('/link-requests', [
-                'original_url' => 'https://shopeefood.shopee.vn/merchant/123',
+                'original_url' => 'https://shopeefood.shopee.vn/now-food/shop/757850',
             ]);
 
         $response->assertOk();
 
         $link = LinkRequest::latest()->first();
-        $this->assertEquals('Shopee', $link->platform);
-        $this->assertEquals('processing', $link->status);
-        $this->assertStringStartsWith('https://s.shopee.vn/an_redir?', $link->affiliate_url);
-        $this->assertStringContainsString('sub_id=test_user', $link->affiliate_url);
+        $this->assertEquals('ShopeeFood', $link->platform);
+        $this->assertEquals('completed', $link->status);
+        $this->assertSame($this->expectedShopeeFoodDeepLink(757850, 'test_user'), $link->affiliate_url);
     }
 
-    // ─── 3. shopeefood.vn → Extension Worker (pending) ───────────
+    // ─── 3. shopeefood.vn → ShopeeFood Deep Link ─────────────────
 
-    public function test_shopeefood_vn_uses_extension_worker_flow(): void
+    public function test_shopeefood_vn_uses_deep_link_flow(): void
     {
         $response = $this->actingAs($this->user)
             ->postJson('/link-requests', [
-                'original_url' => 'https://shopeefood.vn/delivery/abc-123',
+                'original_url' => 'https://shopeefood.vn/now-food/shop/757850',
             ]);
 
         $response->assertOk();
         $response->assertJson(['success' => true]);
 
         $link = LinkRequest::latest()->first();
-        $this->assertEquals('Shopee', $link->platform);
-        $this->assertEquals('pending', $link->status);
-        $this->assertNull($link->affiliate_url);
+        $this->assertEquals('ShopeeFood', $link->platform);
+        $this->assertEquals('completed', $link->status);
+        $this->assertSame($this->expectedShopeeFoodDeepLink(757850, 'test_user'), $link->affiliate_url);
     }
 
-    // ─── 4. www.shopeefood.vn → Extension Worker (pending) ───────
+    // ─── 4. www.shopeefood.vn → ShopeeFood Deep Link ─────────────
 
-    public function test_www_shopeefood_vn_uses_extension_worker_flow(): void
+    public function test_www_shopeefood_vn_uses_deep_link_flow(): void
     {
         $response = $this->actingAs($this->user)
             ->postJson('/link-requests', [
-                'original_url' => 'https://www.shopeefood.vn/delivery/xyz-789',
+                'original_url' => 'https://www.shopeefood.vn/now-food/shop/1284425',
             ]);
 
         $response->assertOk();
 
         $link = LinkRequest::latest()->first();
-        $this->assertEquals('pending', $link->status);
-        $this->assertNull($link->affiliate_url);
+        $this->assertEquals('completed', $link->status);
+        $this->assertSame($this->expectedShopeeFoodDeepLink(1284425, 'test_user'), $link->affiliate_url);
     }
 
-    // ─── 4b. Invariant: shopeefood.vn still Extension Worker even when
-    //          affiliate.admin.strategy = direct ──────────────────
+    // ─── 4b. Invariant: shopeefood.vn Deep Link unaffected by
+    //          affiliate.admin.strategy = direct ─────────────────
 
-    public function test_shopeefood_vn_extension_not_affected_by_admin_direct_setting(): void
+    public function test_shopeefood_vn_deep_link_not_affected_by_admin_direct_setting(): void
     {
         Setting::set('affiliate.admin.strategy', 'direct');
 
@@ -137,56 +149,52 @@ class ShopeeFoodRoutingTest extends TestCase
 
         $response = $this->actingAs($this->user)
             ->postJson('/link-requests', [
-                'original_url' => 'https://shopeefood.vn/delivery/abc-123',
+                'original_url' => 'https://shopeefood.vn/now-food/shop/757850',
             ]);
 
         $response->assertOk();
 
         $link = LinkRequest::latest()->first();
-        $this->assertEquals('pending', $link->status);
-        $this->assertNull($link->affiliate_url);
+        $this->assertEquals('completed', $link->status);
+        $this->assertSame($this->expectedShopeeFoodDeepLink(757850, 'test_user'), $link->affiliate_url);
     }
 
-    // ─── 4c. Invariant: shopeefood.vn still Extension Worker even when
-    //          affiliate.dashboard.strategy = direct ──────────────
+    // ─── 4c. Invariant: shopeefood.vn Deep Link unaffected by
+    //          affiliate.dashboard.strategy = extension ──────────
 
-    public function test_shopeefood_vn_extension_not_affected_by_dashboard_direct_setting(): void
+    public function test_shopeefood_vn_deep_link_not_affected_by_dashboard_extension_setting(): void
     {
-        Setting::set('affiliate.dashboard.strategy', 'direct');
+        Setting::set('affiliate.dashboard.strategy', 'extension');
 
         $this->mockDirectLinkDependencies();
 
         $response = $this->actingAs($this->user)
             ->postJson('/link-requests', [
-                'original_url' => 'https://shopeefood.vn/delivery/abc-123',
+                'original_url' => 'https://shopeefood.vn/now-food/shop/757850',
             ]);
 
         $response->assertOk();
 
         $link = LinkRequest::latest()->first();
-        $this->assertEquals('pending', $link->status);
-        $this->assertNull($link->affiliate_url);
+        $this->assertEquals('completed', $link->status);
+        $this->assertSame($this->expectedShopeeFoodDeepLink(757850, 'test_user'), $link->affiliate_url);
     }
 
-    // ─── 5. Worker receives the authenticated user's username ────
+    // ─── 5. Deep link carries the authenticated user's username ──
 
-    public function test_extension_worker_picks_up_with_user_username(): void
+    public function test_deep_link_uses_user_username_as_utm_content(): void
     {
         $this->actingAs($this->user)
             ->postJson('/link-requests', [
-                'original_url' => 'https://shopeefood.vn/delivery/abc-123',
+                'original_url' => 'https://shopeefood.vn/now-food/shop/757850',
             ]);
 
-        $response = $this->getJson('/api/extension/jobs?token=' . $this->extensionToken);
-        $response->assertOk();
-
-        $jobs = $response->json('jobs');
-        $this->assertCount(1, $jobs);
-        $this->assertEquals('test_user', $jobs[0]['username']);
-        $this->assertStringContainsString('shopeefood.vn', $jobs[0]['original_url']);
-
         $link = LinkRequest::latest()->first();
-        $this->assertEquals('processing', $link->status);
+        $this->assertEquals('completed', $link->status);
+        $this->assertStringContainsString('utm_content=test_user', $link->affiliate_url);
+
+        $pendingCount = LinkRequest::where('status', 'pending')->count();
+        $this->assertEquals(0, $pendingCount);
     }
 
     // ─── 6. Admin flow unchanged ─────────────────────────────────
@@ -232,7 +240,7 @@ class ShopeeFoodRoutingTest extends TestCase
         $this->assertNull($link->affiliate_url);
     }
 
-    // ─── 8. shopeefood.vn does NOT call DirectLinkStrategy ───────
+    // ─── 8. shopeefood.vn does NOT produce an_redir URL ──────────
 
     public function test_shopeefood_vn_does_not_produce_direct_an_redir_url(): void
     {
@@ -240,14 +248,15 @@ class ShopeeFoodRoutingTest extends TestCase
 
         $response = $this->actingAs($this->user)
             ->postJson('/link-requests', [
-                'original_url' => 'https://shopeefood.vn/delivery/abc-123',
+                'original_url' => 'https://shopeefood.vn/now-food/shop/757850',
             ]);
 
         $response->assertOk();
 
         $link = LinkRequest::latest()->first();
-        $this->assertNull($link->affiliate_url);
-        $this->assertEquals('pending', $link->status);
+        $this->assertNotNull($link->affiliate_url);
+        $this->assertStringStartsWith('https://shopeefood.shopee.vn/now-food/shop/', $link->affiliate_url);
+        $this->assertStringNotContainsString('an_redir', $link->affiliate_url);
     }
 
     // ─── 9. shopee.vn still calls DirectLinkStrategy ─────────────
@@ -268,16 +277,37 @@ class ShopeeFoodRoutingTest extends TestCase
         $this->assertStringStartsWith('https://s.shopee.vn/an_redir?', $link->affiliate_url);
     }
 
-    // ─── 10. Extension flow does not duplicate LinkRequest ───────
+    // ─── 10. Deep link flow creates a single LinkRequest ─────────
 
     public function test_shopeefood_vn_creates_single_link_request(): void
     {
         $this->actingAs($this->user)
             ->postJson('/link-requests', [
-                'original_url' => 'https://shopeefood.vn/delivery/abc-123',
+                'original_url' => 'https://shopeefood.vn/now-food/shop/757850',
             ]);
 
-        $count = LinkRequest::where('original_url', 'https://shopeefood.vn/delivery/abc-123')->count();
+        $count = LinkRequest::where('original_url', 'https://shopeefood.vn/now-food/shop/757850')->count();
         $this->assertEquals(1, $count);
+    }
+
+    // ─── 11. Unresolvable ShopeeFood URL → failed, no fake URL ───
+
+    public function test_invalid_shopeefood_url_marks_failed(): void
+    {
+        Http::fake([
+            'shopeefood.vn/*' => Http::response('', 404),
+        ]);
+
+        $response = $this->actingAs($this->user)
+            ->postJson('/link-requests', [
+                'original_url' => 'https://shopeefood.vn/u/not-a-real-code',
+            ]);
+
+        $response->assertOk();
+
+        $link = LinkRequest::latest()->first();
+        $this->assertEquals('failed', $link->status);
+        $this->assertNull($link->affiliate_url);
+        $this->assertEquals('https://shopeefood.vn/u/not-a-real-code', $link->original_url);
     }
 }

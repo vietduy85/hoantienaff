@@ -127,7 +127,7 @@
     <div class="text-center max-[390px]:mb-2 mb-2.5">
         <h2 class="font-semibold text-gray-900 text-lg" style="font-family: 'Inter', sans-serif">Tạo Link Hoàn Tiền</h2>
             <p class="text-xs text-gray-400 mt-0.5">
-                Hỗ trợ Shopee • Lazada • TikTok Shop • Tiki
+                Hỗ trợ Shopee • ShopeeFood • Lazada • TikTok Shop • Tiki
             </p>
     </div>
 
@@ -202,10 +202,11 @@
 
             <div class="space-y-2.5">
                 <div class="text-center bg-white rounded-xl border border-emerald-100 max-[390px]:px-3 max-[390px]:py-1.5 px-4 py-2">
-                    <p class="text-xs text-gray-500">Bạn sẽ được hoàn</p>
+                    <p class="text-xs text-gray-500" x-show="result.platform !== 'ShopeeFood'">Bạn sẽ được hoàn</p>
                     <p class="text-3xl font-bold text-emerald-600 leading-tight">
-                        <span x-show="result.user_estimated_cashback != null && result.user_estimated_cashback > 0" x-text="'≈ ' + Number(result.user_estimated_cashback).toLocaleString('vi-VN') + 'đ'"></span>
-                        <span x-show="!(result.user_estimated_cashback != null && result.user_estimated_cashback > 0)" class="text-lg font-medium text-gray-400">Chưa có dữ liệu</span>
+                        <span x-show="result.platform === 'ShopeeFood'" x-cloak class="text-lg font-medium text-emerald-600">Lên đến 4% tổng bill</span>
+                        <span x-show="result.platform !== 'ShopeeFood' && result.user_estimated_cashback != null && result.user_estimated_cashback > 0" x-text="'≈ ' + Number(result.user_estimated_cashback).toLocaleString('vi-VN') + 'đ'"></span>
+                        <span x-show="result.platform !== 'ShopeeFood' && !(result.user_estimated_cashback != null && result.user_estimated_cashback > 0)" class="text-lg font-medium text-gray-400">Chưa có dữ liệu</span>
                     </p>
                     <p x-show="result.platform === 'Lazada' && result.estimated_cashback != null && result.estimated_cashback > 0" class="text-[11px] text-gray-400 mt-1">
                         Hoa hồng đối tác ≈ <span x-text="Number(result.estimated_cashback).toLocaleString('vi-VN')"></span>đ

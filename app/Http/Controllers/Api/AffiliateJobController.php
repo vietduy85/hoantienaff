@@ -5,13 +5,17 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\LinkRequest;
 use App\Services\AffiliateCacheService;
+use App\Services\ShopeeFood\ShopeeFoodPreviewService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class AffiliateJobController extends Controller
 {
     public function __construct(
         private readonly AffiliateCacheService $cacheService,
+        private readonly ShopeeFoodPreviewService $shopeeFoodPreview,
     ) {}
 
     public function jobs(Request $request): JsonResponse
@@ -73,6 +77,16 @@ class AffiliateJobController extends Controller
 
             if ($lr->item_id && !empty($item['affiliate_url'])) {
                 $this->cacheService->updateAffiliateUrl($lr->item_id, $item['affiliate_url']);
+            }
+
+            try {
+                $this->shopeeFoodPreview->enrichFromAffiliateUrl($lr, $item['affiliate_url'] ?? null);
+            } catch (Throwable $e) {
+                Log::warning('[AffiliateJob] ShopeeFood enrichment failed', [
+                    'link_request_id' => $lr->id,
+                    'affiliate_url'   => $item['affiliate_url'] ?? null,
+                    'error'           => substr($e->getMessage(), 0, 120),
+                ]);
             }
         }
 
