@@ -177,4 +177,108 @@ class ShopeeFoodAffiliateLinkServiceTest extends TestCase
 
         $this->assertSame('757850', $id);
     }
+
+    // ─── CASE C — vnnow-food host is normalized → deep link ─────────
+
+    public function test_vn_now_food_host_is_normalized_to_deep_link(): void
+    {
+        $url = $this->service()->generateAffiliateUrl(
+            'https://shopeefood.shopee.vnnow-food/shop/1284425',
+            '1005',
+        );
+
+        $this->assertSame($this->expectedUrl(1284425, '1005'), $url);
+        Http::assertNothingSent();
+    }
+
+    public function test_vn_now_food_host_without_scheme_is_normalized(): void
+    {
+        $url = $this->service()->generateAffiliateUrl(
+            'shopeefood.shopee.vnnow-food/shop/1284425',
+            '1005',
+        );
+
+        $this->assertSame($this->expectedUrl(1284425, '1005'), $url);
+        Http::assertNothingSent();
+    }
+
+    // ─── CASE D — lookalike host must be rejected ───────────────────
+
+    public function test_fake_shopeefood_vn_host_is_rejected(): void
+    {
+        $url = $this->service()->generateAffiliateUrl(
+            'https://fake-shopeefood.vn/now-food/shop/757850',
+            '1005',
+        );
+
+        $this->assertNull($url);
+        Http::assertNothingSent();
+    }
+
+    public function test_fake_shopeefood_shopee_vn_host_is_rejected(): void
+    {
+        $url = $this->service()->generateAffiliateUrl(
+            'https://xshopeefood.shopee.vn/now-food/shop/757850',
+            '1005',
+        );
+
+        $this->assertNull($url);
+        Http::assertNothingSent();
+    }
+
+    // ─── CASE B — pipeline returns final URL + restaurant id ────────
+
+    public function test_resolve_pipeline_returns_final_url_and_id(): void
+    {
+        Http::fake([
+            'spf.shopee.vn/4qFce98g0F*' => Http::response('', 301, [
+                'Location' => 'https://shopeefood.vn/now-food/shop/757850?utm_source=an_17343840387&utm_content=tintuctonghop103----',
+            ]),
+            'shopeefood.vn/now-food/shop/757850*' => Http::response('', 200),
+        ]);
+
+        $pipeline = $this->service()->resolvePipeline('https://spf.shopee.vn/4qFce98g0F');
+
+        $this->assertSame('757850', $pipeline['restaurant_id']);
+        $this->assertStringStartsWith('https://shopeefood.vn/now-food/shop/757850', $pipeline['final_url']);
+    }
+
+    // ─── CASE G — affiliate id + username, no foreign/fabricated ────
+
+    public function test_affiliate_url_uses_configured_id_and_drops_foreign_params(): void
+    {
+        Setting::set('affiliate.direct.shopee_affiliate_id', '17342330566');
+
+        Http::fake([
+            'spf.shopee.vn/4qFce98g0F*' => Http::response('', 301, [
+                'Location' => 'https://shopeefood.vn/now-food/shop/757850'
+                    . '?utm_source=an_17343840387'
+                    . '&utm_medium=affiliate_food'
+                    . '&utm_campaign=-'
+                    . '&utm_content=tintuctonghop103----'
+                    . '&utm_term=tintuctonghop103',
+            ]),
+            'shopeefood.vn/now-food/shop/757850*' => Http::response('', 200),
+        ]);
+
+        $url = $this->service()->generateAffiliateUrl(
+            'https://spf.shopee.vn/4qFce98g0F',
+            'tintuctonghop103',
+        );
+
+        $this->assertSame(
+            'https://shopeefood.shopee.vn/now-food/shop/757850?shareChannel=copy_link'
+                . '&utm_source=an_17342330566'
+                . '&utm_medium=affiliate_food'
+                . '&utm_campaign=-'
+                . '&utm_content=tintuctonghop103',
+            $url,
+        );
+
+        $this->assertStringNotContainsString('17343840387', $url);
+        $this->assertStringNotContainsString('17310770298', $url);
+        $this->assertStringNotContainsString('utm_term', $url);
+        $this->assertStringNotContainsString('uls_trackid', $url);
+        $this->assertStringNotContainsString('tintuctonghop103----', $url);
+    }
 }

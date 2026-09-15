@@ -7,6 +7,7 @@ use App\Models\Setting;
 use App\Services\AffiliateLinkService;
 use App\Services\ShopeeFood\ShopeeFoodAffiliateLinkService;
 use App\Services\ShopeeFood\ShopeeFoodPreviewService;
+use App\Services\ShopeeFood\ShopeeFoodUrlParser;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -40,13 +41,22 @@ class DashboardController extends Controller
 
     public function store(Request $request): \Illuminate\Http\JsonResponse|RedirectResponse
     {
-        $validated = $request->validate([
-            'original_url' => ['required', 'url', 'max:2048'],
+        $request->validate([
+            'original_url' => ['required', 'string', 'max:2048'],
         ]);
 
-        if ($this->isShopeeFoodUrl($validated['original_url'])) {
-            return $this->storeViaShopeeFoodDeepLink($request, $validated['original_url']);
+        $originalUrl = (string) $request->input('original_url');
+
+        // Raw vnnow-food links use a hyphenated host that Laravel's strict
+        // `url` rule rejects, so ShopeeFood hosts are accepted up-front and
+        // normalized later; every other URL keeps the strict validation.
+        if ($this->isShopeeFoodUrl($originalUrl)) {
+            return $this->storeViaShopeeFoodDeepLink($request, $originalUrl);
         }
+
+        $request->validate([
+            'original_url' => ['url'],
+        ]);
 
         $strategy = Setting::get('affiliate.dashboard.strategy', 'direct');
 
@@ -100,17 +110,20 @@ class DashboardController extends Controller
             'status'       => 'processing',
         ]);
 
-        $this->shopeeFoodPreview->preview($link, $originalUrl);
+        $pipeline = $this->shopeeFoodAffiliateLink->resolvePipeline($originalUrl);
+        $restaurantId = $pipeline['restaurant_id'];
 
-        $affiliateUrl = $this->shopeeFoodAffiliateLink->generateAffiliateUrl(
-            $originalUrl,
-            $user->affiliateSubId(),
-        );
+        $this->shopeeFoodPreview->preview($link, $originalUrl, $restaurantId);
+
+        $affiliateUrl = $restaurantId !== null
+            ? $this->shopeeFoodAffiliateLink->buildAffiliateUrl($restaurantId, $user->affiliateSubId())
+            : null;
 
         if ($affiliateUrl === null) {
             Log::warning('[ShopeeFood] Deep link generation failed', [
                 'link_request_id' => $link->id,
                 'original_url'    => $originalUrl,
+                'restaurant_id'   => $restaurantId,
             ]);
 
             $link->update([
@@ -140,12 +153,7 @@ class DashboardController extends Controller
 
     private function isShopeeFoodUrl(string $url): bool
     {
-        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
-
-        return str_ends_with($host, 'shopeefood.vn')
-            || str_ends_with($host, 'shopeefood.shopee.vn')
-            || $host === 'spf.shopee.vn'
-            || str_ends_with($host, '.spf.shopee.vn');
+        return ShopeeFoodUrlParser::isShopeeFoodUrl($url);
     }
 
     private function detectPlatform(string $url): string

@@ -15,12 +15,20 @@ final class ShopeeFoodPreviewService
         private readonly ShopeeFoodOpenGraphService $openGraphService,
     ) {}
 
-    public function preview(LinkRequest $link, string $originalUrl): void
+    public function preview(LinkRequest $link, string $originalUrl, ?string $restaurantId = null): void
     {
-        $openGraph = $this->openGraphService->resolveNameAndImage($originalUrl);
+        $openGraph = $this->openGraphService->resolveNameAndImage(
+            $this->openGraphUrl($originalUrl, $restaurantId),
+        );
 
-        $restaurantId = ShopeeFoodUrlParser::restaurantId($originalUrl);
-        $storeName = $restaurantId !== null ? $this->storeService->storeName($restaurantId) : null;
+        $storeName = $restaurantId !== null
+            ? $this->storeService->storeName($restaurantId)
+            : null;
+
+        if ($storeName === null) {
+            $parsedId = ShopeeFoodUrlParser::restaurantId($originalUrl);
+            $storeName = $parsedId !== null ? $this->storeService->storeName($parsedId) : null;
+        }
 
         $name = null;
         $dataSource = 'shopeefood-fallback';
@@ -96,6 +104,22 @@ final class ShopeeFoodPreviewService
             'product_name'  => $name,
             'data_source'   => 'shopeefood-store-api',
         ]);
+    }
+
+    private function openGraphUrl(string $originalUrl, ?string $restaurantId): ?string
+    {
+        // Short /u/{code} links render with Open Graph tags → fetch the raw URL.
+        if ($this->openGraphService->isShortUrl($originalUrl)) {
+            return $originalUrl;
+        }
+
+        // Everything else: fetch the clean restaurant page so the metadata is
+        // taken from the FINAL page, not from a raw URL that carries tracking.
+        if ($restaurantId !== null) {
+            return 'https://shopeefood.vn/now-food/shop/' . $restaurantId;
+        }
+
+        return $originalUrl;
     }
 
     private function isPresent(mixed $value): bool

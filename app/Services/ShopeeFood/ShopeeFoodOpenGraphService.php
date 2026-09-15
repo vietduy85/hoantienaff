@@ -19,14 +19,34 @@ final class ShopeeFoodOpenGraphService
     // @return array{name: string|null, image: string|null}|null
     public function resolveNameAndImage(?string $url): ?array
     {
+        // Direct /now-food/shop/{id} page → fetch the clean URL (no tracking query),
+        // cached under shopeefood:og:restaurant:{id}.
+        $directId = $this->directRestaurantId($url);
+
+        if ($directId !== null) {
+            return $this->fromCacheOrFetch(
+                'shopeefood:og:restaurant:' . $directId,
+                $this->cleanFetchUrl($url),
+                $url,
+            );
+        }
+
         $code = $this->shortCode($url);
 
         if ($code === null) {
             return null;
         }
 
-        $cacheKey = 'shopeefood:u:' . $code;
+        return $this->fromCacheOrFetch('shopeefood:u:' . $code, $url, $url);
+    }
 
+    public function isShortUrl(?string $url): bool
+    {
+        return $this->shortCode($url) !== null;
+    }
+
+    private function fromCacheOrFetch(string $cacheKey, string $fetchUrl, string $label): ?array
+    {
         $cached = Cache::get($cacheKey);
 
         if (is_array($cached)) {
@@ -36,7 +56,7 @@ final class ShopeeFoodOpenGraphService
             ];
         }
 
-        $result = $this->fetch($url, $code);
+        $result = $this->fetch($fetchUrl, $label);
 
         if ($result !== null && ($result['name'] !== null || $result['image'] !== null)) {
             Cache::put($cacheKey, $result, self::CACHE_TTL_SECONDS);
@@ -46,6 +66,48 @@ final class ShopeeFoodOpenGraphService
     }
 
     // ─── URL guards ────────────────────────────────────────────────
+
+    private function directRestaurantId(?string $url): ?string
+    {
+        if ($url === null || trim($url) === '') {
+            return null;
+        }
+
+        $url = trim($url);
+
+        if (parse_url($url, PHP_URL_SCHEME) === null) {
+            $url = 'https://' . $url;
+        }
+
+        if (filter_var($url, FILTER_VALIDATE_URL) === false) {
+            return null;
+        }
+
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+
+        if ($host !== 'shopeefood.vn'
+            && ! str_ends_with($host, '.shopeefood.vn')
+            && $host !== 'shopeefood.shopee.vn') {
+            return null;
+        }
+
+        $path = (string) parse_url($url, PHP_URL_PATH);
+
+        if (preg_match('#^/now-food/shop/(\d{3,12})$#', $path, $matches) !== 1) {
+            return null;
+        }
+
+        return $matches[1];
+    }
+
+    private function cleanFetchUrl(string $url): string
+    {
+        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME)) ?: 'https';
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        $path = (string) parse_url($url, PHP_URL_PATH);
+
+        return $scheme . '://' . $host . $path;
+    }
 
     private function shortCode(?string $url): ?string
     {

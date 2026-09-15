@@ -98,7 +98,9 @@ class ShopeeFoodLinkPreviewTest extends TestCase
         $this->createShopeeFoodLink('https://shopeefood.vn/now-food/shop/1258133');
         $this->createShopeeFoodLink('https://shopeefood.vn/now-food/shop/1258133?ref=abc');
 
-        Http::assertSentCount(1);
+        $this->assertCount(1, Http::recorded(
+            fn ($request) => str_contains($request->url(), 'store.php'),
+        ));
 
         $this->assertSame('Quán Ngon', Cache::get('shopeefood:store:1258133'));
         $this->assertSame('Quán Ngon', LinkRequest::latest()->first()->product_name);
@@ -199,6 +201,28 @@ class ShopeeFoodLinkPreviewTest extends TestCase
         $this->assertCount(0, Http::recorded(fn ($request) => str_contains($request->url(), 'store.php')));
     }
 
+    // ─── 11b. SPF preview metadata comes from the FINAL URL ─────────
+
+    public function test_spf_preview_uses_final_url_open_graph(): void
+    {
+        Http::fake([
+            'spf.shopee.vn/QweRty123*' => Http::response('', 301, [
+                'Location' => 'https://shopeefood.vn/now-food/shop/1258133?utm_source=an_17343840387&utm_content=tintuctonghop103----',
+            ]),
+            'shopeefood.vn/now-food/shop/1258133*' => Http::response(
+                $this->ogPage('Quán Từ Final URL', 'https://img.example/final.jpg'),
+                200,
+            ),
+        ]);
+
+        $link = $this->createShopeeFoodLink('https://spf.shopee.vn/QweRty123');
+
+        $this->assertSame('Quán Từ Final URL', $link->product_name);
+        $this->assertSame('https://img.example/final.jpg', $link->product_image);
+        $this->assertSame('shopeefood-open-graph', $link->data_source);
+        $this->assertSame($this->expectedDeepLink(1258133, 'test_user'), $link->affiliate_url);
+    }
+
     // ─── 12 & 13. Copy / Mua ngay buttons use the real affiliate URL
 
     public function test_copy_and_mua_ngay_buttons_use_actual_affiliate_url(): void
@@ -266,6 +290,13 @@ class ShopeeFoodLinkPreviewTest extends TestCase
         Http::fake([
             'data.addlivetag.com/shopeefood/store.php*' => Http::response($body, $status),
         ]);
+    }
+
+    private function ogPage(string $title, string $image): string
+    {
+        return '<html><head><title>' . $title . '</title>'
+            . '<meta property="og:title" content="' . $title . '" />'
+            . '<meta property="og:image" content="' . $image . '" /></head><body></body></html>';
     }
 
     private function mockDirectLinkDependencies(): void

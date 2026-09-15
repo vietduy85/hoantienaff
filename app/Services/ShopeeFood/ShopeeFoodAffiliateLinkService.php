@@ -3,10 +3,7 @@
 namespace App\Services\ShopeeFood;
 
 use App\Models\Setting;
-use Illuminate\Http\Client\ConnectionException;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Throwable;
 
 /**
  * Generates a ShopeeFood affiliate deep link from ANY ShopeeFood source URL.
@@ -33,12 +30,6 @@ final class ShopeeFoodAffiliateLinkService
 
     public const SPF_HOST = 'spf.shopee.vn';
 
-    private const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36';
-
-    private const MAX_REDIRECTS = 5;
-
-    private const REDIRECT_STATUSES = [301, 302, 303, 307, 308];
-
     public function __construct(
         private readonly ShopeeFoodAffiliateResolver $affiliateResolver,
     ) {}
@@ -59,6 +50,50 @@ final class ShopeeFoodAffiliateLinkService
         return $this->buildAffiliateUrl($restaurantId, $subId1);
     }
 
+    /**
+     * @return array{restaurant_id: string|null, final_url: string|null}
+     */
+    public function resolvePipeline(?string $url): array
+    {
+        $restaurantId = null;
+        $finalUrl = null;
+
+        $url = $this->normalizeUrl($url);
+
+        if ($url !== null) {
+            $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+
+            // Foreign Shopee affiliate shortlink (spf.shopee.vn) → resolve the
+            // redirect chain through the resolver, which only accepts ShopeeFood
+            // destinations. The resolved id is cached under shopeefood:spf:{hash}.
+            if ($host === self::SPF_HOST || str_ends_with($host, '.' . self::SPF_HOST)) {
+                $restaurantId = $this->affiliateResolver->resolveRestaurantId($url);
+                $finalUrl = $this->affiliateResolver->resolveFinalUrl($url);
+
+                if ($restaurantId === null && $finalUrl !== null) {
+                    $restaurantId = ShopeeFoodUrlParser::restaurantId($finalUrl);
+                }
+
+                return [
+                    'restaurant_id' => $restaurantId,
+                    'final_url'     => $finalUrl,
+                ];
+            }
+
+            if (ShopeeFoodUrlParser::isShopeeFoodUrl($url)) {
+                return [
+                    'restaurant_id' => $this->resolveShopeeFoodRestaurantId($url, $finalUrl),
+                    'final_url'     => $finalUrl,
+                ];
+            }
+        }
+
+        return [
+            'restaurant_id' => null,
+            'final_url'     => null,
+        ];
+    }
+
     public function resolveRestaurantId(?string $url): ?string
     {
         $url = $this->normalizeUrl($url);
@@ -75,8 +110,10 @@ final class ShopeeFoodAffiliateLinkService
             return $this->affiliateResolver->resolveRestaurantId($url);
         }
 
-        if ($this->isShopeeFoodUrl($url)) {
-            return $this->resolveShopeeFoodRestaurantId($url);
+        if (ShopeeFoodUrlParser::isShopeeFoodUrl($url)) {
+            $finalUrl = null;
+
+            return $this->resolveShopeeFoodRestaurantId($url, $finalUrl);
         }
 
         return null;
@@ -115,20 +152,26 @@ final class ShopeeFoodAffiliateLinkService
 
     // ─── Internals ─────────────────────────────────────────────────────
 
-    private function resolveShopeeFoodRestaurantId(string $url): ?string
+    /**
+     * @param string|null $finalUrl by-ref result of the follow, reused by resolvePipeline
+     */
+    private function resolveShopeeFoodRestaurantId(string $url, ?string &$finalUrl): ?string
     {
         // Direct URL already contains a numeric restaurant id → parse, no HTTP.
         $directId = ShopeeFoodUrlParser::restaurantId($url);
 
         if ($directId !== null) {
+            $finalUrl = $url;
+
             return $directId;
         }
 
         // Short URL (/u/{code}) → MUST resolve the redirect chain first.
         // Never guess the id, never extract it from the code itself.
-        $finalUrl = $this->resolveFinalUrl($url);
+        $resolvedUrl = $this->affiliateResolver->resolveFinalUrl($url);
+        $finalUrl = $resolvedUrl;
 
-        if ($finalUrl === null) {
+        if ($resolvedUrl === null) {
             Log::warning('[ShopeeFoodLink] Short URL resolve failed', [
                 'url' => $url,
             ]);
@@ -136,12 +179,12 @@ final class ShopeeFoodAffiliateLinkService
             return null;
         }
 
-        $finalId = ShopeeFoodUrlParser::restaurantId($finalUrl);
+        $finalId = ShopeeFoodUrlParser::restaurantId($resolvedUrl);
 
         if ($finalId === null) {
             Log::warning('[ShopeeFoodLink] Resolved URL has no restaurant id', [
                 'url'       => $url,
-                'final_url' => $finalUrl,
+                'final_url' => $resolvedUrl,
             ]);
 
             return null;
@@ -150,125 +193,8 @@ final class ShopeeFoodAffiliateLinkService
         return $finalId;
     }
 
-    private function resolveFinalUrl(string $url): ?string
-    {
-        $current = $url;
-
-        for ($depth = 0; $depth <= self::MAX_REDIRECTS; $depth++) {
-            try {
-                $response = Http::withoutRedirecting()
-                    ->acceptJson()
-                    ->timeout(10)
-                    ->connectTimeout(5)
-                    ->withHeaders(['User-Agent' => self::USER_AGENT])
-                    ->get($current);
-            } catch (ConnectionException $e) {
-                Log::warning('[ShopeeFoodLink] Resolve timeout/connection failure', [
-                    'url'   => $current,
-                    'error' => $this->shortMessage($e),
-                ]);
-
-                return null;
-            } catch (Throwable $e) {
-                Log::warning('[ShopeeFoodLink] Resolve unexpected error', [
-                    'url'   => $current,
-                    'error' => $this->shortMessage($e),
-                ]);
-
-                return null;
-            }
-
-            $status = $response->status();
-
-            if (in_array($status, self::REDIRECT_STATUSES, true)) {
-                $location = $response->header('Location');
-
-                if ($location === null || $location === '') {
-                    return null;
-                }
-
-                $next = $this->absoluteUrl($current, $location);
-
-                if ($next === null) {
-                    return null;
-                }
-
-                $current = $next;
-
-                continue;
-            }
-
-            if ($response->failed()) {
-                Log::warning('[ShopeeFoodLink] Resolve HTTP error', [
-                    'url'    => $current,
-                    'status' => $status,
-                ]);
-
-                return null;
-            }
-
-            return $current;
-        }
-
-        return null;
-    }
-
-    private function isShopeeFoodUrl(string $url): bool
-    {
-        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
-
-        return $host === self::SHOPEEFOOD_HOST_SUFFIX
-            || str_ends_with($host, '.' . self::SHOPEEFOOD_HOST_SUFFIX)
-            || $host === self::AFFILIATE_HOST;
-    }
-
     private function normalizeUrl(?string $url): ?string
     {
-        if ($url === null || trim($url) === '') {
-            return null;
-        }
-
-        $url = trim($url);
-
-        if (parse_url($url, PHP_URL_SCHEME) === null) {
-            $url = 'https://' . $url;
-        }
-
-        return filter_var($url, FILTER_VALIDATE_URL) ? $url : null;
-    }
-
-    private function absoluteUrl(string $base, string $location): ?string
-    {
-        if (preg_match('/^https?:\/\//i', $location) === 1) {
-            return filter_var($location, FILTER_VALIDATE_URL) ? $location : null;
-        }
-
-        if ($location === '') {
-            return null;
-        }
-
-        $parts = parse_url($base);
-        $scheme = $parts['scheme'] ?? 'https';
-        $host = $parts['host'] ?? null;
-
-        if ($host === null) {
-            return null;
-        }
-
-        $path = $parts['path'] ?? '/';
-
-        if ($location[0] === '/') {
-            $nextPath = $location;
-        } else {
-            $dir = preg_replace('#/[^/]*$#', '', $path);
-            $nextPath = ($dir !== '' ? $dir : '') . '/' . $location;
-        }
-
-        return $scheme . '://' . $host . $nextPath;
-    }
-
-    private function shortMessage(Throwable $e): string
-    {
-        return (new \ReflectionClass($e))->getShortName() . ': ' . substr($e->getMessage(), 0, 120);
+        return ShopeeFoodUrlParser::normalize($url);
     }
 }

@@ -310,4 +310,77 @@ class ShopeeFoodRoutingTest extends TestCase
         $this->assertNull($link->affiliate_url);
         $this->assertEquals('https://shopeefood.vn/u/not-a-real-code', $link->original_url);
     }
+
+    // ─── CASE C — vnnow-food host routes to the deep link flow ───────
+
+    public function test_vn_now_food_host_uses_deep_link_flow(): void
+    {
+        $response = $this->actingAs($this->user)
+            ->postJson('/link-requests', [
+                'original_url' => 'https://shopeefood.shopee.vnnow-food/shop/1284425',
+            ]);
+
+        $response->assertOk();
+
+        $link = LinkRequest::latest()->first();
+        $this->assertEquals('ShopeeFood', $link->platform);
+        $this->assertEquals('completed', $link->status);
+        $this->assertSame($this->expectedShopeeFoodDeepLink(1284425, 'test_user'), $link->affiliate_url);
+        $this->assertSame('https://shopeefood.shopee.vnnow-food/shop/1284425', $link->original_url);
+        $this->assertStringNotContainsString('an_redir', $link->affiliate_url);
+    }
+
+    // ─── CASE D — lookalike host is NOT the ShopeeFood flow ──────────
+
+    public function test_fake_shopeefood_vn_host_does_not_use_deep_link_flow(): void
+    {
+        $this->mockDirectLinkDependencies();
+
+        $response = $this->actingAs($this->user)
+            ->postJson('/link-requests', [
+                'original_url' => 'https://fake-shopeefood.vn/now-food/shop/757850',
+            ]);
+
+        $response->assertOk();
+
+        $link = LinkRequest::latest()->first();
+        $this->assertNotEquals('ShopeeFood', $link->platform);
+    }
+
+    // ─── CASE G — real affiliate id + username, no foreign/fabricated ──
+
+    public function test_deep_link_uses_real_affiliate_id_and_username_without_foreign_params(): void
+    {
+        Setting::set('affiliate.direct.shopee_affiliate_id', '17342330566');
+
+        Http::fake([
+            'spf.shopee.vn/4qFce98g0F*' => Http::response('', 301, [
+                'Location' => 'https://shopeefood.vn/now-food/shop/757850'
+                    . '?utm_source=an_17343840387'
+                    . '&utm_medium=affiliate_food'
+                    . '&utm_campaign=-'
+                    . '&utm_content=tintuctonghop103----',
+            ]),
+            'shopeefood.vn/now-food/shop/757850*' => Http::response('', 200),
+        ]);
+
+        $response = $this->actingAs($this->user)
+            ->postJson('/link-requests', [
+                'original_url' => 'https://spf.shopee.vn/4qFce98g0F',
+            ]);
+
+        $response->assertOk();
+
+        $link = LinkRequest::latest()->first();
+        $this->assertEquals('completed', $link->status);
+        $this->assertStringStartsWith('https://shopeefood.shopee.vn/now-food/shop/757850', $link->affiliate_url);
+        $this->assertStringContainsString('utm_source=an_17342330566', $link->affiliate_url);
+        $this->assertStringContainsString('utm_content=test_user', $link->affiliate_url);
+        $this->assertStringNotContainsString('17343840387', $link->affiliate_url);
+        $this->assertStringNotContainsString('17310770298', $link->affiliate_url);
+        $this->assertStringNotContainsString('utm_term', $link->affiliate_url);
+        $this->assertStringNotContainsString('uls_trackid', $link->affiliate_url);
+        $this->assertStringNotContainsString('an_redir', $link->affiliate_url);
+        $this->assertStringNotContainsString('tintuctonghop103----', $link->affiliate_url);
+    }
 }
