@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\ReferralService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Laravel\Socialite\Facades\Socialite;
 
@@ -33,6 +35,8 @@ class GoogleController extends Controller
                 'avatar' => $googleUser->getAvatar(),
             ]);
 
+            session()->forget('referral_ref');
+
             Auth::login($user, true);
 
             if ($user->username) {
@@ -51,8 +55,29 @@ class GoogleController extends Controller
             'password' => Hash::make(Str::random(32)),
         ]);
 
+        $this->attachReferralForNewUser($user);
+
         Auth::login($user, true);
 
         return redirect()->route('complete-profile.create');
+    }
+
+    private function attachReferralForNewUser(User $user): void
+    {
+        $refUsername = (string) session()->pull('referral_ref');
+
+        if ($refUsername === '') {
+            return;
+        }
+
+        try {
+            app(ReferralService::class)->attachReferrer($user, $refUsername);
+        } catch (\Throwable $e) {
+            Log::warning('Referral attachment failed', [
+                'user_id' => $user->id,
+                'ref_username' => $refUsername,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 }

@@ -84,6 +84,10 @@ $travelPlatforms = collect(config('travel.platforms'))
                             {{ __('Ví tiền') }}
                         </x-dropdown-link>
 
+                        <x-dropdown-link :href="route('referrals.index')">
+                            {{ __('Giới thiệu bạn bè') }}
+                        </x-dropdown-link>
+
                         <x-dropdown-link :href="route('orders.index')">
                             {{ __('Tra cứu đơn hàng') }}
                         </x-dropdown-link>
@@ -196,6 +200,10 @@ $travelPlatforms = collect(config('travel.platforms'))
 
                 <x-responsive-nav-link :href="route('wallet.index')">
                     {{ __('Ví tiền') }}
+                </x-responsive-nav-link>
+
+                <x-responsive-nav-link :href="route('referrals.index')">
+                    {{ __('Giới thiệu bạn bè') }}
                 </x-responsive-nav-link>
 
                 <x-responsive-nav-link :href="route('orders.index')">

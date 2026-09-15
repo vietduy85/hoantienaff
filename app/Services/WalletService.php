@@ -7,6 +7,7 @@ use App\Exceptions\DuplicateWithdrawException;
 use App\Exceptions\InsufficientBalanceException;
 use App\Exceptions\InvalidWithdrawException;
 use App\Models\AffiliateOrderItem;
+use App\Models\Referral;
 use App\Models\User;
 use App\Models\WalletTransaction;
 use App\Models\WithdrawRequest;
@@ -67,6 +68,8 @@ class WalletService
             $user->wallet_balance = $balanceAfter;
             $user->total_earned = (float) $user->total_earned + $amount;
             $user->save();
+
+            $this->processReferralForUser($item->user_id);
 
             return $transaction;
         });
@@ -428,6 +431,106 @@ class WalletService
             ->where('type', WalletTransaction::TYPE_CASHBACK)
             ->where('status', WalletTransaction::STATUS_COMPLETED)
             ->exists();
+    }
+
+    /**
+     * Ghi tiền thưởng giới thiệu vào ví referrer.
+     *
+     * Idempotent: chỉ ghi MỘT LẦN cho một referral (reference_type='referral',
+     * reference_id=referral.id). Hàng rào gồm (1) check trước, (2) re-check sau
+     * khi lockForUpdate user, (3) unique index (reference_type, reference_id,
+     * type) ở DB là backstop cuối.
+     */
+    public function creditReferral(Referral $referral): ?WalletTransaction
+    {
+        $existing = $this->findReferralCredit($referral);
+
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        $referrer = $referral->referrer;
+
+        if ($referrer === null) {
+            return null;
+        }
+
+        $amount = (float) $referral->reward_amount;
+
+        if ($amount <= 0) {
+            return null;
+        }
+
+        return DB::transaction(function () use ($referral, $referrer, $amount) {
+            $referrer = User::where('id', $referrer->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $existing = $this->findReferralCredit($referral);
+
+            if ($existing !== null) {
+                return $existing;
+            }
+
+            $runningNo = $this->generateRunningNo();
+            $balanceBefore = $this->getBalance($referrer);
+            $balanceAfter = $balanceBefore + $amount;
+
+            $transaction = WalletTransaction::create([
+                'running_no' => $runningNo,
+                'user_id' => $referrer->id,
+                'username' => $referrer->username,
+                'platform' => null,
+                'type' => WalletTransaction::TYPE_REFERRAL,
+                'direction' => WalletTransaction::DIRECTION_CREDIT,
+                'amount' => $amount,
+                'balance_before' => $balanceBefore,
+                'balance_after' => $balanceAfter,
+                'reference_type' => 'referral',
+                'reference_id' => $referral->id,
+                'description' => 'Thưởng giới thiệu bạn bè: '.$referral->referred_user_id,
+                'status' => WalletTransaction::STATUS_COMPLETED,
+                'completed_at' => now(),
+                'processed_by' => null,
+                'metadata' => [
+                    'referral_id' => $referral->id,
+                    'referred_user_id' => $referral->referred_user_id,
+                    'referred_username' => $referral->referredUser?->username,
+                ],
+            ]);
+
+            $referrer->wallet_balance = $balanceAfter;
+            $referrer->total_earned = (float) $referrer->total_earned + $amount;
+            $referrer->save();
+
+            return $transaction;
+        });
+    }
+
+    public function findReferralCredit(Referral $referral): ?WalletTransaction
+    {
+        return WalletTransaction::where('reference_type', 'referral')
+            ->where('reference_id', $referral->id)
+            ->where('type', WalletTransaction::TYPE_REFERRAL)
+            ->where('status', WalletTransaction::STATUS_COMPLETED)
+            ->first();
+    }
+
+    private function processReferralForUser(?int $userId): void
+    {
+        if ($userId === null) {
+            return;
+        }
+
+        try {
+            app(ReferralService::class)->processCompletedOrder($userId);
+        } catch (\Throwable $e) {
+            Log::warning('Referral progress skipped after cashback credit', [
+                'user_id' => $userId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+        }
     }
 
     /**

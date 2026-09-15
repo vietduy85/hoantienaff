@@ -50,6 +50,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/complete-profile', [CompleteProfileController::class, 'create'])->name('complete-profile.create');
     Route::post('/complete-profile', [CompleteProfileController::class, 'store'])->name('complete-profile.store');
 
+    Route::get('/referrals', [App\Http\Controllers\ReferralController::class, 'index'])->name('referrals.index');
+
     Route::get('/wallet', [App\Http\Controllers\WalletController::class, 'index'])->name('wallet.index');
     Route::post('/wallet/withdraw', [App\Http\Controllers\WalletController::class, 'withdraw'])->name('wallet.withdraw');
     Route::get('/orders', [App\Http\Controllers\OrderController::class, 'index'])->name('orders.index');
