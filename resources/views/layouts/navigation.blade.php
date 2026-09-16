@@ -16,6 +16,13 @@ $travelPlatforms = collect(config('travel.platforms'))
                     Trang chủ
                 </a>
 
+                <!-- So sánh giá -->
+                <a href="{{ route('price-comparison.index') }}"
+                   class="font-semibold text-emerald-600 hover:text-emerald-700 active:text-emerald-800 transition-colors text-sm sm:text-base whitespace-nowrap"
+                   aria-label="So sánh giá">
+                    🔎 So sánh giá
+                </a>
+
                 <!-- Đặt vé máy bay, khách sạn (Desktop) -->
                 <div class="relative hidden sm:block" @click.away="showTravel = false">
                     <button @click="showTravel = !showTravel"
@@ -169,6 +176,10 @@ $travelPlatforms = collect(config('travel.platforms'))
         <div class="pt-2 pb-3 space-y-1">
             <x-responsive-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
                 {{ __('Dashboard') }}
+            </x-responsive-nav-link>
+
+            <x-responsive-nav-link :href="route('price-comparison.index')">
+                🔎 {{ __('So sánh giá') }}
             </x-responsive-nav-link>
 
             <!-- Đặt vé máy bay, khách sạn (Mobile) -->

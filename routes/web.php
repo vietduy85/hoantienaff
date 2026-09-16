@@ -71,6 +71,16 @@ Route::middleware('auth')->group(function () {
     Route::get('/api/link-request/{id}', [App\Http\Controllers\Api\LinkRequestController::class, 'show']);
 });
 
+// TEST/DEVELOPMENT price comparison catalog endpoint.
+// Open in local/testing so it can be checked from a browser;
+// locked behind auth + Admin|Operator role in production.
+Route::prefix('api/price-comparison')->group(function () {
+    Route::get('/coop', [App\Http\Controllers\Api\PriceComparisonController::class, 'search'])
+        ->middleware(app()->environment('production') ? ['auth', 'role:Admin|Operator'] : []);
+});
+
+Route::get('/so-sanh-gia', [\App\Http\Controllers\PriceComparisonController::class, 'index'])->name('price-comparison.index');
+
 Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () {
     Route::get('/withdraw-requests', [App\Http\Controllers\Admin\WithdrawRequestController::class, 'index'])
         ->middleware('permission:withdrawals.view')

@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Services\PriceComparison\PriceComparisonManager;
+use App\Services\PriceComparison\Providers\CoopOnlineProvider;
 use App\Services\ProviderFactory;
 use App\Services\Providers\AgodaProvider;
 use App\Services\Providers\BookingProvider;
@@ -32,6 +34,14 @@ class AppServiceProvider extends ServiceProvider
         $this->app->when(ProviderFactory::class)
             ->needs('$providers')
             ->giveTagged('affiliate-providers');
+
+        $this->app->tag([
+            CoopOnlineProvider::class,
+        ], 'catalog-providers');
+
+        $this->app->when(PriceComparisonManager::class)
+            ->needs('$providers')
+            ->giveTagged('catalog-providers');
     }
 
     public function boot(): void
