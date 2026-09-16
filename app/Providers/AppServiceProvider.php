@@ -2,6 +2,10 @@
 
 namespace App\Providers;
 
+use App\Services\AffiliateSearchLinks\AffiliateSearchLinkManager;
+use App\Services\AffiliateSearchLinks\Providers\LazadaAffiliateSearchLinkProvider;
+use App\Services\AffiliateSearchLinks\Providers\ShopeeAffiliateSearchLinkProvider;
+use App\Services\AffiliateSearchLinks\Providers\TikTokAffiliateSearchLinkProvider;
 use App\Services\PriceComparison\PriceComparisonManager;
 use App\Services\PriceComparison\Providers\CoopOnlineProvider;
 use App\Services\ProviderFactory;
@@ -42,6 +46,16 @@ class AppServiceProvider extends ServiceProvider
         $this->app->when(PriceComparisonManager::class)
             ->needs('$providers')
             ->giveTagged('catalog-providers');
+
+        $this->app->tag([
+            ShopeeAffiliateSearchLinkProvider::class,
+            LazadaAffiliateSearchLinkProvider::class,
+            TikTokAffiliateSearchLinkProvider::class,
+        ], 'affiliate-search-link-providers');
+
+        $this->app->when(AffiliateSearchLinkManager::class)
+            ->needs('$providers')
+            ->giveTagged('affiliate-search-link-providers');
     }
 
     public function boot(): void

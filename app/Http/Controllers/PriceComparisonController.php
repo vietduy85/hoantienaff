@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\AffiliateSearchLinks\AffiliateSearchLinkManager;
 use App\Services\PriceComparison\PriceComparisonManager;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -23,6 +25,7 @@ class PriceComparisonController extends Controller
 
     public function __construct(
         private readonly PriceComparisonManager $catalog,
+        private readonly AffiliateSearchLinkManager $affiliateLinks,
     ) {}
 
     public function index(Request $request)
@@ -39,8 +42,20 @@ class PriceComparisonController extends Controller
         $error = null;
         $providerAvailable = true;
         $retailerCounts = array_fill_keys(array_keys(self::RETAILERS), 0);
+        $marketplaceLinks = [];
 
         if ($keyword !== '') {
+            $username = Auth::user()?->username;
+
+            try {
+                $marketplaceLinks = $this->affiliateLinks->getLinks($keyword, $username);
+            } catch (Throwable $e) {
+                Log::warning('AffiliateSearchLinkManager failed', [
+                    'keyword' => $keyword,
+                    'error'   => $e->getMessage(),
+                ]);
+            }
+
             $useProvider = $retailer === null || $retailer === '' || $retailer === 'coop';
 
             if ($useProvider && in_array($retailer ?? 'coop', self::SUPPORTED_RETAILERS, true)) {
@@ -90,6 +105,7 @@ class PriceComparisonController extends Controller
             'retailerCounts'    => $retailerCounts,
             'providerAvailable' => $providerAvailable,
             'error'             => $error,
+            'marketplaceLinks'  => $marketplaceLinks,
         ]);
     }
 }

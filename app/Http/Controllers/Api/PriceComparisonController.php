@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\AffiliateSearchLinks\AffiliateSearchLinkManager;
 use App\Services\PriceComparison\PriceComparisonManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -15,6 +16,7 @@ class PriceComparisonController extends Controller
 {
     public function __construct(
         private readonly PriceComparisonManager $catalog,
+        private readonly AffiliateSearchLinkManager $affiliateLinks,
     ) {}
 
     public function search(Request $request): JsonResponse
@@ -46,6 +48,23 @@ class PriceComparisonController extends Controller
                 ->map(fn ($product) => $product->toArray())
                 ->values()
                 ->all(),
+        ]);
+    }
+
+    public function affiliateSearchLinks(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'keyword'  => ['required', 'string', 'max:120'],
+        ]);
+
+        $keyword = $validated['keyword'];
+        $username = $request->user()?->username;
+
+        $links = $this->affiliateLinks->getLinks($keyword, $username);
+
+        return response()->json([
+            'keyword' => $keyword,
+            'links'   => $links,
         ]);
     }
 }

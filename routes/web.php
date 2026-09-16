@@ -77,6 +77,8 @@ Route::middleware('auth')->group(function () {
 Route::prefix('api/price-comparison')->group(function () {
     Route::get('/coop', [App\Http\Controllers\Api\PriceComparisonController::class, 'search'])
         ->middleware(app()->environment('production') ? ['auth', 'role:Admin|Operator'] : []);
+    Route::get('/affiliate-search-links', [App\Http\Controllers\Api\PriceComparisonController::class, 'affiliateSearchLinks'])
+        ->middleware(app()->environment('production') ? ['auth', 'role:Admin|Operator'] : []);
 });
 
 Route::get('/so-sanh-gia', [\App\Http\Controllers\PriceComparisonController::class, 'index'])->name('price-comparison.index');

@@ -283,24 +283,85 @@
 
         {{-- KHU VỰC SÀN TMĐT --}}
         @if($keyword && !$error)
+            @php
+                $shopeeLink = $marketplaceLinks['shopee'] ?? null;
+                $lazadaLink = $marketplaceLinks['lazada'] ?? null;
+                $tiktokLink = $marketplaceLinks['tiktok'] ?? null;
+            @endphp
             <section class="space-y-3 pt-2">
                 <p class="text-sm font-semibold text-gray-700">Mua "{{ $keyword }}" trên sàn</p>
                 <div class="pc-marketplace">
-                    <div class="pc-marketplace-card">
-                        <div class="pc-marketplace-icon pc-shopee"><span>🛒</span></div>
-                        <span class="pc-marketplace-name">Shopee</span>
-                        <span class="pc-marketplace-status">Đang cập nhật</span>
-                    </div>
-                    <div class="pc-marketplace-card">
-                        <div class="pc-marketplace-icon pc-lazada"><span>🏬</span></div>
-                        <span class="pc-marketplace-name">Lazada</span>
-                        <span class="pc-marketplace-status">Đang cập nhật</span>
-                    </div>
-                    <div class="pc-marketplace-card">
-                        <div class="pc-marketplace-icon pc-tiktok"><span>🎵</span></div>
-                        <span class="pc-marketplace-name">TikTok Shop</span>
-                        <span class="pc-marketplace-status">Đang cập nhật</span>
-                    </div>
+                    @if($shopeeLink)
+                        <a href="{{ $shopeeLink['affiliate_url'] ?? $shopeeLink['search_url'] }}"
+                           target="_blank"
+                           rel="noopener noreferrer"
+                           class="pc-marketplace-card"
+                           style="opacity:1;cursor:pointer;text-decoration:none;">
+                            <div class="pc-marketplace-icon pc-shopee"><span>🛒</span></div>
+                            <span class="pc-marketplace-name">Shopee</span>
+                            <span class="pc-marketplace-status">
+                                @if($shopeeLink['affiliate_url'])
+                                    Mua sắm ↗
+                                @else
+                                    Xem trên Shopee ↗
+                                @endif
+                            </span>
+                        </a>
+                    @else
+                        <div class="pc-marketplace-card">
+                            <div class="pc-marketplace-icon pc-shopee"><span>🛒</span></div>
+                            <span class="pc-marketplace-name">Shopee</span>
+                            <span class="pc-marketplace-status">Đang cập nhật</span>
+                        </div>
+                    @endif
+
+                    @if($lazadaLink)
+                        <a href="{{ $lazadaLink['affiliate_url'] ?? $lazadaLink['search_url'] }}"
+                           target="_blank"
+                           rel="noopener noreferrer"
+                           class="pc-marketplace-card"
+                           style="opacity:1;cursor:pointer;text-decoration:none;">
+                            <div class="pc-marketplace-icon pc-lazada"><span>🏬</span></div>
+                            <span class="pc-marketplace-name">Lazada</span>
+                            <span class="pc-marketplace-status">
+                                @if($lazadaLink['affiliate_url'])
+                                    Mua sắm ↗
+                                @else
+                                    Xem trên Lazada ↗
+                                @endif
+                            </span>
+                        </a>
+                    @else
+                        <div class="pc-marketplace-card">
+                            <div class="pc-marketplace-icon pc-lazada"><span>🏬</span></div>
+                            <span class="pc-marketplace-name">Lazada</span>
+                            <span class="pc-marketplace-status">Đang cập nhật</span>
+                        </div>
+                    @endif
+
+                    @if($tiktokLink)
+                        <a href="{{ $tiktokLink['affiliate_url'] ?? $tiktokLink['search_url'] }}"
+                           target="_blank"
+                           rel="noopener noreferrer"
+                           class="pc-marketplace-card"
+                           style="opacity:1;cursor:pointer;text-decoration:none;">
+                            <div class="pc-marketplace-icon pc-tiktok"><span>🎵</span></div>
+                            <span class="pc-marketplace-name">TikTok Shop</span>
+                            <span class="pc-marketplace-status">
+                                @if($tiktokLink['affiliate_url'])
+                                    Mua sắm ↗
+                                @else
+                                    Xem trên TikTok ↗
+                                @endif
+                            </span>
+                        </a>
+                    @else
+                        <div class="pc-marketplace-card">
+                            <div class="pc-marketplace-icon pc-tiktok"><span>🎵</span></div>
+                            <span class="pc-marketplace-name">TikTok Shop</span>
+                            <span class="pc-marketplace-status">Đang cập nhật</span>
+                        </div>
+                    @endif
                 </div>
             </section>
         @endif
