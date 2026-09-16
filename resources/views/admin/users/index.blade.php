@@ -29,6 +29,9 @@
                 class="px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-emerald-400 transition-colors"
             >
                 <option value="">Mới nhất</option>
+                <option value="oldest" {{ request('sort') === 'oldest' ? 'selected' : '' }}>Cũ nhất</option>
+                <option value="referrals_desc" {{ request('sort') === 'referrals_desc' ? 'selected' : '' }}>Nhiều người giới thiệu nhất</option>
+                <option value="referrals_asc" {{ request('sort') === 'referrals_asc' ? 'selected' : '' }}>Ít người giới thiệu nhất</option>
                 <option value="orders_desc" {{ request('sort') === 'orders_desc' ? 'selected' : '' }}>Số đơn: Cao → thấp</option>
                 <option value="orders_asc" {{ request('sort') === 'orders_asc' ? 'selected' : '' }}>Số đơn: Thấp → cao</option>
                 <option value="order_value_desc" {{ request('sort') === 'order_value_desc' ? 'selected' : '' }}>Giá trị đơn: Cao → thấp</option>
@@ -67,6 +70,8 @@
                         <th class="px-3 py-3 text-left text-gray-500 font-medium text-xs uppercase">Email</th>
                         <th class="px-3 py-3 text-left text-gray-500 font-medium text-xs uppercase">Google</th>
                         <th class="px-3 py-3 text-center text-gray-500 font-medium text-xs uppercase">Role</th>
+                        <th class="px-3 py-3 text-left text-gray-500 font-medium text-xs uppercase">Người giới thiệu</th>
+                        <th class="px-3 py-3 text-right text-gray-500 font-medium text-xs uppercase">Đã giới thiệu</th>
                         <th class="px-3 py-3 text-right text-gray-500 font-medium text-xs uppercase">Ví hiện tại</th>
                         <th class="px-3 py-3 text-right text-gray-500 font-medium text-xs uppercase">Tiền chờ về</th>
                         <th class="px-3 py-3 text-right text-gray-500 font-medium text-xs uppercase">Số đơn</th>
@@ -117,6 +122,12 @@
                                     <span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">Chưa gán</span>
                                 @endif
                             </td>
+                            <td class="px-3 py-3 text-gray-700 text-xs">
+                                {{ $user->referredBy?->username ?: 'Không có' }}
+                            </td>
+                            <td class="px-3 py-3 text-right text-gray-700 text-xs whitespace-nowrap">
+                                {{ number_format($user->referrals_count) }} người
+                            </td>
                             <td class="px-3 py-3 text-right font-semibold text-gray-800 text-xs whitespace-nowrap">
                                 {{ number_format($user->wallet_balance, 0, ',', '.') }}đ
                             </td>
@@ -150,7 +161,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="14" class="px-4 py-8 text-center text-gray-300">
+                            <td colspan="16" class="px-4 py-8 text-center text-gray-300">
                                 Không tìm thấy người dùng nào
                             </td>
                         </tr>
@@ -194,6 +205,14 @@
                     </div>
 
                     <div class="grid grid-cols-2 gap-2 text-sm">
+                        <div>
+                            <div class="text-gray-400 text-xs">Người giới thiệu</div>
+                            <div class="text-gray-800">{{ $user->referredBy?->username ?: 'Không có' }}</div>
+                        </div>
+                        <div>
+                            <div class="text-gray-400 text-xs">Đã giới thiệu</div>
+                            <div class="text-gray-800">{{ number_format($user->referrals_count) }} người</div>
+                        </div>
                         <div>
                             <div class="text-gray-400 text-xs">Ví hiện tại</div>
                             <div class="text-gray-800 font-semibold">{{ number_format($user->wallet_balance, 0, ',', '.') }}đ</div>

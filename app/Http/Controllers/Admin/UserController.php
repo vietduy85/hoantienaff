@@ -20,7 +20,8 @@ class UserController extends Controller
     {
         $query = User::query()
             ->select('users.*')
-            ->with('roles');
+            ->with(['roles', 'referredBy'])
+            ->withCount('referrals');
 
         $pendingCashbackSub = AffiliateOrderItem::selectRaw('COALESCE(SUM(cashback_amount), 0)')
             ->whereColumn('user_id', 'users.id')
@@ -107,7 +108,13 @@ class UserController extends Controller
                 'cashback_asc'  => ['column' => 'total_cashback_only', 'direction' => 'asc'],
             ];
 
-            if ($sort && isset($dbSorts[$sort])) {
+            if ($sort === 'oldest') {
+                $query->oldest();
+            } elseif (in_array($sort, ['referrals_desc', 'referrals_asc'], true)) {
+                $query->orderBy('referrals_count', $sort === 'referrals_desc' ? 'desc' : 'asc')
+                    ->orderByDesc('users.created_at')
+                    ->orderByDesc('users.id');
+            } elseif ($sort && isset($dbSorts[$sort])) {
                 $query->orderBy($dbSorts[$sort]['column'], $dbSorts[$sort]['direction']);
             } else {
                 $query->latest();

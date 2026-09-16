@@ -126,6 +126,12 @@ $travelPlatforms = collect(config('travel.platforms'))
                     </x-dropdown-link>
                 @endcan
 
+                @can('users.view')
+                    <x-dropdown-link :href="route('admin.referrals.statistics')">
+                        {{ __('Thống kê giới thiệu') }}
+                    </x-dropdown-link>
+                @endcan
+
                 @can('withdrawals.view')
                     <x-dropdown-link :href="route('admin.finance.index')">
                         {{ __('Quản lý tài chính') }}
@@ -241,6 +247,12 @@ $travelPlatforms = collect(config('travel.platforms'))
                 @can('users.view')
                     <x-responsive-nav-link :href="route('admin.users.index')">
                         {{ __('Quản lý người dùng') }}
+                    </x-responsive-nav-link>
+                @endcan
+
+                @can('users.view')
+                    <x-responsive-nav-link :href="route('admin.referrals.statistics')">
+                        {{ __('Thống kê giới thiệu') }}
                     </x-responsive-nav-link>
                 @endcan
 

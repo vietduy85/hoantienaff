@@ -110,6 +110,10 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
         ->middleware('permission:withdrawals.view')
         ->name('finance.index');
 
+    Route::get('/referrals/statistics', [App\Http\Controllers\ReferralController::class, 'statistics'])
+        ->middleware('permission:users.view')
+        ->name('referrals.statistics');
+
     Route::get('/users', [App\Http\Controllers\Admin\UserController::class, 'index'])
         ->middleware('permission:users.view')
         ->name('users.index');

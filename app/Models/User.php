@@ -90,6 +90,11 @@ class User extends Authenticatable
         return $this->hasMany(__CLASS__, 'referred_by');
     }
 
+    public function referrals(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(Referral::class, 'referrer_id');
+    }
+
     public function affiliateClicks(): \Illuminate\Database\Eloquent\Relations\HasMany
     {
         return $this->hasMany(Click::class, 'affiliate_id');

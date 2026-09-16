@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\Referral;
+use App\Models\User;
 use App\Models\WalletTransaction;
 use App\Services\ReferralService;
+use Illuminate\Http\Request;
 use Illuminate\View\View;
 
 class ReferralController extends Controller
@@ -35,6 +37,57 @@ class ReferralController extends Controller
             'referralLink' => $referralLink,
             'rewardAmount' => Referral::REWARD_AMOUNT,
             'requiredOrders' => Referral::REQUIRED_COMPLETED_ORDERS,
+        ]);
+    }
+
+    public function statistics(Request $request): View
+    {
+        $search = trim((string) $request->query('user', ''));
+
+        $query = User::query()
+            ->join('referrals', 'referrals.referrer_id', '=', 'users.id')
+            ->selectRaw('
+                users.id as user_id,
+                users.username as username,
+                users.name as name,
+                COUNT(referrals.id) as total_referrals,
+                SUM(CASE WHEN referrals.status = ? THEN 1 ELSE 0 END) as completed_referrals,
+                SUM(CASE WHEN referrals.status = ? THEN 1 ELSE 0 END) as pending_referrals
+            ', [Referral::STATUS_COMPLETED, Referral::STATUS_PENDING])
+            ->groupBy('users.id', 'users.username', 'users.name')
+            ->havingRaw('COUNT(referrals.id) > 0');
+
+        if ($search !== '') {
+            $query->where(function ($q) use ($search) {
+                $q->where('users.username', 'like', "%{$search}%")
+                    ->orWhere('users.name', 'like', "%{$search}%");
+            });
+        }
+
+        $rows = $query
+            ->orderByDesc('total_referrals')
+            ->orderByDesc('users.id')
+            ->paginate(25)
+            ->withQueryString();
+
+        foreach ($rows as $row) {
+            $row->total_referrals = (int) $row->total_referrals;
+            $row->completed_referrals = (int) $row->completed_referrals;
+            $row->pending_referrals = (int) $row->pending_referrals;
+        }
+
+        $summary = [
+            'referrers' => (int) Referral::distinct()->count('referrer_id'),
+            'total_referrals' => (int) Referral::count(),
+            'completed_referrals' => (int) Referral::where('status', Referral::STATUS_COMPLETED)->count(),
+        ];
+
+        return view('referrals.statistics', [
+            'rows' => $rows,
+            'search' => $search,
+            'summary' => $summary,
+            'statusCompleted' => Referral::STATUS_COMPLETED,
+            'statusPending' => Referral::STATUS_PENDING,
         ]);
     }
 }
