@@ -34,6 +34,11 @@ class PriceComparisonController extends Controller
         return $this->searchSource($request, 'kingfoodmart');
     }
 
+    public function searchWinmart(Request $request): JsonResponse
+    {
+        return $this->searchSource($request, 'winmart');
+    }
+
     public function searchAll(Request $request): JsonResponse
     {
         $validated = $request->validate([

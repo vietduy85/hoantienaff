@@ -83,6 +83,8 @@ Route::prefix('api/price-comparison')->group(function () {
         ->middleware(app()->environment('production') ? ['auth', 'role:Admin|Operator'] : []);
     Route::get('/kingfoodmart', [App\Http\Controllers\Api\PriceComparisonController::class, 'searchKingfoodmart'])
         ->middleware(app()->environment('production') ? ['auth', 'role:Admin|Operator'] : []);
+    Route::get('/winmart', [App\Http\Controllers\Api\PriceComparisonController::class, 'searchWinmart'])
+        ->middleware(app()->environment('production') ? ['auth', 'role:Admin|Operator'] : []);
     Route::get('/affiliate-search-links', [App\Http\Controllers\Api\PriceComparisonController::class, 'affiliateSearchLinks'])
         ->middleware(app()->environment('production') ? ['auth', 'role:Admin|Operator'] : []);
 });

@@ -28,6 +28,7 @@ final class AggregatedSearchResult
         public readonly array $sourceTotals = [],
         public readonly array $sourceItemCounts = [],
         public readonly bool $isCapped = false,
+        public readonly int $promotionsCount = 0,
     ) {}
 
     /**
@@ -36,11 +37,11 @@ final class AggregatedSearchResult
     public function toArray(): array
     {
         return [
-            'source'     => 'all',
+            'source' => 'all',
             'pagination' => [
-                'page'        => $this->page,
-                'per_page'    => $this->perPage,
-                'total'       => $this->total,
+                'page' => $this->page,
+                'per_page' => $this->perPage,
+                'total' => $this->total,
                 'total_pages' => $this->totalPages,
             ],
             'sources' => $this->sourcesArray(),
@@ -60,8 +61,8 @@ final class AggregatedSearchResult
 
         foreach ($this->sourceTotals as $source => $total) {
             $sources[] = [
-                'source'  => $source,
-                'total'   => $total,
+                'source' => $source,
+                'total' => $total,
                 'fetched' => $this->sourceItemCounts[$source] ?? 0,
             ];
         }

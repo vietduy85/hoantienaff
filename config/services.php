@@ -107,4 +107,25 @@ return [
         'tenant' => env('KINGFOODMART_TENANT', 'kingfood'),
     ],
 
+    /*
+     * WinMart product search.
+     *
+     * PUBLIC catalog API (no authentication / API key required):
+     *   POST https://api-crownx.winmart.vn/ss/api/v2/public/winmart/item-search
+     *
+     * The API is store scoped: store_group_code + store_no drive price, stock
+     * and availability, so they must be configured per deployment. Defaults
+     * below are the values verified against the live API (never guessed from
+     * the visitor). The product page is public too:
+     *   https://www.winmart.vn/products/{seoName}
+     */
+    'winmart' => [
+        'base_url' => env(
+            'WINMART_API_BASE_URL',
+            'https://api-crownx.winmart.vn'
+        ),
+        'store_group_code' => env('WINMART_STORE_GROUP_CODE', '1998'),
+        'store_no' => env('WINMART_STORE_NO', '1535'),
+    ],
+
 ];

@@ -88,6 +88,7 @@ final class PriceComparisonManager
      * are isolated and never take down the other providers.
      *
      * @param  array<int, string>|null  $sources  optional subset of source identifiers
+     * @param  bool  $promotionsOnly  restrict the merged results to products that carry a promotion
      */
     public function searchAll(
         string $keyword,
@@ -95,6 +96,7 @@ final class PriceComparisonManager
         int $perPage = 20,
         string $sort = 'relevance',
         ?array $sources = null,
+        bool $promotionsOnly = false,
     ): AggregatedSearchResult {
         $page = max(1, $page);
         $perPage = max(1, $perPage);
@@ -116,8 +118,8 @@ final class PriceComparisonManager
             } catch (Throwable $e) {
                 Log::warning('PriceComparison: aggregate search provider failed', [
                     'provider' => $source,
-                    'keyword'  => $keyword,
-                    'message'  => $e->getMessage(),
+                    'keyword' => $keyword,
+                    'message' => $e->getMessage(),
                 ]);
 
                 $collected = ['items' => [], 'total' => 0, 'capped' => false];
@@ -131,14 +133,29 @@ final class PriceComparisonManager
 
         $merged = $this->mergeItems($sourceItems, $sort);
 
+        if ($promotionsOnly) {
+            $merged = array_values(array_filter(
+                $merged,
+                fn (ProductSummary $product): bool => $product->hasPromotion(),
+            ));
+        }
+
+        $promotionsCount = count(array_filter(
+            $merged,
+            fn (ProductSummary $product): bool => $product->hasPromotion(),
+        ));
+
         $total = count($merged);
         $totalPages = $perPage > 0 ? (int) ceil($total / $perPage) : 0;
         $offset = ($page - 1) * $perPage;
 
-        Cache::put($this->countsCacheKey($keyword), [
-            'total'   => $total,
-            'sources' => $sourceTotals,
-        ], self::COUNTS_CACHE_TTL);
+        if (! $promotionsOnly) {
+            Cache::put($this->countsCacheKey($keyword), [
+                'total' => $total,
+                'sources' => $sourceTotals,
+                'promotions' => $promotionsCount,
+            ], self::COUNTS_CACHE_TTL);
+        }
 
         return new AggregatedSearchResult(
             items: new Collection(array_slice($merged, $offset, $perPage)),
@@ -149,15 +166,17 @@ final class PriceComparisonManager
             sourceTotals: $sourceTotals,
             sourceItemCounts: $sourceItemCounts,
             isCapped: $isCapped,
+            promotionsCount: $promotionsCount,
         );
     }
 
     /**
      * Cached aggregated totals from the last "all retailers" search for the
      * given keyword. Lets retailer tab counts survive switching tabs without
-     * re-querying every provider.
+     * re-querying every provider. `promotions` is the number of products in
+     * the fetched dataset that carry a promotion.
      *
-     * @return array{total: int, sources: array<string, int>}|null
+     * @return array{total: int, sources: array<string, int>, promotions: int}|null
      */
     public function aggregatedCounts(string $keyword): ?array
     {
@@ -168,11 +187,12 @@ final class PriceComparisonManager
         }
 
         return [
-            'total'   => (int) ($counts['total'] ?? 0),
+            'total' => (int) ($counts['total'] ?? 0),
             'sources' => array_map(
                 'intval',
                 (array) ($counts['sources'] ?? []),
             ),
+            'promotions' => (int) ($counts['promotions'] ?? 0),
         ];
     }
 

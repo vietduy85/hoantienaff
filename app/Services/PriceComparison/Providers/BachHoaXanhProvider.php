@@ -27,9 +27,10 @@ use Throwable;
  * stock and availability. It is read from config only (BHX_STORE_ID) and
  * never inferred from the visitor (IP/geolocation/browser).
  *
- * The search response is the richest source for price/stock/image. The
- * product detail endpoint returns metadata/promotions only (no price,
- * stock, image or specifications), so it is intentionally not used here.
+ * The search response is the richest source for price/stock/image and also
+ * carries the customer-facing promotion text. The product detail endpoint
+ * returns metadata only (no price, stock, image or specifications), so it is
+ * intentionally not used here.
  */
 final class BachHoaXanhProvider implements CatalogProvider
 {
@@ -81,7 +82,7 @@ final class BachHoaXanhProvider implements CatalogProvider
         if (! $this->isConfigured()) {
             Log::warning('PriceComparison: BHX provider is not configured (missing store id)', [
                 'provider' => $this->source(),
-                'keyword'  => $keyword,
+                'keyword' => $keyword,
             ]);
 
             return $this->emptyResult($page, $perPage);
@@ -117,7 +118,7 @@ final class BachHoaXanhProvider implements CatalogProvider
         if (! $this->isConfigured()) {
             Log::warning('PriceComparison: BHX provider is not configured (missing store id)', [
                 'provider' => $this->source(),
-                'sku'      => $sku,
+                'sku' => $sku,
             ]);
 
             return null;
@@ -143,10 +144,10 @@ final class BachHoaXanhProvider implements CatalogProvider
     private function requestSearch(string $keyword, int $page, int $perPage, array $filters): ?SearchResult
     {
         $payload = [
-            'keywords'  => $keyword,
+            'keywords' => $keyword,
             'pageIndex' => $page - 1,
-            'pageSize'  => $perPage,
-            'storeId'   => $this->storeId(),
+            'pageSize' => $perPage,
+            'storeId' => $this->storeId(),
         ];
 
         foreach ($this->optionalFields($filters) as $field => $value) {
@@ -155,8 +156,8 @@ final class BachHoaXanhProvider implements CatalogProvider
 
         $context = [
             'provider' => $this->source(),
-            'keyword'  => $keyword,
-            'page'     => $page,
+            'keyword' => $keyword,
+            'page' => $page,
             'per_page' => $perPage,
         ];
 
@@ -284,6 +285,8 @@ final class BachHoaXanhProvider implements CatalogProvider
         $category = $raw['category'] ?? null;
         $category = is_array($category) ? $category : null;
 
+        $promotions = $this->mapPromotions($raw);
+
         return new ProductSummary(
             source: $this->source(),
             sku: $id,
@@ -305,7 +308,36 @@ final class BachHoaXanhProvider implements CatalogProvider
             manufacturer: null,
             categories: $category !== null ? [$category] : null,
             rawData: $raw,
+            promotions: $promotions,
         );
+    }
+
+    /**
+     * Map the customer-facing promotion text. The feature-store variant
+     * (promotionTextFS) wins over the regular promotionText, matching the
+     * original bachhoaxanh front-end. Values are trimmed; when nothing
+     * remains, the product has no promotion.
+     *
+     * IMPORTANT: Buy/gift quantity (e.g. "MUA 2 TẶNG 1") is intentionally NOT
+     * parsed — the text is displayed verbatim. isSpecialOffer,
+     * isBuyTogether and isShowPopupPromotion do NOT imply a promotion here.
+     *
+     * @param  array<string, mixed>  $raw
+     * @return array<int, array{title: string}>|null
+     */
+    private function mapPromotions(array $raw): ?array
+    {
+        $title = trim((string) ($raw['promotionTextFS'] ?? ''));
+
+        if ($title === '') {
+            $title = trim((string) ($raw['promotionText'] ?? ''));
+        }
+
+        if ($title === '') {
+            return null;
+        }
+
+        return [['title' => $title]];
     }
 
     /**
@@ -315,11 +347,11 @@ final class BachHoaXanhProvider implements CatalogProvider
     private function optionalFields(array $filters): array
     {
         $candidates = [
-            'provinceId'         => $filters['province_id'] ?? config('services.bachhoaxanh.province_id'),
-            'wardId'             => $filters['ward_id'] ?? config('services.bachhoaxanh.ward_id'),
-            'brandIds'           => $filters['brand_ids'] ?? null,
-            'categoryIds'        => $filters['category_ids'] ?? null,
-            'sortStr'            => $filters['sort_str'] ?? $filters['sort'] ?? null,
+            'provinceId' => $filters['province_id'] ?? config('services.bachhoaxanh.province_id'),
+            'wardId' => $filters['ward_id'] ?? config('services.bachhoaxanh.ward_id'),
+            'brandIds' => $filters['brand_ids'] ?? null,
+            'categoryIds' => $filters['category_ids'] ?? null,
+            'sortStr' => $filters['sort_str'] ?? $filters['sort'] ?? null,
             'priorityCategoryId' => $filters['priority_category_id'] ?? null,
         ];
 

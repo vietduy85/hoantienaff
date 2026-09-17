@@ -13,38 +13,46 @@ use Throwable;
 class PriceComparisonController extends Controller
 {
     private const RETAILERS = [
-        'coop'         => 'Co.op Online',
-        'bhx'          => 'BHX',
+        'coop' => 'Co.op Online',
+        'bhx' => 'BHX',
         'kingfoodmart' => 'Kingfoodmart',
-        'winmart'      => 'WinMart',
-        'dmx'     => 'Điện Máy Xanh',
-        'cps'     => 'CellphoneS',
-        'nk'      => 'Nguyễn Kim',
-        'lotte'   => 'LOTTE Mart',
+        'winmart' => 'WinMart',
+        'dmx' => 'Điện Máy Xanh',
+        'cps' => 'CellphoneS',
+        'nk' => 'Nguyễn Kim',
+        'lotte' => 'LOTTE Mart',
     ];
 
     /**
      * Retailer tab key => catalog source identifier.
      */
     private const RETAILER_SOURCES = [
-        'coop'         => 'coop_online',
-        'bhx'          => 'bach_hoa_xanh',
+        'coop' => 'coop_online',
+        'bhx' => 'bach_hoa_xanh',
         'kingfoodmart' => 'kingfoodmart',
+        'winmart' => 'winmart',
     ];
 
     /**
      * Catalog source identifier => retailer tab key.
      */
     private const SOURCE_RETAILERS = [
-        'coop_online'    => 'coop',
-        'bach_hoa_xanh'  => 'bhx',
-        'kingfoodmart'   => 'kingfoodmart',
+        'coop_online' => 'coop',
+        'bach_hoa_xanh' => 'bhx',
+        'kingfoodmart' => 'kingfoodmart',
+        'winmart' => 'winmart',
     ];
 
     /**
      * Retailer tab representing the merged "all providers" view.
      */
     private const ALL_RETAILER = 'all';
+
+    /**
+     * Retailer tab representing a filter on the merged "all providers" view
+     * restricting results to products that carry a promotion.
+     */
+    private const PROMOTION_RETAILER = 'promotion';
 
     public function __construct(
         private readonly PriceComparisonManager $catalog,
@@ -69,6 +77,7 @@ class PriceComparisonController extends Controller
         $retailerNotice = null;
         $retailerCounts = array_fill_keys(array_keys(self::RETAILERS), null);
         $retailerCounts[self::ALL_RETAILER] = null;
+        $retailerCounts[self::PROMOTION_RETAILER] = null;
         $sourceCount = 0;
         $marketplaceLinks = [];
 
@@ -80,7 +89,7 @@ class PriceComparisonController extends Controller
             } catch (Throwable $e) {
                 Log::warning('AffiliateSearchLinkManager failed', [
                     'keyword' => $keyword,
-                    'error'   => $e->getMessage(),
+                    'error' => $e->getMessage(),
                 ]);
             }
 
@@ -91,7 +100,7 @@ class PriceComparisonController extends Controller
                     $result = $this->catalog->searchAll($keyword, $page, 20, $sort);
 
                     $pagination = [
-                        'total'       => $result->total,
+                        'total' => $result->total,
                         'total_pages' => $result->totalPages,
                     ];
 
@@ -101,6 +110,7 @@ class PriceComparisonController extends Controller
                         ->all();
 
                     $retailerCounts[self::ALL_RETAILER] = $result->total > 0 ? $result->total : null;
+                    $retailerCounts[self::PROMOTION_RETAILER] = $result->promotionsCount > 0 ? $result->promotionsCount : null;
 
                     foreach (self::SOURCE_RETAILERS as $source => $tab) {
                         $count = (int) ($result->sourceTotals[$source] ?? 0);
@@ -114,7 +124,51 @@ class PriceComparisonController extends Controller
                 } catch (Throwable $e) {
                     Log::warning('PriceComparison page search failed', [
                         'keyword' => $keyword,
-                        'page'    => $page,
+                        'page' => $page,
+                        'message' => $e->getMessage(),
+                    ]);
+
+                    $error = 'Không thể lấy dữ liệu lúc này. Vui lòng thử lại.';
+                }
+            } elseif ($activeRetailer === self::PROMOTION_RETAILER) {
+                // "Khuyến mãi" is a filter over the aggregated dataset, not a
+                // provider: it reuses the "all retailers" search and keeps only
+                // products that carry a promotion.
+                try {
+                    $result = $this->catalog->searchAll($keyword, $page, 20, $sort, promotionsOnly: true);
+
+                    $pagination = [
+                        'total' => $result->total,
+                        'total_pages' => $result->totalPages,
+                    ];
+
+                    $products = $result->items
+                        ->map(fn ($p) => $p->toArray())
+                        ->values()
+                        ->all();
+
+                    $retailerCounts[self::PROMOTION_RETAILER] = $result->total > 0 ? $result->total : null;
+
+                    // Bring back the aggregated totals from the last "all
+                    // retailers" search so the other tab counts survive
+                    // switching to this filter.
+                    $aggCounts = $this->catalog->aggregatedCounts($keyword);
+
+                    if ($aggCounts !== null) {
+                        if ((int) $aggCounts['total'] > 0) {
+                            $retailerCounts[self::ALL_RETAILER] = (int) $aggCounts['total'];
+                        }
+
+                        foreach (self::SOURCE_RETAILERS as $source => $tab) {
+                            $count = (int) ($aggCounts['sources'][$source] ?? 0);
+
+                            $retailerCounts[$tab] = $count > 0 ? $count : null;
+                        }
+                    }
+                } catch (Throwable $e) {
+                    Log::warning('PriceComparison page search failed', [
+                        'keyword' => $keyword,
+                        'page' => $page,
                         'message' => $e->getMessage(),
                     ]);
 
@@ -131,7 +185,7 @@ class PriceComparisonController extends Controller
                         $result = $this->catalog->searchSource($source, $keyword, $page, 20);
 
                         $pagination = [
-                            'total'       => $result->total,
+                            'total' => $result->total,
                             'total_pages' => $result->totalPages,
                         ];
 
@@ -143,9 +197,9 @@ class PriceComparisonController extends Controller
                         $retailerCounts[$activeRetailer] = $result->total;
                     } catch (Throwable $e) {
                         Log::warning('PriceComparison page search failed', [
-                            'keyword'  => $keyword,
-                            'page'     => $page,
-                            'message'  => $e->getMessage(),
+                            'keyword' => $keyword,
+                            'page' => $page,
+                            'message' => $e->getMessage(),
                         ]);
 
                         $error = 'Không thể lấy dữ liệu lúc này. Vui lòng thử lại.';
@@ -164,6 +218,10 @@ class PriceComparisonController extends Controller
                         $retailerCounts[self::ALL_RETAILER] = $allTotal;
                     }
 
+                    $promotionCount = (int) ($aggCounts['promotions'] ?? 0);
+
+                    $retailerCounts[self::PROMOTION_RETAILER] = $promotionCount > 0 ? $promotionCount : null;
+
                     foreach (self::SOURCE_RETAILERS as $source => $tab) {
                         if ($tab === $activeRetailer || ($retailerCounts[$tab] ?? null) !== null) {
                             continue;
@@ -179,9 +237,13 @@ class PriceComparisonController extends Controller
                 $retailerNotice = 'Nguồn giá này đang được cập nhật.';
             }
 
-            if ($activeRetailer !== self::ALL_RETAILER && $sort === 'price_asc' && $error === null) {
+            if (! in_array($activeRetailer, [self::ALL_RETAILER, self::PROMOTION_RETAILER], true)
+                && $sort === 'price_asc'
+                && $error === null) {
                 usort($products, fn (array $a, array $b) => ($a['price'] ?? PHP_INT_MAX) <=> ($b['price'] ?? PHP_INT_MAX));
-            } elseif ($activeRetailer !== self::ALL_RETAILER && $sort === 'price_desc' && $error === null) {
+            } elseif (! in_array($activeRetailer, [self::ALL_RETAILER, self::PROMOTION_RETAILER], true)
+                && $sort === 'price_desc'
+                && $error === null) {
                 usort($products, fn (array $a, array $b) => ($b['price'] ?? 0) <=> ($a['price'] ?? 0));
             }
 
@@ -200,20 +262,20 @@ class PriceComparisonController extends Controller
         }
 
         return view('price-comparison.index', [
-            'keyword'           => $keyword ?: null,
-            'products'          => $products,
-            'pagination'        => $pagination,
-            'page'              => $page,
-            'sort'              => $sort,
-            'retailer'          => $retailer,
-            'activeRetailer'    => $activeRetailer,
-            'retailers'         => self::RETAILERS,
-            'retailerCounts'    => $retailerCounts,
-            'sourceCount'       => $sourceCount,
+            'keyword' => $keyword ?: null,
+            'products' => $products,
+            'pagination' => $pagination,
+            'page' => $page,
+            'sort' => $sort,
+            'retailer' => $retailer,
+            'activeRetailer' => $activeRetailer,
+            'retailers' => self::RETAILERS,
+            'retailerCounts' => $retailerCounts,
+            'sourceCount' => $sourceCount,
             'providerAvailable' => $providerAvailable,
-            'retailerNotice'    => $retailerNotice,
-            'error'             => $error,
-            'marketplaceLinks'  => $marketplaceLinks,
+            'retailerNotice' => $retailerNotice,
+            'error' => $error,
+            'marketplaceLinks' => $marketplaceLinks,
         ]);
     }
 

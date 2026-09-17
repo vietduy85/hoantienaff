@@ -27,10 +27,10 @@ class BachHoaXanhProviderTest extends TestCase
         Cache::flush();
 
         config([
-            'services.bachhoaxanh.base_url'  => 'https://api.bachhoaxanh.com/gw',
-            'services.bachhoaxanh.store_id'  => BachHoaXanhFixture::STORE_ID,
+            'services.bachhoaxanh.base_url' => 'https://api.bachhoaxanh.com/gw',
+            'services.bachhoaxanh.store_id' => BachHoaXanhFixture::STORE_ID,
             'services.bachhoaxanh.province_id' => null,
-            'services.bachhoaxanh.ward_id'   => null,
+            'services.bachhoaxanh.ward_id' => null,
             'services.bachhoaxanh.user_agent' => 'MozTestAgent/1.0',
         ]);
     }
@@ -45,6 +45,48 @@ class BachHoaXanhProviderTest extends TestCase
         Http::fake([
             self::SEARCH_URL => Http::response(BachHoaXanhFixture::searchResponse()),
         ]);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $products
+     */
+    private function fakeProducts(array $products): void
+    {
+        Http::fake([
+            self::SEARCH_URL => Http::response([
+                'code' => 0,
+                'data' => ['products' => $products, 'total' => count($products), 'pageIndex' => 0, 'pageSize' => 20],
+            ]),
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $overrides
+     * @return array<string, mixed>
+     */
+    private function promoProduct(int $id, array $overrides = []): array
+    {
+        return array_replace_recursive([
+            'id' => $id,
+            'name' => 'Sản phẩm test '.$id,
+            'url' => '/khac/san-pham-test-'.$id,
+            'avatar' => 'https://cdnv2.tgdd.vn/mwg-static/bhx/Products/Images/'.$id.'/'.$id.'.jpg',
+            'unit' => 'Gói',
+            'productCode' => (string) (1000000000000 + $id),
+            'brandName' => 'Test',
+            'category' => ['id' => 1, 'name' => 'Test'],
+            'productPrices' => [
+                [
+                    'price' => 10000,
+                    'sysPrice' => 10000,
+                    'discountPercent' => 0,
+                    'quantity' => 10,
+                    'status' => 1,
+                    'isCanBuy' => true,
+                    'storeId' => BachHoaXanhFixture::STORE_ID,
+                ],
+            ],
+        ], $overrides);
     }
 
     // 1. source identifier
@@ -370,8 +412,8 @@ class BachHoaXanhProviderTest extends TestCase
         $this->fakeSearch();
 
         $this->provider()->search('vinamilk', 1, 20, [
-            'brand_ids'   => ['vinamilk', 'th'],
-            'sort'        => 'PriceAcs',
+            'brand_ids' => ['vinamilk', 'th'],
+            'sort' => 'PriceAcs',
             'category_ids' => [2386],
         ]);
 
@@ -499,9 +541,9 @@ class BachHoaXanhProviderTest extends TestCase
                         'garbage',
                         [],
                     ],
-                    'total'      => 4,
-                    'pageIndex'  => 0,
-                    'pageSize'   => 20,
+                    'total' => 4,
+                    'pageIndex' => 0,
+                    'pageSize' => 20,
                 ],
             ]),
         ]);
@@ -583,6 +625,114 @@ class BachHoaXanhProviderTest extends TestCase
         $this->assertArrayNotHasKey('rawData', $array);
     }
 
+    // 29. promotions (Phase 1)
+
+    public function test_maps_promotion_text_into_promotions_array(): void
+    {
+        $this->fakeSearch();
+
+        $haoHao = $this->provider()->search('vinamilk')->items[2];
+        $milk = $this->provider()->search('vinamilk')->items->first();
+
+        $this->assertTrue($haoHao->hasPromotion());
+        $this->assertSame([['title' => 'MUA 5 TẶNG 1']], $haoHao->promotions);
+        $this->assertSame([['title' => 'MUA 5 TẶNG 1']], $haoHao->toArray()['promotions']);
+
+        $this->assertFalse($milk->hasPromotion());
+        $this->assertNull($milk->promotions);
+    }
+
+    public function test_prefers_promotion_text_fs_over_promotion_text(): void
+    {
+        $this->fakeProducts([
+            $this->promoProduct(1, ['promotionText' => 'MUA 1 TẶNG 1', 'promotionTextFS' => 'MUA 2 TẶNG 1 - MUA 5 TẶNG 3']),
+        ]);
+
+        $product = $this->provider()->search('x')->items->first();
+
+        $this->assertSame([['title' => 'MUA 2 TẶNG 1 - MUA 5 TẶNG 3']], $product->promotions);
+    }
+
+    public function test_falls_back_to_promotion_text_when_fs_is_empty(): void
+    {
+        $this->fakeProducts([
+            $this->promoProduct(1, ['promotionText' => 'MUA 5 TẶNG 3', 'promotionTextFS' => '']),
+        ]);
+
+        $product = $this->provider()->search('x')->items->first();
+
+        $this->assertSame([['title' => 'MUA 5 TẶNG 3']], $product->promotions);
+    }
+
+    public function test_promotions_is_null_when_no_promotion_fields(): void
+    {
+        $this->fakeProducts([$this->promoProduct(1)]);
+
+        $product = $this->provider()->search('x')->items->first();
+
+        $this->assertNull($product->promotions);
+        $this->assertFalse($product->hasPromotion());
+    }
+
+    public function test_promotions_is_null_when_fields_are_blank(): void
+    {
+        $this->fakeProducts([
+            $this->promoProduct(1, ['promotionText' => '   ', 'promotionTextFS' => null]),
+        ]);
+
+        $product = $this->provider()->search('x')->items->first();
+
+        $this->assertNull($product->promotions);
+    }
+
+    public function test_promotion_text_is_trimmed(): void
+    {
+        $this->fakeProducts([
+            $this->promoProduct(1, ['promotionText' => '  MUA 2 TẶNG 1  ']),
+        ]);
+
+        $product = $this->provider()->search('x')->items->first();
+
+        $this->assertSame([['title' => 'MUA 2 TẶNG 1']], $product->promotions);
+    }
+
+    public function test_product_name_containing_tang_is_not_a_promotion(): void
+    {
+        $this->fakeProducts([
+            $this->promoProduct(1, ['name' => 'Trứng gà hộp 10 tặng 2']),
+        ]);
+
+        $product = $this->provider()->search('x')->items->first();
+
+        $this->assertNull($product->promotions);
+        $this->assertFalse($product->hasPromotion());
+    }
+
+    public function test_special_offer_and_buy_together_do_not_create_promotion(): void
+    {
+        $this->fakeProducts([
+            $this->promoProduct(1, [
+                'isSpecialOffer' => true,
+                'productPrices' => [
+                    [
+                        'price' => 10000,
+                        'sysPrice' => 10000,
+                        'discountPercent' => 0,
+                        'quantity' => 10,
+                        'status' => 1,
+                        'isCanBuy' => true,
+                        'storeId' => BachHoaXanhFixture::STORE_ID,
+                        'isBuyTogether' => true,
+                    ],
+                ],
+            ]),
+        ]);
+
+        $product = $this->provider()->search('x')->items->first();
+
+        $this->assertNull($product->promotions);
+    }
+
     // getProduct
 
     public function test_get_product_returns_matching_product_from_search(): void
@@ -638,6 +788,8 @@ class BachHoaXanhProviderTest extends TestCase
             ->assertJsonPath('products.0.barcode', '1053141000391')
             ->assertJsonPath('products.2.discount_percent', 20)
             ->assertJsonPath('products.2.discount_amount', 900)
+            ->assertJsonPath('products.2.promotions.0.title', 'MUA 5 TẶNG 1')
+            ->assertJsonPath('products.0.promotions', null)
             ->assertJsonMissingPath('products.0.raw_data')
             ->assertJsonMissingPath('products.0.rawData');
     }
@@ -680,6 +832,7 @@ class BachHoaXanhProviderTest extends TestCase
             ->assertSee('Lốc 4 hộp sữa tươi tiệt trùng ít đường Vinamilk Green Farm 180ml', escape: false)
             ->assertSee('Mì Hảo Hảo gà vàng gói 74g', escape: false)
             ->assertSee('42.000')
+            ->assertSee('MUA 5 TẶNG 1', escape: false)
             ->assertSee('BHX')
             ->assertDontSee('raw_data', escape: false)
             ->assertDontSee('productPrices', escape: false);

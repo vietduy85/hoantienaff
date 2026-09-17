@@ -31,7 +31,16 @@ final class ProductSummary
         public readonly ?string $manufacturer = null,
         public readonly ?array $categories = null,
         public readonly ?array $rawData = null,
+        public readonly ?array $promotions = null,
     ) {}
+
+    /**
+     * Whether the product carries at least one reachable promotion.
+     */
+    public function hasPromotion(): bool
+    {
+        return $this->promotions !== null && $this->promotions !== [];
+    }
 
     /**
      * @return array<string, mixed>
@@ -39,25 +48,26 @@ final class ProductSummary
     public function toArray(): array
     {
         return [
-            'source'           => $this->source,
-            'sku'              => $this->sku,
-            'sku_id'           => $this->skuId,
-            'name'             => $this->name,
-            'barcode'          => $this->barcode,
-            'brand'            => $this->brand,
-            'category'         => $this->category,
-            'price'            => $this->price,
-            'original_price'   => $this->originalPrice,
+            'source' => $this->source,
+            'sku' => $this->sku,
+            'sku_id' => $this->skuId,
+            'name' => $this->name,
+            'barcode' => $this->barcode,
+            'brand' => $this->brand,
+            'category' => $this->category,
+            'price' => $this->price,
+            'original_price' => $this->originalPrice,
             'supplier_retail_price' => $this->supplierRetailPrice,
-            'discount_amount'  => $this->discountAmount,
+            'discount_amount' => $this->discountAmount,
             'discount_percent' => $this->discountPercent,
-            'image_url'        => $this->imageUrl,
-            'product_url'      => $this->productUrl,
-            'stock'            => $this->stock,
-            'sellable'         => $this->sellable,
-            'unit'             => $this->unit,
-            'slug'             => $this->slug,
-            'seller'           => $this->seller,
+            'image_url' => $this->imageUrl,
+            'product_url' => $this->productUrl,
+            'stock' => $this->stock,
+            'sellable' => $this->sellable,
+            'unit' => $this->unit,
+            'slug' => $this->slug,
+            'seller' => $this->seller,
+            'promotions' => $this->promotions,
         ];
     }
 }

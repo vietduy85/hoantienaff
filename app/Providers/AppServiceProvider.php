@@ -10,6 +10,7 @@ use App\Services\PriceComparison\PriceComparisonManager;
 use App\Services\PriceComparison\Providers\BachHoaXanhProvider;
 use App\Services\PriceComparison\Providers\CoopOnlineProvider;
 use App\Services\PriceComparison\Providers\KingfoodmartProvider;
+use App\Services\PriceComparison\Providers\WinMartProvider;
 use App\Services\ProviderFactory;
 use App\Services\Providers\AgodaProvider;
 use App\Services\Providers\BookingProvider;
@@ -45,6 +46,7 @@ class AppServiceProvider extends ServiceProvider
             CoopOnlineProvider::class,
             BachHoaXanhProvider::class,
             KingfoodmartProvider::class,
+            WinMartProvider::class,
         ], 'catalog-providers');
 
         $this->app->when(PriceComparisonManager::class)

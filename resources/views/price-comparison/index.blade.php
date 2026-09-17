@@ -190,6 +190,17 @@
             border-radius: 9999px;
             line-height: 1.4;
         }
+        .pc-promo {
+            align-self: flex-start;
+            font-size: 11px;
+            font-weight: 600;
+            color: #b45309;
+            background: #fef3c7;
+            border: 1px solid #fde68a;
+            padding: 2px 8px;
+            border-radius: 6px;
+            line-height: 1.4;
+        }
         .pc-footer {
             display: flex;
             align-items: center;
@@ -410,7 +421,7 @@
                 <div class="flex overflow-x-auto gap-2 pb-2 scrollbar-hide -mx-4 px-4">
                     @php
                         $activeTab = $retailer ?? 'all';
-                        $supportedTabs = ['coop', 'bhx', 'kingfoodmart'];
+                        $supportedTabs = ['coop', 'bhx', 'kingfoodmart', 'winmart'];
                         $retailerCount = fn (string $key) => isset($retailerCounts[$key]) && $retailerCounts[$key] !== null
                             ? ' ('.number_format($retailerCounts[$key]).')'
                             : '';
@@ -420,6 +431,12 @@
                        class="shrink-0 px-4 py-2 rounded-full text-sm font-medium border transition-colors
                               {{ $activeTab === 'all' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300' }}">
                         Tất cả{{ $retailerCount('all') }}
+                    </a>
+                    {{-- Khuyến mãi --}}
+                    <a href="{{ route('price-comparison.index', array_filter(['keyword' => $keyword, 'retailer' => 'promotion', 'sort' => $sort])) }}"
+                       class="shrink-0 px-4 py-2 rounded-full text-sm font-medium border transition-colors
+                              {{ $activeTab === 'promotion' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300' }}">
+                        Khuyến mãi{{ $retailerCount('promotion') }}
                     </a>
                     {{-- Co.op --}}
                     <a href="{{ route('price-comparison.index', array_filter(['keyword' => $keyword, 'retailer' => 'coop', 'sort' => $sort])) }}"
@@ -508,6 +525,7 @@
                         $stock = $product['stock'] ?? null;
                         $sellable = $product['sellable'] ?? false;
                         $unit = $product['unit'] ?? '';
+                        $promotions = $product['promotions'] ?? null;
                         $source = $product['source'] ?? 'coop';
                         $sourceBadges = [
                             'coop'         => 'Co.op',
@@ -577,6 +595,14 @@
                                         <span class="pc-discount">-{{ (int)$discPercent }}%</span>
                                     @endif
                                 </div>
+
+                                @if(!empty($promotions))
+                                    @foreach($promotions as $promo)
+                                        @if(!empty($promo['title']))
+                                            <span class="pc-promo">{{ $promo['title'] }}</span>
+                                        @endif
+                                    @endforeach
+                                @endif
                             </div>
                         </div>
 

@@ -283,6 +283,98 @@ class PriceComparisonAllRetailerTest extends TestCase
         }
     }
 
+    // ------------------------------------------------- Phase 1 promotion filter
+
+    public function test_search_all_counts_promotions_in_fetched_dataset(): void
+    {
+        $this->fakeBoth();
+
+        $result = $this->manager()->searchAll('mi');
+
+        $this->assertSame(1, $result->promotionsCount);
+    }
+
+    public function test_search_all_promotions_only_keeps_promo_products(): void
+    {
+        $this->fakeBoth();
+
+        $result = $this->manager()->searchAll('mi', 1, 20, 'relevance', null, true);
+
+        $this->assertCount(1, $result->items);
+        $this->assertSame(1, $result->total);
+        $this->assertTrue($result->items->first()->hasPromotion());
+        $this->assertSame('bach_hoa_xanh', $result->items->first()->source);
+        $this->assertSame('Mì Hảo Hảo gà vàng gói 74g', $result->items->first()->name);
+    }
+
+    public function test_search_all_promotions_only_recomputes_pagination(): void
+    {
+        $products = [
+            $this->bhxProduct('1', 'BHX promo A', 1000),
+            $this->bhxProduct('2', 'BHX promo B', 2000),
+            $this->bhxProduct('3', 'BHX promo C', 3000),
+            $this->bhxProduct('4', 'BHX plain A', 4000),
+            $this->bhxProduct('5', 'BHX promo D', 5000),
+        ];
+        $products[0]['promotionText'] = 'MUA 2 TẶNG 1';
+        $products[1]['promotionText'] = 'MUA 5 TẶNG 3';
+        $products[2]['promotionText'] = 'GIÁ SỐC';
+        $products[4]['promotionText'] = 'MUA 1 TẶNG 1';
+
+        Http::fake([
+            self::COOP_URL => Http::response($this->coopResponseWith(
+                [$this->coopProduct('777', 'Co.op không promo', 5000)],
+                1,
+            )),
+            self::BHX_URL => Http::response([
+                'code' => 0,
+                'data' => ['products' => $products, 'total' => 5],
+            ]),
+        ]);
+
+        $manager = $this->manager();
+
+        $page1 = $manager->searchAll('mi', 1, 2, 'relevance', null, true);
+        $page2 = $manager->searchAll('mi', 2, 2, 'relevance', null, true);
+
+        $this->assertSame(4, $page1->total);
+        $this->assertSame(2, $page1->totalPages);
+        $this->assertCount(2, $page1->items);
+        $this->assertCount(2, $page2->items);
+        $this->assertTrue($page1->items->every(fn ($p) => $p->hasPromotion()));
+        $this->assertTrue($page2->items->every(fn ($p) => $p->hasPromotion()));
+        $this->assertFalse($page1->items->contains(fn ($p) => $p->name === 'BHX plain A'));
+    }
+
+    public function test_search_all_promotions_only_does_not_overwrite_counts_cache(): void
+    {
+        $this->fakeBoth();
+
+        $manager = $this->manager();
+
+        $manager->searchAll('mi');
+        $manager->searchAll('mi', 1, 20, 'relevance', null, true);
+
+        $this->assertSame(
+            ['total' => 8, 'sources' => ['coop_online' => 36, 'bach_hoa_xanh' => 99], 'promotions' => 1],
+            $manager->aggregatedCounts('mi'),
+        );
+    }
+
+    public function test_non_promo_sources_have_null_promotions_in_merged_items(): void
+    {
+        $this->fakeBoth();
+
+        $result = $this->manager()->searchAll('mi');
+
+        foreach ($result->items as $item) {
+            if ($item->source !== 'bach_hoa_xanh') {
+                $this->assertNull($item->promotions);
+                $this->assertFalse($item->hasPromotion());
+            }
+        }
+    }
+
     // ------------------------------------------------------------------- API
 
     public function test_api_all_returns_merged_sources(): void
@@ -295,16 +387,21 @@ class PriceComparisonAllRetailerTest extends TestCase
             ->assertJsonPath('keyword', 'mi')
             ->assertJsonPath('pagination.total', 8);
 
-        // The container-managed manager now also contains Kingfoodmart. Its
-        // request is not faked here and is isolated to an empty source.
-        $response->assertJsonCount(3, 'sources');
+        // The container-managed manager now also contains Kingfoodmart and
+        // WinMart. Their requests are not faked here and are isolated to an
+        // empty source.
+        $response->assertJsonCount(4, 'sources');
         $response->assertJsonPath('sources.0.source', 'coop_online');
         $response->assertJsonPath('sources.1.source', 'bach_hoa_xanh');
         $response->assertJsonPath('sources.2.source', 'kingfoodmart');
+        $response->assertJsonPath('sources.3.source', 'winmart');
         $response->assertJsonPath('sources.0.total', 36);
         $response->assertJsonPath('sources.1.total', 99);
         $response->assertJsonPath('sources.2.total', 0);
+        $response->assertJsonPath('sources.3.total', 0);
         $response->assertJsonCount(8, 'products');
+        $response->assertJsonPath('products.5.promotions.0.title', 'MUA 5 TẶNG 1');
+        $response->assertJsonPath('products.0.promotions', null);
     }
 
     public function test_api_all_validates_keyword(): void
@@ -401,7 +498,7 @@ class PriceComparisonAllRetailerTest extends TestCase
         $manager->searchAll('mi');
 
         $this->assertSame(
-            ['total' => 8, 'sources' => ['coop_online' => 36, 'bach_hoa_xanh' => 99]],
+            ['total' => 8, 'sources' => ['coop_online' => 36, 'bach_hoa_xanh' => 99], 'promotions' => 1],
             $manager->aggregatedCounts('mi'),
         );
     }
@@ -515,12 +612,12 @@ class PriceComparisonAllRetailerTest extends TestCase
 
     // ------------------------------------------------- C6 Kingfoodmart source
 
-    public function test_manager_registry_discovers_all_three_providers(): void
+    public function test_manager_registry_discovers_all_four_providers(): void
     {
         $manager = $this->app->make(PriceComparisonManager::class);
 
         $this->assertSame(
-            ['coop_online', 'bach_hoa_xanh', 'kingfoodmart'],
+            ['coop_online', 'bach_hoa_xanh', 'kingfoodmart', 'winmart'],
             array_keys($manager->all()),
         );
     }
