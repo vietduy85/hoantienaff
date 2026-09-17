@@ -97,6 +97,71 @@ class LazadaAffiliateSearchLinkProviderTest extends TestCase
         $this->assertSame('https://c.lazada.vn/t/c.RAW', $result['affiliate_url']);
     }
 
+    public function test_catalog_response_only_offer_link_is_used(): void
+    {
+        $this->fakeGetLink([
+            'originalUrl' => self::SEARCH_URL,
+            'productId' => null,
+            'productName' => null,
+            'offerPromotionLink' => 'https://s.lazada.vn/s.oXOnr?sub_id1=tester',
+            'regularCommission' => null,
+        ]);
+
+        $result = $this->provider()->getAffiliateSearchLink('vinamilk ít đường', 'tester');
+
+        $this->assertSame('https://s.lazada.vn/s.oXOnr?sub_id1=tester', $result['affiliate_url']);
+        $this->assertSame('ready', $result['status']);
+        $this->assertSame(self::SEARCH_URL, $result['search_url']);
+    }
+
+    public function test_product_response_only_regular_link_is_used(): void
+    {
+        $this->fakeGetLink([
+            'originalUrl' => 'https://www.lazada.vn/products/i123456789.html',
+            'productId' => 123456789,
+            'regularPromotionLink' => 'https://c.lazada.vn/t/c.REGULAR',
+            'regularCommission' => null,
+        ]);
+
+        $result = $this->provider()->getAffiliateSearchLink('vinamilk ít đường', 'tester');
+
+        $this->assertSame('https://c.lazada.vn/t/c.REGULAR', $result['affiliate_url']);
+        $this->assertSame('ready', $result['status']);
+    }
+
+    public function test_offer_link_is_preferred_when_both_exist(): void
+    {
+        $this->fakeGetLink([
+            'originalUrl' => self::SEARCH_URL,
+            'productId' => null,
+            'productName' => null,
+            'offerPromotionLink' => 'https://s.lazada.vn/s.OFFER?sub_id1=tester',
+            'regularPromotionLink' => 'https://c.lazada.vn/t/c.REGULAR',
+            'regularCommission' => null,
+        ]);
+
+        $result = $this->provider()->getAffiliateSearchLink('vinamilk ít đường', 'tester');
+
+        $this->assertSame('https://s.lazada.vn/s.OFFER?sub_id1=tester', $result['affiliate_url']);
+        $this->assertSame('ready', $result['status']);
+    }
+
+    public function test_missing_both_links_returns_unavailable(): void
+    {
+        $this->fakeGetLink([
+            'originalUrl' => self::SEARCH_URL,
+            'productId' => null,
+            'productName' => null,
+            'regularCommission' => null,
+        ]);
+
+        $result = $this->provider()->getAffiliateSearchLink('vinamilk ít đường');
+
+        $this->assertNull($result['affiliate_url']);
+        $this->assertSame('unavailable', $result['status']);
+        $this->assertSame(self::SEARCH_URL, $result['search_url']);
+    }
+
     public function test_official_subid1_uses_username(): void
     {
         $this->fakeGetLink([
@@ -135,6 +200,14 @@ class LazadaAffiliateSearchLinkProviderTest extends TestCase
 
         $this->assertSame('ready', $result['status']);
         $this->assertSame('https://c.lazada.vn/t/c.ANON', $result['affiliate_url']);
+
+        // Anonymous never fabricates a tracking key / username: the client
+        // drops empty params, so no subId1 appears in the signed request.
+        Http::assertSent(function (\Illuminate\Http\Client\Request $request) {
+            $url = (string) $request->url();
+
+            return ! str_contains($url, 'subId1') && ! str_contains($url, 'utm_') && ! str_contains($url, 'tester');
+        });
     }
 
     public function test_api_error_returns_unavailable(): void

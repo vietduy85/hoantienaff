@@ -25,6 +25,10 @@ class AffiliateCacheService
             ->whereDate('cache_date', $this->cacheDate)
             ->first();
 
+        if ($cache !== null && $this->isEmptyPlaceholder($cache)) {
+            $cache = null;
+        }
+
         if (config('app.affiliate_timing')) {
             if ($cache) {
                 Log::info('[CACHE]', [
@@ -36,6 +40,15 @@ class AffiliateCacheService
         }
 
         return $cache;
+    }
+
+    private function isEmptyPlaceholder(AffiliateCache $cache): bool
+    {
+        return $cache->product_name === null
+            && $cache->product_price === null
+            && $cache->estimated_cashback === null
+            && $cache->user_estimated_cashback === null
+            && $cache->shop_id === null;
     }
 
     public function logMiss(int $itemId): void
@@ -75,6 +88,7 @@ class AffiliateCacheService
     public function extractItemId(string $url): ?int
     {
         $ids = $this->extractProductIds($url);
+
         return $ids['item_id'] ?? null;
     }
 

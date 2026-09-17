@@ -66,7 +66,7 @@ class PriceComparisonPageTest extends TestCase
     {
         $this->fakeCoopEmpty();
 
-        $this->get('/so-sanh-gia?keyword=sữa+Vinamilk');
+        $this->get('/so-sanh-gia?keyword=sữa+Vinamilk&retailer=coop');
 
         Http::assertSent(function (Request $request) {
             return $request['query'] === 'sữa Vinamilk';
@@ -77,7 +77,7 @@ class PriceComparisonPageTest extends TestCase
     {
         $this->fakeCoopEmpty();
 
-        $this->get('/so-sanh-gia?keyword=mi');
+        $this->get('/so-sanh-gia?keyword=mi&retailer=coop');
 
         Http::assertSent(function (Request $request) {
             return $request->url() === 'https://discovery.tekoapis.com/api/v1/search'
@@ -89,7 +89,7 @@ class PriceComparisonPageTest extends TestCase
     {
         $this->fakeCoopSearch();
 
-        $this->get('/so-sanh-gia?keyword=mì')
+        $this->get('/so-sanh-gia?keyword=mì&retailer=coop')
             ->assertOk()
             ->assertSee('Mì Hảo Hảo vị gà vang thùng 30 x 74g', escape: false)
             ->assertSee('Mì Hảo Hảo vị gà vàng gói 74g', escape: false);
@@ -99,7 +99,7 @@ class PriceComparisonPageTest extends TestCase
     {
         $this->fakeCoopSearch();
 
-        $this->get('/so-sanh-gia?keyword=mì')
+        $this->get('/so-sanh-gia?keyword=mì&retailer=coop')
             ->assertSee('122.500')
             ->assertSee('3.500');
     }
@@ -108,7 +108,7 @@ class PriceComparisonPageTest extends TestCase
     {
         $this->fakeCoopSearch();
 
-        $this->get('/so-sanh-gia?keyword=mì')
+        $this->get('/so-sanh-gia?keyword=mì&retailer=coop')
             ->assertSee('131.000', escape: false);
     }
 
@@ -116,7 +116,7 @@ class PriceComparisonPageTest extends TestCase
     {
         $this->fakeCoopSearch();
 
-        $this->get('/so-sanh-gia?keyword=mì')
+        $this->get('/so-sanh-gia?keyword=mì&retailer=coop')
             ->assertSee('-6%', escape: false);
     }
 
@@ -124,7 +124,7 @@ class PriceComparisonPageTest extends TestCase
     {
         $this->fakeCoopSearch();
 
-        $this->get('/so-sanh-gia?keyword=mì')
+        $this->get('/so-sanh-gia?keyword=mì&retailer=coop')
             ->assertSee('lh3.googleusercontent.com', escape: false);
     }
 
@@ -132,7 +132,7 @@ class PriceComparisonPageTest extends TestCase
     {
         $this->fakeCoopSearch();
 
-        $this->get('/so-sanh-gia?keyword=mì')
+        $this->get('/so-sanh-gia?keyword=mì&retailer=coop')
             ->assertSee('cooponline.vn/products/250100313', escape: false)
             ->assertSee('cooponline.vn/products/250100218', escape: false);
     }
@@ -141,7 +141,7 @@ class PriceComparisonPageTest extends TestCase
     {
         $this->fakeCoopSearch();
 
-        $response = $this->get('/so-sanh-gia?keyword=mì');
+        $response = $this->get('/so-sanh-gia?keyword=mì&retailer=coop');
 
         $badges = substr_count($response->getContent(), '>Co.op</span>');
         $this->assertGreaterThanOrEqual(2, $badges);
@@ -166,7 +166,7 @@ class PriceComparisonPageTest extends TestCase
             ],
         ]);
 
-        $response = $this->get('/so-sanh-gia?keyword=test&sort=price_asc');
+        $response = $this->get('/so-sanh-gia?keyword=test&retailer=coop&sort=price_asc');
         $content = $response->getContent();
 
         $posB = strpos($content, '50.000');
@@ -193,7 +193,7 @@ class PriceComparisonPageTest extends TestCase
             ],
         ]);
 
-        $response = $this->get('/so-sanh-gia?keyword=test&sort=price_desc');
+        $response = $this->get('/so-sanh-gia?keyword=test&retailer=coop&sort=price_desc');
         $content = $response->getContent();
 
         $posA = strpos($content, '150.000');
@@ -207,7 +207,7 @@ class PriceComparisonPageTest extends TestCase
     {
         $this->fakeCoopEmpty();
 
-        $this->get('/so-sanh-gia?keyword=không+có')
+        $this->get('/so-sanh-gia?keyword=không+có&retailer=coop')
             ->assertOk()
             ->assertSee('Không tìm thấy sản phẩm phù hợp', escape: false);
     }
@@ -218,7 +218,7 @@ class PriceComparisonPageTest extends TestCase
 
         $this->app->bind(\App\Services\PriceComparison\PriceComparisonManager::class, fn () => new \App\Services\PriceComparison\PriceComparisonManager());
 
-        $this->get('/so-sanh-gia?keyword=test')
+        $this->get('/so-sanh-gia?keyword=test&retailer=coop')
             ->assertOk()
             ->assertSee('Không thể lấy dữ liệu lúc này', escape: false);
     }
@@ -227,7 +227,7 @@ class PriceComparisonPageTest extends TestCase
     {
         $this->fakeCoopSearch();
 
-        $this->get('/so-sanh-gia?keyword=mì')
+        $this->get('/so-sanh-gia?keyword=mì&retailer=coop')
             ->assertDontSee('rawData', escape: false)
             ->assertDontSee('raw_data', escape: false)
             ->assertDontSee('productInfo', escape: false);
@@ -235,7 +235,7 @@ class PriceComparisonPageTest extends TestCase
 
     public function test_unsupported_retailer_does_not_fake_products(): void
     {
-        $this->get('/so-sanh-gia?keyword=test&retailer=bhx')
+        $this->get('/so-sanh-gia?keyword=test&retailer=winmart')
             ->assertOk()
             ->assertSee('Nguồn giá này đang được cập nhật', escape: false);
 

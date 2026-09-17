@@ -12,6 +12,7 @@ use App\Services\ProductDataService;
 use App\Services\TikTok\TikTokLinkEstimateService;
 use App\Services\TikTok\TikTokServiceException;
 use App\Services\UrlResolverService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -27,7 +28,7 @@ class DashboardCreateDirectLinkController extends Controller
         private readonly LazadaLinkEstimateService $lazadaLinkEstimate,
     ) {}
 
-    public function store(Request $request): \Illuminate\Http\JsonResponse|RedirectResponse
+    public function store(Request $request): JsonResponse|RedirectResponse
     {
         $validated = $request->validate([
             'original_url' => ['required', 'url', 'max:2048'],
@@ -47,11 +48,29 @@ class DashboardCreateDirectLinkController extends Controller
         if ($isShopee) {
             $resolvedUrl = $this->urlResolver->resolve($validated['original_url']);
 
-            if ($resolvedUrl === null) {
-                Log::warning('[Resolver] Fallback to original URL', [
+            if ($resolvedUrl === null || ! $this->urlResolver->isShopeeLanding($resolvedUrl)) {
+                Log::warning('[Resolver] Could not resolve Shopee short link to a landing URL', [
                     'original_url' => $validated['original_url'],
+                    'resolved_url' => $resolvedUrl,
                 ]);
-                $resolvedUrl = $validated['original_url'];
+
+                $error = 'Không lấy được sản phẩm Shopee từ link rút gọn. Vui lòng thử lại.';
+
+                $link->update([
+                    'status' => 'failed',
+                    'notes' => $error,
+                ]);
+
+                if ($request->expectsJson() || $request->ajax()) {
+                    return response()->json([
+                        'success' => false,
+                        'error' => $error,
+                        'request_id' => $link->id,
+                        'platform' => $platform,
+                    ], 422);
+                }
+
+                return redirect()->route('dashboard')->with('error', $error);
             }
 
             $itemId = $this->cacheService->extractItemId($resolvedUrl);
@@ -66,37 +85,35 @@ class DashboardCreateDirectLinkController extends Controller
                 }
 
                 $link->update([
-                    'item_id'                => $cached->item_id,
-                    'shop_id'                => $cached->shop_id,
-                    'estimated_cashback'     => $cached->estimated_cashback,
+                    'item_id' => $cached->item_id,
+                    'shop_id' => $cached->shop_id,
+                    'estimated_cashback' => $cached->estimated_cashback,
                     'user_estimated_cashback' => $cached->user_estimated_cashback,
-                    'cashback_rate'          => $cached->cashback_rate,
-                    'product_name'           => $cached->product_name,
-                    'product_price'          => $cached->product_price,
-                    'product_link'           => $cached->product_link,
-                    'seller_commission'      => $cached->seller_commission,
-                    'shopee_commission'      => $cached->shopee_commission,
-                    'rating'                 => $cached->rating,
-                    'product_image'          => $cached->product_image,
-                    'shop_name'              => $cached->shop_name,
-                    'sales'                  => $cached->sales,
-                    'is_xtra'                => $cached->is_xtra,
-                    'data_source'            => $cached->data_source,
+                    'cashback_rate' => $cached->cashback_rate,
+                    'product_name' => $cached->product_name,
+                    'product_price' => $cached->product_price,
+                    'product_link' => $cached->product_link,
+                    'seller_commission' => $cached->seller_commission,
+                    'shopee_commission' => $cached->shopee_commission,
+                    'rating' => $cached->rating,
+                    'product_image' => $cached->product_image,
+                    'shop_name' => $cached->shop_name,
+                    'sales' => $cached->sales,
+                    'is_xtra' => $cached->is_xtra,
+                    'data_source' => $cached->data_source,
                 ]);
 
                 $affiliateUrl = $this->buildAffiliateUrl($resolvedUrl, $user);
 
                 $link->update([
                     'affiliate_url' => $affiliateUrl,
-                    'status'        => 'completed',
+                    'status' => 'completed',
                 ]);
             } else {
                 if ($itemId) {
                     $this->cacheService->logMiss($itemId);
 
                     $link->update(['item_id' => $itemId]);
-
-                    $this->cacheService->put($itemId, []);
                 }
 
                 $affiliateUrl = $this->buildAffiliateUrl($resolvedUrl, $user);
@@ -134,44 +151,44 @@ class DashboardCreateDirectLinkController extends Controller
                         $cashback = $cashbackCalculator->calculate($commission, $price);
 
                         LinkRequest::where('id', $linkId)->update([
-                            'item_id'               => $productData['item_id'],
-                            'shop_id'               => $productData['shop_id'],
-                            'estimated_cashback'     => $commission,
+                            'item_id' => $productData['item_id'],
+                            'shop_id' => $productData['shop_id'],
+                            'estimated_cashback' => $commission,
                             'user_estimated_cashback' => $cashback['user_estimated_cashback'],
-                            'cashback_rate'          => $cashback['cashback_rate'],
-                            'product_name'           => $productData['product_name'],
-                            'product_price'          => $productData['product_price'],
-                            'product_link'           => $productData['product_link'],
-                            'seller_commission'      => $productData['seller_commission'],
-                            'shopee_commission'      => $productData['shopee_commission'],
-                            'rating'                 => $productData['rating'],
-                            'product_image'          => $productData['product_image'],
-                            'shop_name'              => $productData['shop_name'],
-                            'sales'                  => $productData['sales'],
-                            'is_xtra'                => $productData['is_xtra'],
-                            'data_source'            => $productData['data_source'],
-                            'status'                 => 'completed',
+                            'cashback_rate' => $cashback['cashback_rate'],
+                            'product_name' => $productData['product_name'],
+                            'product_price' => $productData['product_price'],
+                            'product_link' => $productData['product_link'],
+                            'seller_commission' => $productData['seller_commission'],
+                            'shopee_commission' => $productData['shopee_commission'],
+                            'rating' => $productData['rating'],
+                            'product_image' => $productData['product_image'],
+                            'shop_name' => $productData['shop_name'],
+                            'sales' => $productData['sales'],
+                            'is_xtra' => $productData['is_xtra'],
+                            'data_source' => $productData['data_source'],
+                            'status' => 'completed',
                         ]);
 
                         $resolvedItemId = $productData['item_id'] ?? $itemIdClone;
                         if ($resolvedItemId) {
                             $cacheService = app(AffiliateCacheService::class);
                             $cacheService->put($resolvedItemId, [
-                                'shop_id'                => $productData['shop_id'],
-                                'product_name'           => $productData['product_name'],
-                                'product_price'          => $productData['product_price'],
-                                'seller_commission'      => $productData['seller_commission'],
-                                'shopee_commission'      => $productData['shopee_commission'],
-                                'estimated_cashback'     => $commission,
+                                'shop_id' => $productData['shop_id'],
+                                'product_name' => $productData['product_name'],
+                                'product_price' => $productData['product_price'],
+                                'seller_commission' => $productData['seller_commission'],
+                                'shopee_commission' => $productData['shopee_commission'],
+                                'estimated_cashback' => $commission,
                                 'user_estimated_cashback' => $cashback['user_estimated_cashback'],
-                                'cashback_rate'          => $cashback['cashback_rate'],
-                                'rating'                 => $productData['rating'],
-                                'sales'                  => $productData['sales'],
-                                'product_image'          => $productData['product_image'],
-                                'product_link'           => $productData['product_link'],
-                                'shop_name'              => $productData['shop_name'],
-                                'is_xtra'                => $productData['is_xtra'],
-                                'data_source'            => $productData['data_source'],
+                                'cashback_rate' => $cashback['cashback_rate'],
+                                'rating' => $productData['rating'],
+                                'sales' => $productData['sales'],
+                                'product_image' => $productData['product_image'],
+                                'product_link' => $productData['product_link'],
+                                'shop_name' => $productData['shop_name'],
+                                'is_xtra' => $productData['is_xtra'],
+                                'data_source' => $productData['data_source'],
                             ]);
                         }
                     }
@@ -184,21 +201,21 @@ class DashboardCreateDirectLinkController extends Controller
                 } catch (TikTokServiceException $e) {
                     $link->update([
                         'status' => 'failed',
-                        'notes'  => $e->getRioHubMessage() ?? $e->getMessage(),
+                        'notes' => $e->getRioHubMessage() ?? $e->getMessage(),
                     ]);
 
                     Log::warning('[DirectLink] TikTok link creation failed', [
-                        'url'      => $validated['original_url'],
-                        'error'    => $e->getMessage(),
-                        'user_id'  => $user->id,
+                        'url' => $validated['original_url'],
+                        'error' => $e->getMessage(),
+                        'user_id' => $user->id,
                     ]);
 
                     if ($request->expectsJson() || $request->ajax()) {
                         return response()->json([
                             'success' => false,
-                            'error'   => $this->friendlyTikTokError($e),
+                            'error' => $this->friendlyTikTokError($e),
                             'request_id' => $link->id,
-                            'platform'   => $platform,
+                            'platform' => $platform,
                         ], 422);
                     }
 
@@ -207,12 +224,12 @@ class DashboardCreateDirectLinkController extends Controller
                 } catch (\Throwable $e) {
                     $link->update([
                         'status' => 'failed',
-                        'notes'  => 'Lỗi hệ thống khi tạo link TikTok.',
+                        'notes' => 'Lỗi hệ thống khi tạo link TikTok.',
                     ]);
 
                     Log::warning('[DirectLink] TikTok provider failed', [
-                        'url'     => $validated['original_url'],
-                        'error'   => $e->getMessage(),
+                        'url' => $validated['original_url'],
+                        'error' => $e->getMessage(),
                     ]);
 
                     $msg = 'Không thể kết nối TikTok lúc này, vui lòng thử lại sau.';
@@ -220,9 +237,9 @@ class DashboardCreateDirectLinkController extends Controller
                     if ($request->expectsJson() || $request->ajax()) {
                         return response()->json([
                             'success' => false,
-                            'error'   => $msg,
+                            'error' => $msg,
                             'request_id' => $link->id,
-                            'platform'   => $platform,
+                            'platform' => $platform,
                         ], 502);
                     }
 
@@ -234,13 +251,13 @@ class DashboardCreateDirectLinkController extends Controller
                 } catch (LazadaException $e) {
                     $link->update([
                         'status' => 'failed',
-                        'notes'  => $e->getUserMessage(),
+                        'notes' => $e->getUserMessage(),
                     ]);
 
                     Log::warning('[DirectLink] Lazada link creation failed', [
-                        'url'      => $validated['original_url'],
-                        'error'    => $e->getMessage(),
-                        'user_id'  => $user->id,
+                        'url' => $validated['original_url'],
+                        'error' => $e->getMessage(),
+                        'user_id' => $user->id,
                     ]);
 
                     $friendly = $e->getUserMessage();
@@ -248,9 +265,9 @@ class DashboardCreateDirectLinkController extends Controller
                     if ($request->expectsJson() || $request->ajax()) {
                         return response()->json([
                             'success' => false,
-                            'error'   => $friendly,
+                            'error' => $friendly,
                             'request_id' => $link->id,
-                            'platform'   => $platform,
+                            'platform' => $platform,
                         ], 422);
                     }
 
@@ -258,12 +275,12 @@ class DashboardCreateDirectLinkController extends Controller
                 } catch (\Throwable $e) {
                     $link->update([
                         'status' => 'failed',
-                        'notes'  => 'Lỗi hệ thống khi tạo link Lazada.',
+                        'notes' => 'Lỗi hệ thống khi tạo link Lazada.',
                     ]);
 
                     Log::warning('[DirectLink] Lazada provider failed', [
-                        'url'     => $validated['original_url'],
-                        'error'   => $e->getMessage(),
+                        'url' => $validated['original_url'],
+                        'error' => $e->getMessage(),
                     ]);
 
                     $msg = 'Không thể kết nối Lazada lúc này, vui lòng thử lại sau.';
@@ -271,9 +288,9 @@ class DashboardCreateDirectLinkController extends Controller
                     if ($request->expectsJson() || $request->ajax()) {
                         return response()->json([
                             'success' => false,
-                            'error'   => $msg,
+                            'error' => $msg,
                             'request_id' => $link->id,
-                            'platform'   => $platform,
+                            'platform' => $platform,
                         ], 502);
                     }
 
@@ -301,11 +318,11 @@ class DashboardCreateDirectLinkController extends Controller
         $url = strtolower($url);
 
         $platforms = [
-            'shopee'  => 'Shopee',
+            'shopee' => 'Shopee',
             'shp.ee' => 'Shopee',
-            'lazada'  => 'Lazada',
-            'tiktok'  => 'TikTok Shop',
-            'tiki'    => 'Tiki',
+            'lazada' => 'Lazada',
+            'tiktok' => 'TikTok Shop',
+            'tiki' => 'Tiki',
         ];
 
         foreach ($platforms as $domain => $name) {
@@ -344,8 +361,8 @@ class DashboardCreateDirectLinkController extends Controller
         $subId = $user->username ?? '';
 
         return 'https://s.shopee.vn/an_redir'
-            . '?origin_link=' . $encodedUrl
-            . '&affiliate_id=' . $affiliateId
-            . '&sub_id=' . $subId;
+            .'?origin_link='.$encodedUrl
+            .'&affiliate_id='.$affiliateId
+            .'&sub_id='.$subId;
     }
 }

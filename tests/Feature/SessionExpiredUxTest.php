@@ -29,6 +29,13 @@ class SessionExpiredUxTest extends TestCase
         Setting::set('affiliate.dashboard.strategy', 'direct');
         Setting::set('affiliate.direct.shopee_affiliate_id', '12345');
         Setting::set('affiliate.direct.resolve_shortlink', 'false');
+
+        $this->mock(\App\Services\UrlResolverService::class, function ($mock) {
+            $mock->shouldReceive('resolve')->andReturnUsing(fn ($url) => $url);
+            $mock->shouldReceive('isShortLink')->andReturn(false);
+            $mock->shouldReceive('needsResolution')->andReturn(false);
+            $mock->shouldReceive('isShopeeLanding')->andReturn(true);
+        });
     }
 
     // 1. Authenticated normal POST still works (behavior unchanged)

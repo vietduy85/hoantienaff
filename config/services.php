@@ -67,4 +67,44 @@ return [
         'user_token' => env('LAZADA_USER_TOKEN'),
     ],
 
+    /*
+     * Bách Hóa Xanh product search.
+     *
+     * INTERNAL / UNDOCUMENTED API (reverse-engineered from the website's
+     * Next.js bundles). It is not a public/partner API and may change
+     * without notice. The API is location dependent: store_id drives
+     * price, stock and availability, so it must be configured explicitly
+     * per deployment (never guessed from the visitor).
+     */
+    'bachhoaxanh' => [
+        'base_url' => env('BHX_API_BASE_URL', 'https://api.bachhoaxanh.com/gw'),
+        'store_id' => env('BHX_STORE_ID'),
+        'province_id' => env('BHX_PROVINCE_ID'),
+        'ward_id' => env('BHX_WARD_ID'),
+        'user_agent' => env(
+            'BHX_USER_AGENT',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        ),
+    ],
+
+    /*
+     * Kingfoodmart product search.
+     *
+     * INTERNAL / UNDOCUMENTED API (reverse-engineered from the website's
+     * Next.js bundles). It is not a public/partner API and may change
+     * without notice. Search does NOT require authentication, cookies or
+     * an API key, so no credentials are stored here.
+     *
+     * The API is location dependent: a store-codes header scopes price and
+     * stock. That header is intentionally NOT sent in this phase because the
+     * UI has no store selector yet (no store code is guessed or hard-coded).
+     */
+    'kingfoodmart' => [
+        'base_url' => env(
+            'KINGFOODMART_API_BASE_URL',
+            'https://onelife-api.kingfoodmart.com/v1'
+        ),
+        'tenant' => env('KINGFOODMART_TENANT', 'kingfood'),
+    ],
+
 ];

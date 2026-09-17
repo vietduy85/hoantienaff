@@ -63,7 +63,7 @@ class LazadaAffiliateSearchLinkProvider implements AffiliateSearchLinkProvider
                 ];
             }
 
-            $affiliateUrl = (string) ($item['regularPromotionLink'] ?? '');
+            $affiliateUrl = (string) ($item['offerPromotionLink'] ?? $item['regularPromotionLink'] ?? '');
 
             if ($affiliateUrl === '') {
                 Log::info('[LazadaSearch] getlink returned empty promotion link', [

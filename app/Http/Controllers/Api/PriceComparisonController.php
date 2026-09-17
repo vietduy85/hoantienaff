@@ -21,6 +21,40 @@ class PriceComparisonController extends Controller
 
     public function search(Request $request): JsonResponse
     {
+        return $this->searchSource($request, 'coop_online');
+    }
+
+    public function searchBhx(Request $request): JsonResponse
+    {
+        return $this->searchSource($request, 'bach_hoa_xanh');
+    }
+
+    public function searchKingfoodmart(Request $request): JsonResponse
+    {
+        return $this->searchSource($request, 'kingfoodmart');
+    }
+
+    public function searchAll(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'keyword'  => ['required', 'string', 'max:120'],
+            'page'     => ['nullable', 'integer', 'min:1', 'max:10000'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'sort'     => ['nullable', 'in:relevance,price_asc,price_desc'],
+        ]);
+
+        $keyword = $validated['keyword'];
+        $page = (int) ($validated['page'] ?? 1);
+        $perPage = (int) ($validated['per_page'] ?? 20);
+        $sort = $validated['sort'] ?? 'relevance';
+
+        $result = $this->catalog->searchAll($keyword, $page, $perPage, $sort);
+
+        return response()->json($result->toArray() + ['keyword' => $keyword]);
+    }
+
+    private function searchSource(Request $request, string $source): JsonResponse
+    {
         $validated = $request->validate([
             'keyword'  => ['required', 'string', 'max:120'],
             'page'     => ['nullable', 'integer', 'min:1', 'max:10000'],
@@ -31,7 +65,7 @@ class PriceComparisonController extends Controller
         $page = (int) ($validated['page'] ?? 1);
         $perPage = (int) ($validated['per_page'] ?? 20);
 
-        $provider = $this->catalog->forSource('coop_online');
+        $provider = $this->catalog->forSource($source);
 
         $result = $provider->search($keyword, $page, $perPage);
 

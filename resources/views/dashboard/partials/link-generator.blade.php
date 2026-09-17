@@ -9,6 +9,8 @@
         pollTimer: null,
         lastSubmittedUrl: '',
         autoGenerateTimer: null,
+        csrfRetried: false,
+        _csrfToken: '',
 
         submit() {
             if (!this.url.trim()) return;
@@ -17,26 +19,68 @@
             this.error = '';
             this.result = null;
             this.stopPolling();
+            this.post();
+        },
 
-            fetch('{{ route('link-requests.store') }}', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest',
-                    'X-CSRF-TOKEN': '{{ csrf_token() }}'
-                },
-                body: JSON.stringify({ original_url: this.url.trim() })
-            })
-            .then(async r => {
-                if (r.status === 401 || r.status === 419) {
-                    this.error = 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.';
-                    this.loading = false;
-                    setTimeout(() => {
-                        window.location.href = '{{ route('login') }}';
-                    }, 1200);
+        csrfToken() {
+            return this._csrfToken || '{{ csrf_token() }}';
+        },
+
+        async refreshCsrf() {
+            try {
+                const res = await fetch(window.location.pathname + window.location.search, {
+                    cache: 'no-store',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                });
+                if (!res.ok) return false;
+                const html = await res.text();
+                const m = html.match(/<meta name=&quot;csrf-token&quot; content=&quot;([^&quot;]+)&quot;/i);
+                if (!m || !m[1]) return false;
+                this._csrfToken = m[1];
+                return true;
+            } catch (e) {
+                return false;
+            }
+        },
+
+        async post() {
+            let response;
+            try {
+                response = await fetch('{{ route('link-requests.store') }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRF-TOKEN': this.csrfToken()
+                    },
+                    body: JSON.stringify({ original_url: this.url.trim() })
+                });
+            } catch (e) {
+                this.error = 'Không thể kết nối máy chủ';
+                this.loading = false;
+                return;
+            }
+
+            if (response.status === 419 && !this.csrfRetried) {
+                this.csrfRetried = true;
+                const refreshed = await this.refreshCsrf();
+                if (refreshed) {
+                    this.post();
                     return;
                 }
-                const data = await r.json().catch(() => ({}));
+            }
+
+            if (response.status === 401 || response.status === 419) {
+                this.error = 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.';
+                this.loading = false;
+                setTimeout(() => {
+                    window.location.href = '{{ route('login') }}';
+                }, 1200);
+                return;
+            }
+
+            try {
+                const data = await response.json();
                 if (!data.success) {
                     this.error = data.error || 'Lỗi không xác định';
                     this.loading = false;
@@ -48,11 +92,10 @@
                     this.loading = false;
                 }
                 this.startPolling();
-            })
-            .catch(e => {
+            } catch (e) {
                 this.error = 'Không thể kết nối máy chủ';
                 this.loading = false;
-            });
+            }
         },
 
         stopPolling() {

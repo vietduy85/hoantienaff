@@ -292,21 +292,59 @@
                 <p class="text-sm font-semibold text-gray-700">Mua "{{ $keyword }}" trên sàn</p>
                 <div class="pc-marketplace">
                     @if($shopeeLink)
-                        <a href="{{ $shopeeLink['affiliate_url'] ?? $shopeeLink['search_url'] }}"
-                           target="_blank"
-                           rel="noopener noreferrer"
-                           class="pc-marketplace-card"
-                           style="opacity:1;cursor:pointer;text-decoration:none;">
-                            <div class="pc-marketplace-icon pc-shopee"><span>🛒</span></div>
-                            <span class="pc-marketplace-name">Shopee</span>
-                            <span class="pc-marketplace-status">
-                                @if($shopeeLink['affiliate_url'])
-                                    Mua sắm ↗
-                                @else
-                                    Xem trên Shopee ↗
-                                @endif
-                            </span>
-                        </a>
+                        @php
+                            $shopeePending = empty($shopeeLink['affiliate_url'])
+                                && in_array($shopeeLink['status'] ?? null, ['pending', 'processing'], true)
+                                && (int) ($shopeeLink['request_id'] ?? 0);
+                        @endphp
+
+                        @if($shopeePending)
+                            <div class="contents"
+                                 x-data="pcShopeeCard(@js([
+                                     'jobId'        => (int) $shopeeLink['request_id'],
+                                     'searchUrl'    => $shopeeLink['search_url'],
+                                     'affiliateUrl' => null,
+                                 ]))">
+                                <template x-if="pending">
+                                    <div class="pc-marketplace-card">
+                                        <div class="pc-marketplace-icon pc-shopee"><span>🛒</span></div>
+                                        <span class="pc-marketplace-name">Shopee</span>
+                                        <span class="pc-marketplace-status">
+                                            <span x-text="statusText">Đang tạo link...</span>
+                                        </span>
+                                    </div>
+                                </template>
+                                <template x-if="!pending">
+                                    <a x-bind:href="affiliateUrl || searchUrl"
+                                       target="_blank"
+                                       rel="noopener noreferrer"
+                                       class="pc-marketplace-card"
+                                       style="opacity:1;cursor:pointer;text-decoration:none;">
+                                        <div class="pc-marketplace-icon pc-shopee"><span>🛒</span></div>
+                                        <span class="pc-marketplace-name">Shopee</span>
+                                        <span class="pc-marketplace-status">
+                                            <span x-text="affiliateUrl ? 'Mua sắm ↗' : 'Xem trên Shopee ↗'"></span>
+                                        </span>
+                                    </a>
+                                </template>
+                            </div>
+                        @else
+                            <a href="{{ $shopeeLink['affiliate_url'] ?? $shopeeLink['search_url'] }}"
+                               target="_blank"
+                               rel="noopener noreferrer"
+                               class="pc-marketplace-card"
+                               style="opacity:1;cursor:pointer;text-decoration:none;">
+                                <div class="pc-marketplace-icon pc-shopee"><span>🛒</span></div>
+                                <span class="pc-marketplace-name">Shopee</span>
+                                <span class="pc-marketplace-status">
+                                    @if($shopeeLink['affiliate_url'])
+                                        Mua sắm ↗
+                                    @else
+                                        Xem trên Shopee ↗
+                                    @endif
+                                </span>
+                            </a>
+                        @endif
                     @else
                         <div class="pc-marketplace-card">
                             <div class="pc-marketplace-icon pc-shopee"><span>🛒</span></div>
@@ -351,7 +389,7 @@
                                 @if($tiktokLink['affiliate_url'])
                                     Mua sắm ↗
                                 @else
-                                    Xem trên TikTok ↗
+                                    Xem trên TikTok Shop ↗
                                 @endif
                             </span>
                         </a>
@@ -371,24 +409,41 @@
             <section class="space-y-3 pt-1">
                 <div class="flex overflow-x-auto gap-2 pb-2 scrollbar-hide -mx-4 px-4">
                     @php
-                        $allCount = $retailerCounts['coop'] ?? 0;
-                        $activeTab = $retailer ?? 'coop';
+                        $activeTab = $retailer ?? 'all';
+                        $supportedTabs = ['coop', 'bhx', 'kingfoodmart'];
+                        $retailerCount = fn (string $key) => isset($retailerCounts[$key]) && $retailerCounts[$key] !== null
+                            ? ' ('.number_format($retailerCounts[$key]).')'
+                            : '';
                     @endphp
-                    {{-- Tất cả / Co.op --}}
+                    {{-- Tất cả --}}
                     <a href="{{ route('price-comparison.index', array_filter(['keyword' => $keyword, 'sort' => $sort])) }}"
                        class="shrink-0 px-4 py-2 rounded-full text-sm font-medium border transition-colors
-                              {{ in_array($activeTab, [null, '', 'coop']) ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300' }}">
-                        Co.op ({{ number_format($allCount) }})
+                              {{ $activeTab === 'all' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300' }}">
+                        Tất cả{{ $retailerCount('all') }}
+                    </a>
+                    {{-- Co.op --}}
+                    <a href="{{ route('price-comparison.index', array_filter(['keyword' => $keyword, 'retailer' => 'coop', 'sort' => $sort])) }}"
+                       class="shrink-0 px-4 py-2 rounded-full text-sm font-medium border transition-colors
+                              {{ $activeTab === 'coop' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300' }}">
+                        Co.op{{ $retailerCount('coop') }}
                     </a>
                     {{-- Các retailer khác --}}
                     @foreach($retailers as $key => $name)
                         @if($key === 'coop') @continue @endif
-                        <button type="button"
-                                disabled
-                                class="shrink-0 px-4 py-2 rounded-full text-sm font-medium border bg-gray-50 text-gray-400 border-gray-100 cursor-not-allowed"
-                                title="{{ $name }} — Đang cập nhật">
-                            {{ $name }} (0)
-                        </button>
+                        @if(in_array($key, $supportedTabs, true))
+                            <a href="{{ route('price-comparison.index', array_filter(['keyword' => $keyword, 'retailer' => $key, 'sort' => $sort])) }}"
+                               class="shrink-0 px-4 py-2 rounded-full text-sm font-medium border transition-colors
+                                      {{ $activeTab === $key ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300' }}">
+                                {{ $name }}{{ $retailerCount($key) }}
+                            </a>
+                        @else
+                            <button type="button"
+                                    disabled
+                                    class="shrink-0 px-4 py-2 rounded-full text-sm font-medium border bg-gray-50 text-gray-400 border-gray-100 cursor-not-allowed"
+                                    title="{{ $name }} — Đang cập nhật">
+                                {{ $name }}
+                            </button>
+                        @endif
                     @endforeach
                 </div>
 
@@ -417,10 +472,10 @@
         @if($keyword && !$providerAvailable && !$error)
             <div class="bg-amber-50 border border-amber-200 rounded-2xl p-5 text-center space-y-2">
                 <div class="text-3xl">🔧</div>
-                <p class="text-sm text-amber-800 font-medium">Nguồn giá này đang được cập nhật.</p>
+                <p class="text-sm text-amber-800 font-medium">{{ $retailerNotice ?? 'Nguồn giá này đang được cập nhật.' }}</p>
                 <a href="{{ route('price-comparison.index', array_filter(['keyword' => $keyword, 'sort' => $sort])) }}"
                    class="inline-flex items-center text-sm font-semibold text-emerald-700 hover:text-emerald-800">
-                    Xem giá tại Co.op Online →
+                    Xem tất cả siêu thị →
                 </a>
             </div>
         @endif
@@ -430,6 +485,9 @@
             <p class="text-sm text-gray-500 font-medium pt-1">
                 Kết quả cho "<span class="text-gray-700 font-semibold">{{ $keyword }}</span>"
                 — {{ number_format($pagination['total']) }} sản phẩm
+                @if(($activeRetailer ?? 'all') === 'all' && $sourceCount > 0)
+                    từ {{ $sourceCount }} siêu thị
+                @endif
             </p>
         @endif
 
@@ -455,6 +513,8 @@
                             'coop'         => 'Co.op',
                             'coop_online'  => 'Co.op',
                             'bhx'          => 'BHX',
+                            'bach_hoa_xanh' => 'BHX',
+                            'kingfoodmart' => 'Kingfoodmart',
                             'winmart'      => 'WinMart',
                             'dmx'          => 'Điện Máy Xanh',
                             'cps'          => 'CellphoneS',
@@ -558,6 +618,69 @@
     <footer class="bg-white border-t border-gray-100 py-4 text-center text-xs text-gray-400 pb-safe">
         Hoàn Tiền Aff © {{ date('Y') }}
     </footer>
+
+{{-- A.3: Shopee Extension — tạo/poll link ngắn cho tài khoản đã đăng nhập --}}
+    <script>
+        window.pcShopeeCard = function (config) {
+            return {
+                jobId: config.jobId,
+                searchUrl: config.searchUrl,
+                affiliateUrl: config.affiliateUrl || null,
+                pending: true,
+                statusText: 'Đang tạo link...',
+                _startAt: 0,
+                _live: false,
+
+                init() {
+                    this._startAt = Date.now();
+                    this._live = true;
+                    this.poll();
+                },
+
+                poll() {
+                    if (!this._live) return;
+
+                    if (Date.now() - this._startAt > 30000) {
+                        this.finishFallback();
+                        return;
+                    }
+
+                    fetch('/api/link-request/' + this.jobId, {
+                        headers: {
+                            'Accept': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                    })
+                    .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+                    .then((data) => {
+                        if (data.id !== this.jobId) {
+                            this.finishFallback();
+                            return;
+                        }
+                        if (data.status === 'completed' && data.affiliate_url) {
+                            this.affiliateUrl = data.affiliate_url;
+                            this.pending = false;
+                            return;
+                        }
+                        if (data.status === 'failed' || data.status === 'rejected') {
+                            this.finishFallback();
+                            return;
+                        }
+                        window.setTimeout(() => this.poll(), 1500);
+                    })
+                    .catch(() => {
+                        window.setTimeout(() => this.poll(), 3000);
+                    });
+                },
+
+                finishFallback() {
+                    this._live = false;
+                    this.pending = false;
+                    this.affiliateUrl = null;
+                },
+            };
+        };
+    </script>
 
 </body>
 </html>

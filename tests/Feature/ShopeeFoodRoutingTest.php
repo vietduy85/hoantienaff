@@ -46,6 +46,7 @@ class ShopeeFoodRoutingTest extends TestCase
     {
         $resolver = $this->createMock(UrlResolverService::class);
         $resolver->method('resolve')->willReturnArgument(0);
+        $resolver->method('isShopeeLanding')->willReturn(true);
         $this->app->instance(UrlResolverService::class, $resolver);
 
         $cache = $this->createMock(AffiliateCacheService::class);

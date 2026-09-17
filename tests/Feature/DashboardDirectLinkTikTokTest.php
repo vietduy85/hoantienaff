@@ -299,6 +299,7 @@ class DashboardDirectLinkTikTokTest extends TestCase
     {
         $mock = $this->createMock(UrlResolverService::class);
         $mock->method('resolve')->willReturnArgument(0);
+        $mock->method('isShopeeLanding')->willReturn(true);
         $this->app->instance(UrlResolverService::class, $mock);
     }
 

@@ -6,7 +6,6 @@ use App\Models\LinkRequest;
 use App\Models\Setting;
 use App\Models\User;
 use App\Services\AffiliateLinkService;
-use App\Services\Strategies\DirectLinkStrategy;
 use App\Services\Strategies\ExtensionStrategy;
 use App\Services\UrlResolverService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -31,10 +30,10 @@ class AffiliateLinkStrategyTest extends TestCase
     private function createShopeeLink(string $url = 'https://shopee.vn/product/123/456'): LinkRequest
     {
         return LinkRequest::create([
-            'user_id'      => $this->user->id,
+            'user_id' => $this->user->id,
             'original_url' => $url,
-            'platform'     => 'Shopee',
-            'status'       => 'processing',
+            'platform' => 'Shopee',
+            'status' => 'processing',
         ]);
     }
 
@@ -107,10 +106,18 @@ class AffiliateLinkStrategyTest extends TestCase
         Setting::set('affiliate.direct.resolve_shortlink', 'true');
 
         $mockResolver = Mockery::mock(UrlResolverService::class);
+        $mockResolver->shouldReceive('isShortLink')
+            ->once()
+            ->with('https://s.shopee.vn/short/abc')
+            ->andReturn(true);
         $mockResolver->shouldReceive('resolve')
             ->once()
             ->with('https://s.shopee.vn/short/abc')
             ->andReturn('https://shopee.vn/product/123/456');
+        $mockResolver->shouldReceive('isShopeeLanding')
+            ->once()
+            ->with('https://shopee.vn/product/123/456')
+            ->andReturn(true);
 
         $this->app->instance(UrlResolverService::class, $mockResolver);
 
@@ -127,15 +134,19 @@ class AffiliateLinkStrategyTest extends TestCase
         $this->assertStringNotContainsString('s.shopee.vn', $decodedUrl);
     }
 
-    // ─── Test 5: Resolve fails → fallback to original_url ─────
+    // ─── Test 5: Resolve fails → mark failed, NO affiliate URL ──
 
-    public function test_direct_strategy_fallback_on_resolve_failure(): void
+    public function test_direct_strategy_marks_failed_when_shortlink_resolve_fails(): void
     {
         Setting::set('affiliate.dashboard.strategy', 'direct');
         Setting::set('affiliate.direct.shopee_affiliate_id', '12345');
         Setting::set('affiliate.direct.resolve_shortlink', 'true');
 
         $mockResolver = Mockery::mock(UrlResolverService::class);
+        $mockResolver->shouldReceive('isShortLink')
+            ->once()
+            ->with('https://s.shopee.vn/short/abc')
+            ->andReturn(true);
         $mockResolver->shouldReceive('resolve')
             ->once()
             ->with('https://s.shopee.vn/short/abc')
@@ -150,9 +161,8 @@ class AffiliateLinkStrategyTest extends TestCase
 
         $link->refresh();
 
-        $this->assertEquals('completed', $link->status);
-        $decodedUrl = urldecode(parse_url($link->affiliate_url, PHP_URL_QUERY));
-        $this->assertStringContainsString('s.shopee.vn/short/abc', $decodedUrl);
+        $this->assertEquals('failed', $link->status);
+        $this->assertNull($link->affiliate_url);
     }
 
     // ─── Test 6: sub_id = username ────────────────────────────
@@ -214,10 +224,10 @@ class AffiliateLinkStrategyTest extends TestCase
         Setting::set('affiliate.dashboard.strategy', 'direct');
 
         $link = LinkRequest::create([
-            'user_id'      => $this->user->id,
+            'user_id' => $this->user->id,
             'original_url' => 'https://lazada.vn/product/123',
-            'platform'     => 'Lazada',
-            'status'       => 'completed',
+            'platform' => 'Lazada',
+            'status' => 'completed',
         ]);
 
         $service = app(AffiliateLinkService::class);
@@ -228,16 +238,28 @@ class AffiliateLinkStrategyTest extends TestCase
         $this->assertNull($link->affiliate_url);
     }
 
-    // ─── Test 9: Resolve shortlink disabled ───────────────────
+    // ─── Test 4b: Short link resolves to non-Shopee host → failed ─
 
-    public function test_direct_strategy_does_not_resolve_when_disabled(): void
+    public function test_direct_strategy_marks_failed_when_shortlink_resolves_to_non_shopee(): void
     {
         Setting::set('affiliate.dashboard.strategy', 'direct');
         Setting::set('affiliate.direct.shopee_affiliate_id', '12345');
-        Setting::set('affiliate.direct.resolve_shortlink', 'false');
+        Setting::set('affiliate.direct.resolve_shortlink', 'true');
 
         $mockResolver = Mockery::mock(UrlResolverService::class);
-        $mockResolver->shouldReceive('resolve')->never();
+        $mockResolver->shouldReceive('isShortLink')
+            ->once()
+            ->with('https://s.shopee.vn/short/abc')
+            ->andReturn(true);
+        $mockResolver->shouldReceive('resolve')
+            ->once()
+            ->with('https://s.shopee.vn/short/abc')
+            ->andReturn('https://evil.example/x');
+        $mockResolver->shouldReceive('isShopeeLanding')
+            ->once()
+            ->with('https://evil.example/x')
+            ->andReturn(false);
+
         $this->app->instance(UrlResolverService::class, $mockResolver);
 
         $link = $this->createShopeeLink('https://s.shopee.vn/short/abc');
@@ -246,8 +268,72 @@ class AffiliateLinkStrategyTest extends TestCase
         $service->handle($link, 'dashboard');
 
         $link->refresh();
+
+        $this->assertEquals('failed', $link->status);
+        $this->assertNull($link->affiliate_url);
+    }
+
+    // ─── Test 9: Resolve disabled → non-short Shopee URL used directly ─
+
+    public function test_direct_strategy_does_not_resolve_when_disabled(): void
+    {
+        Setting::set('affiliate.dashboard.strategy', 'direct');
+        Setting::set('affiliate.direct.shopee_affiliate_id', '12345');
+        Setting::set('affiliate.direct.resolve_shortlink', 'false');
+
+        $mockResolver = Mockery::mock(UrlResolverService::class);
+        $mockResolver->shouldReceive('isShortLink')
+            ->once()
+            ->with('https://shopee.vn/product/123/456')
+            ->andReturn(false);
+        $mockResolver->shouldReceive('resolve')->never();
+        $this->app->instance(UrlResolverService::class, $mockResolver);
+
+        $link = $this->createShopeeLink('https://shopee.vn/product/123/456');
+
+        $service = app(AffiliateLinkService::class);
+        $service->handle($link, 'dashboard');
+
+        $link->refresh();
         $decodedUrl = urldecode(parse_url($link->affiliate_url, PHP_URL_QUERY));
-        $this->assertStringContainsString('s.shopee.vn/short/abc', $decodedUrl);
+        $this->assertStringContainsString('shopee.vn/product/123/456', $decodedUrl);
+    }
+
+    // ─── Test 9b: Resolve disabled → short link STILL resolved ────
+
+    public function test_direct_strategy_resolves_shortlink_even_when_disabled(): void
+    {
+        Setting::set('affiliate.dashboard.strategy', 'direct');
+        Setting::set('affiliate.direct.shopee_affiliate_id', '12345');
+        Setting::set('affiliate.direct.resolve_shortlink', 'false');
+
+        $mockResolver = Mockery::mock(UrlResolverService::class);
+        $mockResolver->shouldReceive('isShortLink')
+            ->once()
+            ->with('https://s.shopee.vn/short/abc')
+            ->andReturn(true);
+        $mockResolver->shouldReceive('resolve')
+            ->once()
+            ->with('https://s.shopee.vn/short/abc')
+            ->andReturn('https://shopee.vn/product/123/456');
+        $mockResolver->shouldReceive('isShopeeLanding')
+            ->once()
+            ->with('https://shopee.vn/product/123/456')
+            ->andReturn(true);
+
+        $this->app->instance(UrlResolverService::class, $mockResolver);
+
+        $link = $this->createShopeeLink('https://s.shopee.vn/short/abc');
+
+        $service = app(AffiliateLinkService::class);
+        $service->handle($link, 'dashboard');
+
+        $link->refresh();
+
+        $this->assertEquals('completed', $link->status);
+        $decodedUrl = urldecode(parse_url($link->affiliate_url, PHP_URL_QUERY));
+        $this->assertStringContainsString('shopee.vn/product/123/456', $decodedUrl);
+        $this->assertStringNotContainsString('s.shopee.vn/short/abc', $decodedUrl);
     }
 
     // ─── Test 10: URL encoding ────────────────────────────────

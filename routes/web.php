@@ -75,7 +75,13 @@ Route::middleware('auth')->group(function () {
 // Open in local/testing so it can be checked from a browser;
 // locked behind auth + Admin|Operator role in production.
 Route::prefix('api/price-comparison')->group(function () {
+    Route::get('/', [App\Http\Controllers\Api\PriceComparisonController::class, 'searchAll'])
+        ->middleware(app()->environment('production') ? ['auth', 'role:Admin|Operator'] : []);
     Route::get('/coop', [App\Http\Controllers\Api\PriceComparisonController::class, 'search'])
+        ->middleware(app()->environment('production') ? ['auth', 'role:Admin|Operator'] : []);
+    Route::get('/bhx', [App\Http\Controllers\Api\PriceComparisonController::class, 'searchBhx'])
+        ->middleware(app()->environment('production') ? ['auth', 'role:Admin|Operator'] : []);
+    Route::get('/kingfoodmart', [App\Http\Controllers\Api\PriceComparisonController::class, 'searchKingfoodmart'])
         ->middleware(app()->environment('production') ? ['auth', 'role:Admin|Operator'] : []);
     Route::get('/affiliate-search-links', [App\Http\Controllers\Api\PriceComparisonController::class, 'affiliateSearchLinks'])
         ->middleware(app()->environment('production') ? ['auth', 'role:Admin|Operator'] : []);
