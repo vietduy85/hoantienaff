@@ -11,7 +11,6 @@ use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
-
 use Tests\Fixture\CoopOnlineFixture;
 use Tests\TestCase;
 
@@ -218,9 +217,9 @@ class CoopOnlineProviderTest extends TestCase
     {
         Http::fake([
             'https://discovery.tekoapis.com/api/v1/search' => Http::response([
-                'code'       => '0',
+                'code' => '0',
                 'pagination' => ['totalItems' => 36, 'totalPages' => 2],
-                'result'     => [
+                'result' => [
                     'products' => [
                         CoopOnlineFixture::products()[0],
                         ['productInfo' => ['sku' => 'SWEET-POTATO', 'name' => 'Không giá, không ảnh, không brand']],
@@ -333,9 +332,9 @@ class CoopOnlineProviderTest extends TestCase
     {
         Http::fake([
             'https://discovery.tekoapis.com/api/v1/search' => Http::response([
-                'code'       => '0',
+                'code' => '0',
                 'pagination' => ['totalItems' => 0, 'totalPages' => 0],
-                'result'     => ['products' => []],
+                'result' => ['products' => []],
             ]),
         ]);
 
@@ -429,5 +428,18 @@ class CoopOnlineProviderTest extends TestCase
         $this->provider()->getProduct('250100313');
 
         $this->assertCount(1, Http::recorded());
+    }
+
+    // promotions stay out of scope for Co.op Online
+
+    public function test_promotions_remain_null(): void
+    {
+        $this->fakeSearch();
+
+        $product = $this->provider()->search('mì')->items->first();
+
+        $this->assertNull($product->promotions);
+        $this->assertFalse($product->hasPromotion());
+        $this->assertNull($product->toArray()['promotions']);
     }
 }

@@ -413,6 +413,99 @@ class KingfoodmartProviderTest extends TestCase
         $this->assertSame('8934563184162', $second->barcode);
     }
 
+    // 20b. promotions (Phase 2)
+
+    public function test_maps_promotion_info_items_into_promotions(): void
+    {
+        $this->fakeSearch();
+
+        $product = $this->provider()->search('mì Hảo Hảo')->items->first();
+
+        $this->assertSame([
+            ['title' => KingfoodmartFixture::PROMO_SUMMARY_BUY2GET1],
+            ['title' => KingfoodmartFixture::PROMO_SUMMARY_ONLINE],
+        ], $product->promotions);
+        $this->assertTrue($product->hasPromotion());
+        $this->assertSame($product->promotions, $product->toArray()['promotions']);
+    }
+
+    public function test_promotion_info_items_take_priority_over_promotion_info(): void
+    {
+        $this->fakeSearch();
+
+        $titles = array_column(
+            $this->provider()->search('mì Hảo Hảo')->items->first()->promotions,
+            'title',
+        );
+
+        $this->assertNotContains(KingfoodmartFixture::PROMO_SUMMARY_INFO_ONLY, $titles);
+    }
+
+    public function test_promotion_summaries_are_trimmed_and_deduplicated(): void
+    {
+        $this->fakeSearch();
+
+        $promotions = $this->provider()->search('mì Hảo Hảo')->items->first()->promotions;
+
+        $this->assertCount(2, $promotions);
+        $this->assertSame(KingfoodmartFixture::PROMO_SUMMARY_ONLINE, $promotions[1]['title']);
+    }
+
+    public function test_falls_back_to_promotion_info_when_items_are_empty(): void
+    {
+        $product = KingfoodmartFixture::haoHaoThung30();
+
+        Http::fake([self::SEARCH_URL.'*' => Http::response(['products' => [$product]])]);
+
+        $mapped = $this->provider()->search('mì Hảo Hảo')->items->first();
+
+        $this->assertSame([['title' => KingfoodmartFixture::PROMO_SUMMARY_INFO_ONLY]], $mapped->promotions);
+    }
+
+    public function test_only_representative_variant_promotion_is_used(): void
+    {
+        $this->fakeSearch();
+
+        $promotions = $this->provider()->search('mì Hảo Hảo')->items[1]->promotions;
+
+        $this->assertSame([['title' => KingfoodmartFixture::PROMO_SUMMARY_INFO_ONLY]], $promotions);
+        $this->assertNotContains(KingfoodmartFixture::PROMO_SUMMARY_OTHER_VARIANT, array_column($promotions, 'title'));
+    }
+
+    public function test_promotions_is_null_when_variant_has_no_promotion_fields(): void
+    {
+        $product = KingfoodmartFixture::haoHaoKimChi();
+        unset($product['variants'][0]['promotionInfoItems'], $product['variants'][0]['promotionInfo']);
+
+        Http::fake([self::SEARCH_URL.'*' => Http::response(['products' => [$product]])]);
+
+        $mapped = $this->provider()->search('mì Hảo Hảo')->items->first();
+
+        $this->assertNull($mapped->promotions);
+        $this->assertFalse($mapped->hasPromotion());
+    }
+
+    public function test_promotions_is_null_when_all_summaries_are_blank(): void
+    {
+        $product = KingfoodmartFixture::haoHaoKimChi();
+        $product['variants'][0]['promotionInfoItems'] = [['promotionSummary' => '   ']];
+        $product['variants'][0]['promotionInfo'] = ['promotionSummary' => null];
+
+        Http::fake([self::SEARCH_URL.'*' => Http::response(['products' => [$product]])]);
+
+        $this->assertNull($this->provider()->search('mì Hảo Hảo')->items->first()->promotions);
+    }
+
+    public function test_promotions_are_mapped_without_calling_the_detail_endpoint(): void
+    {
+        $this->fakeSearch();
+
+        $this->provider()->search('mì Hảo Hảo');
+
+        Http::assertSentCount(1);
+        Http::assertSent(fn (Request $request) => str_starts_with($request->url(), self::SEARCH_URL));
+    }
+
     // 21-23. category / brand / manufacturer / seller
 
     public function test_maps_category_from_subcate_name(): void
@@ -762,6 +855,9 @@ class KingfoodmartProviderTest extends TestCase
             ->assertJsonPath('products.0.product_url', 'https://kingfoodmart.com/mi-an-lien-1356/mi-hao-hao-huong-vi-lau-kim-chi-han-quoc-acecook-75g-1-goi')
             ->assertJsonPath('products.1.discount_percent', 17)
             ->assertJsonPath('products.1.discount_amount', 21000)
+            ->assertJsonPath('products.0.promotions.0.title', KingfoodmartFixture::PROMO_SUMMARY_BUY2GET1)
+            ->assertJsonPath('products.0.promotions.1.title', KingfoodmartFixture::PROMO_SUMMARY_ONLINE)
+            ->assertJsonPath('products.1.promotions.0.title', KingfoodmartFixture::PROMO_SUMMARY_INFO_ONLY)
             ->assertJsonMissingPath('products.0.raw_data')
             ->assertJsonMissingPath('products.0.rawData');
     }

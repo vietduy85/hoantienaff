@@ -400,7 +400,81 @@ final class KingfoodmartProvider implements CatalogProvider
             manufacturer: $this->manufacturer($raw),
             categories: $categories,
             rawData: $raw,
+            promotions: $this->mapPromotions($variant),
         );
+    }
+
+    /**
+     * Map the customer-facing promotion summaries attached to the given
+     * variant into the shared `promotions` contract ([['title' => ...]]).
+     *
+     * Only the representative variant is inspected (see
+     * representativeVariant()): promotions attached exclusively to other
+     * variants of the same product are intentionally ignored in this phase.
+     *
+     * Priority: variants[].promotionInfoItems[].promotionSummary, falling back
+     * to variants[].promotionInfo.promotionSummary only when the items list
+     * yields no non-empty summary. Summaries are trimmed and de-duplicated;
+     * an empty result maps to null.
+     *
+     * The summary is displayed verbatim: buy/gift quantities are NOT parsed
+     * and price discounts are NOT synthesised into promotion text.
+     *
+     * @param  array<string, mixed>  $variant
+     * @return array<int, array{title: string}>|null
+     */
+    private function mapPromotions(array $variant): ?array
+    {
+        $summaries = $this->promotionSummaries($variant['promotionInfoItems'] ?? null);
+
+        if ($summaries === []) {
+            $info = $variant['promotionInfo'] ?? null;
+
+            if (is_array($info)) {
+                $summary = $this->stringOrNull($info['promotionSummary'] ?? null);
+
+                if ($summary !== null) {
+                    $summaries[] = $summary;
+                }
+            }
+        }
+
+        if ($summaries === []) {
+            return null;
+        }
+
+        $unique = array_values(array_unique($summaries));
+
+        return array_map(fn (string $title): array => ['title' => $title], $unique);
+    }
+
+    /**
+     * Extract non-empty, trimmed promotionSummary values from a
+     * promotionInfoItems list.
+     *
+     * @return array<int, string>
+     */
+    private function promotionSummaries(mixed $items): array
+    {
+        if (! is_array($items)) {
+            return [];
+        }
+
+        $summaries = [];
+
+        foreach ($items as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            $summary = $this->stringOrNull($item['promotionSummary'] ?? null);
+
+            if ($summary !== null) {
+                $summaries[] = $summary;
+            }
+        }
+
+        return $summaries;
     }
 
     /**

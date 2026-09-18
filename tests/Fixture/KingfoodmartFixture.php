@@ -27,6 +27,27 @@ class KingfoodmartFixture
     public const SKU = '8934563185152';
 
     /**
+     * Real customer-facing summary taken from promotionInfoItems.
+     */
+    public const PROMO_SUMMARY_BUY2GET1 = 'Mua 2 cùng loại tặng 1 cùng loại. Quà tặng có hạn, kiểm tra giỏ hàng trước thanh toán.';
+
+    /**
+     * Second customer-facing summary from promotionInfoItems.
+     */
+    public const PROMO_SUMMARY_ONLINE = 'Ưu đãi Online!';
+
+    /**
+     * Summary that only exists on promotionInfo (fallback path). It must NOT
+     * be used while promotionInfoItems holds non-empty summaries.
+     */
+    public const PROMO_SUMMARY_INFO_ONLY = 'Giảm 10% khi mua hộp 6 (chỉ có ở promotionInfo).';
+
+    /**
+     * Promotion attached to a non-representative variant; it must be ignored.
+     */
+    public const PROMO_SUMMARY_OTHER_VARIANT = 'Khuyến mãi của variant không được chọn.';
+
+    /**
      * @param  array<string, mixed>  $overrides
      * @return array<string, mixed>
      */
@@ -139,6 +160,16 @@ class KingfoodmartFixture
                     'isOnlineSale' => true,
                     'isSale' => true,
                     'isOrdered' => false,
+                    'promotionInfo' => [
+                        'promotionSummary' => self::PROMO_SUMMARY_INFO_ONLY,
+                    ],
+                    'promotionInfoItems' => [
+                        ['promotionSummary' => self::PROMO_SUMMARY_BUY2GET1],
+                        ['promotionSummary' => self::PROMO_SUMMARY_ONLINE],
+                        ['promotionSummary' => self::PROMO_SUMMARY_ONLINE],
+                        ['promotionSummary' => '   '],
+                        ['promotionSummary' => null],
+                    ],
                 ],
             ],
         ];
@@ -182,6 +213,9 @@ class KingfoodmartFixture
                     'stockItem' => ['quantity' => 0, 'maxSaleQuantity' => 1000, 'minSaleQuantity' => 1],
                     'isOnlineSale' => false,
                     'isSale' => false,
+                    'promotionInfoItems' => [
+                        ['promotionSummary' => self::PROMO_SUMMARY_OTHER_VARIANT],
+                    ],
                 ],
                 [
                     'id' => '172611155049579455',
@@ -197,6 +231,9 @@ class KingfoodmartFixture
                     'isOnlineSale' => true,
                     'isSale' => true,
                     'isOrdered' => false,
+                    'promotionInfo' => [
+                        'promotionSummary' => self::PROMO_SUMMARY_INFO_ONLY,
+                    ],
                 ],
             ],
         ];

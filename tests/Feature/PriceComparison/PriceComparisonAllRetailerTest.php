@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Tests\Fixture\BachHoaXanhFixture;
 use Tests\Fixture\CoopOnlineFixture;
+use Tests\Fixture\KingfoodmartFixture;
 use Tests\TestCase;
 
 /**
@@ -373,6 +374,42 @@ class PriceComparisonAllRetailerTest extends TestCase
                 $this->assertFalse($item->hasPromotion());
             }
         }
+    }
+
+    public function test_search_all_promotions_count_includes_kingfoodmart(): void
+    {
+        $this->fakeAllThreeWithKfmPromotions();
+
+        $result = $this->managerWithKingfoodmart()->searchAll('mi');
+
+        // 1 BHX promo + 2 Kingfoodmart products carrying promotions.
+        $this->assertSame(3, $result->promotionsCount);
+    }
+
+    public function test_search_all_promotions_only_keeps_kingfoodmart_promo_products(): void
+    {
+        $this->fakeAllThreeWithKfmPromotions();
+
+        $result = $this->managerWithKingfoodmart()->searchAll('mi', 1, 20, 'relevance', null, true);
+
+        $this->assertTrue($result->items->every(fn ($product) => $product->hasPromotion()));
+        $this->assertTrue($result->items->contains(
+            fn ($product) => $product->source === 'kingfoodmart'
+                && $product->name === 'Mì Hảo Hảo Acecook hương vị lẩu kim chi Hàn Quốc gói 75g',
+        ));
+    }
+
+    public function test_aggregated_counts_promotions_include_kingfoodmart(): void
+    {
+        $this->fakeAllThreeWithKfmPromotions();
+
+        $manager = $this->managerWithKingfoodmart();
+        $manager->searchAll('mi');
+
+        $counts = $manager->aggregatedCounts('mi');
+
+        $this->assertIsArray($counts);
+        $this->assertSame(3, $counts['promotions']);
     }
 
     // ------------------------------------------------------------------- API
@@ -765,6 +802,15 @@ class PriceComparisonAllRetailerTest extends TestCase
                     'products' => $products,
                 ]);
             },
+        ]);
+    }
+
+    private function fakeAllThreeWithKfmPromotions(): void
+    {
+        Http::fake([
+            self::COOP_URL => Http::response(CoopOnlineFixture::searchResponse()),
+            self::BHX_URL => Http::response(BachHoaXanhFixture::searchResponse()),
+            self::KFM_URL.'*' => Http::response(KingfoodmartFixture::searchResponse()),
         ]);
     }
 

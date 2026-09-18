@@ -552,4 +552,17 @@ class WinMartProviderTest extends TestCase
 
         $this->assertCount(1, Http::recorded());
     }
+
+    // promotions stay out of scope for WinMart
+
+    public function test_promotions_remain_null(): void
+    {
+        $this->fakeSearch();
+
+        $product = $this->provider()->search('mì')->items->first();
+
+        $this->assertNull($product->promotions);
+        $this->assertFalse($product->hasPromotion());
+        $this->assertNull($product->toArray()['promotions']);
+    }
 }
