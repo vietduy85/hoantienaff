@@ -1,10 +1,30 @@
 <?php
 
+use App\Http\Controllers\Admin\AffiliateConfigController;
+use App\Http\Controllers\Admin\AffiliateShortLinkController;
+use App\Http\Controllers\Admin\FinanceController;
+use App\Http\Controllers\Admin\OrderSyncController;
+use App\Http\Controllers\Admin\UserController;
+use App\Http\Controllers\Admin\WithdrawRequestController;
+use App\Http\Controllers\Api\AffiliateJobController;
+use App\Http\Controllers\Api\LinkRequestController;
+use App\Http\Controllers\Api\PriceComparisonController;
 use App\Http\Controllers\Auth\CheckUsernameController;
 use App\Http\Controllers\Auth\CompleteProfileController;
+use App\Http\Controllers\Auth\GoogleController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\Debug\CookieDebugController;
+use App\Http\Controllers\Debug\PlaywrightController;
+use App\Http\Controllers\Debug\ProviderController;
+use App\Http\Controllers\Debug\ShopeeLoginController;
+use App\Http\Controllers\Debug\WorkerController;
 use App\Http\Controllers\GuideController;
+use App\Http\Controllers\OrderController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\PromotionNewsController;
+use App\Http\Controllers\ReferralController;
+use App\Http\Controllers\StaticPageController;
+use App\Http\Controllers\WalletController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 
@@ -12,27 +32,28 @@ Route::get('/', function () {
     if (Auth::check()) {
         return redirect()->route('dashboard');
     }
+
     return view('welcome');
 });
 
-Route::get('/auth/google', [App\Http\Controllers\Auth\GoogleController::class, 'redirect'])->name('google.redirect');
-Route::get('/auth/google/callback', [App\Http\Controllers\Auth\GoogleController::class, 'callback'])->name('google.callback');
+Route::get('/auth/google', [GoogleController::class, 'redirect'])->name('google.redirect');
+Route::get('/auth/google/callback', [GoogleController::class, 'callback'])->name('google.callback');
 
-Route::get('/debug/provider', [App\Http\Controllers\Debug\ProviderController::class, 'index']);
-Route::post('/debug/provider', [App\Http\Controllers\Debug\ProviderController::class, 'test']);
+Route::get('/debug/provider', [ProviderController::class, 'index']);
+Route::post('/debug/provider', [ProviderController::class, 'test']);
 
-Route::get('/debug/worker', [App\Http\Controllers\Debug\WorkerController::class, 'index']);
-Route::get('/debug/playwright', [App\Http\Controllers\Debug\PlaywrightController::class, 'index']);
+Route::get('/debug/worker', [WorkerController::class, 'index']);
+Route::get('/debug/playwright', [PlaywrightController::class, 'index']);
 
-Route::get('/debug/shopee-login', [App\Http\Controllers\Debug\ShopeeLoginController::class, 'index']);
-Route::post('/debug/shopee-login/check', [App\Http\Controllers\Debug\ShopeeLoginController::class, 'login']);
-Route::post('/debug/shopee-login/interactive', [App\Http\Controllers\Debug\ShopeeLoginController::class, 'loginInteractive']);
-Route::post('/debug/shopee-login/session-test', [App\Http\Controllers\Debug\ShopeeLoginController::class, 'sessionTest']);
-Route::post('/debug/shopee-login/dashboard-test', [App\Http\Controllers\Debug\ShopeeLoginController::class, 'dashboardTest']);
-Route::post('/debug/shopee-login/profile-test', [App\Http\Controllers\Debug\ShopeeLoginController::class, 'profileTest']);
+Route::get('/debug/shopee-login', [ShopeeLoginController::class, 'index']);
+Route::post('/debug/shopee-login/check', [ShopeeLoginController::class, 'login']);
+Route::post('/debug/shopee-login/interactive', [ShopeeLoginController::class, 'loginInteractive']);
+Route::post('/debug/shopee-login/session-test', [ShopeeLoginController::class, 'sessionTest']);
+Route::post('/debug/shopee-login/dashboard-test', [ShopeeLoginController::class, 'dashboardTest']);
+Route::post('/debug/shopee-login/profile-test', [ShopeeLoginController::class, 'profileTest']);
 
-Route::get('/debug/cookies', [App\Http\Controllers\Debug\CookieDebugController::class, 'index']);
-Route::get('/debug/set-cookie', [App\Http\Controllers\Debug\CookieDebugController::class, 'setCookie']);
+Route::get('/debug/cookies', [CookieDebugController::class, 'index']);
+Route::get('/debug/set-cookie', [CookieDebugController::class, 'setCookie']);
 
 Route::get('/check-username', CheckUsernameController::class);
 
@@ -50,12 +71,12 @@ Route::middleware('auth')->group(function () {
     Route::get('/complete-profile', [CompleteProfileController::class, 'create'])->name('complete-profile.create');
     Route::post('/complete-profile', [CompleteProfileController::class, 'store'])->name('complete-profile.store');
 
-    Route::get('/referrals', [App\Http\Controllers\ReferralController::class, 'index'])->name('referrals.index');
+    Route::get('/referrals', [ReferralController::class, 'index'])->name('referrals.index');
 
-    Route::get('/wallet', [App\Http\Controllers\WalletController::class, 'index'])->name('wallet.index');
-    Route::post('/wallet/withdraw', [App\Http\Controllers\WalletController::class, 'withdraw'])->name('wallet.withdraw');
-    Route::get('/orders', [App\Http\Controllers\OrderController::class, 'index'])->name('orders.index');
-    Route::get('/orders/{orderId}', [App\Http\Controllers\OrderController::class, 'show'])->name('orders.show');
+    Route::get('/wallet', [WalletController::class, 'index'])->name('wallet.index');
+    Route::post('/wallet/withdraw', [WalletController::class, 'withdraw'])->name('wallet.withdraw');
+    Route::get('/orders', [OrderController::class, 'index'])->name('orders.index');
+    Route::get('/orders/{orderId}', [OrderController::class, 'show'])->name('orders.show');
     Route::get('/guide', [GuideController::class, 'index'])->name('guide.index');
     Route::get('/guide/{slug}', [GuideController::class, 'show'])->name('guide.show');
 });
@@ -63,112 +84,140 @@ Route::middleware('auth')->group(function () {
 require __DIR__.'/auth.php';
 
 Route::prefix('api/extension')->group(function () {
-    Route::get('/jobs', [App\Http\Controllers\Api\AffiliateJobController::class, 'jobs']);
-    Route::post('/results', [App\Http\Controllers\Api\AffiliateJobController::class, 'result']);
+    Route::get('/jobs', [AffiliateJobController::class, 'jobs']);
+    Route::post('/results', [AffiliateJobController::class, 'result']);
 });
 
 Route::middleware('auth')->group(function () {
-    Route::get('/api/link-request/{id}', [App\Http\Controllers\Api\LinkRequestController::class, 'show']);
+    Route::get('/api/link-request/{id}', [LinkRequestController::class, 'show']);
 });
 
 // TEST/DEVELOPMENT price comparison catalog endpoint.
 // Open in local/testing so it can be checked from a browser;
 // locked behind auth + Admin|Operator role in production.
 Route::prefix('api/price-comparison')->group(function () {
-    Route::get('/', [App\Http\Controllers\Api\PriceComparisonController::class, 'searchAll'])
+    Route::get('/', [PriceComparisonController::class, 'searchAll'])
         ->middleware(app()->environment('production') ? ['auth', 'role:Admin|Operator'] : []);
-    Route::get('/coop', [App\Http\Controllers\Api\PriceComparisonController::class, 'search'])
+    Route::get('/coop', [PriceComparisonController::class, 'search'])
         ->middleware(app()->environment('production') ? ['auth', 'role:Admin|Operator'] : []);
-    Route::get('/bhx', [App\Http\Controllers\Api\PriceComparisonController::class, 'searchBhx'])
+    Route::get('/bhx', [PriceComparisonController::class, 'searchBhx'])
         ->middleware(app()->environment('production') ? ['auth', 'role:Admin|Operator'] : []);
-    Route::get('/kingfoodmart', [App\Http\Controllers\Api\PriceComparisonController::class, 'searchKingfoodmart'])
+    Route::get('/kingfoodmart', [PriceComparisonController::class, 'searchKingfoodmart'])
         ->middleware(app()->environment('production') ? ['auth', 'role:Admin|Operator'] : []);
-    Route::get('/winmart', [App\Http\Controllers\Api\PriceComparisonController::class, 'searchWinmart'])
+    Route::get('/winmart', [PriceComparisonController::class, 'searchWinmart'])
         ->middleware(app()->environment('production') ? ['auth', 'role:Admin|Operator'] : []);
-    Route::get('/affiliate-search-links', [App\Http\Controllers\Api\PriceComparisonController::class, 'affiliateSearchLinks'])
+    Route::get('/affiliate-search-links', [PriceComparisonController::class, 'affiliateSearchLinks'])
         ->middleware(app()->environment('production') ? ['auth', 'role:Admin|Operator'] : []);
 });
 
-Route::get('/so-sanh-gia', [\App\Http\Controllers\PriceComparisonController::class, 'index'])->name('price-comparison.index');
+Route::get('/so-sanh-gia', [App\Http\Controllers\PriceComparisonController::class, 'index'])->name('price-comparison.index');
+
+Route::get('/tin-tuc-khuyen-mai', [PromotionNewsController::class, 'index'])
+    ->name('promotion-news.index');
+Route::get('/tin-tuc-khuyen-mai/{source}', [PromotionNewsController::class, 'source'])
+    ->where('source', '[A-Za-z0-9_-]+')
+    ->name('promotion-news.source');
 
 Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () {
-    Route::get('/withdraw-requests', [App\Http\Controllers\Admin\WithdrawRequestController::class, 'index'])
+    Route::get('/withdraw-requests', [WithdrawRequestController::class, 'index'])
         ->middleware('permission:withdrawals.view')
         ->name('withdraw-requests.index');
-    Route::post('/withdraw-requests/bulk-complete', [App\Http\Controllers\Admin\WithdrawRequestController::class, 'bulkComplete'])
+    Route::post('/withdraw-requests/bulk-complete', [WithdrawRequestController::class, 'bulkComplete'])
         ->middleware('permission:withdrawals.manage')
         ->name('withdraw-requests.bulk-complete');
-    Route::post('/withdraw-requests/{withdrawRequest}/complete', [App\Http\Controllers\Admin\WithdrawRequestController::class, 'complete'])
+    Route::post('/withdraw-requests/{withdrawRequest}/complete', [WithdrawRequestController::class, 'complete'])
         ->middleware('permission:withdrawals.manage')
         ->name('withdraw-requests.complete');
-    Route::post('/withdraw-requests/{withdrawRequest}/reject', [App\Http\Controllers\Admin\WithdrawRequestController::class, 'reject'])
+    Route::post('/withdraw-requests/{withdrawRequest}/reject', [WithdrawRequestController::class, 'reject'])
         ->middleware('permission:withdrawals.manage')
         ->name('withdraw-requests.reject');
 
-    Route::get('/affiliate-short-link', [App\Http\Controllers\Admin\AffiliateShortLinkController::class, 'index'])
+    Route::get('/affiliate-short-link', [AffiliateShortLinkController::class, 'index'])
         ->middleware('role:Admin|Operator')
         ->name('affiliate-short-link.index');
-    Route::post('/affiliate-short-link', [App\Http\Controllers\Admin\AffiliateShortLinkController::class, 'store'])
+    Route::post('/affiliate-short-link', [AffiliateShortLinkController::class, 'store'])
         ->middleware('role:Admin|Operator')
         ->name('affiliate-short-link.store');
 
-    Route::get('/tiktok-order-sync', [App\Http\Controllers\Admin\OrderSyncController::class, 'index'])
+    Route::get('/tiktok-order-sync', [OrderSyncController::class, 'index'])
         ->middleware('role:Admin|Operator')
         ->name('tiktok-order-sync.index');
-    Route::post('/tiktok-order-sync', [App\Http\Controllers\Admin\OrderSyncController::class, 'sync'])
+    Route::post('/tiktok-order-sync', [OrderSyncController::class, 'sync'])
         ->middleware('role:Admin|Operator')
         ->name('tiktok-order-sync.sync');
 
-    Route::get('/affiliate-config', [App\Http\Controllers\Admin\AffiliateConfigController::class, 'index'])
+    Route::get('/affiliate-config', [AffiliateConfigController::class, 'index'])
         ->middleware('role:Admin')
         ->name('affiliate-config.index');
-    Route::put('/affiliate-config', [App\Http\Controllers\Admin\AffiliateConfigController::class, 'update'])
+    Route::put('/affiliate-config', [AffiliateConfigController::class, 'update'])
         ->middleware('role:Admin')
         ->name('affiliate-config.update');
 
-    Route::get('/finance', [App\Http\Controllers\Admin\FinanceController::class, 'index'])
+    Route::get('/finance', [FinanceController::class, 'index'])
         ->middleware('permission:withdrawals.view')
         ->name('finance.index');
 
-    Route::get('/referrals/statistics', [App\Http\Controllers\ReferralController::class, 'statistics'])
+    Route::get('/referrals/statistics', [ReferralController::class, 'statistics'])
         ->middleware('permission:users.view')
         ->name('referrals.statistics');
 
-    Route::get('/users', [App\Http\Controllers\Admin\UserController::class, 'index'])
+    Route::get('/users', [UserController::class, 'index'])
         ->middleware('permission:users.view')
         ->name('users.index');
-    Route::get('/users/{user}', [App\Http\Controllers\Admin\UserController::class, 'show'])
+    Route::get('/users/{user}', [UserController::class, 'show'])
         ->middleware('permission:users.view')
         ->name('users.show');
 
-    Route::post('/users/{user}/wallet-adjust', [App\Http\Controllers\Admin\UserController::class, 'adjustWallet'])
+    Route::post('/users/{user}/wallet-adjust', [UserController::class, 'adjustWallet'])
         ->middleware('permission:users.manage')
         ->name('users.wallet-adjust');
+
+    Route::get('/promotion-news', [App\Http\Controllers\Admin\PromotionNewsController::class, 'index'])
+        ->middleware('role:Admin|Operator')
+        ->name('promotion-news.index');
+    Route::get('/promotion-news/create', [App\Http\Controllers\Admin\PromotionNewsController::class, 'create'])
+        ->middleware('role:Admin|Operator')
+        ->name('promotion-news.create');
+    Route::post('/promotion-news', [App\Http\Controllers\Admin\PromotionNewsController::class, 'store'])
+        ->middleware('role:Admin|Operator')
+        ->name('promotion-news.store');
+    Route::get('/promotion-news/{promotionNews}/edit', [App\Http\Controllers\Admin\PromotionNewsController::class, 'edit'])
+        ->middleware('role:Admin|Operator')
+        ->name('promotion-news.edit');
+    Route::put('/promotion-news/{promotionNews}', [App\Http\Controllers\Admin\PromotionNewsController::class, 'update'])
+        ->middleware('role:Admin|Operator')
+        ->name('promotion-news.update');
+    Route::post('/promotion-news/{promotionNews}/toggle', [App\Http\Controllers\Admin\PromotionNewsController::class, 'toggle'])
+        ->middleware('role:Admin|Operator')
+        ->name('promotion-news.toggle');
+    Route::delete('/promotion-news/{promotionNews}', [App\Http\Controllers\Admin\PromotionNewsController::class, 'destroy'])
+        ->middleware('role:Admin|Operator')
+        ->name('promotion-news.destroy');
 });
 
 // Static pages - explicit routes
-Route::get('/about', [App\Http\Controllers\StaticPageController::class, 'show'])
+Route::get('/about', [StaticPageController::class, 'show'])
     ->defaults('slug', 'about')
     ->name('page.about');
-Route::get('/contact', [App\Http\Controllers\StaticPageController::class, 'show'])
+Route::get('/contact', [StaticPageController::class, 'show'])
     ->defaults('slug', 'contact')
     ->name('page.contact');
-Route::get('/faq', [App\Http\Controllers\StaticPageController::class, 'show'])
+Route::get('/faq', [StaticPageController::class, 'show'])
     ->defaults('slug', 'faq')
     ->name('page.faq');
-Route::get('/privacy-policy', [App\Http\Controllers\StaticPageController::class, 'show'])
+Route::get('/privacy-policy', [StaticPageController::class, 'show'])
     ->defaults('slug', 'privacy-policy')
     ->name('page.privacy');
-Route::get('/terms-of-service', [App\Http\Controllers\StaticPageController::class, 'show'])
+Route::get('/terms-of-service', [StaticPageController::class, 'show'])
     ->defaults('slug', 'terms-of-service')
     ->name('page.terms');
-Route::get('/refund-policy', [App\Http\Controllers\StaticPageController::class, 'show'])
+Route::get('/refund-policy', [StaticPageController::class, 'show'])
     ->defaults('slug', 'refund-policy')
     ->name('page.refund');
-Route::get('/how-it-works', [App\Http\Controllers\StaticPageController::class, 'show'])
+Route::get('/how-it-works', [StaticPageController::class, 'show'])
     ->defaults('slug', 'how-it-works')
     ->name('page.how_it_works');
-Route::get('/cookie-policy', [App\Http\Controllers\StaticPageController::class, 'show'])
+Route::get('/cookie-policy', [StaticPageController::class, 'show'])
     ->defaults('slug', 'cookie-policy')
     ->name('page.cookie');
 

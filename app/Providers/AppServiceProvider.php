@@ -11,6 +11,11 @@ use App\Services\PriceComparison\Providers\BachHoaXanhProvider;
 use App\Services\PriceComparison\Providers\CoopOnlineProvider;
 use App\Services\PriceComparison\Providers\KingfoodmartProvider;
 use App\Services\PriceComparison\Providers\WinMartProvider;
+use App\Services\PromotionNews\PromotionNewsManager;
+use App\Services\PromotionNews\Providers\BhxPromotionNewsProvider;
+use App\Services\PromotionNews\Providers\CoopPromotionNewsProvider;
+use App\Services\PromotionNews\Providers\KingfoodmartPromotionNewsProvider;
+use App\Services\PromotionNews\Providers\WinMartPromotionNewsProvider;
 use App\Services\ProviderFactory;
 use App\Services\Providers\AgodaProvider;
 use App\Services\Providers\BookingProvider;
@@ -62,6 +67,17 @@ class AppServiceProvider extends ServiceProvider
         $this->app->when(AffiliateSearchLinkManager::class)
             ->needs('$providers')
             ->giveTagged('affiliate-search-link-providers');
+
+        $this->app->tag([
+            CoopPromotionNewsProvider::class,
+            BhxPromotionNewsProvider::class,
+            WinMartPromotionNewsProvider::class,
+            KingfoodmartPromotionNewsProvider::class,
+        ], 'promotion-news-providers');
+
+        $this->app->when(PromotionNewsManager::class)
+            ->needs('$providers')
+            ->giveTagged('promotion-news-providers');
     }
 
     public function boot(): void

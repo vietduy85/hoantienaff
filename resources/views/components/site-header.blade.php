@@ -13,6 +13,7 @@
                 <a href="{{ route('page.about') }}" class="text-sm font-medium text-gray-600 hover:text-emerald-600 transition-colors">Giới thiệu</a>
                 <a href="{{ route('page.faq') }}" class="text-sm font-medium text-gray-600 hover:text-emerald-600 transition-colors">FAQ</a>
                 <a href="{{ route('price-comparison.index') }}" class="text-sm font-medium text-gray-600 hover:text-emerald-600 transition-colors">🔎 So sánh giá</a>
+                <a href="{{ route('promotion-news.index') }}" class="text-sm font-medium text-gray-600 hover:text-emerald-600 transition-colors">📰 Tin tức KM</a>
                 <a href="{{ route('page.contact') }}" class="text-sm font-medium text-gray-600 hover:text-emerald-600 transition-colors">Liên hệ</a>
                 @auth
                     <a href="{{ route('dashboard') }}" class="inline-flex items-center px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold rounded-lg transition-colors">
@@ -39,6 +40,7 @@
                     <a href="{{ route('page.about') }}" class="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">Giới thiệu</a>
                     <a href="{{ route('page.faq') }}" class="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">FAQ</a>
                     <a href="{{ route('price-comparison.index') }}" class="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">🔎 So sánh giá</a>
+                    <a href="{{ route('promotion-news.index') }}" class="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">📰 Tin tức KM</a>
                     <a href="{{ route('page.contact') }}" class="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">Liên hệ</a>
                     <hr class="my-1 border-gray-100">
                     @auth

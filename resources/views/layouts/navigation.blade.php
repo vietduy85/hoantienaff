@@ -23,6 +23,13 @@ $travelPlatforms = collect(config('travel.platforms'))
                     🔎 So sánh giá
                 </a>
 
+                <!-- Tin tức KM -->
+                <a href="{{ route('promotion-news.index') }}"
+                   class="font-semibold text-emerald-600 hover:text-emerald-700 active:text-emerald-800 transition-colors text-sm sm:text-base whitespace-nowrap"
+                   aria-label="Tin tức KM">
+                    📰 Tin tức KM
+                </a>
+
                 <!-- Đặt vé máy bay, khách sạn (Desktop) -->
                 <div class="relative hidden sm:block" @click.away="showTravel = false">
                     <button @click="showTravel = !showTravel"
@@ -121,6 +128,12 @@ $travelPlatforms = collect(config('travel.platforms'))
                     </x-dropdown-link>
                 @endrole
 
+                @role('Admin|Operator')
+                    <x-dropdown-link :href="route('admin.promotion-news.index')">
+                        {{ __('Tin tức khuyến mãi') }}
+                    </x-dropdown-link>
+                @endrole
+
                 @role('Admin')
                     <x-dropdown-link :href="route('admin.affiliate-config.index')">
                         {{ __('Cấu hình tạo Link') }}
@@ -180,6 +193,10 @@ $travelPlatforms = collect(config('travel.platforms'))
 
             <x-responsive-nav-link :href="route('price-comparison.index')">
                 🔎 {{ __('So sánh giá') }}
+            </x-responsive-nav-link>
+
+            <x-responsive-nav-link :href="route('promotion-news.index')">
+                📰 {{ __('Tin tức KM') }}
             </x-responsive-nav-link>
 
             <!-- Đặt vé máy bay, khách sạn (Mobile) -->
@@ -246,6 +263,12 @@ $travelPlatforms = collect(config('travel.platforms'))
                 @role('Admin|Operator')
                     <x-responsive-nav-link :href="route('admin.tiktok-order-sync.index')">
                         {{ __('Đồng bộ đơn hàng TikTok & ShopeeFood') }}
+                    </x-responsive-nav-link>
+                @endrole
+
+                @role('Admin|Operator')
+                    <x-responsive-nav-link :href="route('admin.promotion-news.index')">
+                        {{ __('Tin tức khuyến mãi') }}
                     </x-responsive-nav-link>
                 @endrole
 
