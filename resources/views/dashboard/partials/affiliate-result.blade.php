@@ -48,7 +48,7 @@
                     class="flex-1 h-12 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white font-semibold text-sm rounded-xl transition-all duration-150 flex items-center justify-center gap-1.5"
                 >
                     <span class="max-[390px]:text-base text-lg">🛒</span>
-                    <span>Mua ngay</span>
+                    <span>Add giỏ / Mua ngay</span>
                 </a>
             </div>
         </div>

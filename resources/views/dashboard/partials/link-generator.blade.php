@@ -204,7 +204,7 @@
                         submit();
                     }, 300);
                 "
-                class="block w-full max-[390px]:h-11 h-12 max-[390px]:px-3 px-3.5 pr-14 max-[390px]:text-sm text-base border-2 border-gray-200 rounded-xl focus:border-emerald-400 focus:ring-emerald-400 transition placeholder:text-gray-400"
+                class="block w-full max-[390px]:h-11 h-12 max-[390px]:px-3 px-3.5 pr-14 text-base border-2 border-gray-200 rounded-xl focus:border-emerald-400 focus:ring-emerald-400 transition placeholder:text-gray-400"
             >
             <button
                 type="button"
@@ -292,7 +292,7 @@
                     <button
                         type="button"
                         @click="copyLink"
-                        class="flex-1 h-12 bg-white hover:bg-emerald-50 active:bg-emerald-100 text-emerald-700 font-semibold text-sm rounded-xl border-2 border-emerald-200 transition-all duration-150 flex items-center justify-center gap-1.5"
+                        class="flex-[0.35] h-12 bg-white hover:bg-emerald-50 active:bg-emerald-100 text-emerald-700 font-semibold text-sm rounded-xl border-2 border-emerald-200 transition-all duration-150 flex items-center justify-center gap-1.5"
                     >
                         <span x-show="!copied" class="max-[390px]:text-base text-lg">📋</span>
                         <span x-show="!copied">Sao chép</span>
@@ -304,10 +304,10 @@
                         x-bind:href="result.affiliate_url"
                         target="_blank"
                         rel="noopener noreferrer"
-                        class="flex-1 h-12 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white font-semibold text-sm rounded-xl transition-all duration-150 flex items-center justify-center gap-1.5"
+                        class="flex-[0.65] h-12 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white font-semibold text-sm rounded-xl transition-all duration-150 flex items-center justify-center gap-1.5"
                     >
                         <span class="max-[390px]:text-base text-lg">🛒</span>
-                        <span>Mua ngay</span>
+                        <span>Add giỏ / Mua ngay</span>
                     </a>
                 </div>
             </div>
