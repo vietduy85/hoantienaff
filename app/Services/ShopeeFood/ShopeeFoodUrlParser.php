@@ -20,18 +20,27 @@ final class ShopeeFoodUrlParser
     {
         $path = parse_url($url, PHP_URL_PATH);
 
-        if (! is_string($path) || $path === '') {
-            return null;
+        if (is_string($path) && $path !== '') {
+            $segments = array_values(array_filter(
+                explode('/', $path),
+                static fn (string $segment): bool => $segment !== '',
+            ));
+
+            for ($i = count($segments) - 1; $i >= 0; $i--) {
+                if (preg_match('/^\d{3,12}$/', $segments[$i]) === 1) {
+                    return $segments[$i];
+                }
+            }
         }
 
-        $segments = array_values(array_filter(
-            explode('/', $path),
-            static fn (string $segment): bool => $segment !== '',
-        ));
+        $query = parse_url($url, PHP_URL_QUERY);
 
-        for ($i = count($segments) - 1; $i >= 0; $i--) {
-            if (preg_match('/^\d{3,12}$/', $segments[$i]) === 1) {
-                return $segments[$i];
+        if (is_string($query) && $query !== '') {
+            parse_str($query, $params);
+
+            if (isset($params['restaurantId'])
+                && preg_match('/^\d{3,12}$/', (string) $params['restaurantId']) === 1) {
+                return (string) $params['restaurantId'];
             }
         }
 
