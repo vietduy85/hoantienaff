@@ -9,7 +9,6 @@
         pollTimer: null,
         lastSubmittedUrl: '',
         autoGenerateTimer: null,
-        csrfRetried: false,
         _csrfToken: '',
 
         submit() {
@@ -30,20 +29,38 @@
             try {
                 const res = await fetch(window.location.pathname + window.location.search, {
                     cache: 'no-store',
+                    credentials: 'same-origin',
                     headers: { 'X-Requested-With': 'XMLHttpRequest' }
                 });
                 if (!res.ok) return false;
                 const html = await res.text();
-                const m = html.match(/<meta name=&quot;csrf-token&quot; content=&quot;([^&quot;]+)&quot;/i);
-                if (!m || !m[1]) return false;
-                this._csrfToken = m[1];
+                const doc = new DOMParser().parseFromString(html, 'text/html');
+                const meta = doc.querySelector(`meta[name='csrf-token']`);
+                if (!meta) return false;
+                const token = meta.getAttribute('content');
+                if (!token) return false;
+                this._csrfToken = token;
                 return true;
             } catch (e) {
                 return false;
             }
         },
 
-        async post() {
+        getErrorMessage(data) {
+            if (!data || typeof data !== 'object') return '';
+
+            if (data.errors) {
+                const vals = Array.isArray(data.errors) ? data.errors : Object.values(data.errors);
+                const first = Array.isArray(vals[0]) ? vals[0][0] : vals[0];
+                if (typeof first === 'string' && first.trim()) return first.trim();
+            }
+
+            if (typeof data.message === 'string' && data.message.trim()) return data.message.trim();
+            if (typeof data.error === 'string' && data.error.trim()) return data.error.trim();
+            return '';
+        },
+
+        async post(retry = true) {
             let response;
             try {
                 response = await fetch('{{ route('link-requests.store') }}', {
@@ -61,28 +78,28 @@
                 return;
             }
 
-            if (response.status === 419 && !this.csrfRetried) {
-                this.csrfRetried = true;
+            // 419 lần đầu: refresh CSRF rồi retry đúng 1 lần (không redirect/reload).
+            if (response.status === 419 && retry) {
                 const refreshed = await this.refreshCsrf();
                 if (refreshed) {
-                    this.post();
+                    await this.post(false);
                     return;
                 }
+                // Refresh thất bại: không retry mù, báo phiên có vấn đề.
+                this.showSessionExpired();
+                return;
             }
 
+            // Còn 401/419 sau khi đã retry => session thật sự không còn hợp lệ.
             if (response.status === 401 || response.status === 419) {
-                this.error = 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.';
-                this.loading = false;
-                setTimeout(() => {
-                    window.location.href = '{{ route('login') }}';
-                }, 1200);
+                this.showSessionExpired();
                 return;
             }
 
             try {
                 const data = await response.json();
                 if (!data.success) {
-                    this.error = data.error || 'Lỗi không xác định';
+                    this.error = this.getErrorMessage(data) || 'Lỗi không xác định';
                     this.loading = false;
                     return;
                 }
@@ -96,6 +113,14 @@
                 this.error = 'Không thể kết nối máy chủ';
                 this.loading = false;
             }
+        },
+
+        showSessionExpired() {
+            this.error = 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.';
+            this.loading = false;
+            setTimeout(() => {
+                window.location.href = '{{ route('login') }}';
+            }, 1200);
         },
 
         stopPolling() {
