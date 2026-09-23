@@ -1,0 +1,130 @@
+[33m6719b45[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m fix UI Add gio/mua ngay
+[33m37e232c[m them muc tin tuc khuyen mai
+[33m4d0027a[m them muc khuyen mai Kingfoodmart
+[33mef2bb5c[m them muc khuyen mai BHX
+[33mc975e79[m fix loi P0 P1 Loi lay link chap chon
+[33mcdfd45e[m lam menu so sanh gia, da co Coop, link aff shopee, aff lazada, chua co tiktok
+[33m955ec59[m lam menu so sanh gia, da co Coop
+[33mbc63eef[m chinh sua menu quan ly nguoi dung, thong ke gioi thieu
+[33me2d9c48[m them chuc nang gioi thieu ban be
+[33m10730d1[m fix loi hien thi shopeefood
+[33m61b33c0[m truoc fix loi shopeefood
+[33m67244cd[m dat window schedule dong bo don hang tiktok lazada shopee food 6 tieng 1 lan
+[33m9a41656[m fix lazada tiktok trang thai don hoan thanh phase 3 hoan tat
+[33ma740d1f[m fix lazada tiktok trang thai don hoan thanh phase 2
+[33m9b4c936[m fix don cho cashback
+[33m4d942e8[m fix hien thi so tien hoa hong tiktok
+[33m97ea61c[m fix hien thi so tien hoa lazada
+[33maa25dbb[m phase 2 lazada - dong bo don hang lazada thanh cong, dang bi loi cookie shopee food
+[33m6672293[m phase 1 lazada
+[33mb778db3[m truoc khi trien khai lazada ngay 05092026
+[33m748cb18[m sau khi bo putenv, fix loi missing key
+[33mf45a1da[m truoc khi at putenv
+[33m8eed29b[m fix loi log out
+[33m4efc75a[m fix ux het han phien dang nhap ve login khong loi khong xac dinh
+[33m1fa3686[m truoc khi doi session cookie
+[33m8087487[m them chuc nang dieu chinh vi tien user
+[33m9d41e4c[m hotfix shopee legacy anhtuyet82 - preserve user_id/username khi import sub_id1=anhtuyet sub_id2=82
+[33mececb2f[m shopeefood.vn dung extension worker - user tu dong routing shopeefood sang ExtensionStrategy
+[33ma22fbc4[m hoan thanh phase 4 tiktok - menu dong bo thu cong cho admin/operator
+[33m9329944[m hoan thanh phase 3 tiktok - tu dong dong bo moi 3 tieng chua test
+[33m66425d4[m hoan thanh phase 2 tiktok
+[33mab48e24[m unique key đã đổi thành platform + order_id + item_id và đã verify trên DB thật
+[33mf697c9d[m fix loi username co dau -
+[33m86c8163[m fix loi hien thi card hoan tien sau thêm API lay link tiktok
+[33m67799d6[m thêm API lay link tiktok
+[33mb3fa63e[m fix loi chua tru 10% thue
+[33m75c189b[m fix loi lam tron so tien hien thi va khong cho rut toan bo
+[33m1cacdae[m thay link hoan tien bang hinh anh va ten
+[33mc167e85[m perf(logging): disable extension debug logs in production
+[33m5aa1f4b[m fix(operator): restrict affiliate config to admin only
+[33m4dc476c[m feat(operator): grant shortlink access to operator
+[33mba14f61[m feat(admin): add read-only user management
+[33m5384977[m pwa icon dep
+[33m726acec[m feat(pwa): finalize production-ready PWA
+[33m490c0ce[m chinh sua thong tin tai khoan ngan hang va export template chuyen tien
+[33m9a1b4db[m sang ngay 25/7
+[33m56e3944[m them giao dien FAQ
+[33m2dc71fb[m them giao dien dat ve may bay
+[33m7827940[m chinh sau footer giao dien trang chu
+[33m851b849[m tam on sau chinh sua DirectController de hien thi link aff truoc
+[33m645bbdc[m truoc chinh sua DirectController de hien thi link aff truoc 02
+[33m1b92947[m truoc chinh sua DirectController de hien thi link aff truoc
+[33m795d7f1[m them chuc nang quan ly tai chinh
+[33m08edff7[m chia dashboardController ra làm 2 DirectController va ExtensionControler
+[33me2b9b14[m test ok voi 2 kieu tao link direct va extension 02
+[33m0baba63[m test ok voi 2 kieu tao link direct va extension
+[33m4719dd2[m tao menu tao shorlink aff
+[33m451be4f[m[33m ([m[1;32mbackup/direct-link-refactor[m[33m)[m Backup: Direct Link + Affiliate Config before rollback
+[33mb601a28[m[33m ([m[1;32mbackup-directlink-refactor[m[33m)[m before chuyen cach tao link
+[33m78e5a9a[m[33m ([m[1;33mtag: [m[1;33mstable-extension-worker[m[33m)[m auto tao link ok
+[33m193124d[m auto tao link chrome dthoai ok, safari loi
+[33md0c1551[m click vao là xoa link cu
+[33m60b607a[m hoan thien menu rut tien 03
+[33md7518a2[m hoan thanh menu rut tien 02 - them lich su giao dich
+[33m2965652[m hoan thanh menu rut tien
+[33m2e21116[m buoi oi ngay 11/07 dang lam vu rut tien chua thay menu
+[33m4c386a0[m phase 4A rut tien
+[33md9d5054[m ban on dinh ngay 10/7
+[33m4777cdd[m fix loi https tu nhien ko lay link aff dc, fix https thi ok
+[33m9a58462[m fix loi in-app-browser hien thong bao cho User su dung trinh duyet
+[33m97a19b8[m fix loi google auth
+[33mbd975f3[m doi logo thanh trang chu, them muc hotro
+[33m4014adc[m typography: standardize to Be Vietnam Pro, use Inter on hero title & button
+[33m82728e1[m tam on - tao dc link - them cac chuc nang tra cuu don hang - vi tien
+[33m0245190[m chuc nang rut tien
+[33me4e90de[m database wallet transaction
+[33m62b4c83[m giao dien vi tien lan 1
+[33m11aed41[m giao dien tra cuu don hang lan 3
+[33mdb5fa1d[m giao dien tra cuu don hang lan 2
+[33m4a9b589[m giao dien tra cuu don hang lan 1
+[33m888e8f3[m import database tu file export shopee 02 tinh lai dung cashback rate theo item
+[33m4f6c851[m import database tu file export shopee
+[33mff1473b[m tao database tu file export shopee
+[33m790103a[m sua loi shp.ee khi detect platform
+[33me470c95[m toi uu thoi gian - bo thoi gian cho 3s sau khi custom link tao link aff
+[33m3bd9c1b[m them subid luc nhap customlink 02
+[33md84e9bf[m them subid luc nhap customlink
+[33m1971856[m them truong username o tai khoan
+[33mf5a2914[m update giao dien tai khoan lan 2
+[33mb79601b[m update giao dien tai khoan
+[33maa4ac89[m cache-affiliate-tab-v2
+[33m2971fbd[m cache-affiliate-tab
+[33mb1e9e65[m cache-affiliate-tab
+[33md126b71[m adaptive-dashboard-polling
+[33m462e00f[m reduce-extension-delay
+[33mb4e4387[m reduce-extension-delay
+[33md367ed6[m API song song worker dc 1/2
+[33mbe4f921[m parallel-worker-addlivetag
+[33m65c9575[m basic tao file md
+[33ma2584bf[m cache login error dien thoai
+[33m8a16005[m tao cache item id
+[33m28889d2[m chinh sua tao link loi lan 01
+[33macf814a[m giao dien daskboard ok
+[33mc6d7512[m hien thi dung so tien hoan
+[33mc48ea06[m feat: implement cashback estimation v1
+[33m7eaddb3[m Improve dashboard UX for continuous affiliate link generation
+[33mc0cb18e[m Doi link aff dc tu Internet
+[33m46e0611[m Implement end-to-end Shopee affiliate worker with Chrome extension
+[33m8259615[m feat: browser extension creates Shopee affiliate links
+[33ma6928d3[m feat: generate Shopee affiliate links via Chrome CDP
+[33m86ce5d4[m TEST 8B PASS - Session restore
+[33m785d574[m Playwright test completed
+[33m366d314[m Playwright test completed
+[33m7cd448a[m TEST 6
+[33mf1ca73c[m Sua chua giao dien tao link aff lan 4
+[33m5225719[m Sua chua giao dien tao link aff lan 3
+[33mc4792e1[m Dang nhap Google
+[33mfa41109[m Giao dien 5
+[33m3eccef2[m Giao dien 4
+[33m79f513c[m Giao dien 3
+[33m9231de9[m Giao dien 2
+[33m77a0d4c[m Giao dien 1
+[33mcce9976[m Session 3G completed
+[33m056c6b7[m Session 3D completed
+[33mc90d82e[m Session 3B completed
+[33m9b0b602[m Session 3A completed - Link request foundation
+[33me384f58[m Session 2.5 completed - Role foundation
+[33m0c86c93[m Session 2 completed - Database foundation
+[33ma94e03b[m Session 1 - Auth foundation completed
+[33md5168b6[m Initial commit
