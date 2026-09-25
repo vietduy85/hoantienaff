@@ -10,9 +10,45 @@
         lastSubmittedUrl: '',
         autoGenerateTimer: null,
         _csrfToken: '',
+        pageInstanceId: '{{ $page_instance_id ?? '' }}',
+        t2FlowId: '',
+
+        init() {
+            try {
+                this.pageInstanceId = '{{ $page_instance_id ?? '' }}';
+                window.__t2Forensic = window.__t2Forensic || { page_instance_id: this.pageInstanceId, events: [] };
+                this.fs('page_init', { meta_present: !!document.querySelector('meta[name=&quot;csrf-token&quot;]') });
+                this.bindResumeProbe();
+            } catch (e) {}
+        },
+
+        fs(event, extra) {
+            try {
+                const rec = { t: Date.now(), ts: new Date().toISOString(), ev: event, page_instance_id: this.pageInstanceId, t2_flow_id: this.t2FlowId || null, ...(extra || {}) };
+                window.__t2Forensic = window.__t2Forensic || { events: [] };
+                window.__t2Forensic.events.push(rec);
+                if (window.__t2Forensic.events.length > 500) window.__t2Forensic.events.shift();
+                if (window.console && window.console.debug) window.console.debug('[F]', event, rec);
+            } catch (e) {}
+        },
+
+        fsFp(value) {
+            try {
+                if (window.crypto && window.crypto.subtle && value) {
+                    window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value))).then((buf) => {
+                        const hex = Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 10);
+                        window.__t2Forensic = window.__t2Forensic || { events: [] };
+                        window.__t2Forensic.events.push({ t: Date.now(), ev: 'token_fp', page_instance_id: this.pageInstanceId, t2_flow_id: this.t2FlowId || null, fp: hex });
+                    }).catch(() => {});
+                }
+            } catch (e) {}
+        },
 
         submit() {
+            if (this.loading) return;
             if (!this.url.trim()) return;
+            this.t2FlowId = 'T2-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+            this.fs('submit_start', { url_char_len: this.url.trim().length });
             this.lastSubmittedUrl = this.url.trim();
             this.loading = true;
             this.error = '';
@@ -25,25 +61,69 @@
             return this._csrfToken || '{{ csrf_token() }}';
         },
 
-        async refreshCsrf() {
-            try {
-                const res = await fetch(window.location.pathname + window.location.search, {
-                    cache: 'no-store',
-                    credentials: 'same-origin',
-                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
-                });
-                if (!res.ok) return false;
-                const html = await res.text();
-                const doc = new DOMParser().parseFromString(html, 'text/html');
-                const meta = doc.querySelector(`meta[name='csrf-token']`);
-                if (!meta) return false;
-                const token = meta.getAttribute('content');
-                if (!token) return false;
-                this._csrfToken = token;
-                return true;
-            } catch (e) {
-                return false;
+        // Single-flight CSRF refresh: nếu nhiều request đồng thời cùng gặp 419
+        // thì CHỈ 1 GET /csrf-token được chạy, các request khác chờ cùng promise.
+        async ensureFreshCsrf(force = false) {
+            if (window.__csrfPromise) {
+                return window.__csrfPromise;
             }
+
+            window.__csrfPromise = (async () => {
+                this.fs('refresh_csrf_start', { force });
+                try {
+                    const res = await fetch('{{ route('csrf-token') }}', {
+                        method: 'GET',
+                        credentials: 'same-origin',
+                        cache: 'no-store',
+                        headers: {
+                            'Accept': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                        }
+                    });
+                    this.fs('refresh_csrf_response', { status: res.status, ok: res.ok, force });
+                    if (!res.ok) {
+                        throw new Error('CSRF refresh HTTP ' + res.status);
+                    }
+                    const data = await res.json();
+                    const token = data && data.token;
+                    if (!token) {
+                        throw new Error('CSRF refresh invalid payload');
+                    }
+                    // Cập nhật token vào ĐÚNG state mà submit flow dùng (X-CSRF-TOKEN).
+                    this._csrfToken = token;
+                    this.fs('refresh_csrf_token_found', { new_token_len: token.length, force });
+                    this.fsFp(token);
+                    return token;
+                } catch (e) {
+                    this.fs('refresh_csrf_exception', { name: (e && e.name) || 'Error', msg: (e && e.message) ? String(e.message).slice(0, 200) : '' });
+                    throw e;
+                } finally {
+                    window.__csrfPromise = null;
+                }
+            })();
+
+            return window.__csrfPromise;
+        },
+
+        // Revalidate CSRF khi tab resume (visibility/focus), throttle hợp lý.
+        // KHÔNG phải cơ chế recovery duy nhất: POST → 419 recovery vẫn tự hoạt động.
+        bindResumeProbe() {
+            try {
+                let last = 0;
+                const throttleMs = 10000;
+                const probe = () => {
+                    const now = Date.now();
+                    if (now - last < throttleMs) return;
+                    if (document.visibilityState !== 'visible') return;
+                    last = now;
+                    this.ensureFreshCsrf(true).catch(() => {});
+                };
+                document.addEventListener('visibilitychange', () => {
+                    if (document.visibilityState === 'visible') probe();
+                });
+                window.addEventListener('focus', probe);
+                window.addEventListener('pageshow', probe);
+            } catch (e) {}
         },
 
         getErrorMessage(data) {
@@ -62,36 +142,48 @@
 
         async post(retry = true) {
             let response;
+            this.fs('post_start', { retry });
             try {
                 response = await fetch('{{ route('link-requests.store') }}', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'X-Requested-With': 'XMLHttpRequest',
-                        'X-CSRF-TOKEN': this.csrfToken()
+                        'X-CSRF-TOKEN': this.csrfToken(),
+                        'X-Forensic-Page-Id': this.pageInstanceId,
+                        'X-Forensic-T2-Flow-Id': this.t2FlowId
                     },
                     body: JSON.stringify({ original_url: this.url.trim() })
                 });
             } catch (e) {
+                this.fs('post_network_error', { name: (e && e.name) || 'Error', msg: (e && e.message) ? String(e.message).slice(0, 200) : '' });
                 this.error = 'Không thể kết nối máy chủ';
                 this.loading = false;
                 return;
             }
 
-            // 419 lần đầu: refresh CSRF rồi retry đúng 1 lần (không redirect/reload).
+            this.fs('post_response', { status: response.status, ok: response.ok, retry });
+
+            // 419 lần đầu: refresh CSRF bằng /csrf-token rồi retry đúng 1 lần (không redirect/reload).
             if (response.status === 419 && retry) {
-                const refreshed = await this.refreshCsrf();
-                if (refreshed) {
-                    await this.post(false);
+                this.fs('post_419', { retry });
+                try {
+                    // ensureFreshCsrf(true) luôn thực hiện GET /csrf-token (chia sẻ single-flight nếu đang chạy).
+                    await this.ensureFreshCsrf(true);
+                } catch (e) {
+                    // Refresh thất bại (HTTP !ok / payload rỗng / network) => không retry mù.
+                    this.fs('refresh_fail_after_419', { name: (e && e.name) || 'Error' });
+                    this.showSessionExpired();
                     return;
                 }
-                // Refresh thất bại: không retry mù, báo phiên có vấn đề.
-                this.showSessionExpired();
+                this.fs('retry_post_start', {});
+                await this.post(false);
                 return;
             }
 
             // Còn 401/419 sau khi đã retry => session thật sự không còn hợp lệ.
             if (response.status === 401 || response.status === 419) {
+                this.fs('post_401_or_419', { status: response.status, retry });
                 this.showSessionExpired();
                 return;
             }
@@ -99,10 +191,12 @@
             try {
                 const data = await response.json();
                 if (!data.success) {
+                    this.fs('post_business_error', { status: response.status });
                     this.error = this.getErrorMessage(data) || 'Lỗi không xác định';
                     this.loading = false;
                     return;
                 }
+                this.fs('post_success', { status: response.status });
                 this.requestId = data.request_id;
                 if (data.affiliate_url) {
                     this.result = { ...data };
@@ -110,12 +204,14 @@
                 }
                 this.startPolling();
             } catch (e) {
+                this.fs('post_json_error', { name: (e && e.name) || 'Error', msg: (e && e.message) ? String(e.message).slice(0, 200) : '' });
                 this.error = 'Không thể kết nối máy chủ';
                 this.loading = false;
             }
         },
 
         showSessionExpired() {
+            this.fs('show_session_expired_start', {});
             this.error = 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.';
             this.loading = false;
             setTimeout(() => {

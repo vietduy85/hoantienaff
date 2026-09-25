@@ -54,6 +54,9 @@ self.addEventListener('fetch', (event) => {
     // POST/PUT/PATCH/DELETE... không xử lý, luôn đi thẳng tới server
     if (request.method !== 'GET') return;
 
+    // /csrf-token: TUYỆT ĐỐI network-only, không bao giờ cache (token thay đổi theo session).
+    if (new URL(request.url).pathname === '/csrf-token') return;
+
     // Không intercept navigation — HTML luôn lấy từ server (không cache HTML)
     if (request.mode === 'navigate') return;
 

@@ -58,9 +58,18 @@ Route::get('/debug/set-cookie', [CookieDebugController::class, 'setCookie']);
 Route::get('/check-username', CheckUsernameController::class);
 
 Route::middleware(['auth', 'verified'])->group(function () {
-    Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
-    Route::post('/link-requests', [DashboardController::class, 'store'])->name('link-requests.store');
+    Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard')->middleware('forensic');
+    Route::post('/link-requests', [DashboardController::class, 'store'])->name('link-requests.store')->middleware('forensic');
     Route::post('/link-requests/{linkRequest}/toggle-pin', [DashboardController::class, 'togglePin'])->name('link-requests.toggle-pin');
+
+    // T2 v2: trả về CSRF token HIỆN TẠI của session để frontend self-recover
+    // khi POST bị 419 (session/rotation tạo token mới). GET nên không bị CSRF
+    // middleware chặn. Không regenerate session/token, không logout, không cache.
+    Route::get('/csrf-token', function () {
+        return response()->json([
+            'token' => request()->session()->token(),
+        ])->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    })->name('csrf-token');
 });
 
 Route::middleware('auth')->group(function () {

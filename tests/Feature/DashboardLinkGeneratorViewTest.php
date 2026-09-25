@@ -35,12 +35,14 @@ class DashboardLinkGeneratorViewTest extends TestCase
 
         $this->assertNotNull($div, 'Phải tồn tại phần tử có x-data');
 
-        // B + C. x-data phải chứa đầy đủ refreshCsrf() / P0 logic
+        // B + C. x-data phải chứa đầy đủ T2 v2 logic (single-flight + /csrf-token)
         $xdata = $div->getAttribute('x-data');
-        $this->assertStringContainsString('refreshCsrf', $xdata);
-        $this->assertStringContainsString('content="([^"]+)"', $xdata, 'Regex CSRF token phải được decode nguyên vẹn sau khi HTML decode entity');
-        $this->assertStringContainsString('csrfRetried', $xdata, 'Logic retry-once phải còn nguyên');
-        $this->assertStringContainsString('async post()', $xdata);
+        $this->assertStringContainsString('ensureFreshCsrf', $xdata);
+        $this->assertStringContainsString('window.__csrfPromise', $xdata, 'Single-flight promise phải được dùng');
+        $this->assertMatchesRegularExpression('#/csrf-token#', $xdata, 'Phải fetch GET /csrf-token (không reload /dashboard)');
+        $this->assertStringContainsString('bindResumeProbe', $xdata, 'Probe tab resume phải tồn tại');
+        $this->assertStringContainsString('async post(retry = true)', $xdata);
+        $this->assertStringNotContainsString('window.location.pathname + window.location.search', $xdata, 'T2 cũ refetch GET /dashboard phải bị loại bỏ');
 
         // attribute x-data phải đóng đúng vị trí (không bị cắt tại name=)
         $this->assertStringEndsWith('}', trim($xdata), 'x-data attribute bị cắt sớm');
@@ -64,9 +66,9 @@ class DashboardLinkGeneratorViewTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('x-data="', false);
-        $response->assertSee('refreshCsrf');
-        $response->assertSee('csrfRetried');
-        $response->assertSee('name=&quot;csrf-token&quot; content=&quot;', false, 'Regex phải được xuất ra dạng entity (không chứa quote thô trong attribute)');
+        $response->assertSee('ensureFreshCsrf');
+        $response->assertSee('bindResumeProbe');
+        $response->assertSee('<meta name="csrf-token" content="', false);
         $response->assertDontSee('content="([^"]+)"', false, 'Regex cũ với quote thô không được xuất hiện');
     }
 }

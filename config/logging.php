@@ -94,6 +94,14 @@ return [
             'processors' => [PsrLogMessageProcessor::class],
         ],
 
+        'csrf-forensic' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/csrf-forensic.log'),
+            'level' => 'info',
+            'days' => 7,
+            'replace_placeholders' => false,
+        ],
+
         'stderr' => [
             'driver' => 'monolog',
             'level' => env('LOG_LEVEL', 'debug'),

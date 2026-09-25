@@ -29,6 +29,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => \Spatie\Permission\Middleware\RoleMiddleware::class,
             'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,
             'role_or_permission' => \Spatie\Permission\Middleware\RoleOrPermissionMiddleware::class,
+            'forensic' => \App\Http\Middleware\ForensicObserver::class,
         ]);
 
         $middleware->validateCsrfTokens(except: [
@@ -51,6 +52,26 @@ return Application::configure(basePath: dirname(__DIR__))
             }
 
             return redirect('/login');
+        });
+
+        // FORENSIC ONLY (Root Cause A + Root Cause B): ghi chính xác trạng thái
+        // request token / session token / session id vào đúng thời điểm 419 xảy ra
+        // trên POST /link-requests. KHÔNG thay đổi behavior (chỉ thêm một observer,
+        // trả về null để luồng render 419 mặc định tiếp tục).
+        $exceptions->render(function (Symfony\Component\HttpKernel\Exception\HttpException $e, Illuminate\Http\Request $request) {
+            if ($e->getStatusCode() !== 419 || ! $request->routeIs('link-requests.store') || ! $request->isMethod('POST')) {
+                return null;
+            }
+
+            if ($request->hasSession()) {
+                \App\Support\CsrfForensic::event('csrf_failure', $request, [
+                    'page_instance_id' => (string) $request->header('X-Forensic-Page-Id', ''),
+                    't2_flow_id' => (string) $request->header('X-Forensic-T2-Flow-Id', ''),
+                    'response_status' => 419,
+                ]);
+            }
+
+            return null;
         });
 
         // DIAGNOSTIC ONLY (AppKey Flight Recorder):
