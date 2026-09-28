@@ -6,6 +6,7 @@
         requestId: null,
         result: null,
         copied: false,
+        fastMode: false,
         pollTimer: null,
         lastSubmittedUrl: '',
         autoGenerateTimer: null,
@@ -153,7 +154,7 @@
                         'X-Forensic-Page-Id': this.pageInstanceId,
                         'X-Forensic-T2-Flow-Id': this.t2FlowId
                     },
-                    body: JSON.stringify({ original_url: this.url.trim() })
+                    body: JSON.stringify({ original_url: this.url.trim(), fast_mode: this.fastMode ? 1 : 0 })
                 });
             } catch (e) {
                 this.fs('post_network_error', { name: (e && e.name) || 'Error', msg: (e && e.message) ? String(e.message).slice(0, 200) : '' });
@@ -201,6 +202,16 @@
                 if (data.affiliate_url) {
                     this.result = { ...data };
                     this.loading = false;
+                }
+                // Chế độ nhanh: server đã trả kết quả HOÀN CHỈNH (status completed),
+                // không cần chờ ProductData => dừng luôn, KHÔNG polling.
+                if (data.fast_mode) {
+                    this.fs('post_fast_mode_no_poll', { request_id: this.requestId });
+                    this.$nextTick(() => {
+                        this.$refs.urlInput.focus();
+                        this.$refs.urlInput.select();
+                    });
+                    return;
                 }
                 this.startPolling();
             } catch (e) {
@@ -341,6 +352,29 @@
             </button>
         </div>
 
+        <label
+            for="fast_mode"
+            class="flex items-start gap-2.5 cursor-pointer select-none bg-amber-50 border-2 border-amber-200 rounded-xl max-[390px]:px-2.5 max-[390px]:py-1.5 px-3 py-2 transition-colors"
+            x-bind:class="fastMode ? 'bg-amber-100 border-amber-300' : ''"
+        >
+            <input
+                id="fast_mode"
+                type="checkbox"
+                x-model="fastMode"
+                x-bind:disabled="loading"
+                class="mt-0.5 w-4 h-4 rounded border-2 border-amber-300 text-amber-500 focus:ring-amber-400 shrink-0"
+            >
+            <span class="min-w-0">
+                <span class="flex items-center gap-1.5 text-xs font-semibold text-amber-800">
+                    <span>⚡</span>
+                    <span>Chế độ nhanh</span>
+                </span>
+                <span class="block text-[11px] text-amber-700/80 mt-0.5">
+                    Tạo link nhanh, không tải thông tin sản phẩm
+                </span>
+            </span>
+        </label>
+
         <button
             type="button"
             @click="submit"
@@ -365,7 +399,20 @@
             </div>
 
             <div class="space-y-2.5">
-                <div class="text-center bg-white rounded-xl border border-emerald-100 max-[390px]:px-3 max-[390px]:py-1.5 px-4 py-2">
+                <div
+                    x-show="result.fast_mode"
+                    class="text-center bg-amber-50 rounded-xl border border-amber-200 max-[390px]:px-3 max-[390px]:py-1.5 px-4 py-2"
+                >
+                    <p class="text-sm font-semibold text-amber-800">⚡ Link đã sẵn sàng</p>
+                    <p class="text-[11px] text-amber-700/80 mt-0.5">
+                        Chế độ nhanh không tải thông tin sản phẩm và không tính hoàn tiền
+                    </p>
+                </div>
+
+                <div
+                    x-show="!result.fast_mode"
+                    class="text-center bg-white rounded-xl border border-emerald-100 max-[390px]:px-3 max-[390px]:py-1.5 px-4 py-2"
+                >
                     <p class="text-xs text-gray-500" x-show="result.platform !== 'ShopeeFood'">Bạn sẽ được hoàn</p>
                     <p class="text-3xl font-bold text-emerald-600 leading-tight">
                         <span x-show="result.platform === 'ShopeeFood'" x-cloak class="text-lg font-medium text-emerald-600">Lên đến 4% tổng bill</span>
@@ -386,7 +433,10 @@
                         class="block bg-white rounded-xl border border-emerald-100 overflow-hidden cursor-pointer hover:opacity-90 transition-opacity"
                     >
                         <div class="flex items-center gap-3 p-3">
-                            <div class="w-16 h-16 shrink-0 bg-gray-100 rounded-lg overflow-hidden flex items-center justify-center">
+                            <div
+                                x-show="!result.fast_mode"
+                                class="w-16 h-16 shrink-0 bg-gray-100 rounded-lg overflow-hidden flex items-center justify-center"
+                            >
                                 <img
                                     x-show="result.product_image"
                                     x-bind:src="result.product_image"
@@ -403,9 +453,20 @@
                             </div>
                             <p
                                 class="text-sm text-gray-800 font-medium leading-snug line-clamp-3 min-w-0"
-                                x-text="result.product_name || 'Sản phẩm'"
+                                x-text="result.fast_mode ? 'Mở link hoàn tiền' : (result.product_name || 'Sản phẩm')"
                             ></p>
                         </div>
+                    </a>
+
+                    <a
+                        x-show="result.fast_mode"
+                        x-bind:href="result.shopeedirect_url"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="mt-2 flex items-center justify-center gap-1.5 bg-white hover:bg-amber-50 active:bg-amber-100 text-amber-700 font-semibold text-xs rounded-xl border-2 border-amber-200 transition-all duration-150 max-[390px]:h-10 h-11"
+                    >
+                        <span class="max-[390px]:text-sm text-base">🛒</span>
+                        <span>Mở trang sản phẩm Shopee</span>
                     </a>
                 </div>
 

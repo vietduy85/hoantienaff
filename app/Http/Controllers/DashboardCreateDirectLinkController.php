@@ -38,6 +38,10 @@ class DashboardCreateDirectLinkController extends Controller
         $platform = $this->detectPlatform($validated['original_url']);
         $isShopee = str_contains(strtolower($platform), 'shopee');
 
+        // "Chế độ nhanh" (Fast Mode): chỉ tạo affiliate URL, không gọi ProductData,
+        // không cache affiliate_cache, không dispatch closure sau response.
+        $fastMode = $request->boolean('fast_mode');
+
         $link = LinkRequest::create([
             'user_id' => $user->id,
             'original_url' => $validated['original_url'],
@@ -74,6 +78,13 @@ class DashboardCreateDirectLinkController extends Controller
             }
 
             $itemId = $this->cacheService->extractItemId($resolvedUrl);
+
+            // Fast Mode: dừng ngay sau resolver. KHÔNG gọi affiliate_cache,
+            // KHÔNG gọi ProductDataService, KHÔNG dispatch afterResponse.
+            if ($fastMode) {
+                return $this->storeFastShopeeLink($request, $link, $resolvedUrl, $itemId);
+            }
+
             $cached = $itemId ? $this->cacheService->get($itemId) : null;
 
             if ($cached) {
@@ -313,6 +324,61 @@ class DashboardCreateDirectLinkController extends Controller
             ->with('success', 'Đã nhận link. Đang tạo affiliate link...');
     }
 
+    /**
+     * Chế độ nhanh (Fast Mode) — chỉ dành cho Shopee.
+     *
+     * Được gọi SAU KHI resolver đã trả về URL landing hợp lệ, nên vẫn dùng
+     * CHUNG đúng một quy tắc affiliate URL với Normal Mode
+     * (buildAffiliateUrl) và vẫn lưu LinkRequest như Normal Mode.
+     *
+     * Trả về `shopeedirect_url` (URL sản phẩm Shopee sạch) cùng
+     * `affiliate_url` (URL có tracking) để UI hiển thị cả hai nút.
+     *
+     * Cố ý KHÔNG gọi ở đây:
+     *  - AffiliateCacheService::get()  (không cần dữ liệu sản phẩm)
+     *  - AffiliateCacheService::put()
+     *  - ProductDataService::getByUrl() (HTTP ra ngoài ~0.65-1.04s)
+     *  - CashbackCalculator::calculate()
+     *  - dispatch(...)->afterResponse()
+     */
+    private function storeFastShopeeLink(Request $request, LinkRequest $link, string $resolvedUrl, ?int $itemId): JsonResponse|RedirectResponse
+    {
+        $user = auth()->user();
+
+        $shopeeUrl = $this->cleanShopeeProductUrl($resolvedUrl);
+        $affiliateUrl = $this->buildAffiliateUrl($resolvedUrl, $user);
+
+        $link->update([
+            'item_id' => $itemId,
+            'product_link' => $shopeeUrl,
+            'affiliate_url' => $affiliateUrl,
+            'status' => 'completed',
+        ]);
+
+        if (config('app.affiliate_timing')) {
+            Log::info('[FastMode] Shopee link created without ProductData', [
+                'link_request_id' => $link->id,
+                'item_id' => $itemId,
+            ]);
+        }
+
+        if ($request->expectsJson() || $request->ajax()) {
+            return response()->json([
+                'success' => true,
+                'request_id' => $link->id,
+                'platform' => $link->platform,
+                'affiliate_url' => $affiliateUrl,
+                'shopeedirect_url' => $shopeeUrl,
+                'item_id' => $itemId,
+                'status' => 'completed',
+                'fast_mode' => true,
+            ]);
+        }
+
+        return redirect()->route('dashboard')
+            ->with('success', 'Đã tạo affiliate link (chế độ nhanh).');
+    }
+
     private function detectPlatform(string $url): string
     {
         $url = strtolower($url);
@@ -353,10 +419,19 @@ class DashboardCreateDirectLinkController extends Controller
         return 'Không thể tạo affiliate link TikTok. Vui lòng thử lại sau.';
     }
 
+    /**
+     * URL sản phẩm Shopee đã bỏ query string — dùng chung cho Normal Mode
+     * (buildAffiliateUrl) và Fast Mode (shopee_url) để hai chế độ không lệch nhau.
+     */
+    private function cleanShopeeProductUrl(string $resolvedUrl): string
+    {
+        return explode('?', $resolvedUrl)[0];
+    }
+
     private function buildAffiliateUrl(string $resolvedUrl, $user): string
     {
         $affiliateId = Setting::get('affiliate.direct.shopee_affiliate_id', '');
-        $cleanUrl = explode('?', $resolvedUrl)[0];
+        $cleanUrl = $this->cleanShopeeProductUrl($resolvedUrl);
         $encodedUrl = rawurlencode($cleanUrl);
         $subId = $user->username ?? '';
 

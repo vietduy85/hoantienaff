@@ -125,4 +125,8 @@ return [
 
     'affiliate_timing' => filter_var(env('AFFILIATE_TIMING', false), FILTER_VALIDATE_BOOLEAN),
 
+    // TEMPORARY controlled-test flag for T2 V2 CSRF self-recovery proof.
+    // Remove together with the test controller + route in Phase 8.
+    't2_test_enabled' => filter_var(env('T2_TEST_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+
 ];

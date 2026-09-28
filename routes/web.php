@@ -70,6 +70,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
             'token' => request()->session()->token(),
         ])->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
     })->name('csrf-token');
+
+    // TEMPORARY controlled-test tool for the T2 V2 CSRF self-recovery proof
+    // (Phase 1 approved). POST-only; auth; flag-gated; user_id=5 only;
+    // rotates current session id + CSRF token, returns fingerprints only.
+    // Remove in Phase 8.
+    Route::post('/__t2-test/rotate-session', \App\Http\Controllers\Debug\T2TestRotateSessionController::class)
+        ->name('t2-test.rotate-session');
 });
 
 Route::middleware('auth')->group(function () {
