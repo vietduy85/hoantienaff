@@ -169,6 +169,53 @@ class FastModeTest extends TestCase
     }
 
     // ─────────────────────────────────────────────────────────────
+    // A2. Fast Mode response chỉ cần affiliate_url để dựng card xác nhận.
+    //     KHÔNG trả field ProductData, KHÔNG yêu cầu frontend mở Shopee.
+    // ─────────────────────────────────────────────────────────────
+    public function test_fast_mode_response_has_no_product_data_fields(): void
+    {
+        $url = 'https://shopee.vn/product/59917031/56759033748';
+
+        $this->mock(UrlResolverService::class, function ($mock) use ($url) {
+            $mock->shouldReceive('resolve')->once()->with($url)->andReturn($url);
+            $mock->shouldReceive('isShopeeLanding')->once()->with($url)->andReturn(true);
+        });
+
+        $this->mock(ProductDataService::class, function ($mock) {
+            $mock->shouldNotReceive('getByUrl');
+        });
+
+        $response = $this->actingAs($this->user)->postJson('/link-requests', [
+            'original_url' => $url,
+            'fast_mode'    => 1,
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJson([
+            'success'   => true,
+            'fast_mode' => true,
+            'status'    => 'completed',
+        ]);
+
+        // affiliate_url là thứ duy nhất card cần.
+        $this->assertNotNull($response->json('affiliate_url'));
+
+        // KHÔNG có field ProductData nào trong response Fast.
+        foreach ([
+            'product_name',
+            'product_image',
+            'product_price',
+            'user_estimated_cashback',
+            'estimated_cashback',
+        ] as $field) {
+            $this->assertNull(
+                $response->json($field),
+                "Fast Mode response không được chứa field ProductData: {$field}"
+            );
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────
     // B. Fast Mode + short link: resolver VẪN dùng, origin_link là URL
     //    sản phẩm thật (không phải short link).
     // ─────────────────────────────────────────────────────────────
@@ -417,7 +464,10 @@ class FastModeTest extends TestCase
         $this->assertStringContainsString('Tạo link nhanh, không hiển thị thông tin sản phẩm', $html);
         $this->assertStringNotContainsString('Tạo link nhanh, không tải thông tin sản phẩm', $html);
         $this->assertStringContainsString('fast_mode: this.fastMode ? 1 : 0', $html);
-        $this->assertStringContainsString('Mở trang sản phẩm Shopee', $html);
+
+        // Fast card chỉ xác nhận đã tạo link — KHÔNG tự mở Shopee.
+        $this->assertStringContainsString('Đã tạo Link Hoàn Tiền', $html);
+        $this->assertStringNotContainsString('Mở trang sản phẩm Shopee', $html);
 
         // Fast Mode phải dừng TRƯỚC startPolling() (B9).
         $fastGuard = strpos($html, 'if (data.fast_mode)');
@@ -432,14 +482,15 @@ class FastModeTest extends TestCase
     }
 
     // ─────────────────────────────────────────────────────────────
-    // J. Fast Mode: đi thẳng vào action Add giỏ / Mua ngay, không card trung gian.
+    // J. Fast Mode: hiện card xác nhận "Đã tạo Link Hoàn Tiền" + 2 action,
+    //    KHÔNG tự mở Shopee. Shopee chỉ mở khi user bấm Add giỏ / Mua ngay.
     // ─────────────────────────────────────────────────────────────
-    public function test_fast_mode_opens_add_to_cart_action_without_result_card(): void
+    public function test_fast_mode_shows_created_card_without_auto_opening(): void
     {
         $html = view('dashboard.partials.link-generator')->render();
 
-        // 1) CHỈ có MỘT implementation của việc mở tab mới (openAffiliateLink),
-        //    dùng chung bởi đúng 2 call site: nút Add giỏ / Mua ngay + Fast Mode.
+        // 1) CHỈ có MỘT implementation mở tab mới (openAffiliateLink) và
+        //    CHỈ 1 call site: nút Add giỏ / Mua ngay (user click thật).
         $this->assertSame(
             1,
             substr_count($html, 'openAffiliateLink(url) {'),
@@ -448,15 +499,17 @@ class FastModeTest extends TestCase
         $this->assertSame(
             1,
             substr_count($html, 'this.openAffiliateLink(this.result?.affiliate_url);'),
-            'Call site từ nút Add giỏ / Mua ngay (Normal Mode)'
-        );
-        $this->assertSame(
-            1,
-            substr_count($html, 'this.openAffiliateLink(data.affiliate_url);'),
-            'Call site từ Fast Mode'
+            'Call site DUY NHẤT từ nút Add giỏ / Mua ngay'
         );
 
-        // 2) Nút Add giỏ / Mua ngay phải đi qua chính method đó (không tự mở tab riêng).
+        // 2) Fast Mode KHÔNG được gọi openAffiliateLink sau await.
+        $this->assertSame(
+            0,
+            substr_count($html, 'this.openAffiliateLink(data.affiliate_url);'),
+            'Fast Mode KHÔNG được tự mở Shopee sau khi tạo link'
+        );
+
+        // 3) Nút Add giỏ / Mua ngay đi qua chính method đó (không tự mở tab riêng).
         $this->assertStringContainsString('@click="onAddToCartClick($event)"', $html);
         $this->assertStringContainsString('this.openAffiliateLink(this.result?.affiliate_url);', $html);
 
@@ -464,23 +517,49 @@ class FastModeTest extends TestCase
         $this->assertStringContainsString('x-bind:href="result.affiliate_url"', $html);
         $this->assertStringContainsString('rel="noopener noreferrer"', $html);
 
-        // 3) Fast Mode KHÔNG gán result => không render <template x-if="result">.
+        // 4) Fast branch GÁN result để hiện card xác nhận.
         $fastBranch = strpos($html, 'if (data.fast_mode) {');
         $this->assertNotFalse($fastBranch);
-        $clearResult = strpos($html, 'this.result = null;', $fastBranch);
-        $this->assertNotFalse($clearResult, 'Fast Mode phải clear result để không hiện card');
-        $openCall = strpos($html, 'this.openAffiliateLink(data.affiliate_url);', $fastBranch);
-        $this->assertNotFalse($openCall, 'Fast Mode phải gọi action Add giỏ / Mua ngay');
-        $this->assertLessThan(
-            $openCall,
-            $clearResult,
-            'Fast Mode phải clear result TRƯỚC khi mở tab (không được lóe card trung gian)'
-        );
+        $setResult = strpos($html, 'this.result = { ...data };', $fastBranch);
+        $this->assertNotFalse($setResult, 'Fast Mode phải gán result để hiện card');
 
-        // 4) Chỉ mở khi có affiliate_url; không có URL thì không mở.
-        $this->assertStringContainsString('if (data.affiliate_url) {', $html);
+        // 5) KHÔNG có bất kỳ cơ chế tự mở nào trong Fast branch.
+        //    (Lưu ý: window.location.href tồn tại ở showSessionExpired() — Normal path,
+        //     nên chỉ kiểm tra trong phạm vi Fast branch.)
+        $fastEnd = strpos($html, 'this.startPolling();', $fastBranch);
+        $fastBlock = substr($html, $fastBranch, $fastEnd - $fastBranch);
+        foreach ([
+            'window.open',
+            'window.location',
+            '/fast/redirect',
+            'dispatchEvent',
+            'openAffiliateLink',
+            'setTimeout',
+        ] as $forbidden) {
+            $this->assertStringNotContainsString(
+                $forbidden,
+                $fastBlock,
+                "Fast Mode không được dùng: {$forbidden}"
+            );
+        }
 
-        // 5) Fast Mode phải return TRƯỚC startPolling() (nên không bao giờ poll).
+        // 6) Card Fast: chỉ xác nhận đã tạo link, không ProductData, không cashback.
+        $this->assertStringContainsString('Đã tạo Link Hoàn Tiền', $html);
+        $this->assertStringNotContainsString('Mở trang sản phẩm Shopee', $html);
+        // Cashback khối "Bạn sẽ được hoàn" chỉ hiện khi KHÔNG phải Fast Mode.
+        $cashbackBlock = strpos($html, 'Bạn sẽ được hoàn');
+        $this->assertNotFalse($cashbackBlock);
+        $this->assertStringContainsString('x-show="!result.fast_mode"', $html);
+
+        // 7) 2 action trong card Fast: Sao chép (copy affiliate_url) + Add giỏ/Mua ngay.
+        $this->assertStringContainsString('@click="copyLink"', $html);
+        $this->assertStringContainsString('Sao chép', $html);
+        $this->assertStringContainsString('Add giỏ / Mua ngay', $html);
+        // copyLink phải copy affiliate_url, KHÔNG copy original_url.
+        $this->assertStringContainsString('navigator.clipboard.writeText(this.result.affiliate_url)', $html);
+        $this->assertStringNotContainsString('writeText(this.result.original_url)', $html);
+
+        // 8) Fast Mode phải return TRƯỚC startPolling() (nên không bao giờ poll).
         $ret = strpos($html, 'return;', $fastBranch);
         $poll = strpos($html, 'this.startPolling();', $fastBranch);
         $this->assertNotFalse($ret, 'Fast Mode branch phải có return');

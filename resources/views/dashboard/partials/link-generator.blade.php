@@ -200,16 +200,14 @@
                 this.fs('post_success', { status: response.status });
                 this.requestId = data.request_id;
                 // Chế độ nhanh: server đã trả affiliate_url HOÀN CHỈNH (status completed),
-                // không cần chờ ProductData => KHÔNG hiện card trung gian, KHÔNG polling,
-                // đi thẳng vào CHÍNH action của nút Add giỏ / Mua ngay.
+                // không cần chờ ProductData => KHÔNG polling, KHÔNG tự mở Shopee.
+                // Chỉ hiện card xác nhận đã tạo link + 2 action (Sao chép / Add giỏ-Mua hàng).
+                // Shopee chỉ mở khi USER BẤM nút.
                 if (data.fast_mode) {
-                    this.fs('post_fast_mode_no_poll', { request_id: this.requestId });
-                    this.result = null;
+                    this.fs('post_fast_mode_card', { request_id: this.requestId });
+                    this.result = { ...data };
                     this.loading = false;
-                    if (data.affiliate_url) {
-                        this.fs('post_fast_mode_open', { request_id: this.requestId });
-                        this.openAffiliateLink(data.affiliate_url);
-                    }
+                    this.copied = false;
                     this.$nextTick(() => {
                         this.$refs.urlInput.focus();
                         this.$refs.urlInput.select();
@@ -305,9 +303,8 @@
         },
 
         // DUY NHẤT một implementation của việc mở affiliate link trong tab mới.
-        // Dùng chung cho:
-        //   1) nút Add giỏ / Mua ngay (Normal Mode) — qua onAddToCartClick()
-        //   2) Chế độ nhanh sau khi tạo link xong — đi thẳng, không hiện card trung gian.
+        // CHỈ gọi khi USER chủ động bấm nút Add giỏ / Mua ngay — qua onAddToCartClick().
+        // Fast Mode KHÔNG tự mở Shopee: sau khi tạo link xong chỉ hiện card xác nhận.
         // Giữ nguyên đúng semantics của thẻ a target=_blank rel=noopener noreferrer:
         // không URL transformation, không tracking/sub_id, không deep-link, không mobile logic.
         openAffiliateLink(url) {
@@ -437,9 +434,9 @@
                     x-show="result.fast_mode"
                     class="text-center bg-amber-50 rounded-xl border border-amber-200 max-[390px]:px-3 max-[390px]:py-1.5 px-4 py-2"
                 >
-                    <p class="text-sm font-semibold text-amber-800">⚡ Link đã sẵn sàng</p>
+                    <p class="text-sm font-semibold text-amber-800">🎉 Đã tạo Link Hoàn Tiền</p>
                     <p class="text-[11px] text-amber-700/80 mt-0.5">
-                        Chế độ nhanh không tải thông tin sản phẩm và không tính hoàn tiền
+                        Link của bạn đã sẵn sàng. Chế độ nhanh không tải thông tin sản phẩm.
                     </p>
                 </div>
 
@@ -492,16 +489,6 @@
                         </div>
                     </a>
 
-                    <a
-                        x-show="result.fast_mode"
-                        x-bind:href="result.shopeedirect_url"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="mt-2 flex items-center justify-center gap-1.5 bg-white hover:bg-amber-50 active:bg-amber-100 text-amber-700 font-semibold text-xs rounded-xl border-2 border-amber-200 transition-all duration-150 max-[390px]:h-10 h-11"
-                    >
-                        <span class="max-[390px]:text-sm text-base">🛒</span>
-                        <span>Mở trang sản phẩm Shopee</span>
-                    </a>
                 </div>
 
                 <div class="flex gap-2">
