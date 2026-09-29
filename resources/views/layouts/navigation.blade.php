@@ -16,6 +16,20 @@ $travelPlatforms = collect(config('travel.platforms'))
                     Trang chủ
                 </a>
 
+                <!-- Thẻ tín dụng -->
+                {{-- hidden xl:inline: hàng nav hiện tại rộng ~831px, đã tràn ở <880px.
+                     Thêm tab làm tràn thêm ở 1024px, nên chỉ hiện ở >=1280px (xl).
+                     Ở 640-1279px: dùng entry trong dropdown tài khoản + menu hamburger. --}}
+                <a href="{{ route('credit-cards.index') }}"
+                   @if (request()->routeIs('credit-cards.*')) aria-current="page" @endif
+                   @class([
+                       'hidden xl:inline font-semibold text-emerald-600 hover:text-emerald-700 active:text-emerald-800 transition-colors text-sm sm:text-base whitespace-nowrap',
+                       'text-emerald-700' => request()->routeIs('credit-cards.*'),
+                   ])
+                   aria-label="Thẻ tín dụng">
+                    💳 Thẻ tín dụng
+                </a>
+
                 <!-- So sánh giá -->
                 <a href="{{ route('price-comparison.index') }}"
                    class="font-semibold text-emerald-600 hover:text-emerald-700 active:text-emerald-800 transition-colors text-sm sm:text-base whitespace-nowrap"
@@ -96,6 +110,10 @@ $travelPlatforms = collect(config('travel.platforms'))
 
                         <x-dropdown-link :href="route('wallet.index')">
                             {{ __('Ví tiền') }}
+                        </x-dropdown-link>
+
+                        <x-dropdown-link :href="route('credit-cards.index')" :active="request()->routeIs('credit-cards.*')">
+                            💳 {{ __('Thẻ tín dụng') }}
                         </x-dropdown-link>
 
                         <x-dropdown-link :href="route('referrals.index')">
@@ -189,6 +207,10 @@ $travelPlatforms = collect(config('travel.platforms'))
         <div class="pt-2 pb-3 space-y-1">
             <x-responsive-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
                 {{ __('Dashboard') }}
+            </x-responsive-nav-link>
+
+            <x-responsive-nav-link :href="route('credit-cards.index')" :active="request()->routeIs('credit-cards.*')">
+                💳 {{ __('Thẻ tín dụng') }}
             </x-responsive-nav-link>
 
             <x-responsive-nav-link :href="route('price-comparison.index')">

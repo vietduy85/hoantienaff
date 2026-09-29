@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\PriceComparisonController;
 use App\Http\Controllers\Auth\CheckUsernameController;
 use App\Http\Controllers\Auth\CompleteProfileController;
 use App\Http\Controllers\Auth\GoogleController;
+use App\Http\Controllers\CreditCard\CreditCardController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Debug\CookieDebugController;
 use App\Http\Controllers\Debug\PlaywrightController;
@@ -95,6 +96,17 @@ Route::middleware('auth')->group(function () {
     Route::get('/orders/{orderId}', [OrderController::class, 'show'])->name('orders.show');
     Route::get('/guide', [GuideController::class, 'index'])->name('guide.index');
     Route::get('/guide/{slug}', [GuideController::class, 'show'])->name('guide.show');
+
+    // === Module Thẻ tín dụng (Giai đoạn 1: skeleton — routing + UI placeholder) ===
+    // Tái sử dụng auth + users hiện tại. Không thay đổi cashback/affiliate.
+    Route::prefix('thetindung')->name('credit-cards.')->group(function () {
+        Route::get('/', [CreditCardController::class, 'index'])->name('index');
+        Route::get('/quan-ly-the', [CreditCardController::class, 'manage'])->name('manage');
+        Route::get('/danh-muc', [CreditCardController::class, 'categories'])->name('categories');
+        Route::get('/bao-cao', [CreditCardController::class, 'reports'])->name('reports');
+        Route::get('/so-sanh', [CreditCardController::class, 'compare'])->name('compare');
+        Route::get('/cai-dat', [CreditCardController::class, 'settings'])->name('settings');
+    });
 });
 
 require __DIR__.'/auth.php';

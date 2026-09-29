@@ -148,6 +148,23 @@ class User extends Authenticatable
         return $this->hasMany(LinkRequest::class);
     }
 
+    /**
+     * Module Thẻ tín dụng: các thẻ của user trên database `hoantien_creditcard`.
+     *
+     * QUAN HỆ CROSS-DATABASE (logical, không FK): `hasMany` chỉ sinh
+     * `select * from credit_card_user_cards where user_id = ?` trên connection
+     * `creditcard`, còn `User` nằm ở `hoantienaff.users`. Eloquent không cần FK
+     * vật lý để chạy, và tuyệt đối không dùng `join('credit_card_user_cards')`
+     * vì sẽ sinh SQL xuyên DB.
+     *
+     * Module này không ảnh hưởng logic cashback / affiliate / withdraw / auth.
+     */
+    public function userCreditCards(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(\App\Models\CreditCard\UserCard::class, 'user_id');
+    }
+
+
     public function isAdmin(): bool
     {
         return $this->hasRole('Admin');

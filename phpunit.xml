@@ -26,6 +26,13 @@
         <env name="DB_CONNECTION" value="sqlite"/>
         <env name="DB_DATABASE" value=":memory:"/>
         <env name="DB_URL" value=""/>
+        <!--
+            Module Thẻ tín dụng dùng connection `creditcard`. Trong test ép về
+            sqlite :memory: giống DB chính để không đụng database thật.
+            Nếu không khai báo, connection này sẽ fallback sang DB_CREDITCARD_DATABASE
+            trong .env (mysql `hoantien_creditcard`) và test sẽ ghi bẩn DB thật.
+        -->
+        <env name="DB_CREDITCARD_DATABASE" value=":memory:"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>

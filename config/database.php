@@ -99,6 +99,45 @@ return [
             'sslmode' => env('DB_SSLMODE', 'prefer'),
         ],
 
+        /*
+        |--------------------------------------------------------------------------
+        | Credit Card Module Connection
+        |--------------------------------------------------------------------------
+        |
+        | Module Thẻ tín dụng dùng database riêng (mặc định: hoantien_creditcard) để
+        | cô lập domain khỏi application database (hoantienaff).
+        |
+        | KHÔNG có cross-database foreign key: bảng `users` chỉ nằm ở hoantienaff,
+        | creditcard chỉ lưu `user_id` dạng logical reference.
+        |
+        | Toàn bộ biến DB_CREDITCARD_* đều fallback về biến DB_* hiện tại. Nhờ vậy
+        | khi chạy test (phpunit.xml ép sqlite :memory:) connection này tự trỏ về
+        | đúng database test mà không cần khai báo thêm env.
+        |
+        */
+
+        'creditcard' => [
+            'driver' => env('DB_CREDITCARD_DRIVER', env('DB_CONNECTION', 'mysql')),
+            'url' => env('DB_CREDITCARD_URL', env('DB_URL')),
+            'host' => env('DB_CREDITCARD_HOST', env('DB_HOST', '127.0.0.1')),
+            'port' => env('DB_CREDITCARD_PORT', env('DB_PORT', '3306')),
+            'database' => env('DB_CREDITCARD_DATABASE', env('DB_DATABASE', 'hoantien_creditcard')),
+            'username' => env('DB_CREDITCARD_USERNAME', env('DB_USERNAME', 'root')),
+            'password' => env('DB_CREDITCARD_PASSWORD', env('DB_PASSWORD', '')),
+            'unix_socket' => env('DB_CREDITCARD_SOCKET', env('DB_SOCKET', '')),
+            'charset' => env('DB_CHARSET', 'utf8mb4'),
+            'collation' => env('DB_COLLATION', 'utf8mb4_unicode_ci'),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'strict' => true,
+            'engine' => null,
+            // Cho phép SQLite trong test enforce foreign key nội bộ creditcard DB.
+            'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
+            'options' => extension_loaded('pdo_mysql') ? array_filter([
+                (PHP_VERSION_ID >= 80500 ? Mysql::ATTR_SSL_CA : PDO::MYSQL_ATTR_SSL_CA) => env('MYSQL_ATTR_SSL_CA'),
+            ]) : [],
+        ],
+
         'sqlsrv' => [
             'driver' => 'sqlsrv',
             'url' => env('DB_URL'),
