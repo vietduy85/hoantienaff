@@ -413,7 +413,9 @@ class FastModeTest extends TestCase
         $this->assertStringContainsString('id="fast_mode"', $html);
         $this->assertStringContainsString('x-model="fastMode"', $html);
         $this->assertStringContainsString('Chế độ nhanh', $html);
-        $this->assertStringContainsString('không tải thông tin sản phẩm', $html);
+        // Wording của checkbox Fast Mode phải là bản mới (không còn "tải thông tin sản phẩm").
+        $this->assertStringContainsString('Tạo link nhanh, không hiển thị thông tin sản phẩm', $html);
+        $this->assertStringNotContainsString('Tạo link nhanh, không tải thông tin sản phẩm', $html);
         $this->assertStringContainsString('fast_mode: this.fastMode ? 1 : 0', $html);
         $this->assertStringContainsString('Mở trang sản phẩm Shopee', $html);
 
@@ -425,6 +427,67 @@ class FastModeTest extends TestCase
         $this->assertLessThan(
             $pollCall,
             $fastGuard,
+            'Fast Mode phải return trước khi gọi startPolling()'
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // J. Fast Mode: đi thẳng vào action Add giỏ / Mua ngay, không card trung gian.
+    // ─────────────────────────────────────────────────────────────
+    public function test_fast_mode_opens_add_to_cart_action_without_result_card(): void
+    {
+        $html = view('dashboard.partials.link-generator')->render();
+
+        // 1) CHỈ có MỘT implementation của việc mở tab mới (openAffiliateLink),
+        //    dùng chung bởi đúng 2 call site: nút Add giỏ / Mua ngay + Fast Mode.
+        $this->assertSame(
+            1,
+            substr_count($html, 'openAffiliateLink(url) {'),
+            'Chỉ được có DUY NHẤT 1 implementation mở tab mới'
+        );
+        $this->assertSame(
+            1,
+            substr_count($html, 'this.openAffiliateLink(this.result?.affiliate_url);'),
+            'Call site từ nút Add giỏ / Mua ngay (Normal Mode)'
+        );
+        $this->assertSame(
+            1,
+            substr_count($html, 'this.openAffiliateLink(data.affiliate_url);'),
+            'Call site từ Fast Mode'
+        );
+
+        // 2) Nút Add giỏ / Mua ngay phải đi qua chính method đó (không tự mở tab riêng).
+        $this->assertStringContainsString('@click="onAddToCartClick($event)"', $html);
+        $this->assertStringContainsString('this.openAffiliateLink(this.result?.affiliate_url);', $html);
+
+        // Giữ nguyên thuộc tính gốc của anchor (URL, tab mới, an toàn).
+        $this->assertStringContainsString('x-bind:href="result.affiliate_url"', $html);
+        $this->assertStringContainsString('rel="noopener noreferrer"', $html);
+
+        // 3) Fast Mode KHÔNG gán result => không render <template x-if="result">.
+        $fastBranch = strpos($html, 'if (data.fast_mode) {');
+        $this->assertNotFalse($fastBranch);
+        $clearResult = strpos($html, 'this.result = null;', $fastBranch);
+        $this->assertNotFalse($clearResult, 'Fast Mode phải clear result để không hiện card');
+        $openCall = strpos($html, 'this.openAffiliateLink(data.affiliate_url);', $fastBranch);
+        $this->assertNotFalse($openCall, 'Fast Mode phải gọi action Add giỏ / Mua ngay');
+        $this->assertLessThan(
+            $openCall,
+            $clearResult,
+            'Fast Mode phải clear result TRƯỚC khi mở tab (không được lóe card trung gian)'
+        );
+
+        // 4) Chỉ mở khi có affiliate_url; không có URL thì không mở.
+        $this->assertStringContainsString('if (data.affiliate_url) {', $html);
+
+        // 5) Fast Mode phải return TRƯỚC startPolling() (nên không bao giờ poll).
+        $ret = strpos($html, 'return;', $fastBranch);
+        $poll = strpos($html, 'this.startPolling();', $fastBranch);
+        $this->assertNotFalse($ret, 'Fast Mode branch phải có return');
+        $this->assertNotFalse($poll);
+        $this->assertLessThan(
+            $poll,
+            $ret,
             'Fast Mode phải return trước khi gọi startPolling()'
         );
     }

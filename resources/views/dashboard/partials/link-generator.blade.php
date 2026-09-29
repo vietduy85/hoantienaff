@@ -199,19 +199,26 @@
                 }
                 this.fs('post_success', { status: response.status });
                 this.requestId = data.request_id;
-                if (data.affiliate_url) {
-                    this.result = { ...data };
-                    this.loading = false;
-                }
-                // Chế độ nhanh: server đã trả kết quả HOÀN CHỈNH (status completed),
-                // không cần chờ ProductData => dừng luôn, KHÔNG polling.
+                // Chế độ nhanh: server đã trả affiliate_url HOÀN CHỈNH (status completed),
+                // không cần chờ ProductData => KHÔNG hiện card trung gian, KHÔNG polling,
+                // đi thẳng vào CHÍNH action của nút Add giỏ / Mua ngay.
                 if (data.fast_mode) {
                     this.fs('post_fast_mode_no_poll', { request_id: this.requestId });
+                    this.result = null;
+                    this.loading = false;
+                    if (data.affiliate_url) {
+                        this.fs('post_fast_mode_open', { request_id: this.requestId });
+                        this.openAffiliateLink(data.affiliate_url);
+                    }
                     this.$nextTick(() => {
                         this.$refs.urlInput.focus();
                         this.$refs.urlInput.select();
                     });
                     return;
+                }
+                if (data.affiliate_url) {
+                    this.result = { ...data };
+                    this.loading = false;
                 }
                 this.startPolling();
             } catch (e) {
@@ -295,6 +302,33 @@
             navigator.clipboard.writeText(this.result.affiliate_url);
             this.copied = true;
             setTimeout(() => this.copied = false, 2000);
+        },
+
+        // DUY NHẤT một implementation của việc mở affiliate link trong tab mới.
+        // Dùng chung cho:
+        //   1) nút Add giỏ / Mua ngay (Normal Mode) — qua onAddToCartClick()
+        //   2) Chế độ nhanh sau khi tạo link xong — đi thẳng, không hiện card trung gian.
+        // Giữ nguyên đúng semantics của thẻ a target=_blank rel=noopener noreferrer:
+        // không URL transformation, không tracking/sub_id, không deep-link, không mobile logic.
+        openAffiliateLink(url) {
+            if (!url) return;
+            const a = document.createElement('a');
+            a.href = url;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        },
+
+        // Click thường (chuột trái) -> đi qua openAffiliateLink() chung.
+        // Giữ nguyên hành vi native cho ctrl/cmd/shift/alt-click và middle-click
+        // (mở tab mới, mở cửa sổ, sao chép địa chỉ link, mở menu ngữ cảnh).
+        onAddToCartClick(e) {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+            e.preventDefault();
+            this.openAffiliateLink(this.result?.affiliate_url);
         }
     }"
     class="bg-white rounded-2xl shadow-md border-2 border-emerald-400 max-[390px]:p-3 p-4 -mx-1"
@@ -370,7 +404,7 @@
                     <span>Chế độ nhanh</span>
                 </span>
                 <span class="block text-[11px] text-amber-700/80 mt-0.5">
-                    Tạo link nhanh, không tải thông tin sản phẩm
+                    Tạo link nhanh, không hiển thị thông tin sản phẩm
                 </span>
             </span>
         </label>
@@ -486,6 +520,7 @@
                         x-bind:href="result.affiliate_url"
                         target="_blank"
                         rel="noopener noreferrer"
+                        @click="onAddToCartClick($event)"
                         class="flex-[0.65] h-12 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white font-semibold text-sm rounded-xl transition-all duration-150 flex items-center justify-center gap-1.5"
                     >
                         <span class="max-[390px]:text-base text-lg">🛒</span>
