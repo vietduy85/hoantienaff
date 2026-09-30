@@ -220,11 +220,12 @@ class CreditCardModuleTest extends TestCase
         $response->assertSee('Thẻ tín dụng');
         $response->assertSee('Quản lý và theo dõi các thẻ tín dụng của bạn');
 
-        // Sidebar / module menu đủ 6 mục
+        // Sidebar / module menu đủ 7 mục
         foreach ([
             'Tổng quan',
             'Quản lý thẻ',
-            'Danh mục',
+            'Chính sách',
+            'Danh mục chi tiêu',
             'Báo cáo',
             'So sánh thẻ',
             'Cài đặt',
@@ -290,7 +291,6 @@ class CreditCardModuleTest extends TestCase
 
         $cases = [
             '/thetindung/quan-ly-the' => 'Quản lý thẻ',
-            '/thetindung/danh-muc' => 'Danh mục',
             '/thetindung/bao-cao' => 'Báo cáo',
             '/thetindung/so-sanh' => 'So sánh thẻ',
             '/thetindung/cai-dat' => 'Cài đặt',
@@ -303,6 +303,26 @@ class CreditCardModuleTest extends TestCase
             $response->assertSee($moduleName);
             $response->assertSee('Module này sẽ được triển khai ở giai đoạn tiếp theo.');
         }
+    }
+
+    /**
+     * TEST 9b: Trang /thetindung/danh-muc là màn hình quản lý danh mục CHI TIÊU
+     * (không còn placeholder) — tiêu đề, subtitle, 2 nhóm và empty state.
+     */
+    #[Test]
+    public function categories_page_renders_category_management_ui(): void
+    {
+        $user = User::factory()->create();
+
+        $response = $this->actingAs($user)->get('/thetindung/danh-muc');
+
+        $response->assertOk();
+        $response->assertSee('Danh mục chi tiêu');
+        $response->assertSee('Quản lý các nhóm chi tiêu dùng cho thẻ tín dụng và hoàn tiền');
+        $response->assertSee('DANH MỤC HỆ THỐNG');
+        $response->assertSee('DANH MỤC CỦA TÔI');
+        $response->assertSee('Bạn chưa tạo danh mục chi tiêu riêng.');
+        $response->assertSee('+ Thêm danh mục');
     }
 
     /** TEST 10: Tab "Thẻ tín dụng" có trên navigation hiện tại và trỏ đúng /thetindung. */

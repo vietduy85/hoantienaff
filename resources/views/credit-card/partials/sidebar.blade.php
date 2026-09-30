@@ -10,7 +10,7 @@
         ['key' => 'index', 'label' => 'Tổng quan', 'icon' => '🏠', 'route' => 'credit-cards.index'],
         ['key' => 'manage', 'label' => 'Quản lý thẻ', 'icon' => '💳', 'route' => 'credit-cards.manage'],
         ['key' => 'policies', 'label' => 'Chính sách', 'icon' => '🎯', 'route' => 'credit-cards.policies'],
-        ['key' => 'categories', 'label' => 'Danh mục', 'icon' => '📁', 'route' => 'credit-cards.categories'],
+        ['key' => 'categories', 'label' => 'Danh mục chi tiêu', 'icon' => '📁', 'route' => 'credit-cards.categories'],
         ['key' => 'reports', 'label' => 'Báo cáo', 'icon' => '📊', 'route' => 'credit-cards.reports'],
         ['key' => 'compare', 'label' => 'So sánh thẻ', 'icon' => '🔍', 'route' => 'credit-cards.compare'],
         ['key' => 'settings', 'label' => 'Cài đặt', 'icon' => '⚙️', 'route' => 'credit-cards.settings'],

@@ -7,6 +7,7 @@ use App\Http\Requests\CreditCard\StoreCategoryRequest;
 use App\Http\Requests\CreditCard\UpdateCategoryRequest;
 use App\Models\CreditCard\Category;
 use App\Services\CreditCard\CategoryService;
+use App\Support\CreditCard\CategoryIcon;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -33,10 +34,13 @@ class CategoryController extends Controller
         $userId = (int) $request->user()->id;
 
         return response()->json([
-            // `selectable` = đang active (dùng cho form giao dịch).
-            'data' => $this->categories->selectableFor($userId)->map(fn (Category $c) => $this->present($c)),
-            // `all` = gồm cả danh mục riêng đã ẩn (dùng cho màn hình quản lý).
-            'manageable' => $this->categories->userCategories($userId)->map(fn (Category $c) => $this->present($c)),
+            // 19 danh mục hệ thống đang hoạt động (read-only) — dùng cho màn hình quản lý.
+            'system_categories' => $this->categories->systemCategories()
+                ->filter(fn (Category $c) => $c->is_active)
+                ->values()
+                ->map(fn (Category $c) => $this->present($c)),
+            // Danh mục RIÊNG của user, gồm cả danh mục đã ẩn (`is_active = false`).
+            'user_categories' => $this->categories->userCategories($userId)->map(fn (Category $c) => $this->present($c)),
         ]);
     }
 
@@ -99,6 +103,7 @@ class CategoryController extends Controller
             'description' => $category->description,
             'is_active' => (bool) $category->is_active,
             'sort_order' => $category->sort_order,
+            'icon' => CategoryIcon::for($category),
         ];
     }
 }
