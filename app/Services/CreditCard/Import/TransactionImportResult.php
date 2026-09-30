@@ -2,8 +2,6 @@
 
 namespace App\Services\CreditCard\Import;
 
-use App\Models\CreditCard\Transaction;
-
 /**
  * Kết quả một lần import Excel.
  *
@@ -21,8 +19,7 @@ final class TransactionImportResult
         public readonly int $failed,
         public readonly array $errors = [],
         public readonly array $importedIds = [],
-    ) {
-    }
+    ) {}
 
     public function isSuccessful(): bool
     {

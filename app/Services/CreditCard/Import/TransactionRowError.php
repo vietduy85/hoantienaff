@@ -12,8 +12,7 @@ final class TransactionRowError
         public readonly int $rowNumber,
         public readonly string $column,
         public readonly string $message,
-    ) {
-    }
+    ) {}
 
     public function toArray(): array
     {

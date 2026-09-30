@@ -3,6 +3,7 @@
 namespace App\Services\CreditCard;
 
 use App\Models\CreditCard\StatementPeriod;
+use App\Models\CreditCard\Transaction;
 use App\Models\CreditCard\UserCard;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -195,7 +196,7 @@ class StatementPeriodService
      * transaction_date. Đây là suy luận, không phải dữ liệu ngân hàng: user có
      * thể chỉnh lại bằng `assignTransactionToPeriod()` khi kỳ chưa finalize.
      */
-    public function resolveForTransaction(UserCard $userCard, \App\Models\CreditCard\Transaction $transaction): StatementPeriod
+    public function resolveForTransaction(UserCard $userCard, Transaction $transaction): StatementPeriod
     {
         return $this->resolvePeriodForDate($userCard, $transaction->basisDate((string) $userCard->statement_date_basis));
     }
@@ -206,7 +207,7 @@ class StatementPeriodService
      *
      * Kỳ đã finalize là bản ghi lịch sử ⇒ không cho chỉnh.
      */
-    public function assignTransactionToPeriod(UserCard $userCard, \App\Models\CreditCard\Transaction $transaction, StatementPeriod $period): void
+    public function assignTransactionToPeriod(UserCard $userCard, Transaction $transaction, StatementPeriod $period): void
     {
         if ((int) $period->user_card_id !== (int) $userCard->id) {
             throw new \InvalidArgumentException('Kỳ sao kê không thuộc thẻ này.');

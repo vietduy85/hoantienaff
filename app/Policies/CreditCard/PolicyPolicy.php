@@ -3,6 +3,7 @@
 namespace App\Policies\CreditCard;
 
 use App\Models\CreditCard\Policy;
+use App\Models\CreditCard\UserCard;
 use App\Models\User;
 use Illuminate\Auth\Access\HandlesAuthorization;
 
@@ -21,6 +22,20 @@ class PolicyPolicy
     public function viewAny(User $user): bool
     {
         return true;
+    }
+
+    /**
+     * Tạo version mới (v1 hoặc N+1) trên một thẻ.
+     *
+     * Nhận CẢ thẻ làm tham số thứ hai, không nhận `UserCard::class` trống: policy
+     * không thuộc user, nó thuộc THẺ, nên "được phép không" chỉ trả lời được khi
+     * biết thẻ nào. `isUsable()` chặn việc gắn policy vào thẻ đã đóng.
+     *
+     * (Thêm ở Phase 1C; các ability Phase 1B giữ nguyên.)
+     */
+    public function create(User $user, UserCard $userCard): bool
+    {
+        return (int) $userCard->user_id === (int) $user->id && $userCard->isUsable();
     }
 
     public function view(User $user, Policy $policy): bool

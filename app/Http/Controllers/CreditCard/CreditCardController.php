@@ -7,6 +7,7 @@ use App\Models\CreditCard\StatementPeriod;
 use App\Models\CreditCard\UserCard;
 use App\Services\CreditCard\StatementPeriodService;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Collection;
 use Illuminate\View\View;
 
 /**
@@ -23,8 +24,7 @@ class CreditCardController extends Controller
 {
     public function __construct(
         private readonly StatementPeriodService $periods,
-    ) {
-    }
+    ) {}
 
     /**
      * Trang tổng quan /thetindung.
@@ -37,8 +37,10 @@ class CreditCardController extends Controller
 
         $userCreditCards = UserCard::query()
             ->ownedBy($userId)
-            ->with(['product.bank', 'currentPolicy'])
-            ->orderByDesc('id')
+            // Phase 1B: `bank` là FK trực tiếp trên `credit_card_user_cards`.
+            // Trước đây là `product.bank` (đi qua catalog sản phẩm thẻ).
+            ->with(['bank', 'currentPolicy'])
+            ->ordered()
             ->get();
 
         $totalLimit = (float) $userCreditCards->sum('credit_limit');
@@ -77,7 +79,7 @@ class CreditCardController extends Controller
      * `boundariesForDate()` (tính thuần theo `statement_day`) nên cảnh báo vẫn
      * đúng kể cả khi kỳ chưa được tạo trong DB.
      *
-     * @param  \Illuminate\Support\Collection<int, UserCard>  $cards
+     * @param  Collection<int, UserCard>  $cards
      * @return array<int, array{name: string, message: string}>
      */
     private function deadlineWarnings($cards): array
@@ -126,5 +128,26 @@ class CreditCardController extends Controller
     public function settings(): View
     {
         return view('credit-card.settings');
+    }
+
+    /**
+     * /thetindung/chinh-sach — màn hình cấu hình policy (Phase 1C).
+     *
+     * Blade KHÔNG nhận dữ liệu policy từ server: nó gọi JSON API cùng origin để
+     * tận dụng đúng một đường đọc duy nhất (API), nên không có nguy cơ hai nơi
+     * hiển thị khác nhau.
+     *
+     * Ở đây chỉ truyền danh sách thẻ để chọn; mọi thao tác cấu hình đều qua
+     * `PolicyController` / `TierController` / `CategoryRuleController`.
+     */
+    public function policies(): View
+    {
+        return view('credit-card.policies', [
+            'userCreditCards' => UserCard::query()
+                ->ownedBy((int) auth()->id())
+                ->with('bank')
+                ->ordered()
+                ->get(),
+        ]);
     }
 }

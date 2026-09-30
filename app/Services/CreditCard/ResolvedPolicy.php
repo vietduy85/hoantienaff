@@ -19,8 +19,7 @@ final class ResolvedPolicy
         public readonly float $minTotalSpend,
         public readonly ?float $maxCashbackTotalPerPeriod,
         public readonly string $roundingMode,
-    ) {
-    }
+    ) {}
 
     public function isLocked(): bool
     {

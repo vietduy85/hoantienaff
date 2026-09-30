@@ -5,7 +5,6 @@ namespace App\Models\CreditCard;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOneThrough;
 
 /**
  * UserCard — thẻ thật của user. Mỗi thẻ có policy và cấu hình kỳ sao kê RIÊNG.
@@ -15,9 +14,19 @@ use Illuminate\Database\Eloquent\Relations\HasOneThrough;
  *
  * `spending_deadline_day` là metadata CHỈ ĐỂ NHẮC NHỞ, không quyết định kỳ sao kê.
  *
+ * ---------------------------------------------------------------------------
+ * THẺ KHÔNG CẦN "PRODUCT CATALOG" (điều chỉnh kiến trúc Phase 1B)
+ * ---------------------------------------------------------------------------
+ * Luồng chính: chọn `bank_id` (master data hệ thống) + tự đặt `name` gợi nhớ.
+ * Một ngân hàng phát hành rất nhiều dòng thẻ, nên bắt user chọn từ catalog sẽ tạo
+ * ma sát và dữ liệu sai. Xem migration 000011.
+ *
+ * `product_id` còn lại là CỘT DEPRECATED (nullable): giữ để không mất dữ liệu
+ * Phase 1A và không phải rollback. Code mới KHÔNG được đọc/ghi cột này.
+ *
  * @property int $id
  * @property int $user_id
- * @property int $product_id
+ * @property int $bank_id
  * @property string $name
  * @property string|null $card_number_last4
  * @property string|null $credit_limit
@@ -25,8 +34,13 @@ use Illuminate\Database\Eloquent\Relations\HasOneThrough;
  * @property int $payment_due_day
  * @property int|null $spending_deadline_day
  * @property string $statement_date_basis
+ * @property \Carbon\CarbonImmutable|null $opened_at
+ * @property \Carbon\CarbonImmutable|null $closed_at
+ * @property int $sort_order
+ * @property string|null $note
  * @property int|null $current_policy_id
  * @property string $status
+ * @property int|null $product_id DEPRECATED — không dùng, xem migration 000011
  */
 class UserCard extends CreditCardModel
 {
@@ -42,7 +56,7 @@ class UserCard extends CreditCardModel
 
     protected $fillable = [
         'user_id',
-        'product_id',
+        'bank_id',
         'name',
         'card_number_last4',
         'credit_limit',
@@ -50,6 +64,10 @@ class UserCard extends CreditCardModel
         'payment_due_day',
         'spending_deadline_day',
         'statement_date_basis',
+        'opened_at',
+        'closed_at',
+        'sort_order',
+        'note',
         'current_policy_id',
         'status',
     ];
@@ -65,11 +83,14 @@ class UserCard extends CreditCardModel
     {
         return [
             'user_id' => 'integer',
-            'product_id' => 'integer',
+            'bank_id' => 'integer',
             'credit_limit' => 'decimal:2',
             'statement_day' => 'integer',
             'payment_due_day' => 'integer',
             'spending_deadline_day' => 'integer',
+            'sort_order' => 'integer',
+            'opened_at' => 'date',
+            'closed_at' => 'date',
             'current_policy_id' => 'integer',
         ];
     }
@@ -104,40 +125,32 @@ class UserCard extends CreditCardModel
         );
     }
 
+    /**
+     * Sản phẩm thẻ — CỘT DEPRECATED (Phase 1B).
+     *
+     * Giữ relation để dữ liệu Phase 1A cũ vẫn đọc được, nhưng luồng mới KHÔNG
+     * dùng. Không thêm/xoá giao dịch nào dựa trên relation này.
+     *
+     * @see \App\Models\CreditCard\UserCard::bank()  luồng chính
+     */
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class, 'product_id');
     }
 
     /**
-     * Ngân hàng phát hành sản phẩm của thẻ này.
+     * Ngân hàng phát hành thẻ này.
      *
-     * KHÔNG dùng `->through('product')`: `BelongsTo` không hỗ trợ `through`, và
-     * nếu viết tay sẽ sinh SQL sai (`banks.id = user_cards.product_id`).
-     * Gọi 2 tầng bằng `hasOneThrough` để Laravel sinh đúng JOIN trong CÙNG
-     * connection `creditcard` (cả 3 bảng đều nằm ở DB Thẻ tín dụng).
+     * Phase 1B: FK TRỰC TIẾP trên `credit_card_user_cards`, không đi qua
+     * `product`. Cùng connection `creditcard` nên quan hệ này hoàn toàn bình
+     * thường.
      *
-     * SQL sinh ra (đã test — xem CreditCardModuleTest::credit_card_models_and_relationships_work):
-     *   select banks.* from credit_card_banks
-     *   inner join credit_card_products on credit_card_products.bank_id = credit_card_banks.id
-     *   where credit_card_products.id = <user_cards.product_id>
-     *
-     * Ánh xạ tham số của `hasOneThrough($related, $through, $firstKey, $secondKey, $localKey, $secondLocalKey)`:
-     *   $firstKey       = cột trên bảng TRUNG GIAN dùng cho WHERE  → products.id
-     *   $secondKey      = cột trên bảng ĐÍCH dùng cho JOIN         → banks.id
-     *   $localKey       = cột trên user_cards lấy giá trị WHERE    → product_id
-     *   $secondLocalKey = cột trên bảng TRUNG GIAN dùng cho JOIN   → products.bank_id
+     * Trước Phase 1B đây là `hasOneThrough` đi qua `credit_card_products`; xem
+     * migration 000011.
      */
-    public function bank(): HasOneThrough
+    public function bank(): BelongsTo
     {
-        return $this->hasOneThrough(
-            Bank::class,
-            Product::class,
-            'id',
-            'id',
-            'product_id',
-            'bank_id'
-        );
+        return $this->belongsTo(Bank::class, 'bank_id');
     }
 
     /**
@@ -163,9 +176,33 @@ class UserCard extends CreditCardModel
         return $this->status === self::STATUS_ACTIVE;
     }
 
+    /**
+     * Thẻ đã đóng (có `closed_at`) không nhận giao dịch mới nữa.
+     */
+    public function isClosed(): bool
+    {
+        return $this->closed_at !== null;
+    }
+
+    /**
+     * Thẻ dùng được: còn active và chưa đóng.
+     */
+    public function isUsable(): bool
+    {
+        return $this->isActive() && ! $this->isClosed();
+    }
+
     public function scopeActive(Builder $query): Builder
     {
         return $query->where('status', self::STATUS_ACTIVE);
+    }
+
+    /**
+     * Thứ tự hiển thị do user tự quyết định (Phase 1B, `sort_order`).
+     */
+    public function scopeOrdered(Builder $query): Builder
+    {
+        return $query->orderBy('sort_order')->orderBy('id');
     }
 
     public function scopeOwnedBy(Builder $query, int $userId): Builder

@@ -48,6 +48,7 @@ class CreditCardModuleTest extends TestCase
             'credit-cards.reports' => 'thetindung/bao-cao',
             'credit-cards.compare' => 'thetindung/so-sanh',
             'credit-cards.settings' => 'thetindung/cai-dat',
+            'credit-cards.policies' => 'thetindung/chinh-sach',
         ];
 
         foreach ($expected as $name => $uri) {
@@ -89,7 +90,66 @@ class CreditCardModuleTest extends TestCase
             ->filter(fn ($route) => str_starts_with((string) $route->getName(), 'credit-cards.'))
             ->map(fn ($route) => $route->uri());
 
-        $this->assertCount(6, $moduleUris);
+        // So với TẬP TÊN route đã biết, không so số lượng. Phase 1B có chủ ý
+        // thêm 13 API route (thẻ/danh mục/giao dịch) nên con số 6 của Phase 1A
+        // không còn đúng; đặt số cứng thì mọi lần thêm route hợp lệ sau này lại
+        // phải sửa test, còn đặt sai số thì test vẫn xanh. Liệt kê tên rõ ràng
+        // vừa chặn route thừa vừa tự mô tả bề mặt API của module.
+        $expectedModuleRoutes = [
+            // 7 trang Phase 1A/1C
+            'credit-cards.index',
+            'credit-cards.manage',
+            'credit-cards.categories',
+            'credit-cards.reports',
+            'credit-cards.compare',
+            'credit-cards.settings',
+            'credit-cards.policies',
+            // API thẻ tín dụng (Phase 1B)
+            'credit-cards.api.cards.index',
+            'credit-cards.api.cards.store',
+            'credit-cards.api.cards.update',
+            'credit-cards.api.cards.destroy',
+            'credit-cards.api.cards.reorder',
+            // API danh mục (Phase 1B)
+            'credit-cards.api.categories.index',
+            'credit-cards.api.categories.store',
+            'credit-cards.api.categories.update',
+            'credit-cards.api.categories.destroy',
+            // API giao dịch (Phase 1B)
+            'credit-cards.api.transactions.index',
+            'credit-cards.api.transactions.store',
+            'credit-cards.api.transactions.update',
+            'credit-cards.api.transactions.destroy',
+            // API cấu hình policy (Phase 1C)
+            'credit-cards.api.policies.index',
+            'credit-cards.api.policies.store',
+            'credit-cards.api.policies.show',
+            'credit-cards.api.policies.update',
+            'credit-cards.api.policies.versions.store',
+            'credit-cards.api.policies.templates.store',
+            'credit-cards.api.templates.index',
+            'credit-cards.api.templates.show',
+            'credit-cards.api.tiers.index',
+            'credit-cards.api.tiers.store',
+            'credit-cards.api.tiers.update',
+            'credit-cards.api.tiers.destroy',
+            'credit-cards.api.tiers.clone',
+            'credit-cards.api.rules.index',
+            'credit-cards.api.rules.store',
+            'credit-cards.api.rules.update',
+            'credit-cards.api.rules.destroy',
+            'credit-cards.api.rules.clone',
+        ];
+
+        $actualModuleRoutes = collect(Route::getRoutes())
+            ->filter(fn ($route) => str_starts_with((string) $route->getName(), 'credit-cards.'))
+            ->map(fn ($route) => (string) $route->getName());
+
+        $this->assertSame(
+            collect($expectedModuleRoutes)->sort()->values()->all(),
+            $actualModuleRoutes->sort()->values()->all(),
+            'Tập route của module Thẻ tín dụng không khớp danh sách đã chốt.'
+        );
 
         foreach ($moduleUris as $uri) {
             $this->assertFalse(
@@ -202,6 +262,7 @@ class CreditCardModuleTest extends TestCase
         $cases = [
             '/thetindung' => 'credit-cards.index',
             '/thetindung/quan-ly-the' => 'credit-cards.manage',
+            '/thetindung/chinh-sach' => 'credit-cards.policies',
             '/thetindung/danh-muc' => 'credit-cards.categories',
             '/thetindung/bao-cao' => 'credit-cards.reports',
             '/thetindung/so-sanh' => 'credit-cards.compare',
@@ -363,7 +424,7 @@ class CreditCardModuleTest extends TestCase
         $user = User::factory()->create();
 
         $userCard = $this->makeUserCard($user->id, [
-            'product_id' => $product->id,
+            'bank_id' => $bank->id,
             'name' => 'Thẻ của tôi',
         ]);
 
@@ -376,17 +437,21 @@ class CreditCardModuleTest extends TestCase
         $tier = $policy->tiers()->first();
         $rule = $tier->tierCategoryRules()->first();
 
-        // Bank -> products
+        // Bank -> products (catalog cũ vẫn còn quan hệ 2 chiều)
         $this->assertTrue($bank->products->contains($product));
 
-        // Product -> bank / user cards
+        // Product -> bank
         $this->assertTrue($bank->is($product->bank));
-        $this->assertTrue($product->userCards->contains($userCard));
 
-        // UserCard -> product / bank / user (cross-DB, không FK)
-        $this->assertTrue($product->is($userCard->product));
+        // UserCard -> bank TRỰC TIẾP (Phase 1B) / user (cross-DB, không FK)
         $this->assertTrue($bank->is($userCard->bank));
         $this->assertTrue($user->is($userCard->user));
+
+        // `product_id` còn nullable + deprecated: card mới KHÔNG gắn product nữa,
+        // nên catalog cũ không tự "nuôi" thẻ.
+        $this->assertNull($userCard->product_id);
+        $this->assertNull($userCard->product);
+        $this->assertFalse($product->userCards->contains($userCard));
 
         // UserCard -> policy (current) + policy -> userCard + tiers -> rules
         $this->assertTrue($policy->is($userCard->currentPolicy));
@@ -452,12 +517,14 @@ class CreditCardModuleTest extends TestCase
     public function index_shows_total_limit_when_user_has_cards(): void
     {
         $bank = $this->makeBank(['name' => 'Ngân hàng ABC', 'slug' => 'abc']);
-        $product = $this->makeProduct($bank, ['name' => 'Thẻ ABC', 'slug' => 'abc-card']);
 
         $user = User::factory()->create();
 
         $this->makeUserCard($user->id, [
-            'product_id' => $product->id,
+            // Phase 1B: chỉ cần bank + tên thẻ do user đặt.
+            'bank_id' => $bank->id,
+            'name' => 'Thẻ ABC',
+            'card_number_last4' => '1234',
             'credit_limit' => 50000000,
         ]);
 

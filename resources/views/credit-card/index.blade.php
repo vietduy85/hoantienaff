@@ -88,13 +88,17 @@
             <ul class="space-y-3">
                 @foreach ($userCreditCards as $userCard)
                     <li class="rounded-xl border border-gray-100 p-4">
+                        {{-- Phase 1B: tên thẻ do USER tự đặt, ngân hàng từ FK trực tiếp. --}}
                         <p class="font-semibold text-gray-800">
-                            {{ $userCard->product?->name ?? 'Thẻ tín dụng' }}
+                            {{ $userCard->name ?: 'Thẻ tín dụng' }}
                         </p>
                         <p class="text-xs text-gray-500 mt-0.5">
                             {{ $userCard->bank?->name ?? '—' }}
-                            @if ($userCard->name && $userCard->name !== $userCard->product?->name)
-                                <span class="text-gray-400">· {{ $userCard->name }}</span>
+                            @if ($userCard->bank?->short_name)
+                                <span class="text-gray-400">· {{ $userCard->bank->short_name }}</span>
+                            @endif
+                            @if ($userCard->card_number_last4)
+                                <span class="text-gray-400">· •••• {{ $userCard->card_number_last4 }}</span>
                             @endif
                         </p>
                     </li>

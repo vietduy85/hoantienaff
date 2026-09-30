@@ -12,7 +12,14 @@ use App\Http\Controllers\Api\PriceComparisonController;
 use App\Http\Controllers\Auth\CheckUsernameController;
 use App\Http\Controllers\Auth\CompleteProfileController;
 use App\Http\Controllers\Auth\GoogleController;
+use App\Http\Controllers\CreditCard\CategoryController;
+use App\Http\Controllers\CreditCard\CategoryRuleController;
 use App\Http\Controllers\CreditCard\CreditCardController;
+use App\Http\Controllers\CreditCard\PolicyController;
+use App\Http\Controllers\CreditCard\PolicyTemplateController;
+use App\Http\Controllers\CreditCard\TierController;
+use App\Http\Controllers\CreditCard\TransactionController;
+use App\Http\Controllers\CreditCard\UserCardController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Debug\CookieDebugController;
 use App\Http\Controllers\Debug\PlaywrightController;
@@ -106,6 +113,68 @@ Route::middleware('auth')->group(function () {
         Route::get('/bao-cao', [CreditCardController::class, 'reports'])->name('reports');
         Route::get('/so-sanh', [CreditCardController::class, 'compare'])->name('compare');
         Route::get('/cai-dat', [CreditCardController::class, 'settings'])->name('settings');
+        Route::get('/chinh-sach', [CreditCardController::class, 'policies'])->name('policies');
+
+        // === Phase 1B/1C: API domain (JSON, thin controller) ===
+        // Mọi route dưới đây nằm trong middleware `auth` của group cha. Không
+        // nhận `user_id` từ request — scope lấy từ `auth()->id()`.
+        //
+        // `throttle:credit-card-api` là limiter ĐĂNG KÝ TÊN (AppServiceProvider),
+        // KHÔNG phải chuỗi số của `throttle:60,1`. Tên riêng để chắc chắn việc
+        // giới hạn này không lan sang group cha — route affiliate, trang khác
+        // không dùng limiter này nên không bị ảnh hưởng.
+        Route::prefix('api')->name('api.')->middleware('throttle:credit-card-api')->group(function () {
+            // Thẻ tín dụng.
+            Route::get('/the', [UserCardController::class, 'index'])->name('cards.index');
+            Route::post('/the', [UserCardController::class, 'store'])->name('cards.store');
+            Route::patch('/the/thu-tu', [UserCardController::class, 'reorder'])->name('cards.reorder');
+            Route::patch('/the/{userCard}', [UserCardController::class, 'update'])->name('cards.update');
+            // Đóng thẻ, KHÔNG xoá cứng (dữ liệu lịch sử phải còn).
+            Route::delete('/the/{userCard}', [UserCardController::class, 'destroy'])->name('cards.destroy');
+
+            // Danh mục chi tiêu (danh mục hệ thống chỉ đọc).
+            Route::get('/danh-muc', [CategoryController::class, 'index'])->name('categories.index');
+            Route::post('/danh-muc', [CategoryController::class, 'store'])->name('categories.store');
+            Route::patch('/danh-muc/{category}', [CategoryController::class, 'update'])->name('categories.update');
+            Route::delete('/danh-muc/{category}', [CategoryController::class, 'destroy'])->name('categories.destroy');
+
+            // Giao dịch nhập tay (cashback do hệ thống tính).
+            Route::get('/the/{userCard}/giao-dich', [TransactionController::class, 'index'])->name('transactions.index');
+            Route::post('/giao-dich', [TransactionController::class, 'store'])->name('transactions.store');
+            Route::patch('/giao-dich/{transaction}', [TransactionController::class, 'update'])->name('transactions.update');
+            Route::delete('/giao-dich/{transaction}', [TransactionController::class, 'destroy'])->name('transactions.destroy');
+
+            // === Phase 1C: cấu hình policy cashback ===
+            //
+            // Route mang `userCard` dùng `Policy::forCard()` nên version của thẻ
+            // khác trả 404 (không lộ ra việc id tồn tại). Bậc và rule dùng route
+            // phẳng vì quyền của chúng đã resolve được qua chuỗi
+            // tier → policyVersion → userCard → user_id (xem PolicyTierPolicy).
+            Route::get('/the/{userCard}/chinh-sach', [PolicyController::class, 'index'])->name('policies.index');
+            Route::post('/the/{userCard}/chinh-sach', [PolicyController::class, 'store'])->name('policies.store');
+            Route::get('/the/{userCard}/chinh-sach/{policy}', [PolicyController::class, 'show'])->name('policies.show');
+            Route::patch('/the/{userCard}/chinh-sach/{policy}', [PolicyController::class, 'update'])->name('policies.update');
+            Route::post('/the/{userCard}/chinh-sach/phien-ban', [PolicyController::class, 'storeVersion'])->name('policies.versions.store');
+            Route::post('/the/{userCard}/chinh-sach/mau', [PolicyController::class, 'storeTemplate'])->name('policies.templates.store');
+
+            // Mẫu chính sách: chỉ đọc. Mẫu mới tạo bằng `policies.templates.store`.
+            Route::get('/mau-chinh-sach', [PolicyTemplateController::class, 'index'])->name('templates.index');
+            Route::get('/mau-chinh-sach/{template}', [PolicyTemplateController::class, 'show'])->name('templates.show');
+
+            // Bậc chi tiêu.
+            Route::get('/chinh-sach/{policy}/bac', [TierController::class, 'index'])->name('tiers.index');
+            Route::post('/chinh-sach/{policy}/bac', [TierController::class, 'store'])->name('tiers.store');
+            Route::patch('/bac/{tier}', [TierController::class, 'update'])->name('tiers.update');
+            Route::delete('/bac/{tier}', [TierController::class, 'destroy'])->name('tiers.destroy');
+            Route::post('/bac/{tier}/nhan-ban', [TierController::class, 'clone'])->name('tiers.clone');
+
+            // Quy tắc cashback theo danh mục.
+            Route::get('/bac/{tier}/quy-tac', [CategoryRuleController::class, 'index'])->name('rules.index');
+            Route::post('/bac/{tier}/quy-tac', [CategoryRuleController::class, 'store'])->name('rules.store');
+            Route::patch('/quy-tac/{rule}', [CategoryRuleController::class, 'update'])->name('rules.update');
+            Route::delete('/quy-tac/{rule}', [CategoryRuleController::class, 'destroy'])->name('rules.destroy');
+            Route::post('/quy-tac/{rule}/nhan-ban', [CategoryRuleController::class, 'clone'])->name('rules.clone');
+        });
     });
 });
 

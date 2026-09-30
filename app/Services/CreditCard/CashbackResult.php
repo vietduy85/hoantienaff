@@ -20,8 +20,7 @@ final class CashbackResult
         public readonly ?int $ruleId = null,
         public readonly ?string $ineligibleReason = null,
         public readonly array $meta = [],
-    ) {
-    }
+    ) {}
 
     public function cashbackAmountAsFloat(): float
     {

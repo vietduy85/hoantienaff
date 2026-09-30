@@ -16,8 +16,7 @@ final class TransactionLine
         public readonly string $transactionDate,
         public readonly ?int $categoryId,
         public readonly string $amount,
-    ) {
-    }
+    ) {}
 
     public function amountAsFloat(): float
     {

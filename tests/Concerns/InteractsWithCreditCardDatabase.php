@@ -144,7 +144,8 @@ trait InteractsWithCreditCardDatabase
 
         return UserCard::create(array_merge([
             'user_id' => $userId,
-            'product_id' => $this->makeProduct()->id,
+            // Phase 1B: Bank + tên thẻ gợi nhớ, KHÔNG qua Product catalog.
+            'bank_id' => $this->makeBank()->id,
             'name' => 'Thẻ của tôi '.$sequence,
             'credit_limit' => 50000000,
             'statement_day' => 15,

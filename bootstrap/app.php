@@ -1,9 +1,19 @@
 <?php
 
+use App\Http\Middleware\CaptureReferral;
+use App\Http\Middleware\ForensicObserver;
+use App\Support\AppKeyFlightRecorder;
+use App\Support\CsrfForensic;
+use Illuminate\Encryption\MissingAppKeyException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Request;
 use Illuminate\Support\Env;
+use Spatie\Permission\Middleware\PermissionMiddleware;
+use Spatie\Permission\Middleware\RoleMiddleware;
+use Spatie\Permission\Middleware\RoleOrPermissionMiddleware;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 // Disable Laravel's PutenvAdapter so that Laravel loads environment purely from
 // the Dotenv/Repository (via $_SERVER / $_ENV) and does NOT let a stale
@@ -22,14 +32,14 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->trustProxies(at: '*');
 
         $middleware->web(append: [
-            \App\Http\Middleware\CaptureReferral::class,
+            CaptureReferral::class,
         ]);
 
         $middleware->alias([
-            'role' => \Spatie\Permission\Middleware\RoleMiddleware::class,
-            'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,
-            'role_or_permission' => \Spatie\Permission\Middleware\RoleOrPermissionMiddleware::class,
-            'forensic' => \App\Http\Middleware\ForensicObserver::class,
+            'role' => RoleMiddleware::class,
+            'permission' => PermissionMiddleware::class,
+            'role_or_permission' => RoleOrPermissionMiddleware::class,
+            'forensic' => ForensicObserver::class,
         ]);
 
         $middleware->validateCsrfTokens(except: [
@@ -37,11 +47,43 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        // =====================================================================
+        // Module Thẻ tín dụng (Phase 1B): dịch exception domain ⇒ HTTP status.
+        // =====================================================================
+        // Service nghiệp vụ ném `InvalidArgumentException` (dữ liệu/ownership sai)
+        // và `LogicException` (vi phạm quy tắc nghiệp vụ). Nếu không ánh xạ, chúng
+        // thành HTTP 500 — sai và là lộ chi tiết nội bộ ra ngoài.
+        //
+        // CHỈ áp dụng cho route `credit-cards.api.*`: các exception này được dùng
+        // ở nhiều nơi khác trong app (ShopeeFood, TikTok…) và không được đổi hành vi.
+        $exceptions->render(function (InvalidArgumentException $e, Request $request) {
+            if (! $request->routeIs('credit-cards.api.*')) {
+                return null;
+            }
+
+            // 422: request không hợp lệ với người gửi (sai danh mục, thẻ của
+            // người khác, số tiền 0…). Không phải 403 vì 403 dành cho "đã xác định
+            // được quyền rồi thì bị từ chối" — quyền với thẻ/danh mục/giao dịch do
+            // Policy quyết định và trả về trước khi tới đây.
+            return response()->json(['message' => $e->getMessage()], 422);
+        });
+
+        $exceptions->render(function (LogicException $e, Request $request) {
+            if (! $request->routeIs('credit-cards.api.*')) {
+                return null;
+            }
+
+            // 409 Conflict: dữ liệu hợp lệ nhưng xung đột trạng thái — kỳ đã chốt,
+            // thẻ đã đóng, version đã superseded. Không phải 400 vì client không
+            // sai, mà trạng thái hiện tại đã không cho phép thao tác.
+            return response()->json(['message' => $e->getMessage()], 409);
+        });
+
         // Khi POST /logout gặp lỗi CSRF (TokenMismatchException -> HttpException 419),
         // user KHÔNG được thấy trang "419 PAGE EXPIRED".
         // Thay vào đó: invalidate session + regenerate token + redirect /login.
         // Chỉ áp dụng riêng cho route logout; các route khác giữ nguyên behavior.
-        $exceptions->render(function (Symfony\Component\HttpKernel\Exception\HttpException $e, Illuminate\Http\Request $request) {
+        $exceptions->render(function (HttpException $e, Request $request) {
             if ($e->getStatusCode() !== 419 || ! $request->routeIs('logout') || ! $request->isMethod('POST')) {
                 return null;
             }
@@ -58,13 +100,13 @@ return Application::configure(basePath: dirname(__DIR__))
         // request token / session token / session id vào đúng thời điểm 419 xảy ra
         // trên POST /link-requests. KHÔNG thay đổi behavior (chỉ thêm một observer,
         // trả về null để luồng render 419 mặc định tiếp tục).
-        $exceptions->render(function (Symfony\Component\HttpKernel\Exception\HttpException $e, Illuminate\Http\Request $request) {
+        $exceptions->render(function (HttpException $e, Request $request) {
             if ($e->getStatusCode() !== 419 || ! $request->routeIs('link-requests.store') || ! $request->isMethod('POST')) {
                 return null;
             }
 
             if ($request->hasSession()) {
-                \App\Support\CsrfForensic::event('csrf_failure', $request, [
+                CsrfForensic::event('csrf_failure', $request, [
                     'page_instance_id' => (string) $request->header('X-Forensic-Page-Id', ''),
                     't2_flow_id' => (string) $request->header('X-Forensic-T2-Flow-Id', ''),
                     'response_status' => 419,
@@ -79,8 +121,8 @@ return Application::configure(basePath: dirname(__DIR__))
         // .env / environment / config WITHOUT changing how Laravel loads APP_KEY
         // and WITHOUT modifying the root cause. Returns null so the normal
         // reporting/logging flow is unchanged.
-        $exceptions->reportable(function (Illuminate\Encryption\MissingAppKeyException $e) {
-            \App\Support\AppKeyFlightRecorder::capture($e);
+        $exceptions->reportable(function (MissingAppKeyException $e) {
+            AppKeyFlightRecorder::capture($e);
 
             return null;
         });

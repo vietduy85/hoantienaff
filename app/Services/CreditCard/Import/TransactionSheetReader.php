@@ -6,6 +6,7 @@ use Illuminate\Support\Str;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Reader\IReader;
 use PhpOffice\PhpSpreadsheet\Reader\Xlsx as XlsxReader;
+use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use RuntimeException;
 
 /**
@@ -156,7 +157,7 @@ class TransactionSheetReader
      *
      * @throws RuntimeException
      */
-    private function mapColumns(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet, int $headerRow, int $lastColumn): array
+    private function mapColumns(Worksheet $sheet, int $headerRow, int $lastColumn): array
     {
         $map = [];
 
@@ -198,7 +199,7 @@ class TransactionSheetReader
     /**
      * @param  array<string, int>  $columnMap
      */
-    private function readRow(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet, int $rowNumber, array $columnMap): ?TransactionRow
+    private function readRow(Worksheet $sheet, int $rowNumber, array $columnMap): ?TransactionRow
     {
         $get = function (string $column) use ($sheet, $rowNumber, $columnMap): ?string {
             if (! isset($columnMap[$column])) {

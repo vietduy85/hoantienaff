@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\CreditCard;
 
+use App\Models\CreditCard\StatementPeriod;
+use App\Models\CreditCard\Transaction;
 use App\Models\CreditCard\UserCard;
 use App\Models\User;
 use App\Services\CreditCard\StatementPeriodService;
@@ -355,7 +357,7 @@ class StatementPeriodServiceTest extends TestCase
         $finalized = $this->service->resolvePeriodForDate($card, CarbonImmutable::parse('2026-09-20'));
 
         $finalized->forceFill([
-            'status' => \App\Models\CreditCard\StatementPeriod::STATUS_FINALIZED,
+            'status' => StatementPeriod::STATUS_FINALIZED,
             'finalized_at' => now(),
         ])->save();
 
@@ -456,11 +458,11 @@ class StatementPeriodServiceTest extends TestCase
 
     private function makeTransaction(
         UserCard $card,
-        ?\App\Models\CreditCard\StatementPeriod $period,
+        ?StatementPeriod $period,
         string $date,
         array $attributes = []
-    ): \App\Models\CreditCard\Transaction {
-        return \App\Models\CreditCard\Transaction::create(array_merge([
+    ): Transaction {
+        return Transaction::create(array_merge([
             'user_card_id' => $card->id,
             'statement_period_id' => $period?->id,
             'transaction_date' => $date,

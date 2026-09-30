@@ -9,6 +9,7 @@ use App\Models\CreditCard\PolicyVersion;
 use App\Models\CreditCard\StatementPeriod;
 use App\Models\CreditCard\UserCard;
 use DateTimeInterface;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use LogicException;
 
@@ -23,8 +24,7 @@ class PolicyEngineService
 {
     public function __construct(
         private readonly TierResolverService $tiers,
-    ) {
-    }
+    ) {}
 
     /**
      * Gắn policy version đã resolve vào một kỳ sao kê.
@@ -79,7 +79,7 @@ class PolicyEngineService
     /**
      * Tất cả version của thẻ, sắp xếp theo version_no.
      *
-     * @return \Illuminate\Support\Collection<int, PolicyVersion>
+     * @return Collection<int, PolicyVersion>
      */
     public function versionsOf(UserCard $userCard)
     {
@@ -114,7 +114,7 @@ class PolicyEngineService
      * Danh mục nào đang được dùng bởi các version của thẻ (để biết danh mục nào
      * KHÔNG xoá cứng được).
      *
-     * @return \Illuminate\Support\Collection<int, int>
+     * @return Collection<int, int>
      */
     public function usedCategoryIds(UserCard $userCard)
     {

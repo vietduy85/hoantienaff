@@ -52,8 +52,7 @@ class CashbackRecordService
         private readonly PolicyEngineService $engine,
         private readonly TierResolverService $tiers,
         private readonly CashbackCalculator $calculator,
-    ) {
-    }
+    ) {}
 
     /**
      * Tính lại cashback cho toàn bộ giao dịch của một kỳ sao kê.

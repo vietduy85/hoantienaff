@@ -25,6 +25,9 @@ use App\Services\Providers\PharmacityProvider;
 use App\Services\Providers\ShopeeProvider;
 use App\Services\Providers\TikTokProvider;
 use App\Services\Providers\TravelokaProvider;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 
@@ -85,5 +88,46 @@ class AppServiceProvider extends ServiceProvider
         if (! $this->app->isLocal()) {
             URL::forceScheme('https');
         }
+
+        $this->registerCreditCardApiRateLimiter();
+    }
+
+    /**
+     * Giới hạn tần suất CHỈ cho API Credit Card.
+     *
+     * ---------------------------------------------------------------------------
+     * VÌ SAO KHÔNG DÙNG `RateLimiter::for('api')`
+     * ---------------------------------------------------------------------------
+     * Tên `api` là quy ước của Laravel và rất dễ bị gắn nhầm: nếu ai đó thêm
+     * `throttle:api` vào group cha thì toàn bộ route khác của ứng dụng (affiliate,
+     * tài khoản…) cũng bị giới hạn theo cùng một bộ đếm. Đặt tên riêng
+     * `credit-card-api` khiến việc gắn throttle CHỈ có tác dụng khi cố ý gắn vào
+     * group `credit-cards.api.*` — không thể vô tình kéo theo route khác.
+     *
+     * ---------------------------------------------------------------------------
+     * VÌ SAO GIỚI HẠN THEO USER, KHÔNG THEO IP
+     * ---------------------------------------------------------------------------
+     * Group cha đã bọc `auth`, nên `Limit::perUser()` dùng `request()->user()->id`:
+     * nhiều người sau cùng một NAT (văn phòng, điện thoại) không đụng nhau, và
+     * một tài khoản bị lạm dụng không khóa được người dùng chung IP.
+     */
+    private function registerCreditCardApiRateLimiter(): void
+    {
+        RateLimiter::for('credit-card-api', function (Request $request) {
+            return Limit::perMinute(self::creditCardApiRateLimit())
+                ->by($request->user()?->getAuthIdentifier() ?? $request->ip())
+                ->response(function (Request $request, array $headers) {
+                    return response()->json([
+                        'message' => 'Bạn gửi yêu cầu quá nhiều. Vui lòng thử lại sau.',
+                    ], 429, $headers);
+                });
+        });
+    }
+
+    private static function creditCardApiRateLimit(): int
+    {
+        $configured = env('CREDIT_CARD_API_RATE_LIMIT');
+
+        return is_numeric($configured) && (int) $configured > 0 ? (int) $configured : 60;
     }
 }

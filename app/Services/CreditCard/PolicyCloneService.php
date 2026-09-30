@@ -8,8 +8,10 @@ use App\Models\CreditCard\PolicyTier;
 use App\Models\CreditCard\PolicyTierCategory;
 use App\Models\CreditCard\PolicyVersion;
 use App\Models\CreditCard\UserCard;
+use Carbon\CarbonImmutable;
 use DateTimeInterface;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use LogicException;
 
 /**
@@ -352,12 +354,12 @@ class PolicyCloneService
 
     private function dayBefore(DateTimeInterface $date): string
     {
-        return \Carbon\CarbonImmutable::instance($date)->subDay()->toDateString();
+        return CarbonImmutable::instance($date)->subDay()->toDateString();
     }
 
     private function uniqueSlug(string $name): string
     {
-        $base = \Illuminate\Support\Str::slug($name) ?: 'template';
+        $base = Str::slug($name) ?: 'template';
         $slug = $base;
         $suffix = 1;
 

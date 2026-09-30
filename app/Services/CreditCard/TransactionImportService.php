@@ -54,8 +54,7 @@ class TransactionImportService
         private readonly TransactionSheetReader $reader,
         private readonly StatementPeriodService $periods,
         private readonly CashbackRecordService $records,
-    ) {
-    }
+    ) {}
 
     public function import(
         UserCard $userCard,

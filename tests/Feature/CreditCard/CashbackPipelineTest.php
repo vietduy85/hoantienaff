@@ -2,14 +2,17 @@
 
 namespace Tests\Feature\CreditCard;
 
+use App\Models\CreditCard\Category;
 use App\Models\CreditCard\Policy;
 use App\Models\CreditCard\StatementPeriod;
 use App\Models\CreditCard\Transaction;
 use App\Models\CreditCard\UserCard;
 use App\Models\User;
 use App\Services\CreditCard\CashbackRecordService;
+use App\Services\CreditCard\PolicyCloneService;
 use App\Services\CreditCard\PolicyEngineService;
 use App\Services\CreditCard\StatementPeriodService;
+use Carbon\CarbonImmutable;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Concerns\InteractsWithCreditCardDatabase;
 use Tests\TestCase;
@@ -32,7 +35,7 @@ class CashbackPipelineTest extends TestCase
 
     private User $user;
 
-    /** @var \App\Models\CreditCard\Category */
+    /** @var Category */
     private $category;
 
     protected function setUp(): void
@@ -57,7 +60,7 @@ class CashbackPipelineTest extends TestCase
         $this->seedTwoTiers();
 
         // Kỳ [01/09 .. 30/09]
-        $period = $this->periods->resolvePeriodForDate($this->card, \Carbon\CarbonImmutable::parse('2026-09-10'));
+        $period = $this->periods->resolvePeriodForDate($this->card, CarbonImmutable::parse('2026-09-10'));
 
         $first = $this->addTransaction($period, '2026-09-05', '6000000');
         $this->records->calculatePeriod($this->card, $period);
@@ -85,7 +88,7 @@ class CashbackPipelineTest extends TestCase
     {
         $this->seedTwoTiers();
 
-        $period = $this->periods->resolvePeriodForDate($this->card, \Carbon\CarbonImmutable::parse('2026-09-10'));
+        $period = $this->periods->resolvePeriodForDate($this->card, CarbonImmutable::parse('2026-09-10'));
 
         $big = $this->addTransaction($period, '2026-09-05', '8000000');
         $this->addTransaction($period, '2026-09-28', '2000000');
@@ -115,7 +118,7 @@ class CashbackPipelineTest extends TestCase
             ['2.000', '8.000']
         );
 
-        $period = $this->periods->resolvePeriodForDate($this->card, \Carbon\CarbonImmutable::parse('2026-09-10'));
+        $period = $this->periods->resolvePeriodForDate($this->card, CarbonImmutable::parse('2026-09-10'));
 
         $big = $this->addTransaction($period, '2026-09-05', '12000000');
         $this->records->calculatePeriod($this->card, $period);
@@ -143,8 +146,8 @@ class CashbackPipelineTest extends TestCase
     {
         $this->seedTwoTiers();
 
-        $september = $this->periods->resolvePeriodForDate($this->card, \Carbon\CarbonImmutable::parse('2026-09-10'));
-        $august = $this->periods->resolvePeriodForDate($this->card, \Carbon\CarbonImmutable::parse('2026-08-20'));
+        $september = $this->periods->resolvePeriodForDate($this->card, CarbonImmutable::parse('2026-09-10'));
+        $august = $this->periods->resolvePeriodForDate($this->card, CarbonImmutable::parse('2026-08-20'));
 
         $this->addTransaction($september, '2026-09-05', '6000000');
         $this->addTransaction($august, '2026-08-20', '6000000');
@@ -160,7 +163,7 @@ class CashbackPipelineTest extends TestCase
     {
         $this->seedTwoTiers();
 
-        $period = $this->periods->resolvePeriodForDate($this->card, \Carbon\CarbonImmutable::parse('2026-09-10'));
+        $period = $this->periods->resolvePeriodForDate($this->card, CarbonImmutable::parse('2026-09-10'));
 
         $this->addTransaction($period, '2026-09-05', '3000000');
         $this->addTransaction($period, '2026-09-12', '4000000');
@@ -183,7 +186,7 @@ class CashbackPipelineTest extends TestCase
     {
         $this->seedTwoTiers(['min_total_spend' => 10000000]);
 
-        $period = $this->periods->resolvePeriodForDate($this->card, \Carbon\CarbonImmutable::parse('2026-09-10'));
+        $period = $this->periods->resolvePeriodForDate($this->card, CarbonImmutable::parse('2026-09-10'));
         $transaction = $this->addTransaction($period, '2026-09-05', '7000000');
 
         $this->records->calculatePeriod($this->card, $period);
@@ -199,7 +202,7 @@ class CashbackPipelineTest extends TestCase
     {
         $this->seedTwoTiers(['min_total_spend' => 10000000]);
 
-        $period = $this->periods->resolvePeriodForDate($this->card, \Carbon\CarbonImmutable::parse('2026-09-10'));
+        $period = $this->periods->resolvePeriodForDate($this->card, CarbonImmutable::parse('2026-09-10'));
 
         $first = $this->addTransaction($period, '2026-09-05', '7000000');
         $this->records->calculatePeriod($this->card, $period);
@@ -223,12 +226,12 @@ class CashbackPipelineTest extends TestCase
     {
         $this->seedTwoTiers();
         $engine = app(PolicyEngineService::class);
-        $clone = app(\App\Services\CreditCard\PolicyCloneService::class);
+        $clone = app(PolicyCloneService::class);
 
         // Tạo version 2 hiệu lực từ 01/10 với rate khác hẳn.
         $version2 = $clone->createNextVersion(
             $this->card,
-            \Carbon\CarbonImmutable::parse('2026-10-01'),
+            CarbonImmutable::parse('2026-10-01'),
             [
                 'tiers' => [
                     [
@@ -248,8 +251,8 @@ class CashbackPipelineTest extends TestCase
             ]
         );
 
-        $september = $this->periods->resolvePeriodForDate($this->card, \Carbon\CarbonImmutable::parse('2026-09-10'));
-        $october = $this->periods->resolvePeriodForDate($this->card, \Carbon\CarbonImmutable::parse('2026-10-10'));
+        $september = $this->periods->resolvePeriodForDate($this->card, CarbonImmutable::parse('2026-09-10'));
+        $october = $this->periods->resolvePeriodForDate($this->card, CarbonImmutable::parse('2026-10-10'));
 
         $this->addTransaction($september, '2026-09-05', '1000000');
         $this->addTransaction($october, '2026-10-05', '1000000');
@@ -270,7 +273,7 @@ class CashbackPipelineTest extends TestCase
     #[Test]
     public function transactions_without_any_policy_version_get_no_cashback(): void
     {
-        $period = $this->periods->resolvePeriodForDate($this->card, \Carbon\CarbonImmutable::parse('2026-09-10'));
+        $period = $this->periods->resolvePeriodForDate($this->card, CarbonImmutable::parse('2026-09-10'));
         $transaction = $this->addTransaction($period, '2026-09-05', '1000000');
 
         $this->records->calculatePeriod($this->card, $period);
@@ -289,7 +292,7 @@ class CashbackPipelineTest extends TestCase
     {
         $this->seedTwoTiers();
 
-        $period = $this->periods->resolvePeriodForDate($this->card, \Carbon\CarbonImmutable::parse('2026-09-10'));
+        $period = $this->periods->resolvePeriodForDate($this->card, CarbonImmutable::parse('2026-09-10'));
         $transaction = $this->addTransaction($period, '2026-09-05', '6000000');
 
         $this->records->calculatePeriod($this->card, $period);
@@ -324,8 +327,8 @@ class CashbackPipelineTest extends TestCase
     {
         $this->seedTwoTiers();
 
-        $september = $this->periods->resolvePeriodForDate($this->card, \Carbon\CarbonImmutable::parse('2026-09-10'));
-        $august = $this->periods->resolvePeriodForDate($this->card, \Carbon\CarbonImmutable::parse('2026-08-20'));
+        $september = $this->periods->resolvePeriodForDate($this->card, CarbonImmutable::parse('2026-09-10'));
+        $august = $this->periods->resolvePeriodForDate($this->card, CarbonImmutable::parse('2026-08-20'));
 
         $september->forceFill(['status' => StatementPeriod::STATUS_FINALIZED, 'finalized_at' => now()])->save();
 
@@ -344,7 +347,7 @@ class CashbackPipelineTest extends TestCase
     {
         $this->seedTwoTiers();
 
-        $period = $this->periods->resolvePeriodForDate($this->card, \Carbon\CarbonImmutable::parse('2026-09-10'));
+        $period = $this->periods->resolvePeriodForDate($this->card, CarbonImmutable::parse('2026-09-10'));
         $transaction = $this->addTransaction($period, '2026-09-05', '6000000');
 
         $this->records->calculatePeriod($this->card, $period);
@@ -366,7 +369,7 @@ class CashbackPipelineTest extends TestCase
 
         $this->card->forceFill(['statement_date_basis' => UserCard::BASIS_POSTED_DATE])->save();
 
-        $period = $this->periods->resolvePeriodForDate($this->card, \Carbon\CarbonImmutable::parse('2026-09-10'));
+        $period = $this->periods->resolvePeriodForDate($this->card, CarbonImmutable::parse('2026-09-10'));
         $transaction = $this->addTransaction($period, '2026-09-05', '6000000', ['posted_date' => '2026-09-08']);
 
         $this->records->calculatePeriod($this->card, $period);
@@ -383,7 +386,7 @@ class CashbackPipelineTest extends TestCase
     {
         $this->seedTwoTiers();
 
-        $period = $this->periods->resolvePeriodForDate($this->card, \Carbon\CarbonImmutable::parse('2026-09-10'));
+        $period = $this->periods->resolvePeriodForDate($this->card, CarbonImmutable::parse('2026-09-10'));
         $orphan = $this->makeSystemCategory();
 
         $transaction = $this->addTransaction($period, '2026-09-05', '6000000', ['category_id' => $orphan->id]);
@@ -407,7 +410,7 @@ class CashbackPipelineTest extends TestCase
         $this->seedTwoTiers();
 
         $otherCard = $this->makeUserCard($this->user->id, ['statement_day' => 31]);
-        $otherPeriod = $this->periods->resolvePeriodForDate($otherCard, \Carbon\CarbonImmutable::parse('2026-09-10'));
+        $otherPeriod = $this->periods->resolvePeriodForDate($otherCard, CarbonImmutable::parse('2026-09-10'));
 
         $foreign = Transaction::create([
             'user_card_id' => $otherCard->id,

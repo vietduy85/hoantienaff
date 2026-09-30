@@ -19,6 +19,5 @@ final class TransactionRow
         public readonly ?string $merchant,
         public readonly ?string $category,
         public readonly ?string $note,
-    ) {
-    }
+    ) {}
 }

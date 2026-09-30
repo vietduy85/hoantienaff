@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\CreditCard;
 
+use App\Models\CreditCard\Category;
 use App\Models\CreditCard\Policy;
 use App\Models\CreditCard\PolicyTemplate;
 use App\Models\CreditCard\StatementPeriod;
@@ -232,6 +233,56 @@ class CreditCardAuthorizationTest extends TestCase
 
         $this->assertTrue($this->owner->can('delete', $template));
         $this->assertFalse($this->stranger->can('delete', $template));
+    }
+
+    // =====================================================================
+    // Category (system read-only, user owner-only)
+    // =====================================================================
+
+    #[Test]
+    public function a_system_category_is_readable_by_everyone_but_never_writable(): void
+    {
+        $category = $this->makeSystemCategory();
+
+        $this->assertTrue($this->owner->can('view', $category));
+        $this->assertTrue($this->stranger->can('view', $category));
+
+        // `create` được phép vì user tạo danh mục RIÊNG của mình. Không có
+        // đường nào tạo danh mục hệ thống: `CategoryService::createUserCategory()`
+        // hard-code `scope = user` + `owner_user_id = $userId`.
+        $this->assertTrue($this->owner->can('create', Category::class));
+
+        $this->assertFalse($this->owner->can('update', $category));
+        $this->assertFalse($this->owner->can('delete', $category));
+
+        // Admin cũng không sửa được master data.
+        $this->assertFalse($this->admin->can('update', $category));
+        $this->assertFalse($this->admin->can('delete', $category));
+    }
+
+    #[Test]
+    public function a_user_category_is_fully_managed_by_its_owner_only(): void
+    {
+        $category = $this->makeUserCategory($this->owner->id);
+
+        $this->assertTrue($this->owner->can('view', $category));
+        $this->assertTrue($this->owner->can('update', $category));
+        $this->assertTrue($this->owner->can('delete', $category));
+
+        $this->assertFalse($this->stranger->can('view', $category));
+        $this->assertFalse($this->stranger->can('update', $category));
+        $this->assertFalse($this->stranger->can('delete', $category));
+    }
+
+    #[Test]
+    public function a_category_can_be_assigned_to_a_transaction_only_by_its_owner(): void
+    {
+        $mine = $this->makeUserCategory($this->owner->id);
+        $theirs = $this->makeUserCategory($this->stranger->id);
+        $transaction = $this->makeTransactionFor($this->makeUserCard($this->owner->id));
+
+        $this->assertTrue($this->owner->can('use', $mine));
+        $this->assertFalse($this->owner->can('use', $theirs), 'Không được gắn danh mục của user khác.');
     }
 
     // =====================================================================
