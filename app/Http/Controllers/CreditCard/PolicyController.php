@@ -8,6 +8,7 @@ use App\Http\Requests\CreditCard\StorePolicyRequest;
 use App\Http\Requests\CreditCard\StorePolicyVersionRequest;
 use App\Http\Requests\CreditCard\StoreTemplateRequest;
 use App\Models\CreditCard\Policy;
+use App\Models\CreditCard\PolicyTierCategory;
 use App\Models\CreditCard\PolicyVersion;
 use App\Services\CreditCard\CategoryRuleService;
 use App\Services\CreditCard\PolicyService;
@@ -210,6 +211,8 @@ class PolicyController extends Controller
                     'id' => $rule->id,
                     'category_id' => $rule->category_id,
                     'category_name' => $rule->category?->name,
+                    'scope_type' => $rule->scope_type ?? PolicyTierCategory::SCOPE_CATEGORY,
+                    'counts_toward_tier_cap' => (bool) ($rule->counts_toward_tier_cap ?? ! $rule->isFallback()),
                     'name' => $rule->name,
                     'sort_order' => (int) $rule->sort_order,
                     'spend_from' => (float) $rule->spend_from,

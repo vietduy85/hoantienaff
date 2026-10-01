@@ -9,8 +9,8 @@
     là cấu hình; tiền thật do hệ thống tính và hiển thị ở màn hình giao dịch.
 --}}
 <x-credit-card.layout
-    title="Chính sách cashback"
-    subtitle="Bậc chi tiêu, tỷ lệ hoàn tiền và giới hạn theo từng danh mục"
+    title="Chính sách hoàn tiền"
+    subtitle="Thiết lập bậc chi tiêu, tỷ lệ hoàn tiền và giới hạn theo từng danh mục"
     active="policies">
 
     <div x-data="policyConfig(@js($userCreditCards->map(fn ($c) => [
@@ -46,6 +46,44 @@
             @endif
         </div>
 
+        {{-- Chính sách hoàn tiền hệ thống — mẫu do hệ thống cung cấp --}}
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-5">
+            <div class="mb-2">
+                <h3 class="font-semibold text-gray-800 text-sm">🏦 Chính sách hoàn tiền hệ thống</h3>
+                <p class="text-xs text-gray-500 mt-0.5">Chọn mẫu hoàn tiền do hệ thống cung cấp.</p>
+            </div>
+
+            <template x-if="systemTemplates.length === 0">
+                <p class="text-sm text-gray-400">Hiện chưa có mẫu hệ thống nào.</p>
+            </template>
+
+            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <template x-for="tpl in systemTemplates" :key="tpl.id">
+                    <div class="rounded-xl border border-gray-200 p-3.5 space-y-2">
+                        <div>
+                            <p class="text-sm font-semibold text-gray-800" x-text="tpl.name"></p>
+                            <p class="text-xs text-gray-500 mt-0.5" x-text="tpl.description ?? ''"></p>
+                        </div>
+                        <div class="flex flex-wrap gap-1.5 text-[11px] text-gray-600">
+                            <span class="rounded-full bg-gray-50 border border-gray-100 px-2 py-0.5">v<span x-text="tpl.version_no ?? 1"></span></span>
+                            <span class="rounded-full bg-gray-50 border border-gray-100 px-2 py-0.5" x-text="`${tpl.tiers_count} bậc`"></span>
+                            <span class="rounded-full bg-gray-50 border border-gray-100 px-2 py-0.5" x-text="`${tpl.categories_count} danh mục`"></span>
+                        </div>
+                        <div class="flex gap-2">
+                            <button type="button" @click="openSystemDetail(tpl.id)"
+                                    class="rounded-lg bg-white px-2.5 py-1 text-xs font-semibold text-gray-700 border border-gray-300 hover:bg-gray-50">
+                                Xem chi tiết
+                            </button>
+                            <button type="button" @click="useSystemTemplate(tpl.id)"
+                                    class="rounded-lg bg-emerald-500 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-600">
+                                Dùng cho thẻ của tôi
+                            </button>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+
         <template x-if="loading">
             <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 text-sm text-gray-500">
                 Đang tải cấu hình…
@@ -59,7 +97,7 @@
 
         <template x-if="!loading && !error && !hasPolicy">
             {{-- Chưa có policy: chọn đường tạo version 1 --}}
-            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4">
+            <div id="cc-create-area" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4">
                 <h3 class="font-semibold text-gray-800 text-sm">Chưa có chính sách cho thẻ này</h3>
 
                 <div class="grid gap-2 sm:grid-cols-3">
@@ -213,17 +251,13 @@
                             <h3 class="font-semibold text-gray-800 text-sm" x-text="detail.name"></h3>
                             <dl class="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
                                 <div class="flex gap-2">
-                                    <dt class="text-gray-500">Ngưỡng tối thiểu:</dt>
+                                    <dt class="text-gray-500">Mức chi tiêu tối thiểu để được hoàn tiền / kỳ:</dt>
                                     <dd class="font-medium text-gray-800" x-text="money(detail.min_total_spend)"></dd>
                                 </div>
                                 <div class="flex gap-2">
-                                    <dt class="text-gray-500">Tổng hoàn tối đa / kỳ:</dt>
+                                    <dt class="text-gray-500">Hoàn tiền tối đa / kỳ:</dt>
                                     <dd class="font-medium text-gray-800"
                                         x-text="detail.max_cashback_total_per_period === null ? 'Không giới hạn' : money(detail.max_cashback_total_per_period)"></dd>
-                                </div>
-                                <div class="flex gap-2">
-                                    <dt class="text-gray-500">Cách làm tròn:</dt>
-                                    <dd class="font-medium text-gray-800" x-text="detail.rounding_mode"></dd>
                                 </div>
                                 <div class="flex gap-2">
                                     <dt class="text-gray-500">Hiệu lực:</dt>
@@ -268,24 +302,24 @@
                                         <thead>
                                             <tr class="text-left text-xs uppercase tracking-wide text-gray-400">
                                                 <th class="py-1.5 pr-3 font-semibold">Danh mục</th>
-                                                <th class="py-1.5 pr-3 font-semibold">Hoàn (%)</th>
-                                                <th class="py-1.5 pr-3 font-semibold">Cap / giao dịch</th>
-                                                <th class="py-1.5 pr-3 font-semibold">Cap / danh mục / kỳ</th>
-                                                <th class="py-1.5 pr-3 font-semibold">Ngưỡng chi tiêu</th>
+                                                <th class="py-1.5 pr-3 font-semibold">Hoàn tiền (%)</th>
+                                                <th class="py-1.5 pr-3 font-semibold">Hoàn tối đa / giao dịch</th>
+                                                <th class="py-1.5 pr-3 font-semibold">Hoàn tối đa / danh mục</th>
                                                 <th class="py-1.5 font-semibold"></th>
                                             </tr>
                                         </thead>
                                         <tbody class="divide-y divide-gray-100">
                                             <template x-for="rule in tier.rules" :key="rule.id">
                                                 <tr>
-                                                    <td class="py-1.5 pr-3 text-gray-800" x-text="rule.category_name ?? `#${rule.category_id}`"></td>
+                                                    <td class="py-1.5 pr-3 text-gray-800">
+                                                        <span x-show="rule.combo_id" x-text="'🍱 ' + (rule.combo_name ?? `Combo #${rule.combo_id}`)"></span>
+                                                        <span x-show="! rule.combo_id" x-text="rule.category_name ?? `#${rule.category_id}`"></span>
+                                                    </td>
                                                     <td class="py-1.5 pr-3 text-gray-800" x-text="rule.cashback_percent"></td>
                                                     <td class="py-1.5 pr-3 text-gray-800"
                                                         x-text="rule.max_cashback_per_transaction === null ? '—' : money(rule.max_cashback_per_transaction)"></td>
                                                     <td class="py-1.5 pr-3 text-gray-800"
                                                         x-text="rule.max_cashback_per_category_per_period === null ? '—' : money(rule.max_cashback_per_category_per_period)"></td>
-                                                    <td class="py-1.5 pr-3 text-gray-800"
-                                                        x-text="`${money(rule.spend_from)}${rule.spend_to === null ? '+' : ` – ${money(rule.spend_to)}`}`"></td>
                                                     <td class="py-1.5 text-right whitespace-nowrap">
                                                         <span x-show="isEditable" class="inline-flex gap-1.5">
                                                             <button type="button" @click="cloneRule(rule)"
@@ -301,7 +335,7 @@
                                                 </tr>
                                             </template>
                                             <tr x-show="tier.rules.length === 0">
-                                                <td colspan="6" class="py-3 text-center text-xs text-gray-400">
+                                                <td colspan="5" class="py-3 text-center text-xs text-gray-400">
                                                     Bậc này chưa có quy tắc nào.
                                                 </td>
                                             </tr>
@@ -338,14 +372,16 @@
                         </div>
                         <div class="grid gap-3 sm:grid-cols-2">
                             <div>
-                                <label class="block text-sm font-medium text-gray-700" for="cc-tier-min">Chi tiêu tối thiểu</label>
+                                <label class="block text-sm font-medium text-gray-700" for="cc-tier-min">Tổng chi tiêu tối thiểu</label>
                                 <input id="cc-tier-min" type="number" min="0" step="0.01" x-model="tierForm.min_total_spend"
                                        class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                                <p class="mt-1 text-xs text-gray-500">Mức chi tiêu tối thiểu để đạt bậc này.</p>
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-gray-700" for="cc-tier-max">Chi tiêu tối đa (để trống = không giới hạn)</label>
+                                <label class="block text-sm font-medium text-gray-700" for="cc-tier-max">Tổng chi tiêu tối đa</label>
                                 <input id="cc-tier-max" type="number" min="0" step="0.01" x-model="tierForm.max_total_spend"
                                        class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                                <p class="mt-1 text-xs text-gray-500">Mức chi tiêu cao nhất thuộc bậc này. Để trống nếu không giới hạn.</p>
                             </div>
                         </div>
                         <div class="flex gap-2">
@@ -374,46 +410,73 @@
                         </div>
 
                         <div>
+                            <label class="block text-sm font-medium text-gray-700" for="cc-rule-target">Loại mục tiêu</label>
+                            <select id="cc-rule-target" x-model="ruleForm.target_type" @change="onRuleTargetTypeChange()"
+                                    class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                                <option value="category">Danh mục</option>
+                                <option value="combo">🍱 Combo danh mục</option>
+                            </select>
+                        </div>
+
+                        <div x-show="ruleForm.target_type === 'category'">
                             <label class="block text-sm font-medium text-gray-700" for="cc-rule-category">Danh mục</label>
                             <select id="cc-rule-category" x-model="ruleForm.category_id"
                                     class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
                                 <option value="">— Chọn danh mục —</option>
-                                <template x-for="cat in categories" :key="cat.id">
-                                    <option :value="cat.id" x-text="`${cat.name}${cat.scope === 'system' ? '' : ' (của bạn)'}`"></option>
-                                </template>
+                                <optgroup label="🏦 Danh mục hệ thống">
+                                    <template x-for="cat in systemRuleCategories" :key="cat.id">
+                                        <option :value="cat.id" x-text="cat.name"></option>
+                                    </template>
+                                </optgroup>
+                                <optgroup label="👤 Danh mục của tôi">
+                                    <template x-for="cat in userRuleCategories" :key="cat.id">
+                                        <option :value="cat.id" x-text="cat.name"></option>
+                                    </template>
+                                </optgroup>
                             </select>
                         </div>
 
-                        <div class="grid gap-3 sm:grid-cols-2">
+                        <div x-show="ruleForm.target_type === 'combo'" x-cloak>
+                            <label class="block text-sm font-medium text-gray-700" for="cc-rule-combo">Combo</label>
+                            <select id="cc-rule-combo" x-model="ruleForm.combo_id"
+                                    class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                                <option value="">— Chọn combo —</option>
+                                <optgroup label="🏦 Combo hệ thống">
+                                    <template x-for="combo in systemRuleCombos" :key="combo.id">
+                                        <option :value="combo.id"
+                                                x-text="combo.name + ' (' + combo.category_count + ' danh mục)'"></option>
+                                    </template>
+                                </optgroup>
+                                <optgroup label="👤 Combo của tôi">
+                                    <template x-for="combo in userRuleCombos" :key="combo.id">
+                                        <option :value="combo.id"
+                                                x-text="combo.name + ' (' + combo.category_count + ' danh mục)'"></option>
+                                    </template>
+                                </optgroup>
+                            </select>
+                            <p class="mt-1 text-xs text-gray-500">
+                                Quy tắc combo tính hoàn trên <strong>tổng</strong> chi tiêu của mọi danh mục trong
+                                combo. Danh mục có quy tắc riêng vẫn thắng (ưu tiên danh mục &gt; combo &gt; mặc định).
+                            </p>
+                        </div>
+
+                        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                             <div>
-                                <label class="block text-sm font-medium text-gray-700" for="cc-rule-percent">Tỷ lệ hoàn tiền (%)</label>
+                                <label class="block text-sm font-medium text-gray-700" for="cc-rule-percent">Hoàn tiền (%)</label>
                                 <input id="cc-rule-percent" type="number" min="0" max="100" step="0.001" x-model="ruleForm.cashback_percent"
                                        class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-gray-700" for="cc-rule-cap-tx">Cap mỗi giao dịch (để trống = không giới hạn)</label>
+                                <label class="block text-sm font-medium text-gray-700" for="cc-rule-cap-tx">Hoàn tối đa / giao dịch</label>
                                 <input id="cc-rule-cap-tx" type="number" min="0" step="0.01" x-model="ruleForm.max_cashback_per_transaction"
                                        class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                                <p class="mt-1 text-xs text-gray-500">Số tiền hoàn cao nhất cho một giao dịch.</p>
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-gray-700" for="cc-rule-cap-cat">Cap mỗi danh mục trong kỳ</label>
+                                <label class="block text-sm font-medium text-gray-700" for="cc-rule-cap-cat">Hoàn tối đa / danh mục</label>
                                 <input id="cc-rule-cap-cat" type="number" min="0" step="0.01" x-model="ruleForm.max_cashback_per_category_per_period"
                                        class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700" for="cc-rule-min-tx">Giao dịch tối thiểu</label>
-                                <input id="cc-rule-min-tx" type="number" min="0" step="0.01" x-model="ruleForm.min_transaction_amount"
-                                       class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700" for="cc-rule-spend-from">Ngưỡng chi tiêu danh mục từ</label>
-                                <input id="cc-rule-spend-from" type="number" min="0" step="0.01" x-model="ruleForm.spend_from"
-                                       class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700" for="cc-rule-spend-to">Ngưỡng chi tiêu danh mục đến</label>
-                                <input id="cc-rule-spend-to" type="number" min="0" step="0.01" x-model="ruleForm.spend_to"
-                                       class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                                <p class="mt-1 text-xs text-gray-500">Tổng số tiền hoàn cao nhất của danh mục trong một kỳ sao kê.</p>
                             </div>
                         </div>
 
@@ -435,6 +498,77 @@
         </template>
     </div>
 
+    {{-- Xem chi tiết mẫu hệ thống (chỉ đọc) --}}
+    <template x-if="systemDetail">
+        <div class="fixed inset-0 z-50 flex items-start justify-center bg-gray-900/40 p-4 pt-12 overflow-y-auto"
+             @click.self="systemDetail = null">
+            <div class="w-full max-w-2xl bg-white rounded-2xl shadow-xl overflow-hidden" role="dialog" aria-modal="true">
+                <div class="flex items-start justify-between gap-3 px-5 py-4 border-b border-gray-100">
+                    <div>
+                        <h3 class="font-semibold text-gray-800" x-text="systemDetail.name"></h3>
+                        <p class="text-xs text-gray-500 mt-0.5" x-text="systemDetail.description || 'Mẫu hoàn tiền do hệ thống cung cấp.'"></p>
+                    </div>
+                    <button type="button" @click="systemDetail = null"
+                            class="shrink-0 rounded-lg bg-gray-100 px-2.5 py-1 text-sm text-gray-600 hover:bg-gray-200">✕</button>
+                </div>
+
+                <div class="px-5 py-4 space-y-4">
+                    <div class="flex flex-wrap gap-1.5 text-[11px] text-gray-600">
+                        <span class="rounded-full bg-gray-50 border border-gray-100 px-2 py-0.5" x-text="`Phiên bản v${systemDetail.version_no ?? 1}`"></span>
+                        <span class="rounded-full bg-gray-50 border border-gray-100 px-2 py-0.5" x-text="`${systemDetail.tiers_count} bậc · ${systemDetail.categories_count} danh mục`"></span>
+                    </div>
+
+                    <dl class="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+                        <div class="flex gap-2">
+                            <dt class="text-gray-500">Mức chi tiêu tối thiểu để được hoàn tiền / kỳ:</dt>
+                            <dd class="font-medium text-gray-800" x-text="money(systemDetail.min_total_spend)"></dd>
+                        </div>
+                        <div class="flex gap-2">
+                            <dt class="text-gray-500">Hoàn tiền tối đa / kỳ:</dt>
+                            <dd class="font-medium text-gray-800"
+                                x-text="systemDetail.max_cashback_total_per_period == null ? 'Không giới hạn' : money(systemDetail.max_cashback_total_per_period)"></dd>
+                        </div>
+                        <div class="flex gap-2">
+                            <dt class="text-gray-500">Hiệu lực từ:</dt>
+                            <dd class="font-medium text-gray-800" x-text="systemDetail.effective_from ?? ''"></dd>
+                        </div>
+                    </dl>
+
+                    <template x-for="tier in systemDetail.tiers ?? []" :key="tier.sort_order">
+                        <div class="rounded-xl border border-gray-100 bg-gray-50/60 p-3 space-y-2">
+                            <p class="text-[13px] font-semibold text-gray-800">
+                                <span x-text="tier.name || `Bậc ${tier.sort_order}`"></span>
+                                <span class="font-normal text-gray-400" x-text="` — từ ${money(tier.min_total_spend)}`"></span>
+                            </p>
+                            <div class="grid gap-1.5 sm:grid-cols-2">
+                                <template x-for="(rule, ri) in tier.rules ?? []" :key="rule.id ?? `r-${ri}`">
+                                    <div class="rounded-lg bg-white border border-gray-100 px-3 py-2 text-[13px] flex items-center justify-between gap-2">
+                                        <span class="text-gray-700" x-text="rule.combo_id
+                                            ? '🍱 ' + (rule.combo_name ?? `Combo #${rule.combo_id}`)
+                                            : (rule.category_name ?? `#${rule.category_id}`)"></span>
+                                        <span class="font-semibold text-emerald-600" x-text="`${rule.cashback_percent}%`"></span>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+                    <template x-if="(systemDetail.tiers ?? []).length === 0">
+                        <p class="text-sm text-gray-400">Mẫu chưa có bậc chi tiêu nào.</p>
+                    </template>
+                </div>
+
+                <div class="px-5 py-4 border-t border-gray-100 flex flex-wrap gap-2">
+                    <button type="button" @click="useSystemTemplate(systemDetail.id)"
+                            class="rounded-xl bg-emerald-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+                        Dùng cho thẻ của tôi
+                    </button>
+                    <button type="button" @click="systemDetail = null"
+                            class="rounded-xl bg-white px-3.5 py-2 text-sm font-semibold text-gray-700 border border-gray-300 hover:bg-gray-50">Đóng</button>
+                </div>
+            </div>
+        </div>
+    </template>
+
     @push('scripts')
         <script>
             window.policyConfig = function (cards) {
@@ -447,6 +581,10 @@
                     detail: null,
                     templates: [],
                     categories: [],
+                    // Combo (hệ thống + của tôi) làm target thứ hai cho rule.
+                    combos: [],
+                    systemTemplates: [],
+                    systemDetail: null,
 
                     loading: false,
                     busy: false,
@@ -460,9 +598,9 @@
                     saveTemplate: { open: false, name: '' },
                     tierForm: { open: false, name: '', min_total_spend: 0, max_total_spend: '' },
                     ruleForm: {
-                        open: false, tier_id: '', category_id: '', cashback_percent: 0,
+                        open: false, tier_id: '', target_type: 'category',
+                        category_id: '', combo_id: '', cashback_percent: 0,
                         max_cashback_per_transaction: '', max_cashback_per_category_per_period: '',
-                        min_transaction_amount: '', spend_from: 0, spend_to: '',
                     },
 
                     createModes: [
@@ -484,6 +622,22 @@
                     get isEditable() {
                         if (!this.detail) return false;
                         return !this.detail.is_locked && this.detail.status !== 'superseded';
+                    },
+
+                    get systemRuleCategories() {
+                        return this.categories.filter((cat) => cat.scope === 'system');
+                    },
+
+                    get userRuleCategories() {
+                        return this.categories.filter((cat) => cat.scope !== 'system');
+                    },
+
+                    get systemRuleCombos() {
+                        return this.combos.filter((combo) => combo.scope !== 'user');
+                    },
+
+                    get userRuleCombos() {
+                        return this.combos.filter((combo) => combo.scope === 'user');
                     },
 
                     init() {
@@ -557,18 +711,48 @@
 
                     async loadTemplates() {
                         const payload = await this.request('/thetindung/api/mau-chinh-sach');
-                        if (payload) this.templates = payload.data ?? [];
+                        if (payload) {
+                            this.templates = payload.data ?? [];
+                            this.systemTemplates = this.templates.filter((t) => t.is_system && t.is_active);
+                        }
+                    },
+
+                    async openSystemDetail(templateId) {
+                        const payload = await this.request(`/thetindung/api/mau-chinh-sach/${templateId}`);
+                        if (payload) this.systemDetail = payload.data ?? null;
+                    },
+
+                    useSystemTemplate(templateId) {
+                        if (this.hasPolicy) {
+                            window.alert(
+                                'Thẻ đang chọn đã có chính sách hoàn tiền. Dùng mẫu hệ thống cho thẻ chưa có chính sách, ' +
+                                'hoặc chọn thẻ khác chưa cấu hình.'
+                            );
+                            return;
+                        }
+                        this.createMode = 'clone_system';
+                        this.draft.template_id = templateId;
+                        this.systemDetail = null;
+                        this.$nextTick(() => {
+                            document.getElementById('cc-create-area')?.scrollIntoView({ behavior: 'smooth' });
+                        });
                     },
 
                     async loadCategories() {
                         const tier = this.detail?.tiers?.[0];
                         if (!tier) {
                             this.categories = [];
+                            this.combos = [];
                             return;
                         }
 
+                        // `meta` trả CẢ danh mục lẫn combo: rule có ba loại target
+                        // (danh mục | combo | mặc định) nên form cần cả hai danh sách.
                         const payload = await this.request(`/thetindung/api/bac/${tier.id}/quy-tac`);
-                        if (payload) this.categories = payload.meta?.categories ?? [];
+                        if (payload) {
+                            this.categories = payload.meta?.categories ?? [];
+                            this.combos = payload.meta?.combos ?? [];
+                        }
                     },
 
                     async openVersion(versionId) {
@@ -686,24 +870,34 @@
                         this.ruleForm = {
                             open: true,
                             tier_id: tier ? tier.id : (this.detail?.tiers?.[0]?.id ?? ''),
-                            category_id: '', cashback_percent: 0,
+                            target_type: 'category',
+                            category_id: '', combo_id: '', cashback_percent: 0,
                             max_cashback_per_transaction: '', max_cashback_per_category_per_period: '',
-                            min_transaction_amount: '', spend_from: 0, spend_to: '',
                         };
+                    },
+
+                    // Server chỉ nhận MỘT target cho mỗi rule: đổi loại thì xoá target
+                    // cũ, nếu không payload sẽ mang cả hai và bị 422.
+                    onRuleTargetTypeChange() {
+                        if (this.ruleForm.target_type === 'combo') {
+                            this.ruleForm.category_id = '';
+                        } else {
+                            this.ruleForm.combo_id = '';
+                        }
                     },
 
                     async saveRule() {
                         const numericOrNull = (v) => (v === '' ? null : v);
+                        const useCombo = this.ruleForm.target_type === 'combo';
 
                         const body = {
                             tier_id: this.ruleForm.tier_id,
-                            category_id: this.ruleForm.category_id,
+                            // Loại trừ lẫn nhau: combo ⇒ không gửi category_id.
+                            category_id: useCombo ? null : this.ruleForm.category_id,
+                            combo_id: useCombo ? this.ruleForm.combo_id : null,
                             cashback_percent: this.ruleForm.cashback_percent,
                             max_cashback_per_transaction: numericOrNull(this.ruleForm.max_cashback_per_transaction),
                             max_cashback_per_category_per_period: numericOrNull(this.ruleForm.max_cashback_per_category_per_period),
-                            min_transaction_amount: numericOrNull(this.ruleForm.min_transaction_amount),
-                            spend_from: this.ruleForm.spend_from,
-                            spend_to: numericOrNull(this.ruleForm.spend_to),
                         };
 
                         const payload = await this.request(`/thetindung/api/bac/${this.ruleForm.tier_id}/quy-tac`, {

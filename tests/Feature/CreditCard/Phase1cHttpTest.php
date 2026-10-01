@@ -2,12 +2,14 @@
 
 namespace Tests\Feature\CreditCard;
 
+use App\Models\CreditCard\CategoryCombo;
 use App\Models\CreditCard\Policy;
 use App\Models\CreditCard\PolicyTemplate;
 use App\Models\CreditCard\PolicyTier;
 use App\Models\CreditCard\PolicyTierCategory;
 use App\Models\CreditCard\UserCard;
 use App\Models\User;
+use App\Services\CreditCard\CategoryComboService;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Support\Facades\RateLimiter;
 use PHPUnit\Framework\Attributes\Test;
@@ -365,20 +367,16 @@ class Phase1cHttpTest extends TestCase
             ->assertCreated()
             ->json('data.id');
 
-        $this->actingAs($this->owner)
+        $clonedTierId = $this->actingAs($this->owner)
             ->postJson(route('credit-cards.api.tiers.clone', $source), [
                 'target_policy_id' => $newVersion,
             ])
             ->assertCreated()
             ->assertJsonPath('data.name', $source->name)
-            ->assertJsonCount(2, 'data.rules');
+            ->assertJsonCount(3, 'data.rules')
+            ->json('data.id');
 
-        $copy = PolicyTier::query()
-            ->where('policy_id', $newVersion)
-            ->where('name', $source->name)
-            ->firstOrFail();
-
-        $this->assertSame(2, PolicyTierCategory::where('tier_id', $copy->id)->count());
+        $this->assertSame(3, PolicyTierCategory::where('tier_id', $clonedTierId)->count());
     }
 
     // =====================================================================
@@ -440,6 +438,97 @@ class Phase1cHttpTest extends TestCase
                 'cashback_percent' => 150,
             ])
             ->assertStatus(422);
+    }
+
+    // =====================================================================
+    // Quy tắc combo (Phase 2)
+    // =====================================================================
+
+    #[Test]
+    public function a_combo_rule_can_be_created(): void
+    {
+        $card = $this->makeUserCard($this->owner->id);
+        $policy = $this->makePolicyForCard($card, [['min' => 0, 'max' => null]], []);
+        $tier = $policy->tiers()->firstOrFail();
+        $combo = $this->makeComboForUser($this->owner->id);
+
+        $response = $this->actingAs($this->owner)
+            ->postJson(route('credit-cards.api.rules.store', $tier), [
+                'scope_type' => 'category',
+                'combo_id' => $combo->id,
+                'cashback_percent' => 4,
+            ])
+            ->assertCreated();
+
+        $rule = PolicyTierCategory::findOrFail($response->json('data.id'));
+
+        $this->assertSame($combo->id, (int) $rule->combo_id);
+        $this->assertNull($rule->category_id, 'Rule combo KHÔNG được có category_id.');
+        $this->assertTrue($rule->isComboSpecific());
+        $this->assertSame('combo', $response->json('data.target_type'));
+        $this->assertSame($combo->name, $response->json('data.combo_name'));
+    }
+
+    #[Test]
+    public function a_strangers_combo_cannot_be_used_in_a_rule(): void
+    {
+        $card = $this->makeUserCard($this->owner->id);
+        $policy = $this->makePolicyForCard($card, [['min' => 0, 'max' => null]], []);
+        $tier = $policy->tiers()->firstOrFail();
+        $theirs = $this->makeComboForUser($this->stranger->id);
+
+        $this->actingAs($this->owner)
+            ->postJson(route('credit-cards.api.rules.store', $tier), [
+                'scope_type' => 'category',
+                'combo_id' => $theirs->id,
+                'cashback_percent' => 5,
+            ])
+            ->assertStatus(422);
+    }
+
+    #[Test]
+    public function a_rule_cannot_target_both_a_category_and_a_combo(): void
+    {
+        $card = $this->makeUserCard($this->owner->id);
+        $category = $this->makeSystemCategory();
+        $policy = $this->makePolicyForCard($card, [['min' => 0, 'max' => null]], []);
+        $tier = $policy->tiers()->firstOrFail();
+        $combo = $this->makeComboForUser($this->owner->id);
+
+        $this->actingAs($this->owner)
+            ->postJson(route('credit-cards.api.rules.store', $tier), [
+                'scope_type' => 'category',
+                'category_id' => $category->id,
+                'combo_id' => $combo->id,
+                'cashback_percent' => 5,
+            ])
+            ->assertStatus(422);
+
+        $this->assertSame(
+            0,
+            PolicyTierCategory::where('tier_id', $tier->id)->count(),
+            'Payload mơ hồ không được tạo rule nào.'
+        );
+    }
+
+    #[Test]
+    public function the_rule_form_meta_exposes_combos_and_target_type(): void
+    {
+        $card = $this->makeUserCard($this->owner->id);
+        $policy = $this->makePolicyForCard($card, [['min' => 0, 'max' => null]], []);
+        $tier = $policy->tiers()->firstOrFail();
+        $combo = $this->makeComboForUser($this->owner->id);
+
+        $response = $this->actingAs($this->owner)
+            ->getJson(route('credit-cards.api.rules.index', $tier))
+            ->assertOk();
+
+        $combos = collect($response->json('meta.combos'));
+
+        $this->assertTrue(
+            $combos->contains(fn (array $item) => (int) $item['id'] === $combo->id),
+            'meta.combos phải chứa combo user được phép chọn.'
+        );
     }
 
     // =====================================================================
@@ -666,6 +755,14 @@ class Phase1cHttpTest extends TestCase
             'spend_to' => null,
             'cashback_percent' => 5,
             'is_enabled' => true,
+        ]);
+    }
+
+    private function makeComboForUser(int $userId): CategoryCombo
+    {
+        return app(CategoryComboService::class)->createUserCombo($userId, [
+            'name' => 'Combo test '.uniqid(),
+            'category_ids' => [$this->makeSystemCategory()->id],
         ]);
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Services\CreditCard;
 
 use App\Models\CreditCard\Category;
+use App\Models\CreditCard\CategoryComboItem;
 use App\Models\CreditCard\PolicyTierCategory;
 use App\Models\CreditCard\Transaction;
 use Illuminate\Database\Eloquent\Builder;
@@ -203,6 +204,10 @@ class CategoryService
      * - ĐÃ dùng ⇒ soft-delete (`is_active = false`), giữ nguyên tên để dữ liệu
      *   lịch sử và policy rule cũ vẫn tra được.
      *
+     * "Đã dùng" giờ BAO GỒM cả việc nằm trong một combo: `usageOf()` đếm cả
+     * combo item, nên danh mục thành viên combo không bao giờ bị xoá cứng (FK
+     * `credit_card_category_combo_items.category_id` cũng là RESTRICT).
+     *
      * @return array{deleted: bool, category: Category}
      */
     public function deleteUserCategory(int $userId, int $categoryId): array
@@ -217,7 +222,7 @@ class CategoryService
             $usage = $this->usageOf($category);
 
             // Chưa dùng ở đâu ⇒ xoá cứng an toàn, không cần giữ lại.
-            if ($usage['transactions'] === 0 && $usage['rules'] === 0) {
+            if ($usage['transactions'] === 0 && $usage['rules'] === 0 && $usage['combos'] === 0) {
                 $category->delete();
 
                 return ['deleted' => true, 'category' => $category];
@@ -233,7 +238,7 @@ class CategoryService
     /**
      * Danh mục này đang được tham chiếu ở đâu?
      *
-     * @return array{transactions: int, rules: int}
+     * @return array{transactions: int, rules: int, combos: int}
      */
     public function usageOf(Category $category): array
     {
@@ -244,6 +249,10 @@ class CategoryService
             'rules' => PolicyTierCategory::query()
                 ->where('category_id', $category->id)
                 ->count(),
+            // Thành viên combo: FK RESTRICT nên xoá cứng sẽ chết ở tầng DB.
+            'combos' => CategoryComboItem::query()
+                ->where('category_id', $category->id)
+                ->count(),
         ];
     }
 
@@ -251,7 +260,7 @@ class CategoryService
     {
         $usage = $this->usageOf($category);
 
-        return $usage['transactions'] > 0 || $usage['rules'] > 0;
+        return $usage['transactions'] > 0 || $usage['rules'] > 0 || $usage['combos'] > 0;
     }
 
     /**

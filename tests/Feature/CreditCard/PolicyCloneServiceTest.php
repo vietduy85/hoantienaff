@@ -300,7 +300,7 @@ class PolicyCloneServiceTest extends TestCase
                     'name' => 'Bậc 2 đã chỉnh',
                     'min_total_spend' => 0,
                     'max_total_spend' => null,
-                    'categories' => [
+                    'rules' => [
                         [
                             'category_id' => $categoryId,
                             'cashback_percent' => 7.5,
@@ -350,7 +350,7 @@ class PolicyCloneServiceTest extends TestCase
                     'name' => 'Bậc 2 đã chỉnh',
                     'min_total_spend' => 0,
                     'max_total_spend' => null,
-                    'categories' => [
+                    'rules' => [
                         [
                             'category_id' => $categoryId,
                             'cashback_percent' => 9.25,
@@ -385,7 +385,7 @@ class PolicyCloneServiceTest extends TestCase
                     'name' => 'Bậc mới',
                     'min_total_spend' => 0,
                     'max_total_spend' => null,
-                    'categories' => [
+                    'rules' => [
                         [
                             'category_id' => $categoryId,
                             'cashback_percent' => 7.5,

@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $sort_order
  * @property string $min_total_spend
  * @property string|null $max_total_spend
+ * @property string|null $max_cashback_per_period
  */
 class PolicyTier extends CreditCardModel
 {
@@ -29,6 +30,7 @@ class PolicyTier extends CreditCardModel
         'sort_order',
         'min_total_spend',
         'max_total_spend',
+        'max_cashback_per_period',
     ];
 
     protected function casts(): array
@@ -38,6 +40,7 @@ class PolicyTier extends CreditCardModel
             'sort_order' => 'integer',
             'min_total_spend' => 'decimal:2',
             'max_total_spend' => 'decimal:2',
+            'max_cashback_per_period' => 'decimal:2',
         ];
     }
 
@@ -52,6 +55,14 @@ class PolicyTier extends CreditCardModel
     public function tierCategoryRules(): HasMany
     {
         return $this->hasMany(PolicyTierCategory::class, 'tier_id')->orderBy('sort_order');
+    }
+
+    /**
+     * Giới hạn hoàn tiền theo giá trị giao dịch của TOÀN BẬC.
+     */
+    public function transactionCaps(): HasMany
+    {
+        return $this->hasMany(PolicyTierCategoryTransactionCap::class, 'policy_tier_id')->orderBy('sort_order');
     }
 
     public function scopeOrdered(Builder $query): Builder

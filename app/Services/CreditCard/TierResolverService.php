@@ -2,9 +2,11 @@
 
 namespace App\Services\CreditCard;
 
+use App\Models\CreditCard\CategoryComboItem;
 use App\Models\CreditCard\Policy;
 use App\Models\CreditCard\PolicyTier;
 use App\Models\CreditCard\PolicyTierCategory;
+use App\Models\CreditCard\PolicyTierCategoryTransactionCap;
 use App\Models\CreditCard\PolicyVersion;
 use App\Models\CreditCard\UserCard;
 use DateTimeInterface;
@@ -55,27 +57,38 @@ class TierResolverService
             return [];
         }
 
-        return PolicyTierCategory::query()
+        $rules = PolicyTierCategory::query()
             ->where('tier_id', $tier->id)
             ->where('is_enabled', true)
             ->orderBy('sort_order')
             ->orderBy('id')
+            ->get();
+
+        return $this->hydrate($rules);
+    }
+
+    /**
+     * Các điều kiện cap động của một bậc — áp cho MỌI rule trong bậc.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function transactionCapsForTier(?PolicyTier $tier): array
+    {
+        if ($tier === null) {
+            return [];
+        }
+
+        return PolicyTierCategoryTransactionCap::query()
+            ->where('policy_tier_id', $tier->id)
+            ->orderBy('sort_order')
+            ->orderBy('id')
             ->get()
-            ->map(fn (PolicyTierCategory $rule): array => [
-                'id' => $rule->id,
-                'category_id' => $rule->category_id,
-                'spend_from' => (float) $rule->spend_from,
-                'spend_to' => $rule->spend_to === null ? null : (float) $rule->spend_to,
-                'cashback_percent' => (float) $rule->cashback_percent,
-                'max_cashback_per_transaction' => $rule->max_cashback_per_transaction === null
+            ->map(fn (PolicyTierCategoryTransactionCap $cap): array => [
+                'min_transaction_amount' => (float) $cap->min_transaction_amount,
+                'max_transaction_amount' => $cap->max_transaction_amount === null
                     ? null
-                    : (float) $rule->max_cashback_per_transaction,
-                'max_cashback_per_category_per_period' => $rule->max_cashback_per_category_per_period === null
-                    ? null
-                    : (float) $rule->max_cashback_per_category_per_period,
-                'min_transaction_amount' => $rule->min_transaction_amount === null
-                    ? null
-                    : (float) $rule->min_transaction_amount,
+                    : (float) $cap->max_transaction_amount,
+                'max_cashback_per_transaction' => (float) $cap->max_cashback_per_transaction,
             ])
             ->all();
     }
@@ -102,16 +115,67 @@ class TierResolverService
             return [];
         }
 
-        return PolicyTierCategory::query()
+        $rules = PolicyTierCategory::query()
             ->whereIn('tier_id', $tierIds)
             ->where('is_enabled', true)
             ->orderBy('sort_order')
             ->orderBy('id')
-            ->get()
+            ->get();
+
+        return $this->hydrate($rules);
+    }
+
+    /**
+     * Chuyển collection rule thành mảng phẳng cho `CashbackCalculator`.
+     *
+     * ---------------------------------------------------------------------------
+     * `combo_category_ids` — VÌ SAO PHẢI HYDRATE SẴN
+     * ---------------------------------------------------------------------------
+     * Rule combo khớp giao dịch theo membership, nên engine cần biết TRƯỚC danh
+     * sách danh mục thành viên. Nếu để `CashbackCalculator` tự truy vấn, mỗi lần
+     * gọi sẽ bắn thêm N query trong vòng lặp giao dịch.
+     *
+     * Gom TẤT CẢ membership của các combo trong truy vấn này bằng MỘT lần query
+     * (`whereIn(combo_id)`), rồi đính vào từng rule. Một policy chỉ có vài chục
+     * rule nên chi phí không đáng kể, và đảm bảo engine thuần túy: không query DB.
+     *
+     * Rule không phải combo ⇒ `combo_category_ids = []` (KHÔNG phải null) để
+     * `CashbackCalculator` không phải null-check ở mọi chỗ.
+     *
+     * @param  Collection<int, PolicyTierCategory>  $rules
+     * @return array<int, array<string, mixed>>
+     */
+    private function hydrate(Collection $rules): array
+    {
+        $comboIds = $rules
+            ->pluck('combo_id')
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        $membersByCombo = $comboIds->isEmpty()
+            ? collect()
+            : CategoryComboItem::query()
+                ->whereIn('combo_id', $comboIds->all())
+                ->orderBy('sort_order')
+                ->orderBy('id')
+                ->get(['combo_id', 'category_id'])
+                ->groupBy('combo_id')
+                ->map(fn (Collection $items): array => $items
+                    ->map(fn (CategoryComboItem $item): int => (int) $item->category_id)
+                    ->all());
+
+        return $rules
             ->map(fn (PolicyTierCategory $rule): array => [
                 'id' => $rule->id,
-                'tier_id' => $rule->tier_id,
                 'category_id' => $rule->category_id,
+                'combo_id' => $rule->combo_id,
+                'combo_category_ids' => $rule->combo_id === null
+                    ? []
+                    : $membersByCombo->get((int) $rule->combo_id, []),
+                'scope_type' => $rule->scope_type ?? PolicyTierCategory::SCOPE_CATEGORY,
+                'counts_toward_tier_cap' => (bool) ($rule->counts_toward_tier_cap ?? true),
                 'spend_from' => (float) $rule->spend_from,
                 'spend_to' => $rule->spend_to === null ? null : (float) $rule->spend_to,
                 'cashback_percent' => (float) $rule->cashback_percent,

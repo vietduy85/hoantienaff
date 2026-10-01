@@ -24,6 +24,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property string|null $description
  * @property bool $is_builtin
  * @property bool $is_active
+ * @property int|null $default_version_id
  * @property int $sort_order
  */
 class PolicyTemplate extends CreditCardModel
@@ -44,6 +45,7 @@ class PolicyTemplate extends CreditCardModel
         'description',
         'is_builtin',
         'is_active',
+        'default_version_id',
         'sort_order',
     ];
 
@@ -53,6 +55,7 @@ class PolicyTemplate extends CreditCardModel
             'owner_user_id' => 'integer',
             'is_builtin' => 'boolean',
             'is_active' => 'boolean',
+            'default_version_id' => 'integer',
             'sort_order' => 'integer',
         ];
     }
@@ -64,6 +67,60 @@ class PolicyTemplate extends CreditCardModel
     {
         return $this->hasOne(Policy::class, 'template_id')
             ->whereNull('user_card_id');
+    }
+
+    /**
+     * TOÀN BỘ blueprint (các version) của template — dùng khi template có nhiều
+     * version (admin đổi cấu hình ⇒ tạo blueprint N+1, giữ version cũ append-only).
+     *
+     * @return HasMany<int, Policy>
+     */
+    public function blueprints(): HasMany
+    {
+        return $this->hasMany(Policy::class, 'template_id')
+            ->whereNull('user_card_id')
+            ->orderBy('version_no');
+    }
+
+    /**
+     * Blueprint ĐANG ÁP DỤNG của template: version cao nhất chưa bị đóng.
+     *
+     * Đây là nguồn để deep clone mỗi khi một thẻ chọn template. Template có một
+     * bản ghi duy nhất (chưa từng đổi version) thì trả về chính nó.
+     */
+    public function currentBlueprint(): ?PolicyVersion
+    {
+        return PolicyVersion::query()
+            ->whereNull('user_card_id')
+            ->where('template_id', $this->id)
+            ->where('status', Policy::STATUS_ACTIVE)
+            ->orderByDesc('version_no')
+            ->first();
+    }
+
+    public function defaultVersion(): BelongsTo
+    {
+        return $this->belongsTo(PolicyVersion::class, 'default_version_id');
+    }
+
+    /**
+     * Blueprint được dùng làm NGUỒN clone cho user MỚI.
+     *
+     * Trả về version được admin đánh dấu "mặc định" nếu còn hợp lệ (thuộc
+     * template này và là blueprint rời); nếu chưa đặt/default bị xoá thì fallback
+     * về current/latest blueprint như hành vi trước đây.
+     */
+    public function defaultBlueprint(): ?PolicyVersion
+    {
+        $default = $this->defaultVersion;
+
+        if ($default !== null
+            && (int) $default->template_id === $this->id
+            && $default->user_card_id === null) {
+            return $default;
+        }
+
+        return $this->currentBlueprint();
     }
 
     /**

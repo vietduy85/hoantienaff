@@ -2,6 +2,10 @@
 
 use App\Http\Controllers\Admin\AffiliateConfigController;
 use App\Http\Controllers\Admin\AffiliateShortLinkController;
+use App\Http\Controllers\Admin\CreditCard\SystemCategoryAdminController;
+use App\Http\Controllers\Admin\CreditCard\SystemComboAdminController;
+use App\Http\Controllers\Admin\CreditCard\SystemPolicyAdminController;
+use App\Http\Controllers\Admin\CreditCard\SystemPolicyApiController;
 use App\Http\Controllers\Admin\FinanceController;
 use App\Http\Controllers\Admin\OrderSyncController;
 use App\Http\Controllers\Admin\UserController;
@@ -12,6 +16,7 @@ use App\Http\Controllers\Api\PriceComparisonController;
 use App\Http\Controllers\Auth\CheckUsernameController;
 use App\Http\Controllers\Auth\CompleteProfileController;
 use App\Http\Controllers\Auth\GoogleController;
+use App\Http\Controllers\CreditCard\CategoryComboController;
 use App\Http\Controllers\CreditCard\CategoryController;
 use App\Http\Controllers\CreditCard\CategoryRuleController;
 use App\Http\Controllers\CreditCard\CreditCardController;
@@ -25,6 +30,7 @@ use App\Http\Controllers\Debug\CookieDebugController;
 use App\Http\Controllers\Debug\PlaywrightController;
 use App\Http\Controllers\Debug\ProviderController;
 use App\Http\Controllers\Debug\ShopeeLoginController;
+use App\Http\Controllers\Debug\T2TestRotateSessionController;
 use App\Http\Controllers\Debug\WorkerController;
 use App\Http\Controllers\GuideController;
 use App\Http\Controllers\OrderController;
@@ -83,7 +89,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // (Phase 1 approved). POST-only; auth; flag-gated; user_id=5 only;
     // rotates current session id + CSRF token, returns fingerprints only.
     // Remove in Phase 8.
-    Route::post('/__t2-test/rotate-session', \App\Http\Controllers\Debug\T2TestRotateSessionController::class)
+    Route::post('/__t2-test/rotate-session', T2TestRotateSessionController::class)
         ->name('t2-test.rotate-session');
 });
 
@@ -137,6 +143,13 @@ Route::middleware('auth')->group(function () {
             Route::post('/danh-muc', [CategoryController::class, 'store'])->name('categories.store');
             Route::patch('/danh-muc/{category}', [CategoryController::class, 'update'])->name('categories.update');
             Route::delete('/danh-muc/{category}', [CategoryController::class, 'destroy'])->name('categories.destroy');
+
+            // Combo danh mục: đọc combo hệ thống (dùng chung) + CRUD combo riêng.
+            // KHÔNG có route xoá — xem `CategoryComboService` (docblock "VÌ SAO KHÔNG
+            // CÓ XOÁ"): combo đã được rule tham chiếu thì FK là RESTRICT.
+            Route::get('/combo', [CategoryComboController::class, 'index'])->name('combos.index');
+            Route::post('/combo', [CategoryComboController::class, 'store'])->name('combos.store');
+            Route::patch('/combo/{combo}', [CategoryComboController::class, 'update'])->name('combos.update');
 
             // Giao dịch nhập tay (cashback do hệ thống tính).
             Route::get('/the/{userCard}/giao-dich', [TransactionController::class, 'index'])->name('transactions.index');
@@ -290,6 +303,91 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
     Route::delete('/promotion-news/{promotionNews}', [App\Http\Controllers\Admin\PromotionNewsController::class, 'destroy'])
         ->middleware('role:Admin|Operator')
         ->name('promotion-news.destroy');
+
+    // === Quản trị "Chính sách hoàn tiền hệ thống" (Credit Card) ===
+    // Trang Blade đổ dữ liệu; mọi ghi (tạo mới / đổi version / sửa metadata) gọi
+    // JSON API bên dưới qua fetch — giống kiến trúc trang + JSON API của module user.
+    Route::get('/credit-card/policies', [SystemPolicyAdminController::class, 'index'])
+        ->middleware('permission:credit-cards.view')
+        ->name('credit-card-policies.index');
+    Route::get('/credit-card/policies/create', [SystemPolicyAdminController::class, 'create'])
+        ->middleware('permission:credit-cards.manage')
+        ->name('credit-card-policies.create');
+    Route::get('/credit-card/policies/{template}', [SystemPolicyAdminController::class, 'show'])
+        ->middleware('permission:credit-cards.view')
+        ->name('credit-card-policies.show');
+    Route::get('/credit-card/policies/{template}/edit', [SystemPolicyAdminController::class, 'edit'])
+        ->middleware('permission:credit-cards.manage')
+        ->name('credit-card-policies.edit');
+    // Editor clone (GET, KHÔNG ghi DB): mở trang "Chỉnh sửa" hydrate từ nguồn.
+    Route::get('/credit-card/system-policies/{template}/clone', [SystemPolicyAdminController::class, 'cloneForm'])
+        ->middleware('permission:credit-cards.manage')
+        ->name('credit-card.system-policies.clone');
+
+    // JSON API cho editor admin. `throttle:credit-card-admin-api` là limiter RIÊNG
+    // (AppServiceProvider), KHÔNG dùng chung bộ đếm với limiter `credit-card-api`
+    // của user — admin không làm nghẽn user và ngược lại.
+    Route::prefix('credit-card/api')->name('credit-card-policies.api.')
+        ->middleware('throttle:credit-card-admin-api')
+        ->group(function () {
+            Route::get('/policies', [SystemPolicyApiController::class, 'index'])
+                ->middleware('permission:credit-cards.view')
+                ->name('index');
+            Route::post('/policies', [SystemPolicyApiController::class, 'store'])
+                ->middleware('permission:credit-cards.manage')
+                ->name('store');
+            Route::get('/policies/{template}', [SystemPolicyApiController::class, 'show'])
+                ->middleware('permission:credit-cards.view')
+                ->name('show');
+            Route::get('/policies/{template}/versions', [SystemPolicyApiController::class, 'versions'])
+                ->middleware('permission:credit-cards.view')
+                ->name('versions');
+            Route::post('/policies/{template}/versions', [SystemPolicyApiController::class, 'storeVersion'])
+                ->middleware('permission:credit-cards.manage')
+                ->name('versions.store');
+            Route::post('/system-policies/{template}/clone', [SystemPolicyApiController::class, 'clone'])
+                ->middleware('permission:credit-cards.manage')
+                ->name('clone');
+            Route::patch('/policies/{template}/versions/{version}', [SystemPolicyApiController::class, 'updateVersion'])
+                ->middleware('permission:credit-cards.manage')
+                ->name('versions.update');
+            Route::delete('/policies/{template}/versions/{version}', [SystemPolicyApiController::class, 'destroyVersion'])
+                ->middleware('permission:credit-cards.manage')
+                ->name('versions.destroy');
+            Route::post('/policies/{template}/default', [SystemPolicyApiController::class, 'setDefaultVersion'])
+                ->middleware('permission:credit-cards.manage')
+                ->name('default.store');
+            Route::patch('/policies/{template}', [SystemPolicyApiController::class, 'update'])
+                ->middleware('permission:credit-cards.manage')
+                ->name('update');
+        });
+
+    // === Quản trị "Danh mục hệ thống" (Credit Card) ===
+    // Chỉ 3 thao tác: thêm mới, đổi tên, sắp xếp. KHÔNG có xoá/ẩn/khôi phục.
+    // Đọc dùng `credit-cards.view`, ghi dùng `credit-cards.manage` (permission có sẵn).
+    Route::get('/credit-card/system-categories', [SystemCategoryAdminController::class, 'index'])
+        ->middleware('permission:credit-cards.view')
+        ->name('credit-card.system-categories.index');
+    Route::post('/credit-card/system-categories', [SystemCategoryAdminController::class, 'store'])
+        ->middleware('permission:credit-cards.manage')
+        ->name('credit-card.system-categories.store');
+    Route::patch('/credit-card/system-categories/{category}', [SystemCategoryAdminController::class, 'update'])
+        ->middleware('permission:credit-cards.manage')
+        ->name('credit-card.system-categories.update');
+    Route::post('/credit-card/system-categories/reorder', [SystemCategoryAdminController::class, 'reorder'])
+        ->middleware('permission:credit-cards.manage')
+        ->name('credit-card.system-categories.reorder');
+
+    // System Combo
+    Route::get('/credit-card/system-combos', [SystemComboAdminController::class, 'index'])
+        ->middleware('permission:credit-cards.view')
+        ->name('credit-card.system-combos.index');
+    Route::post('/credit-card/system-combos', [SystemComboAdminController::class, 'store'])
+        ->middleware('permission:credit-cards.manage')
+        ->name('credit-card.system-combos.store');
+    Route::patch('/credit-card/system-combos/{combo}', [SystemComboAdminController::class, 'update'])
+        ->middleware('permission:credit-cards.manage')
+        ->name('credit-card.system-combos.update');
 });
 
 // Static pages - explicit routes

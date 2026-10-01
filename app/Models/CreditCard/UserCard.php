@@ -2,6 +2,9 @@
 
 namespace App\Models\CreditCard;
 
+use App\Models\User;
+use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -34,8 +37,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $payment_due_day
  * @property int|null $spending_deadline_day
  * @property string $statement_date_basis
- * @property \Carbon\CarbonImmutable|null $opened_at
- * @property \Carbon\CarbonImmutable|null $closed_at
+ * @property CarbonImmutable|null $opened_at
+ * @property CarbonImmutable|null $closed_at
  * @property int $sort_order
  * @property string|null $note
  * @property int|null $current_policy_id
@@ -113,7 +116,7 @@ class UserCard extends CreditCardModel
      */
     public function user(): BelongsTo
     {
-        $user = (new \App\Models\User())
+        $user = (new User)
             ->setConnection($this->mainDatabaseConnectionName());
 
         return $this->newBelongsTo(
@@ -131,7 +134,7 @@ class UserCard extends CreditCardModel
      * Giữ relation để dữ liệu Phase 1A cũ vẫn đọc được, nhưng luồng mới KHÔNG
      * dùng. Không thêm/xoá giao dịch nào dựa trên relation này.
      *
-     * @see \App\Models\CreditCard\UserCard::bank()  luồng chính
+     * @see UserCard::bank()  luồng chính
      */
     public function product(): BelongsTo
     {
@@ -216,7 +219,7 @@ class UserCard extends CreditCardModel
      * CHỈ LÀ REMINDER. StatementPeriodService KHÔNG BAO GIỜ dùng hàm này để quyết
      * định kỳ sao kê — ngân hàng có thể ghi nhận (posted) khác ngày user mua.
      */
-    public function spendingDeadlineFor(\Carbon\CarbonInterface $periodEnd): ?\Carbon\CarbonInterface
+    public function spendingDeadlineFor(CarbonInterface $periodEnd): ?CarbonInterface
     {
         $day = $this->spending_deadline_day;
 
@@ -232,7 +235,7 @@ class UserCard extends CreditCardModel
     /**
      * Cảnh báo nhắc nhở cho UI. Trả về null khi không cần nhắc.
      */
-    public function spendingDeadlineWarning(\Carbon\CarbonInterface $today, \Carbon\CarbonInterface $periodEnd): ?string
+    public function spendingDeadlineWarning(CarbonInterface $today, CarbonInterface $periodEnd): ?string
     {
         $deadline = $this->spendingDeadlineFor($periodEnd);
 

@@ -2,6 +2,7 @@
 
 namespace App\Models\CreditCard;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -23,8 +24,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $version_no
  * @property string $status
  * @property string $name
- * @property \Carbon\CarbonImmutable $effective_from
- * @property \Carbon\CarbonImmutable|null $effective_to
+ * @property CarbonImmutable $effective_from
+ * @property CarbonImmutable|null $effective_to
  * @property string $min_total_spend
  * @property string|null $max_cashback_total_per_period
  * @property string $rounding_mode

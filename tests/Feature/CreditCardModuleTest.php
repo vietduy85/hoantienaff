@@ -139,6 +139,10 @@ class CreditCardModuleTest extends TestCase
             'credit-cards.api.rules.update',
             'credit-cards.api.rules.destroy',
             'credit-cards.api.rules.clone',
+            // API combo danh mục (Phase 2) — KHÔNG có destroy: combo chỉ tạo/sửa.
+            'credit-cards.api.combos.index',
+            'credit-cards.api.combos.store',
+            'credit-cards.api.combos.update',
         ];
 
         $actualModuleRoutes = collect(Route::getRoutes())

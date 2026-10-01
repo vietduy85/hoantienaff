@@ -116,6 +116,21 @@ $travelPlatforms = collect(config('travel.platforms'))
                             💳 {{ __('Thẻ tín dụng') }}
                         </x-dropdown-link>
 
+                        @can('credit-cards.view')
+                            <x-dropdown-link :href="route('admin.credit-card.system-categories.index')" :active="request()->routeIs('admin.credit-card.system-categories.*')">
+                                Danh mục hệ thống
+                            </x-dropdown-link>
+                            <x-dropdown-link :href="route('admin.credit-card.system-combos.index')" :active="request()->routeIs('admin.credit-card.system-combos.*')">
+                                Combo danh mục
+                            </x-dropdown-link>
+                        @endcan
+
+                        @can('credit-cards.view')
+                            <x-dropdown-link :href="route('admin.credit-card-policies.index')" :active="request()->routeIs('admin.credit-card-policies.*')">
+                                🎯 {{ __('Quản lý chính sách hoàn tiền') }}
+                            </x-dropdown-link>
+                        @endcan
+
                         <x-dropdown-link :href="route('referrals.index')">
                             {{ __('Giới thiệu bạn bè') }}
                         </x-dropdown-link>
@@ -213,6 +228,21 @@ $travelPlatforms = collect(config('travel.platforms'))
                 💳 {{ __('Thẻ tín dụng') }}
             </x-responsive-nav-link>
 
+            @can('credit-cards.view')
+                <x-responsive-nav-link :href="route('admin.credit-card.system-categories.index')" :active="request()->routeIs('admin.credit-card.system-categories.*')">
+                    Danh mục hệ thống
+                </x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('admin.credit-card.system-combos.index')" :active="request()->routeIs('admin.credit-card.system-combos.*')">
+                    Combo danh mục
+                </x-responsive-nav-link>
+            @endcan
+
+            @can('credit-cards.view')
+                <x-responsive-nav-link :href="route('admin.credit-card-policies.index')" :active="request()->routeIs('admin.credit-card-policies.*')">
+                    🎯 {{ __('Quản lý chính sách hoàn tiền') }}
+                </x-responsive-nav-link>
+            @endcan
+
             <x-responsive-nav-link :href="route('price-comparison.index')">
                 🔎 {{ __('So sánh giá') }}
             </x-responsive-nav-link>
@@ -221,7 +251,7 @@ $travelPlatforms = collect(config('travel.platforms'))
                 📰 {{ __('Tin tức KM') }}
             </x-responsive-nav-link>
 
-            <!-- Đặt vé máy bay, khách sạn (Mobile) -->
+                <!-- Đặt vé máy bay, khách sạn (Mobile) -->
             <div>
                 <button @click="showTravel = !showTravel"
                         class="w-full text-start ps-3 pe-4 py-2 border-l-4 border-transparent text-base font-medium text-gray-600 hover:text-gray-800 hover:bg-gray-50 hover:border-gray-300 transition duration-150 ease-in-out inline-flex items-center justify-between">

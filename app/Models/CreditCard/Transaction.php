@@ -2,6 +2,7 @@
 
 namespace App\Models\CreditCard;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -25,8 +26,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property string|null $merchant
  * @property string $amount
  * @property string|null $note
- * @property \Carbon\CarbonImmutable $transaction_date
- * @property \Carbon\CarbonImmutable|null $posted_date
+ * @property CarbonImmutable $transaction_date
+ * @property CarbonImmutable|null $posted_date
  * @property string $source
  * @property string|null $source_reference
  * @property int|null $policy_version_id
@@ -36,9 +37,9 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property string|null $cashback_amount_snapshot
  * @property bool|null $is_eligible
  * @property string|null $ineligible_reason
- * @property \Carbon\CarbonImmutable|null $calc_basis
+ * @property CarbonImmutable|null $calc_basis
  * @property array|null $calc_meta
- * @property \Carbon\CarbonImmutable|null $calculated_at
+ * @property CarbonImmutable|null $calculated_at
  */
 class Transaction extends CreditCardModel
 {
@@ -146,7 +147,7 @@ class Transaction extends CreditCardModel
      * tính cashback. Nếu basis = posted_date mà posted_date chưa có thì rơi về
      * transaction_date.
      */
-    public function basisDate(string $statementDateBasis): \Carbon\CarbonImmutable
+    public function basisDate(string $statementDateBasis): CarbonImmutable
     {
         if ($statementDateBasis === UserCard::BASIS_POSTED_DATE && $this->posted_date !== null) {
             return $this->posted_date->toImmutable();

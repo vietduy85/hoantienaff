@@ -4,6 +4,7 @@ namespace App\Http\Controllers\CreditCard;
 
 use App\Http\Controllers\Controller;
 use App\Models\CreditCard\PolicyTemplate;
+use App\Models\CreditCard\PolicyTierCategory;
 use App\Services\CreditCard\CategoryRuleService;
 use App\Services\CreditCard\TierService;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
@@ -69,19 +70,36 @@ class PolicyTemplateController extends Controller
      */
     private function present(PolicyTemplate $template, bool $withDetails = false): array
     {
+        // Bản "đang phát hành cho user mới" = version mặc định (nguồn clone).
+        $blueprint = $template->defaultBlueprint();
+
         $data = [
             'id' => $template->id,
             'name' => $template->name,
             'description' => $template->description,
             'scope' => $template->scope,
             'is_system' => $template->isSystemScope(),
+            'is_active' => (bool) $template->is_active,
+            'version_no' => $blueprint?->version_no,
+            'effective_from' => $blueprint?->effective_from?->toDateString(),
+            'min_total_spend' => $blueprint?->min_total_spend === null ? null : (float) $blueprint->min_total_spend,
+            'max_cashback_total_per_period' => $blueprint?->max_cashback_total_per_period === null
+                ? null
+                : (float) $blueprint->max_cashback_total_per_period,
+            'rounding_mode' => $blueprint?->rounding_mode,
+            'tiers_count' => 0,
+            'categories_count' => 0,
         ];
+
+        if ($blueprint !== null) {
+            $tiers = $blueprint->tiers()->get();
+            $data['tiers_count'] = $tiers->count();
+            $data['categories_count'] = $tiers->sum(fn ($tier) => $tier->tierCategoryRules()->categorySpecific()->count());
+        }
 
         if (! $withDetails) {
             return $data;
         }
-
-        $blueprint = $template->blueprint;
 
         if ($blueprint === null) {
             return $data + ['tiers' => []];
@@ -96,6 +114,8 @@ class PolicyTemplateController extends Controller
                 'rules' => $this->rules->listFor($tier)->map(fn ($rule) => [
                     'category_id' => $rule->category_id,
                     'category_name' => $rule->category?->name,
+                    'scope_type' => $rule->scope_type ?? PolicyTierCategory::SCOPE_CATEGORY,
+                    'counts_toward_tier_cap' => (bool) ($rule->counts_toward_tier_cap ?? ! $rule->isFallback()),
                     'spend_from' => (float) $rule->spend_from,
                     'spend_to' => $rule->spend_to === null ? null : (float) $rule->spend_to,
                     'cashback_percent' => (float) $rule->cashback_percent,

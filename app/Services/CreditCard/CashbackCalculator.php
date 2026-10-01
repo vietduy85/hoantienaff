@@ -2,6 +2,8 @@
 
 namespace App\Services\CreditCard;
 
+use App\Models\CreditCard\PolicyTierCategory;
+
 /**
  * CashbackCalculator — business logic cashback THUẦN.
  *
@@ -25,7 +27,8 @@ namespace App\Services\CreditCard;
  *   5. cashback thô = amount × percent / 100, làm tròn.
  *   6. Cap 1: max mỗi giao dịch.
  *   7. Cap 2: max mỗi danh mục mỗi kỳ.
- *   8. Cap 3: max tổng mỗi kỳ.
+ *   8. Cap 3: max tổng mỗi kỳ — nằm ở BẬC đang áp dụng (`maxCashbackPerPeriod`),
+ *      không còn nằm ở policy toàn cục (migration chuyển sang `tiers.max_cashback_per_period`).
  *
  * Vì bước 4 dùng TỔNG theo danh mục của cả kỳ (không phụ thuộc thứ tự), toàn bộ
  * phần "chọn mức %" là không thứ tự. Các cap 2/3 là giới hạn dồn, được phân bổ
@@ -58,14 +61,24 @@ class CashbackCalculator
      *   'min_transaction_amount' => ?float,
      * ]
      *
+     * Cap động theo giá trị giao dịch (§23) KHÔNG còn nằm ở rule — truyền qua
+     * tham số `$transactionCaps` (tài sản của BẬC, áp cho MỌI rule trong bậc).
+     *
      * @param  array<int, array<string, mixed>>  $rules
+     * @param  array<int, array<string, mixed>>  $transactionCaps  cap động của bậc,
+     *                                                             mỗi phần tử ['min_transaction_amount' => float,
+     *                                                             'max_transaction_amount' => ?float,
+     *                                                             'max_cashback_per_transaction' => float]; rỗng = không dùng.
+     * @param  string  $roundingMode  ĐƯỢC GIỮ để tương thích caller, nhưng KHÔNG
+     *                                còn dùng: cashback luôn floor xuống đồng.
      */
     public function calculate(
         array $rules,
         array $transactions,
         float $minTotalSpend,
-        ?float $maxCashbackTotalPerPeriod,
+        ?float $maxCashbackPerPeriod,
         string $roundingMode = 'round',
+        array $transactionCaps = [],
     ): array {
         $transactions = $this->sortDeterministically($transactions);
 
@@ -83,10 +96,24 @@ class CashbackCalculator
             }
         }
 
-        // ---- BƯỚC 2: rule cho từng danh mục, CHỌN THEO TỔNG CHI TIÊU CỦA DANH MỤC TRONG KỲ ----
+        // ---- BƯỚC 2: chọn rule cho từng danh mục ----
+        //
+        // Thứ tự ưu tiên (mở rộng từ chuỗi 2 tầng cũ, xem `pickRule`):
+        //   1) rule DANH MỤC cụ thể, khoảng đo trên tổng chi tiêu của danh mục đó;
+        //   2) rule COMBO, khoảng đo trên tổng chi tiêu của CẢ danh mục thành viên;
+        //   3) fallback "Các danh mục còn lại" (scope_type=other).
+        //
+        // Tổng của combo phải gom trước ở bước trên, vì nó là đầu vào để chọn
+        // rule combo. Mỗi danh mục chỉ nhận MỘT rule ⇒ kết quả tất định, không
+        // phụ thuộc thứ tự duyệt. Fallback 0% VẪN là rule hợp lệ — không coi 0%
+        // là "không có rule".
+        $comboTotals = $this->comboTotals($rules, $categoryTotals);
+
         $ruleByCategory = [];
         foreach ($categoryTotals as $categoryId => $categorySpend) {
-            $rule = $this->pickRule($rules, (int) $categoryId, $categorySpend);
+            $rule = $this->pickRule($rules, (int) $categoryId, $categorySpend)
+                ?? $this->pickCombo($rules, (int) $categoryId, $comboTotals)
+                ?? $this->pickFallback($rules, $categorySpend);
 
             if ($rule !== null) {
                 $ruleByCategory[(int) $categoryId] = $rule;
@@ -153,13 +180,19 @@ class CashbackCalculator
                 continue;
             }
 
-            $raw = $this->round($amount * ((float) $rule['cashback_percent'] / 100), $roundingMode);
+            $raw = $this->round($amount * ((float) $rule['cashback_percent'] / 100));
 
             $cashback = $raw;
             $caps = [];
 
-            // Cap 1 — trần mỗi giao dịch
-            $capPerTransaction = $this->nullableFloat($rule['max_cashback_per_transaction'] ?? null);
+            // Chỉ rule "tính vào giới hạn hoàn tiền của bậc" tiêu tốn Cap 3.
+            $countsTowardCap = (bool) ($rule['counts_toward_tier_cap'] ?? true);
+
+            // Cap 1 — trần mỗi giao dịch.
+            // Khi bậc có cap động `$transactionCaps` (§23), cap giao dịch ĐỘNG theo
+            // giá trị: giao dịch thuộc khoảng nào thì lấy cap của khoảng đó (thay thế
+            // cap cố định của rule); không khớp khoảng nào thì quay về cap cố định.
+            $capPerTransaction = $this->pickTransactionCap($rule, $amount, $transactionCaps);
             if ($capPerTransaction !== null) {
                 $applied = $cashback > $capPerTransaction;
                 $cashback = min($cashback, $capPerTransaction);
@@ -183,25 +216,30 @@ class CashbackCalculator
                 ];
             }
 
-            // Cap 3 — trần tổng mỗi kỳ (nằm ở policy)
-            if ($maxCashbackTotalPerPeriod !== null) {
-                $remaining = max($maxCashbackTotalPerPeriod - $usedTotal, 0.0);
+            // Cap 3 — trần tổng mỗi kỳ (nằm ở BẬC đang áp dụng). Chỉ áp dụng cho
+            // rule có `counts_toward_tier_cap = true`; cashback của fallback
+            // (counts = false) KHÔNG làm giảm "ngân sách" còn lại của bậc.
+            if ($maxCashbackPerPeriod !== null && $countsTowardCap) {
+                $remaining = max($maxCashbackPerPeriod - $usedTotal, 0.0);
                 $applied = $cashback > $remaining;
                 $cashback = min($cashback, $remaining);
                 $caps[] = [
                     'type' => 'per_period_total',
-                    'limit' => $maxCashbackTotalPerPeriod,
+                    'limit' => $maxCashbackPerPeriod,
                     'used_before' => round($usedTotal, 2),
                     'remaining' => round($remaining, 2),
                     'applied' => $applied,
                 ];
             }
 
-            $cashback = $this->round($cashback, $roundingMode);
+            $cashback = $this->round($cashback);
             $cashback = max($cashback, 0.0);
 
             $usedByCategory[(int) $line->categoryId] = ($usedByCategory[(int) $line->categoryId] ?? 0.0) + $cashback;
-            $usedTotal += $cashback;
+
+            if ($countsTowardCap) {
+                $usedTotal += $cashback;
+            }
 
             $results[] = new CashbackResult(
                 transactionId: $line->id,
@@ -258,26 +296,30 @@ class CashbackCalculator
             return ['is_eligible' => false, 'reason' => self::REASON_NO_CATEGORY];
         }
 
-        $hasEnabledRule = false;
-        $lowestMin = null;
+        // Mức sàn nhỏ nhất trong các rule MÀ DANH MỤC NÀY CÓ THỂ KHỚP:
+        //   - rule danh mục cụ thể (`minFloor($rules, $categoryId)`),
+        //   - rule combo chứa danh mục (`minFloor($rules, null, $categoryId)`),
+        //   - fallback "Các danh mục còn lại" (`minFloor($rules, null)`).
+        //
+        // Danh mục chỉ cần thoả sàn NHỎ NHẤT ở bước này; bước áp rate sẽ kiểm
+        // lại với `min_transaction_amount` CỦA RULE ĐÃ CHỌN. Còn nếu không rule
+        // nào khớp ở cả ba nhóm thì danh mục không có đường vào cashback.
+        $floors = [
+            $this->minFloor($rules, (int) $line->categoryId),
+            $this->minFloor($rules, null, (int) $line->categoryId),
+            $this->minFloor($rules, null),
+        ];
 
-        foreach ($rules as $rule) {
-            if ((int) $rule['category_id'] !== $line->categoryId) {
-                continue;
-            }
+        $matched = array_values(array_filter($floors, fn (array $floor): bool => $floor['has']));
 
-            $hasEnabledRule = true;
-
-            // Rule không đặt `min_transaction_amount` ⇒ mức sàn là 0.
-            $floor = $this->nullableFloat($rule['min_transaction_amount'] ?? null) ?? 0.0;
-
-            if ($lowestMin === null || $floor < $lowestMin) {
-                $lowestMin = $floor;
-            }
+        if ($matched === []) {
+            return ['is_eligible' => false, 'reason' => self::REASON_NO_CATEGORY_RULE];
         }
 
-        if (! $hasEnabledRule) {
-            return ['is_eligible' => false, 'reason' => self::REASON_NO_CATEGORY_RULE];
+        $lowestMin = null;
+
+        foreach ($matched as $floor) {
+            $lowestMin = $lowestMin === null ? $floor['floor'] : min($lowestMin, $floor['floor']);
         }
 
         if ($line->amountAsFloat() < $lowestMin) {
@@ -288,7 +330,125 @@ class CashbackCalculator
     }
 
     /**
-     * Chọn rule chứa khoảng chi tiêu `$categorySpend` — [spend_from, spend_to).
+     * (có rule khớp hay không, mức sàn `min_transaction_amount` nhỏ nhất) cho các
+     * rule của một danh mục — hoặc của fallback khi `$categoryId = null`.
+     *
+     * @param  array<int, array<string, mixed>>  $rules
+     * @return array{has: bool, floor: ?float}
+     */
+    private function minFloor(array $rules, ?int $categoryId, ?int $memberOfCombo = null): array
+    {
+        $has = false;
+        $lowestMin = null;
+
+        foreach ($rules as $rule) {
+            $matches = match (true) {
+                // Rule combo: khớp nếu danh mục nằm trong membership của combo.
+                ($rule['combo_id'] ?? null) !== null => $memberOfCombo !== null
+                    && $this->comboContains($rule, $memberOfCombo),
+                // Rule danh mục cụ thể.
+                $categoryId !== null => array_key_exists('category_id', $rule)
+                    && (int) $rule['category_id'] === $categoryId,
+                // Fallback.
+                default => ($rule['scope_type'] ?? PolicyTierCategory::SCOPE_CATEGORY)
+                    === PolicyTierCategory::SCOPE_OTHER,
+            };
+
+            if (! $matches) {
+                continue;
+            }
+
+            $has = true;
+
+            // Rule không đặt `min_transaction_amount` ⇒ mức sàn là 0.
+            $floor = $this->nullableFloat($rule['min_transaction_amount'] ?? null) ?? 0.0;
+
+            if ($lowestMin === null || $floor < $lowestMin) {
+                $lowestMin = $floor;
+            }
+        }
+
+        return ['has' => $has, 'floor' => $lowestMin];
+    }
+
+    /**
+     * Danh mục này có thuộc combo của rule không?
+     *
+     * @param  array<string, mixed>  $rule
+     */
+    private function comboContains(array $rule, int $categoryId): bool
+    {
+        $members = $rule['combo_category_ids'] ?? null;
+
+        if (! is_array($members) || $members === []) {
+            return false;
+        }
+
+        foreach ($members as $member) {
+            if ((int) $member === $categoryId) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Tổng chi tiêu eligible của TỪNG COMBO trong kỳ.
+     *
+     * Khoảng `[spend_from, spend_to)` của rule combo đo trên tổng của TOÀN BỘ danh
+     * mục thành viên (đã chốt ở audit): một giao dịch 100k ở danh mục A và một
+     * giao dịch 100k ở danh mục B thuộc cùng combo ⇒ tổng combo 200k. Cùng nguyên
+     * tắc retroactive như rule danh mục và tier.
+     *
+     * Chỉ tính danh mục CÓ THẬT trong `$categoryTotals` (tức đã eligible về mặt
+     * rule ở bước 1). Danh mục không eligible không vào tổng của bất kỳ combo nào.
+     *
+     * @param  array<int, array<string, mixed>>  $rules
+     * @param  array<int|string, float>  $categoryTotals
+     * @return array<int, float> khoá = combo_id
+     */
+    private function comboTotals(array $rules, array $categoryTotals): array
+    {
+        $totals = [];
+
+        foreach ($rules as $rule) {
+            $comboId = $rule['combo_id'] ?? null;
+
+            if ($comboId === null) {
+                continue;
+            }
+
+            $comboId = (int) $comboId;
+
+            // Combo chưa có tổng hoặc đang tính dở → gom từ đầu danh sách thành viên.
+            $members = $rule['combo_category_ids'] ?? [];
+
+            if (is_array($members) && $members !== []) {
+                $sum = 0.0;
+
+                foreach ($members as $categoryId) {
+                    $sum += $categoryTotals[(int) $categoryId] ?? 0.0;
+                }
+
+                $totals[$comboId] = $sum;
+            } else {
+                // Combo rỗng (không còn thành viên) vẫn phải có mục để `pickCombo`
+                // không khớp nhầm sang rule của combo khác.
+                $totals[$comboId] ??= 0.0;
+            }
+        }
+
+        return $totals;
+    }
+
+    /**
+     * Chọn rule danh mục cụ thể (category_id khớp) chứa khoảng chi tiêu
+     * `$categorySpend`.
+     *
+     * Rule COMBO có `category_id = NULL` nên `(int) null = 0` không bao giờ khớp
+     * id danh mục hợp lệ — không cần lọc riêng. Vẫn dùng `array_key_exists` để không
+     * phụ thuộc vào việc caller có truyền khoá `category_id` hay không.
      *
      * @param  array<int, array<string, mixed>>  $rules
      * @return array<string, mixed>|null
@@ -298,10 +458,136 @@ class CashbackCalculator
         $candidates = [];
 
         foreach ($rules as $rule) {
+            if (! array_key_exists('category_id', $rule)) {
+                continue;
+            }
+
             if ((int) $rule['category_id'] !== $categoryId) {
                 continue;
             }
 
+            $candidates[] = $rule;
+        }
+
+        return $this->pickByBand($candidates, $categorySpend);
+    }
+
+    /**
+     * Chọn rule COMBO mà danh mục này là thành viên, chứa khoảng chi tiêu của combo.
+     *
+     * Gọi SAU `pickRule()` ⇒ ưu tiên rule danh mục hơn rule combo (đã chốt ở
+     * audit). `CategoryRuleService` đã chặn hai combo rule trong cùng bậc chia sẻ
+     * danh mục, nên ở đây mỗi danh mục chỉ có tối đa một combo khớp ⇒ kết quả tất
+     * định. Nếu dữ liệu bẩn vẫn có nhiều combo khớp, `pickByBand` phá hợp nhất
+     * (khoảng hẹp nhất, tie-break id) để không phụ thuộc thứ tự duyệt.
+     *
+     * @param  array<int, array<string, mixed>>  $rules
+     * @param  array<int, float>  $comboTotals
+     * @return array<string, mixed>|null
+     */
+    private function pickCombo(array $rules, int $categoryId, array $comboTotals): ?array
+    {
+        // Gom theo combo TRƯỚC, vì mỗi combo có tổng chi tiêu riêng. Nếu gộp tất cả
+        // rule combo vào một nhóm rồi mới so khoảng thì một rule của combo khác sẽ
+        // bị đối chiếu với tổng sai combo.
+        $byCombo = [];
+
+        foreach ($rules as $rule) {
+            $comboId = $rule['combo_id'] ?? null;
+
+            if ($comboId === null || ! array_key_exists((int) $comboId, $comboTotals)) {
+                continue;
+            }
+
+            $members = $rule['combo_category_ids'] ?? [];
+
+            if (! is_array($members) || ! in_array($categoryId, array_map('intval', $members), true)) {
+                continue;
+            }
+
+            $byCombo[(int) $comboId][] = $rule;
+        }
+
+        // `CategoryRuleService` bảo đảm mỗi bậc chỉ có tối đa một combo rule chứa
+        // danh mục này, nên vòng lặp thường chạy đúng một lần. Nhưng dữ liệu bẩn
+        // vẫn có thể vi phạm, nên ta lấy rule khớp nhất trong TỪNG combo rồi mới
+        // chọn tổng thể ⇒ không phụ thuộc thứ tự duyệt.
+        $best = null;
+
+        foreach ($byCombo as $comboId => $comboRules) {
+            $winner = $this->pickByBand($comboRules, $comboTotals[$comboId]);
+
+            if ($winner === null) {
+                continue;
+            }
+
+            if ($best === null || $this->isNarrower($winner, $best)) {
+                $best = $winner;
+            }
+        }
+
+        return $best;
+    }
+
+    /**
+     * Rule `$candidate` có khoảng chi tiêu hẹp hơn (và thắng tie-break id) so với
+     * `$current` không? Cùng thứ tự phá hợp nhất với `pickByBand`.
+     *
+     * @param  array<string, mixed>  $candidate
+     * @param  array<string, mixed>  $current
+     */
+    private function isNarrower(array $candidate, array $current): bool
+    {
+        $candidateTo = $this->nullableFloat($candidate['spend_to'] ?? null);
+        $currentTo = $this->nullableFloat($current['spend_to'] ?? null);
+
+        $candidateWidth = $candidateTo === null
+            ? PHP_FLOAT_MAX
+            : ($candidateTo - (float) $candidate['spend_from']);
+        $currentWidth = $currentTo === null
+            ? PHP_FLOAT_MAX
+            : ($currentTo - (float) $current['spend_from']);
+
+        $comparison = [$candidateWidth, (int) $candidate['id']]
+            <=> [$currentWidth, (int) $current['id']];
+
+        return $comparison < 0;
+    }
+
+    /**
+     * Chọn fallback "Các danh mục còn lại" (scope_type=other) chứa khoảng chi tiêu
+     * `$categorySpend`. Fallback 0% VẪN được chọn như một rule hợp lệ.
+     *
+     * @param  array<int, array<string, mixed>>  $rules
+     * @return array<string, mixed>|null
+     */
+    private function pickFallback(array $rules, float $categorySpend): ?array
+    {
+        $candidates = [];
+
+        foreach ($rules as $rule) {
+            if (($rule['scope_type'] ?? PolicyTierCategory::SCOPE_CATEGORY) !== PolicyTierCategory::SCOPE_OTHER) {
+                continue;
+            }
+
+            $candidates[] = $rule;
+        }
+
+        return $this->pickByBand($candidates, $categorySpend);
+    }
+
+    /**
+     * Từ nhóm rule đã lọc, chọn rule có khoảng [spend_from, spend_to) chứa
+     * `$categorySpend`.
+     *
+     * @param  array<int, array<string, mixed>>  $candidates
+     * @return array<string, mixed>|null
+     */
+    private function pickByBand(array $candidates, float $categorySpend): ?array
+    {
+        $matched = [];
+
+        foreach ($candidates as $rule) {
             $from = (float) $rule['spend_from'];
             $to = $this->nullableFloat($rule['spend_to'] ?? null);
 
@@ -313,15 +599,15 @@ class CashbackCalculator
                 continue;
             }
 
-            $candidates[] = $rule;
+            $matched[] = $rule;
         }
 
-        if ($candidates === []) {
+        if ($matched === []) {
             return null;
         }
 
         // Nhiều rule cùng phạm vi ⇒ chọn khoảng hẹp nhất rồi theo id để TẤT ĐỊNH.
-        usort($candidates, function (array $a, array $b): int {
+        usort($matched, function (array $a, array $b): int {
             $widthA = $this->nullableFloat($a['spend_to'] ?? null) === null
                 ? PHP_FLOAT_MAX
                 : ((float) $a['spend_to'] - (float) $a['spend_from']);
@@ -333,11 +619,40 @@ class CashbackCalculator
             return [$widthA, (int) $a['id']] <=> [$widthB, (int) $b['id']];
         });
 
-        return $candidates[0];
+        return $matched[0];
     }
 
     /**
-     * @param  array<int, array{is_eligible: bool, reason: ?string}>  $eligible
+     * Cap mỗi giao dịch — ĐỘNG theo giá trị giao dịch nếu BẬC có `transactionCaps`.
+     *
+     * Mỗi điều kiện là một khoảng [min, max] ĐÓNG ở cả hai đầu
+     * (`amount >= min AND (max = NULL OR amount <= max)`), đã được service sắp xếp
+     * theo `sort_order` (min tăng dần) khi lưu. Giao dịch thuộc khoảng nào thì dùng
+     * cap của khoảng đó — nó THAY THẾ `max_cashback_per_transaction` cố định.
+     * Không khớp khoảng nào (hoặc bậc không có khoảng nào) ⇒ cap cố định như cũ.
+     * Cap áp cho MỌI rule trong bậc — fallback 0% của bậc cũng chịu chung cap này.
+     *
+     * @param  array<string, mixed>  $rule
+     * @param  array<int, array<string, mixed>>  $transactionCaps
+     */
+    private function pickTransactionCap(array $rule, float $amount, array $transactionCaps): ?float
+    {
+        $static = $this->nullableFloat($rule['max_cashback_per_transaction'] ?? null);
+
+        foreach ($transactionCaps as $cap) {
+            $min = (float) $cap['min_transaction_amount'];
+            $max = $cap['max_transaction_amount'] === null ? null : (float) $cap['max_transaction_amount'];
+
+            if ($amount >= $min && ($max === null || $amount <= $max)) {
+                return (float) $cap['max_cashback_per_transaction'];
+            }
+        }
+
+        return $static;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rules
      * @return array<int, CashbackResult>
      */
     private function allIneligible(array $eligible, string $reason, float $totalEligibleSpend): array
@@ -358,27 +673,24 @@ class CashbackCalculator
     }
 
     /**
-     * Làm tròn về 2 chữ số thập phân theo mode của policy.
+     * Làm tròn xuống đến ĐỒNG (số nguyên, không còn lẻ xu).
+     *
+     * Quy tắc cố định: cashback cuối cùng LUÔN floor về đơn vị đồng, không phụ
+     * thuộc `roundingMode`. Cột `rounding_mode` vẫn còn trong DB nhưng không được
+     * dùng để tính — tránh hai nguồn đúng sai. Không cho phép round/ceil (làm tròn
+     * LÊN có thể trả người dùng nhiều hơn giá trị chính xác).
      *
      * Cẩn thận số thực: `55555 * 0.01` không ra đúng `555.55` mà ra
-     * `55554.999999999995` khi nhân với 100. Nếu `floor()` thẳng giá trị đó thì
-     * hạ người dùng 1 xu mà không có lý do. Vì vậy ta làm sạch nhiễu fp ở mức
-     * 1e-6 (thấp hơn 1 xu nhưng cao hơn nhiễu double ~1e-10) trước khi cắt.
+     * `55554.999999999995`. Nếu `floor()` thẳng giá trị đó thì hạ người dùng 1 đồng
+     * mà không có lý do. Vì vậy ta làm sạch nhiễu fp ở mức 1e-6 (thấp hơn 1 đồng
+     * nhưng cao hơn nhiễu double ~1e-10) rồi mới cắt.
      *
      * Giới hạn: với số tiền khổng lồ (>~1e10) độ chính xác double có thể chạm
-     * mức 1 xu. Miền nghiệp vụ của module là VNĐ theo kỳ, không vượt mức đó.
+     * mức 1 đồng. Miền nghiệp vụ của module là VNĐ theo kỳ, không vượt mức đó.
      */
-    private function round(float $value, string $mode): float
+    private function round(float $value): float
     {
-        $scaled = round($value * 100, 6);
-
-        $cents = match ($mode) {
-            'floor' => (int) floor($scaled),
-            'ceil' => (int) ceil($scaled),
-            default => (int) round($scaled, 0, PHP_ROUND_HALF_UP),
-        };
-
-        return $cents / 100;
+        return floor(round($value, 6));
     }
 
     private function nullableFloat(mixed $value): ?float

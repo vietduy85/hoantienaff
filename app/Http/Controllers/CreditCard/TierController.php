@@ -9,6 +9,7 @@ use App\Http\Requests\CreditCard\StoreTierRequest;
 use App\Http\Requests\CreditCard\UpdateTierRequest;
 use App\Models\CreditCard\Policy;
 use App\Models\CreditCard\PolicyTier;
+use App\Models\CreditCard\PolicyTierCategory;
 use App\Services\CreditCard\CategoryRuleService;
 use App\Services\CreditCard\TierService;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
@@ -133,6 +134,8 @@ class TierController extends Controller
             'rules' => $this->rules->listFor($tier)->map(fn ($rule) => [
                 'id' => $rule->id,
                 'category_id' => $rule->category_id,
+                'scope_type' => $rule->scope_type ?? PolicyTierCategory::SCOPE_CATEGORY,
+                'counts_toward_tier_cap' => (bool) ($rule->counts_toward_tier_cap ?? ! $rule->isFallback()),
                 'name' => $rule->name,
                 'spend_from' => (float) $rule->spend_from,
                 'spend_to' => $rule->spend_to === null ? null : (float) $rule->spend_to,

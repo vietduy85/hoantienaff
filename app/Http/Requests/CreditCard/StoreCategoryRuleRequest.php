@@ -2,12 +2,23 @@
 
 namespace App\Http\Requests\CreditCard;
 
-use App\Models\CreditCard\Category;
-use Closure;
+use App\Http\Requests\CreditCard\Concerns\ValidatesRuleTargets;
+use App\Models\CreditCard\PolicyTierCategory;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Validator;
 
 /**
- * Thêm quy tắc cashback cho một danh mục trong một bậc.
+ * Thêm quy tắc cashback cho một DANH MỤC, một COMBO, hoặc làm fallback trong một bậc.
+ *
+ * ---------------------------------------------------------------------------
+ * BA LOẠI TARGET
+ * ---------------------------------------------------------------------------
+ *   1. rule danh mục : `scope_type=category` + `category_id` có  + `combo_id` NULL
+ *   2. rule combo    : `scope_type=category` + `combo_id` CÓ     + `category_id` NULL
+ *   3. fallback      : `scope_type=other`    + cả hai target đều NULL
+ *
+ * Client cũ chỉ gửi `category_id` (không `scope_type`) vẫn hợp lệ — mặc định là
+ * rule danh mục, nên không phá payload đang chạy.
  *
  * ---------------------------------------------------------------------------
  * KHÔNG CÓ TRƯỜNG CASHBACK KẾT QUẢ
@@ -23,6 +34,8 @@ use Illuminate\Foundation\Http\FormRequest;
  */
 class StoreCategoryRuleRequest extends FormRequest
 {
+    use ValidatesRuleTargets;
+
     public function authorize(): bool
     {
         return $this->user() !== null;
@@ -30,8 +43,7 @@ class StoreCategoryRuleRequest extends FormRequest
 
     public function rules(): array
     {
-        return [
-            'category_id' => ['required', 'integer', $this->categoryRule()],
+        return array_merge($this->ruleTargetRules(), [
             'cashback_percent' => ['required', 'numeric', 'min:0', 'max:100'],
             'name' => ['nullable', 'string', 'max:150'],
             'sort_order' => ['sometimes', 'integer', 'min:0'],
@@ -42,45 +54,21 @@ class StoreCategoryRuleRequest extends FormRequest
             'min_transaction_amount' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'is_enabled' => ['sometimes', 'boolean'],
             'note' => ['sometimes', 'nullable', 'string', 'max:1000'],
-        ];
+        ]);
     }
 
     public function messages(): array
     {
         return [
-            'category_id.required' => 'Vui lòng chọn danh mục.',
             'cashback_percent.required' => 'Vui lòng nhập tỷ lệ hoàn tiền.',
             'cashback_percent.max' => 'Tỷ lệ hoàn tiền không được vượt quá 100%.',
             'spend_from.min' => 'Ngưỡng chi tiêu không được âm.',
         ];
     }
 
-    /**
-     * Danh mục phải ĐANG HOẠT ĐỘNG và user được phép dùng.
-     *
-     * Dùng `Category::query()` (model của connection `creditcard`) chứ không dùng
-     * tên bảng thô, và dùng `selectableBy` để không chọn trúng danh mục ẩn hoặc
-     * danh mục của người khác. Thông báo lỗi CỐ Ý không phân biệt "không tồn tại"
-     * với "không thuộc quyền" — nếu phân biệt thì API trở thành công cụ dò tìm id.
-     */
-    private function categoryRule(): Closure
+    public function withValidator(Validator $validator): void
     {
-        return function (string $attribute, mixed $value, Closure $fail): void {
-            if (! is_numeric($value)) {
-                $fail('Danh mục không hợp lệ.');
-
-                return;
-            }
-
-            $exists = Category::query()
-                ->selectableBy((int) $this->user()->id)
-                ->whereKey((int) $value)
-                ->exists();
-
-            if (! $exists) {
-                $fail('Danh mục không hợp lệ hoặc bạn không được sử dụng.');
-            }
-        };
+        $this->assertSingleTarget($validator, (int) $this->user()->id);
     }
 
     /**
@@ -89,7 +77,9 @@ class StoreCategoryRuleRequest extends FormRequest
     public function payload(): array
     {
         return [
-            'category_id' => (int) $this->input('category_id'),
+            'scope_type' => $this->input('scope_type', PolicyTierCategory::SCOPE_CATEGORY),
+            'category_id' => $this->optionalId('category_id'),
+            'combo_id' => $this->optionalId('combo_id'),
             'cashback_percent' => $this->input('cashback_percent'),
             'name' => $this->input('name'),
             'sort_order' => $this->input('sort_order'),
@@ -101,5 +91,16 @@ class StoreCategoryRuleRequest extends FormRequest
             'is_enabled' => $this->input('is_enabled', true),
             'note' => $this->input('note'),
         ];
+    }
+
+    private function optionalId(string $field): ?int
+    {
+        $value = $this->input($field);
+
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return (int) $value;
     }
 }

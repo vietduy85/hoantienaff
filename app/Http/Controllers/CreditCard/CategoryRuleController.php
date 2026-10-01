@@ -8,7 +8,9 @@ use App\Http\Requests\CreditCard\CloneCategoryRuleRequest;
 use App\Http\Requests\CreditCard\StoreCategoryRuleRequest;
 use App\Http\Requests\CreditCard\UpdateCategoryRuleRequest;
 use App\Models\CreditCard\Category;
+use App\Models\CreditCard\CategoryCombo;
 use App\Models\CreditCard\PolicyTierCategory;
+use App\Services\CreditCard\CategoryComboService;
 use App\Services\CreditCard\CategoryRuleService;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
@@ -32,20 +34,26 @@ class CategoryRuleController extends Controller
 
     public function __construct(
         private readonly CategoryRuleService $rules,
+        private readonly CategoryComboService $combos,
     ) {}
 
     /**
-     * Rule của một bậc + danh mục user được phép chọn (cho form thêm rule).
+     * Rule của một bậc + mục tiêu user được phép chọn (cho form thêm rule).
+     *
+     * `meta` gồm CẢ danh mục lẫn combo: rule có ba loại target (danh mục | combo |
+     * fallback) nên form cần danh sách combo để user không phải tự dò id.
      */
     public function index(Request $request, string $tier): JsonResponse
     {
         $model = $this->tierAsParent($tier);
 
+        $userId = (int) $request->user()->id;
+
         return response()->json([
             'data' => $this->rules->listFor($model)->map(fn (PolicyTierCategory $rule) => $this->present($rule)),
             'meta' => [
                 'categories' => Category::query()
-                    ->selectableBy((int) $request->user()->id)
+                    ->selectableBy($userId)
                     ->orderBy('name')
                     ->get()
                     ->map(fn (Category $category) => [
@@ -54,6 +62,17 @@ class CategoryRuleController extends Controller
                         'slug' => $category->slug,
                         'scope' => $category->scope,
                     ]),
+                'combos' => $this->combos->selectableFor($userId)
+                    ->map(fn (CategoryCombo $combo) => [
+                        'id' => $combo->id,
+                        'name' => $combo->name,
+                        'slug' => $combo->slug,
+                        'scope' => $combo->scope,
+                        'is_active' => (bool) $combo->is_active,
+                        'category_ids' => $combo->items->pluck('category_id')->map(fn ($id) => (int) $id)->all(),
+                        'category_count' => $combo->items->count(),
+                    ])
+                    ->values(),
             ],
         ]);
     }
@@ -115,13 +134,22 @@ class CategoryRuleController extends Controller
      */
     private function present(PolicyTierCategory $rule): array
     {
-        $rule->loadMissing('category');
+        $rule->loadMissing('category', 'combo');
 
         return [
             'id' => $rule->id,
             'tier_id' => $rule->tier_id,
+            // Target: đúng một trong `category_id` / `combo_id` có giá trị, hoặc
+            // cả hai null khi rule là fallback.
+            'target_type' => $rule->isFallback()
+                ? 'other'
+                : ($rule->combo_id !== null ? 'combo' : 'category'),
             'category_id' => $rule->category_id,
             'category_name' => $rule->category?->name,
+            'combo_id' => $rule->combo_id,
+            'combo_name' => $rule->combo?->name,
+            'scope_type' => $rule->scope_type ?? PolicyTierCategory::SCOPE_CATEGORY,
+            'counts_toward_tier_cap' => (bool) ($rule->counts_toward_tier_cap ?? ! $rule->isFallback()),
             'name' => $rule->name,
             'sort_order' => (int) $rule->sort_order,
             'spend_from' => (float) $rule->spend_from,

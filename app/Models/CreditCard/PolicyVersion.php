@@ -3,6 +3,7 @@
 namespace App\Models\CreditCard;
 
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\DB;
 
 /**
  * PolicyVersion — MỘT version cụ thể của Card Policy.
@@ -37,5 +38,55 @@ class PolicyVersion extends Policy
     public function isFirstVersion(): bool
     {
         return (int) $this->version_no === 1;
+    }
+
+    /**
+     * Đếm các tham chiếu khiến version này KHÔNG được xóa.
+     *
+     * Thẻ/transaction được deep clone nên thường trỏ vào bản ghi riêng của thẻ;
+     * nhưng nếu dữ liệu lịch sử (kỳ finalize, test...) trỏ thẳng vào blueprint,
+     * vẫn phải chặn xóa để không làm vỡ snapshot.
+     *
+     * @return array{transactions: int, periods: int, cards: int}
+     */
+    public function usageCounts(): array
+    {
+        return self::usageCountsForPolicy((int) $this->id);
+    }
+
+    /**
+     * @return array{transactions: int, periods: int, cards: int}
+     */
+    public static function usageCountsForPolicy(int $policyId): array
+    {
+        $tierIds = PolicyTier::query()->where('policy_id', $policyId)->pluck('id');
+        $ruleIds = PolicyTierCategory::query()->whereIn('tier_id', $tierIds)->pluck('id');
+
+        $transactions = DB::connection('creditcard')->table('credit_card_transactions')
+            ->where(function ($query) use ($policyId, $tierIds, $ruleIds): void {
+                $query->where('policy_version_id', $policyId)
+                    ->orWhereIn('policy_tier_id', $tierIds)
+                    ->orWhereIn('policy_tier_category_id', $ruleIds);
+            })
+            ->count();
+
+        $periods = DB::connection('creditcard')->table('credit_card_statement_periods')
+            ->where('policy_id', $policyId)
+            ->count();
+
+        $cards = DB::connection('creditcard')->table('credit_card_user_cards')
+            ->where('current_policy_id', $policyId)
+            ->count();
+
+        return [
+            'transactions' => $transactions,
+            'periods' => $periods,
+            'cards' => $cards,
+        ];
+    }
+
+    public function isReferenced(): bool
+    {
+        return array_sum($this->usageCounts()) > 0;
     }
 }

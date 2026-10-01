@@ -2,6 +2,7 @@
 
 namespace App\Models\CreditCard;
 
+use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -50,7 +51,7 @@ abstract class CreditCardModel extends Model
      */
     protected function mainDatabaseConnectionName(): string
     {
-        $user = new \App\Models\User();
+        $user = new User;
 
         return $user->getConnectionName() ?: (string) config('database.default');
     }

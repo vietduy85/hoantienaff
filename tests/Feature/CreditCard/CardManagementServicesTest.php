@@ -6,6 +6,7 @@ use App\Models\CreditCard\Bank;
 use App\Models\CreditCard\Category;
 use App\Models\CreditCard\Policy;
 use App\Models\CreditCard\PolicyTemplate;
+use App\Models\CreditCard\PolicyTierCategory;
 use App\Models\CreditCard\PolicyVersion;
 use App\Models\CreditCard\UserCard;
 use App\Models\User;
@@ -13,6 +14,7 @@ use App\Services\CreditCard\BankService;
 use App\Services\CreditCard\CategoryRuleService;
 use App\Services\CreditCard\CategoryService;
 use App\Services\CreditCard\PolicyService;
+use App\Services\CreditCard\TierResolverService;
 use App\Services\CreditCard\TierService;
 use App\Services\CreditCard\UserCardService;
 use Carbon\CarbonImmutable;
@@ -396,7 +398,7 @@ class CardManagementServicesTest extends TestCase
                 'name' => 'Bậc 1',
                 'min_total_spend' => 0,
                 'max_total_spend' => null,
-                'categories' => [['category_id' => $category->id, 'cashback_percent' => '2.500']],
+                'rules' => [['category_id' => $category->id, 'cashback_percent' => '2.500']],
             ]],
         ]);
 
@@ -404,7 +406,9 @@ class CardManagementServicesTest extends TestCase
         $this->assertSame($version->id, (int) $version->root_policy_id);
         $this->assertSame($version->id, (int) $card->refresh()->current_policy_id);
         $this->assertCount(1, $version->tiers);
-        $this->assertCount(1, $version->tiers->first()->tierCategoryRules);
+        $tier = $version->tiers->first();
+        $this->assertCount(1, $tier->tierCategoryRules()->categorySpecific()->get());
+        $this->assertCount(1, $tier->tierCategoryRules()->fallback()->get(), 'Mỗi bậc có đúng 1 fallback mặc định.');
     }
 
     #[Test]
@@ -420,7 +424,7 @@ class CardManagementServicesTest extends TestCase
                 'name' => 'Bậc 1',
                 'min_total_spend' => 0,
                 'max_total_spend' => null,
-                'categories' => [['category_id' => $category->id, 'cashback_percent' => '2.500']],
+                'rules' => [['category_id' => $category->id, 'cashback_percent' => '2.500']],
             ]],
         ]);
 
@@ -440,7 +444,7 @@ class CardManagementServicesTest extends TestCase
         $this->assertNotNull($firstRefreshed->effective_to);
         $this->assertSame(
             '2.500',
-            $firstRefreshed->tiers->first()->tierCategoryRules->first()->cashback_percent
+            $firstRefreshed->tiers->first()->tierCategoryRules()->whereNotNull('category_id')->first()->cashback_percent
         );
 
         // Version mới có bản ghi rule RIÊNG, không dùng chung id.
@@ -514,7 +518,7 @@ class CardManagementServicesTest extends TestCase
                 'name' => 'Bậc 1',
                 'min_total_spend' => 0,
                 'max_total_spend' => null,
-                'categories' => [[
+                'rules' => [[
                     'category_id' => $category->id,
                     'cashback_percent' => '5.000',
                 ]],
@@ -587,7 +591,7 @@ class CardManagementServicesTest extends TestCase
                 'name' => 'Bậc 1',
                 'min_total_spend' => 0,
                 'max_total_spend' => null,
-                'categories' => [['category_id' => $category->id, 'cashback_percent' => '4.000']],
+                'rules' => [['category_id' => $category->id, 'cashback_percent' => '4.000']],
             ]],
         ]);
 
@@ -645,7 +649,7 @@ class CardManagementServicesTest extends TestCase
                 'name' => 'Bậc 1',
                 'min_total_spend' => 0,
                 'max_total_spend' => null,
-                'categories' => [['category_id' => $category->id, 'cashback_percent' => '2.000']],
+                'rules' => [['category_id' => $category->id, 'cashback_percent' => '2.000']],
             ]],
         ]);
 
@@ -811,6 +815,267 @@ class CardManagementServicesTest extends TestCase
 
         $tiers = $this->tiers->listFor($version);
         $this->assertSame(['Thấp', 'Cao'], $tiers->pluck('name')->all());
-        $this->assertCount(0, $this->rules->listFor($tiers->first()));
+        $listed = $this->rules->listFor($tiers->first());
+        $this->assertCount(0, $listed->reject(fn ($rule) => $rule->isFallback()));
+        $this->assertCount(1, $listed->filter(fn ($rule) => $rule->isFallback()));
+    }
+
+    // =====================================================================
+    // §15 — FALLBACK "📦 CÁC DANH MỤC CÒN LẠI"
+    // =====================================================================
+
+    #[Test]
+    public function a_new_tier_automatically_gets_the_catch_all_fallback(): void
+    {
+        $user = User::factory()->create();
+        $card = $this->makeUserCard($user->id);
+        $version = $this->policies->createFromScratch($card, CarbonImmutable::parse('2026-10-01'), [
+            'name' => 'V1',
+            'tiers' => [
+                ['name' => 'Bậc 1', 'min_total_spend' => 0, 'max_total_spend' => 10000000],
+            ],
+        ]);
+
+        $tier = $this->tiers->create($version, [
+            'name' => 'Bậc mới',
+            'min_total_spend' => 10000000,
+            'max_total_spend' => null,
+        ]);
+
+        $fallbacks = $tier->tierCategoryRules()->fallback()->get();
+
+        $this->assertCount(1, $fallbacks, 'Mỗi bậc có đúng 1 fallback mặc định.');
+        $this->assertSame(PolicyTierCategory::SCOPE_OTHER, $fallbacks->first()->scope_type);
+        $this->assertNull($fallbacks->first()->category_id);
+        $this->assertSame('0.000', $fallbacks->first()->cashback_percent);
+        $this->assertFalse((bool) $fallbacks->first()->counts_toward_tier_cap);
+        $this->assertTrue((bool) $fallbacks->first()->is_enabled);
+        $this->assertSame(PolicyTierCategory::FALLBACK_NAME, $fallbacks->first()->name);
+    }
+
+    #[Test]
+    public function the_fallback_rule_sorts_after_the_specific_rules(): void
+    {
+        $category = $this->makeSystemCategory();
+        $template = $this->policies->createSystemTemplate(
+            'Policy fallback cuối',
+            null,
+            CarbonImmutable::parse('2026-09-01'),
+            [
+                'tiers' => [
+                    [
+                        'name' => 'Bậc 1',
+                        'min_total_spend' => 0,
+                        'max_total_spend' => null,
+                        'rules' => [
+                            ['category_id' => $category->id, 'cashback_percent' => '2.000'],
+                        ],
+                    ],
+                ],
+            ],
+            true,
+        );
+
+        $ordered = $this->rules->listFor($template->defaultBlueprint()->tiers()->firstOrFail());
+
+        $this->assertCount(1, $ordered->reject(fn ($rule) => $rule->isFallback()));
+        $this->assertTrue($ordered->last()->isFallback(), 'Fallback render sau các rule cụ thể.');
+        $this->assertLessThan((int) $ordered->last()->sort_order, (int) $ordered->first()->sort_order);
+    }
+
+    #[Test]
+    public function ensure_single_fallback_is_idempotent(): void
+    {
+        $user = User::factory()->create();
+        $card = $this->makeUserCard($user->id);
+        $version = $this->policies->createFromScratch($card, CarbonImmutable::parse('2026-10-01'), ['name' => 'V1']);
+        $tier = $version->tiers->first();
+
+        $first = $this->rules->ensureSingleFallback($tier);
+        $second = $this->rules->ensureSingleFallback($tier);
+
+        $this->assertSame((int) $first->id, (int) $second->id, 'Chạy lại không tạo fallback thứ hai.');
+        $this->assertCount(1, $tier->tierCategoryRules()->fallback()->get());
+    }
+
+    #[Test]
+    public function ensure_single_fallback_applies_provided_config_when_creating(): void
+    {
+        $user = User::factory()->create();
+        $card = $this->makeUserCard($user->id);
+        $policy = $this->makePolicyForCard($card, [['name' => 'Bậc 1', 'min' => 0, 'max' => null]], []);
+        $tier = $policy->tiers->first();
+
+        $fallback = $this->rules->ensureSingleFallback($tier, [
+            'cashback_percent' => 5,
+            'counts_toward_tier_cap' => true,
+            'name' => 'Khác',
+        ]);
+
+        $this->assertSame('5.000', $fallback->cashback_percent);
+        $this->assertTrue((bool) $fallback->counts_toward_tier_cap);
+        $this->assertSame('Khác', $fallback->name);
+        $this->assertSame(PolicyTierCategory::SCOPE_OTHER, $fallback->scope_type);
+        $this->assertNull($fallback->category_id);
+    }
+
+    #[Test]
+    public function ensure_single_fallback_collapses_duplicate_fallbacks_keeping_the_first(): void
+    {
+        $user = User::factory()->create();
+        $card = $this->makeUserCard($user->id);
+        $policy = $this->makePolicyForCard($card, [['name' => 'Bậc 1', 'min' => 0, 'max' => null]], []);
+        $tier = $policy->tiers->first();
+
+        $first = PolicyTierCategory::create([
+            'tier_id' => $tier->id,
+            'category_id' => null,
+            'scope_type' => PolicyTierCategory::SCOPE_OTHER,
+            'counts_toward_tier_cap' => false,
+            'sort_order' => 1,
+            'cashback_percent' => '0.000',
+        ]);
+        PolicyTierCategory::create([
+            'tier_id' => $tier->id,
+            'category_id' => null,
+            'scope_type' => PolicyTierCategory::SCOPE_OTHER,
+            'counts_toward_tier_cap' => false,
+            'sort_order' => 2,
+            'cashback_percent' => '0.000',
+        ]);
+
+        $kept = $this->rules->ensureSingleFallback($tier);
+
+        $this->assertSame((int) $first->id, (int) $kept->id, 'Giữ fallback đầu tiên theo sort_order.');
+        $this->assertCount(1, $tier->tierCategoryRules()->fallback()->get());
+    }
+
+    #[Test]
+    public function creating_a_second_fallback_rule_is_rejected(): void
+    {
+        $user = User::factory()->create();
+        $card = $this->makeUserCard($user->id);
+        $policy = $this->makePolicyForCard($card, [['name' => 'Bậc 1', 'min' => 0, 'max' => null]], []);
+        $tier = $policy->tiers->first();
+
+        $this->rules->create($tier, ['scope_type' => 'other']);
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('Chỉ được có một quy tắc "'.PolicyTierCategory::FALLBACK_NAME.'" trong mỗi bậc.');
+        $this->rules->create($tier, ['scope_type' => 'other']);
+    }
+
+    #[Test]
+    public function a_category_rule_requires_a_category_id(): void
+    {
+        $user = User::factory()->create();
+        $card = $this->makeUserCard($user->id);
+        $policy = $this->makePolicyForCard($card, [['name' => 'Bậc 1', 'min' => 0, 'max' => null]], []);
+        $tier = $policy->tiers->first();
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Quy tắc danh mục phải chọn một danh mục cụ thể.');
+        $this->rules->create($tier, []);
+    }
+
+    #[Test]
+    public function the_fallback_rule_cannot_be_deleted(): void
+    {
+        $user = User::factory()->create();
+        $card = $this->makeUserCard($user->id);
+        $policy = $this->makePolicyForCard($card, [['name' => 'Bậc 1', 'min' => 0, 'max' => null]], []);
+        $tier = $policy->tiers->first();
+        $fallback = $this->rules->ensureSingleFallback($tier);
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('Quy tắc "'.PolicyTierCategory::FALLBACK_NAME.'" là quy tắc mặc định của mỗi bậc và không thể xóa.');
+        $this->rules->delete($fallback->id);
+    }
+
+    #[Test]
+    public function a_specific_rule_cannot_be_converted_to_fallback_when_one_exists(): void
+    {
+        $user = User::factory()->create();
+        $card = $this->makeUserCard($user->id);
+        $category = $this->makeSystemCategory();
+        $version = $this->policies->createFromScratch($card, CarbonImmutable::parse('2026-10-01'), [
+            'name' => 'V1',
+            'tiers' => [
+                [
+                    'name' => 'Bậc 1',
+                    'min_total_spend' => 0,
+                    'max_total_spend' => null,
+                    'rules' => [
+                        ['category_id' => $category->id, 'cashback_percent' => '2.000'],
+                    ],
+                ],
+            ],
+        ]);
+        $specific = $version->tiers->first()->tierCategoryRules()->whereNotNull('category_id')->first();
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('Chỉ được có một quy tắc "'.PolicyTierCategory::FALLBACK_NAME.'" trong mỗi bậc.');
+        $this->rules->update($specific->id, ['scope_type' => 'other']);
+    }
+
+    #[Test]
+    public function tier_resolver_flattens_the_fallback_scope_and_cap_flag(): void
+    {
+        $user = User::factory()->create();
+        $card = $this->makeUserCard($user->id);
+        $category = $this->makeSystemCategory();
+        $version = $this->policies->createFromScratch($card, CarbonImmutable::parse('2026-10-01'), [
+            'name' => 'V1',
+            'tiers' => [
+                [
+                    'name' => 'Bậc 1',
+                    'min_total_spend' => 0,
+                    'max_total_spend' => null,
+                    'rules' => [
+                        ['category_id' => $category->id, 'cashback_percent' => '2.000'],
+                    ],
+                ],
+            ],
+        ]);
+
+        $rows = app(TierResolverService::class)->rulesForTier($version->tiers->first());
+        $specific = collect($rows)->first(fn (array $rule): bool => $rule['scope_type'] === 'category');
+        $fallback = collect($rows)->first(fn (array $rule): bool => $rule['scope_type'] === 'other');
+
+        $this->assertNotNull($specific);
+        $this->assertTrue($specific['counts_toward_tier_cap'], 'Rule cụ thể mặc định tính vào cap bậc.');
+        $this->assertNotNull($fallback, 'Resolver phẳng phải chứa fallback.');
+        $this->assertNull($fallback['category_id']);
+        $this->assertFalse($fallback['counts_toward_tier_cap']);
+        $this->assertSame(0.0, $fallback['cashback_percent']);
+    }
+
+    #[Test]
+    public function all_enabled_rules_include_each_tiers_fallback_exactly_once(): void
+    {
+        $user = User::factory()->create();
+        $card = $this->makeUserCard($user->id);
+        $version = $this->policies->createFromScratch($card, CarbonImmutable::parse('2026-10-01'), [
+            'name' => 'V1',
+            'tiers' => [
+                ['name' => 'Thấp', 'min_total_spend' => 0, 'max_total_spend' => 10000000],
+                ['name' => 'Cao', 'min_total_spend' => 10000000, 'max_total_spend' => null],
+            ],
+        ]);
+
+        $rows = app(TierResolverService::class)->allEnabledRulesFor($version);
+        $fallbacks = collect($rows)->filter(fn (array $rule): bool => $rule['scope_type'] === 'other');
+
+        $this->assertSame(2, $fallbacks->count(), 'Mỗi bậc đóng góp đúng 1 fallback.');
+        $this->assertSame(
+            collect($rows)->groupBy('tier_id')->count(),
+            $fallbacks->unique('tier_id')->count(),
+            'Mỗi tier chỉ có một fallback trong danh sách phẳng.',
+        );
+
+        foreach ($fallbacks as $fallback) {
+            $this->assertNull($fallback['category_id']);
+            $this->assertFalse($fallback['counts_toward_tier_cap']);
+        }
     }
 }

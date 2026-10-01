@@ -8,6 +8,7 @@ use App\Models\CreditCard\Policy;
 use App\Models\CreditCard\PolicyTemplate;
 use App\Models\CreditCard\PolicyTier;
 use App\Models\CreditCard\PolicyTierCategory;
+use App\Services\CreditCard\CategoryRuleService;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -21,8 +22,11 @@ use RuntimeException;
  * ---------------------------------------------------------------------------
  * IDEMPOTENT
  * ---------------------------------------------------------------------------
- * Dùng `updateOrCreate` theo khoá tự nhiên (`slug`) nên chạy lại nhiều lần vẫn
- * cho cùng kết quả, không nhân bản dữ liệu.
+ * Chạy lại nhiều lần vẫn cho cùng kết quả, không nhân bản dữ liệu. Bank dùng
+ * `updateOrCreate` theo khoá tự nhiên (`slug`). Riêng danh mục hệ thống CHỈ tạo
+ * khi còn thiếu và KHÔNG đè lên `name`/`description`/`sort_order`/`is_active`/
+ * `is_default` mà admin đã chỉnh qua module "Quản lý danh mục hệ thống" — admin
+ * là chủ thật sự của master data, seeder chỉ đảm bảo 19 danh mục gốc có mặt.
  *
  * ---------------------------------------------------------------------------
  * KHÔNG BAO GIỜ ĐỤNG DB CHÍNH
@@ -293,16 +297,29 @@ class CreditCardSeeder extends Seeder
         $categories = [];
 
         foreach (self::CATEGORIES as $row) {
-            $categories[$row['slug']] = Category::updateOrCreate(
-                ['scope' => Category::SCOPE_SYSTEM, 'owner_user_id' => Category::SYSTEM_OWNER_ID, 'slug' => $row['slug']],
-                [
+            $category = Category::query()
+                ->where('scope', Category::SCOPE_SYSTEM)
+                ->where('owner_user_id', Category::SYSTEM_OWNER_ID)
+                ->where('slug', $row['slug'])
+                ->first();
+
+            // CHỈ tạo khi còn thiếu. KHÔNG overwrite `name`/`description`/
+            // `sort_order`/`is_active`/`is_default` mà admin đã chỉnh qua module
+            // "Quản lý danh mục hệ thống".
+            if ($category === null) {
+                $category = Category::create([
+                    'scope' => Category::SCOPE_SYSTEM,
+                    'owner_user_id' => Category::SYSTEM_OWNER_ID,
+                    'slug' => $row['slug'],
                     'name' => $row['name'],
                     'description' => $row['description'],
                     'is_active' => true,
                     'is_default' => $row['is_default'],
                     'sort_order' => $row['sort_order'],
-                ]
-            );
+                ]);
+            }
+
+            $categories[$row['slug']] = $category;
         }
 
         return $categories;
@@ -369,6 +386,12 @@ class CreditCardSeeder extends Seeder
             'min_total_spend' => '5000000.00',
             'max_total_spend' => null,
         ]);
+
+        // Mỗi bậc bắt buộc có đúng một fallback "📦 Các danh mục còn lại"
+        // (category_id = NULL, 0%, không tính vào trần của bậc).
+        $rulesService = app(CategoryRuleService::class);
+        $rulesService->ensureSingleFallback($basic);
+        $rulesService->ensureSingleFallback($advanced);
 
         $this->seedRules($basic, $categories, [
             ['slug' => 'mua-sam-truc-tuyen', 'from' => 0, 'to' => null, 'percent' => '2.000', 'cap_tx' => '100000.00', 'cap_cat' => '1000000.00'],

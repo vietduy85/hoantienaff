@@ -9,9 +9,11 @@ use App\Models\CreditCard\Transaction;
 use App\Models\CreditCard\UserCard;
 use App\Models\User;
 use App\Services\CreditCard\CashbackRecordService;
+use App\Services\CreditCard\CategoryRuleService;
 use App\Services\CreditCard\PolicyCloneService;
 use App\Services\CreditCard\PolicyEngineService;
 use App\Services\CreditCard\StatementPeriodService;
+use App\Services\CreditCard\TierService;
 use Carbon\CarbonImmutable;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Concerns\InteractsWithCreditCardDatabase;
@@ -238,7 +240,7 @@ class CashbackPipelineTest extends TestCase
                         'name' => 'Bậc v2',
                         'min_total_spend' => 0,
                         'max_total_spend' => null,
-                        'categories' => [
+                        'rules' => [
                             [
                                 'category_id' => $this->category->id,
                                 'cashback_percent' => 3.0,
@@ -455,6 +457,76 @@ class CashbackPipelineTest extends TestCase
 
         $this->assertNull($foreign->refresh()->statement_period_id);
         $this->assertNull($foreign->refresh()->cashback_amount_snapshot);
+    }
+
+    // =====================================================================
+    // §15 — FALLBACK END-TO-END
+    // =====================================================================
+
+    #[Test]
+    public function a_transaction_in_a_category_without_a_specific_rule_gets_the_fallback_cashback(): void
+    {
+        $this->seedTwoTiers();
+
+        $policy = $this->card->refresh()->currentPolicy;
+        $tier1 = $policy->tiers()->orderBy('sort_order')->orderBy('id')->first();
+        app(CategoryRuleService::class)->create($tier1, ['scope_type' => 'other']);
+
+        $otherCategory = $this->makeSystemCategory();
+
+        $period = $this->periods->resolvePeriodForDate($this->card, CarbonImmutable::parse('2026-09-10'));
+
+        $specific = $this->addTransaction($period, '2026-09-05', '1000000');
+        $uncategorized = $this->addTransaction($period, '2026-09-28', '200000', ['category_id' => $otherCategory->id]);
+
+        $this->records->calculatePeriod($this->card, $period);
+
+        $this->assertSame('20000.00', $specific->refresh()->cashback_amount_snapshot, 'Danh mục có rule cụ thể giữ nguyên rate.');
+        $this->assertTrue((bool) $uncategorized->refresh()->is_eligible, 'Danh mục không có rule cụ thể vẫn eligible qua fallback.');
+        $this->assertNull($uncategorized->refresh()->ineligible_reason);
+        $this->assertSame('0.00', $uncategorized->refresh()->cashback_amount_snapshot, 'Fallback 0% cho 0đ nhưng vẫn đủ điều kiện.');
+
+        $this->assertSame('1200000.00', $period->refresh()->total_eligible_spend, 'Chi tiêu fallback vẫn tính vào tổng eligible.');
+        $this->assertSame('20000.00', $period->refresh()->total_cashback);
+    }
+
+    // =====================================================================
+    // §23 — giới hạn hoàn tiền theo giá trị giao dịch (cap động) E2E
+    // =====================================================================
+
+    #[Test]
+    public function dynamic_transaction_caps_apply_end_to_end(): void
+    {
+        $this->seedTwoTiers();
+
+        $period = $this->periods->resolvePeriodForDate($this->card, CarbonImmutable::parse('2026-09-10'));
+
+        // Gắn cap động cho BẬC 2 (10%) của danh mục.
+        $policy = Policy::where('user_card_id', $this->card->id)->firstOrFail();
+        $tier2 = $policy->tiers()->orderBy('sort_order')->get()[1];
+
+        app(TierService::class)->syncTransactionCaps($tier2, [
+            ['min_transaction_amount' => 0, 'max_transaction_amount' => 1000000, 'max_cashback_per_transaction' => 50000],
+            ['min_transaction_amount' => 1000000.01, 'max_transaction_amount' => null, 'max_cashback_per_transaction' => 200000],
+        ]);
+
+        // Giao dịch 6tr @10% = 600k thô → thuộc khoảng ≥ 1tr ⇒ cap 200k.
+        $big = $this->addTransaction($period, '2026-09-05', '6000000');
+        $this->records->calculatePeriod($this->card, $period);
+
+        $this->assertSame('10.000', $big->refresh()->cashback_percent_snapshot);
+        $this->assertSame('200000.00', $big->refresh()->cashback_amount_snapshot, 'Cap động khoảng [1tr, ∞) áp dụng.');
+
+        // Giao dịch 600k @10% = 60k thô → thuộc khoảng [0, 1tr] ⇒ cap 50k.
+        $small = $this->addTransaction($period, '2026-09-06', '600000');
+        $this->records->calculatePeriod($this->card, $period);
+
+        $this->assertSame('50000.00', $small->refresh()->cashback_amount_snapshot, 'Cap động khoảng [0, 1tr] áp dụng.');
+
+        // KPIs kỳ vẫn được cập nhật từ cashback thực nhận.
+        $period->refresh();
+        $this->assertSame('250000.00', $period->total_cashback);
+        $this->assertSame('6600000.00', $period->total_eligible_spend);
     }
 
     // =====================================================================

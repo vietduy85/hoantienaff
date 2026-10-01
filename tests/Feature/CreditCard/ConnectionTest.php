@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\CreditCard;
 
+use App\Models\CreditCard\PolicyTierCategoryTransactionCap;
 use App\Models\CreditCard\UserCard;
 use App\Models\User;
 use Illuminate\Support\Facades\Artisan;
@@ -47,7 +48,7 @@ class ConnectionTest extends TestCase
     }
 
     #[Test]
-    public function creditcard_database_contains_all_ten_tables(): void
+    public function creditcard_database_contains_all_credit_card_tables(): void
     {
         foreach ([
             'credit_card_banks',
@@ -57,6 +58,7 @@ class ConnectionTest extends TestCase
             'credit_card_policies',
             'credit_card_policy_tiers',
             'credit_card_policy_tier_categories',
+            'credit_card_policy_tier_category_transaction_caps',
             'credit_card_user_cards',
             'credit_card_statement_periods',
             'credit_card_transactions',
@@ -66,6 +68,76 @@ class ConnectionTest extends TestCase
                 "Thiếu bảng trên connection creditcard: {$table}"
             );
         }
+    }
+
+    #[Test]
+    public function transaction_caps_tables_columns_and_fk_are_declared(): void
+    {
+        $table = 'credit_card_policy_tier_category_transaction_caps';
+
+        $this->assertTrue(Schema::connection('creditcard')->hasTable($table));
+
+        foreach ([
+            'id',
+            'policy_tier_id',
+            'min_transaction_amount',
+            'max_transaction_amount',
+            'max_cashback_per_transaction',
+            'sort_order',
+            'created_at',
+            'updated_at',
+        ] as $column) {
+            $this->assertTrue(
+                Schema::connection('creditcard')->hasColumn($table, $column),
+                "Thiếu cột {$column} trên bảng {$table}"
+            );
+        }
+
+        $fk = collect(Schema::connection('creditcard')->getForeignKeys($table))
+            ->first(fn (array $key): bool => in_array('policy_tier_id', $key['columns'], true));
+
+        $this->assertNotNull($fk, 'Thiếu foreign key policy_tier_id.');
+        $this->assertSame(['policy_tier_id'], $fk['columns']);
+        $this->assertSame('credit_card_policy_tiers', $fk['foreign_table']);
+        $this->assertSame(['id'], $fk['foreign_columns']);
+        $this->assertSame('cascade', $fk['on_delete'], 'Xoá bậc phải xoá luôn các giới hạn.');
+    }
+
+    #[Test]
+    public function deleting_a_tier_cascades_to_its_transaction_caps(): void
+    {
+        $user = User::factory()->create();
+        $card = $this->makeUserCard($user->id);
+        $category = $this->makeSystemCategory();
+
+        $policy = $this->makePolicyForCard($card, [
+            ['name' => 'Bậc 1', 'min' => 0, 'max' => null],
+        ], [
+            ['category_id' => $category->id, 'percent' => '10.000'],
+        ]);
+
+        $tier = $policy->tiers()->firstOrFail();
+
+        PolicyTierCategoryTransactionCap::create([
+            'policy_tier_id' => $tier->id,
+            'min_transaction_amount' => 0,
+            'max_transaction_amount' => 500000,
+            'max_cashback_per_transaction' => 20000,
+            'sort_order' => 1,
+        ]);
+        PolicyTierCategoryTransactionCap::create([
+            'policy_tier_id' => $tier->id,
+            'min_transaction_amount' => 500000.01,
+            'max_transaction_amount' => null,
+            'max_cashback_per_transaction' => 90000,
+            'sort_order' => 2,
+        ]);
+
+        $this->assertSame(2, PolicyTierCategoryTransactionCap::where('policy_tier_id', $tier->id)->count());
+
+        $tier->delete();
+
+        $this->assertSame(0, PolicyTierCategoryTransactionCap::where('policy_tier_id', $tier->id)->count());
     }
 
     #[Test]

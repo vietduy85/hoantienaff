@@ -2,9 +2,9 @@
 
 namespace App\Http\Requests\CreditCard;
 
-use App\Models\CreditCard\Category;
-use Closure;
+use App\Http\Requests\CreditCard\Concerns\ValidatesRuleTargets;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Validator;
 
 /**
  * Sửa quy tắc cashback (PATCH một phần).
@@ -12,10 +12,23 @@ use Illuminate\Foundation\Http\FormRequest;
  * Không cho đổi `tier_id`: rule không di chuyển giữa các bậc. Muốn mang rule sang
  * bậc khác thì dùng `POST /quy-tac/{rule}/nhan-ban`.
  *
- * Giống `StoreCategoryRuleRequest`: KHÔNG có trường cashback kết quả.
+ * ---------------------------------------------------------------------------
+ * ĐỔI LOẠI TARGET
+ * ---------------------------------------------------------------------------
+ * Chuyển rule danh mục ⇄ rule combo bằng cách gửi target mới và target cũ bằng
+ * `null`:
+ *
+ *   - sang combo    : `{ "combo_id": 7, "category_id": null }`
+ *   - về danh mục   : `{ "category_id": 3, "combo_id": null }`
+ *
+ * Gửi cả hai khác null (hoặc cả hai null) là 422 — xem `ValidatesRuleTargets`.
+ * Nếu KHÔNG gửi target nào thì giữ nguyên target hiện tại (PATCH một phần), chỉ
+ * validate lại để chặn trường hợp target cũ đã không còn dùng được nữa.
  */
 class UpdateCategoryRuleRequest extends FormRequest
 {
+    use ValidatesRuleTargets;
+
     public function authorize(): bool
     {
         return $this->user() !== null;
@@ -23,8 +36,7 @@ class UpdateCategoryRuleRequest extends FormRequest
 
     public function rules(): array
     {
-        return [
-            'category_id' => ['sometimes', 'required', 'integer', $this->categoryRule()],
+        return array_merge($this->ruleTargetRules(), [
             'cashback_percent' => ['sometimes', 'required', 'numeric', 'min:0', 'max:100'],
             'name' => ['sometimes', 'nullable', 'string', 'max:150'],
             'sort_order' => ['sometimes', 'integer', 'min:0'],
@@ -35,37 +47,28 @@ class UpdateCategoryRuleRequest extends FormRequest
             'min_transaction_amount' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'is_enabled' => ['sometimes', 'boolean'],
             'note' => ['sometimes', 'nullable', 'string', 'max:1000'],
-        ];
+        ]);
     }
 
     public function messages(): array
     {
         return [
-            'category_id.required' => 'Vui lòng chọn danh mục.',
             'cashback_percent.required' => 'Vui lòng nhập tỷ lệ hoàn tiền.',
             'cashback_percent.max' => 'Tỷ lệ hoàn tiền không được vượt quá 100%.',
             'spend_from.min' => 'Ngưỡng chi tiêu không được âm.',
         ];
     }
 
-    private function categoryRule(): Closure
+    public function withValidator(Validator $validator): void
     {
-        return function (string $attribute, mixed $value, Closure $fail): void {
-            if (! is_numeric($value)) {
-                $fail('Danh mục không hợp lệ.');
+        $sendsTarget = $this->has('scope_type') || $this->has('category_id') || $this->has('combo_id');
 
-                return;
-            }
-
-            $exists = Category::query()
-                ->selectableBy((int) $this->user()->id)
-                ->whereKey((int) $value)
-                ->exists();
-
-            if (! $exists) {
-                $fail('Danh mục không hợp lệ hoặc bạn không được sử dụng.');
-            }
-        };
+        // PATCH không đụng target ⇒ để `CategoryRuleService::applyTarget()` giữ
+        // target hiện tại (nó tự validate lại target đó), không ép client phải
+        // gửi lại thứ không đổi.
+        if ($sendsTarget) {
+            $this->assertSingleTarget($validator, (int) $this->user()->id);
+        }
     }
 
     /**
@@ -76,7 +79,9 @@ class UpdateCategoryRuleRequest extends FormRequest
         $payload = [];
 
         foreach ([
+            'scope_type',
             'category_id',
+            'combo_id',
             'cashback_percent',
             'name',
             'sort_order',
@@ -89,10 +94,23 @@ class UpdateCategoryRuleRequest extends FormRequest
             'note',
         ] as $field) {
             if ($this->has($field)) {
-                $payload[$field] = $this->input($field);
+                $payload[$field] = in_array($field, ['category_id', 'combo_id'], true)
+                    ? $this->optionalId($field)
+                    : $this->input($field);
             }
         }
 
         return $payload;
+    }
+
+    private function optionalId(string $field): ?int
+    {
+        $value = $this->input($field);
+
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return (int) $value;
     }
 }

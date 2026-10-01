@@ -2,6 +2,7 @@
 
 namespace App\Models\CreditCard;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -15,12 +16,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  *
  * @property int $id
  * @property int $user_card_id
- * @property \Carbon\CarbonImmutable $period_start
- * @property \Carbon\CarbonImmutable $period_end
- * @property \Carbon\CarbonImmutable $statement_date
- * @property \Carbon\CarbonImmutable|null $payment_due_date
+ * @property CarbonImmutable $period_start
+ * @property CarbonImmutable $period_end
+ * @property CarbonImmutable $statement_date
+ * @property CarbonImmutable|null $payment_due_date
  * @property string $status
- * @property \Carbon\CarbonImmutable|null $finalized_at
+ * @property CarbonImmutable|null $finalized_at
  * @property string|null $total_eligible_spend
  * @property string|null $total_cashback
  * @property string|null $effective_cashback_rate
@@ -97,7 +98,7 @@ class StatementPeriod extends CreditCardModel
 
     public function contains(\DateTimeInterface $date): bool
     {
-        $date = \Carbon\CarbonImmutable::instance($date)->startOfDay();
+        $date = CarbonImmutable::instance($date)->startOfDay();
 
         return $date->greaterThanOrEqualTo($this->period_start->startOfDay())
             && $date->lessThanOrEqualTo($this->period_end->startOfDay());

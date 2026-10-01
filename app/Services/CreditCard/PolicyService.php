@@ -2,9 +2,12 @@
 
 namespace App\Services\CreditCard;
 
+use App\Models\CreditCard\Category;
+use App\Models\CreditCard\CategoryCombo;
 use App\Models\CreditCard\Policy;
 use App\Models\CreditCard\PolicyTemplate;
 use App\Models\CreditCard\PolicyTier;
+use App\Models\CreditCard\PolicyTierCategory;
 use App\Models\CreditCard\PolicyVersion;
 use App\Models\CreditCard\UserCard;
 use Carbon\CarbonImmutable;
@@ -86,6 +89,7 @@ class PolicyService
             $policy->forceFill(['root_policy_id' => $policy->id])->save();
 
             // Tạo ít nhất một bậc, nếu không sẽ không bao giờ resolve được tier.
+            // `TierService::create()` tự đảm bảo mỗi bậc có fallback "các danh mục còn lại".
             $tiers = $attributes['tiers'] ?? [[
                 'name' => 'Bậc cơ bản',
                 'sort_order' => 1,
@@ -194,6 +198,330 @@ class PolicyService
     }
 
     /**
+     * Admin TẠO MỚI một chính sách hệ thống (System Template + blueprint version 1).
+     *
+     * Template thuộc `scope = system`, owner là `SYSTEM_OWNER_ID`, KHÔNG ai sửa
+     * được ngoài admin (§12). Blueprint đầu tiên được tạo ngay với cấu hình từ
+     * `$overrides` (hoặc một bậc mặc định nếu bỏ trống).
+     *
+     * @param  array<string, mixed>  $overrides  name, min_total_spend, max_cashback_total_per_period, rounding_mode, tiers[]
+     */
+    public function createSystemTemplate(
+        string $name,
+        ?string $description,
+        DateTimeInterface $effectiveFrom,
+        array $overrides = [],
+        bool $isActive = true,
+    ): PolicyTemplate {
+        $this->assertSystemOnlyCategories($overrides['tiers'] ?? []);
+
+        return DB::connection('creditcard')->transaction(function () use ($name, $description, $effectiveFrom, $overrides, $isActive): PolicyTemplate {
+            $template = PolicyTemplate::create([
+                'scope' => PolicyTemplate::SCOPE_SYSTEM,
+                'owner_user_id' => PolicyTemplate::SYSTEM_OWNER_ID,
+                'name' => $name,
+                'slug' => $this->cloner->uniqueSlug($name),
+                'description' => $description,
+                'is_builtin' => false,
+                'is_active' => $isActive,
+                'sort_order' => 0,
+            ]);
+
+            $blueprint = $this->cloner->createTemplateBlueprint($template, $effectiveFrom, $overrides);
+
+            // Blueprint đầu tiên là mặc định: user mới nhận version nền tảng này
+            // cho đến khi admin chủ động đặt phiên bản khác làm default.
+            $template->forceFill(['default_version_id' => $blueprint->id])->save();
+
+            return $template->refresh();
+        });
+    }
+
+    /**
+     * Admin đổi cấu hình chính sách hệ thống ⇒ tạo blueprint version N+1.
+     *
+     * Append-only giống version của thẻ: blueprint cũ bị đóng, KHÔNG được sửa.
+     * `PolicyCloneService::createTemplateBlueprint()` lo việc clone + đóng version.
+     *
+     * Truyền `$sourceBlueprintId` khi luồng "Chỉnh sửa version N": version mới được
+     * tạo từ CHÍNH version đó cộng `$overrides` thay vì từ current/latest.
+     *
+     * @param  array<string, mixed>  $overrides
+     */
+    public function createSystemVersion(
+        PolicyTemplate $template,
+        DateTimeInterface $effectiveFrom,
+        array $overrides = [],
+        ?int $sourceBlueprintId = null,
+    ): PolicyVersion {
+        $this->assertSystemOnlyCategories($overrides['tiers'] ?? []);
+
+        return $this->cloner->createTemplateBlueprint($template, $effectiveFrom, $overrides, $sourceBlueprintId);
+    }
+
+    /**
+     * Admin "Lưu lại" — cập nhật IN-PLACE cấu hình của CHÍNH blueprint đang sửa.
+     *
+     * KHÔNG tạo version mới, KHÔNG đổi `version_no`, KHÔNG đổi default, KHÔNG
+     * cascade sang user policy (thẻ đã clone là bản SAO độc lập). Tier/rule cũ
+     * giữ nguyên `id` khi còn khớp với payload; rule vắng trong payload bị XÓA
+     * (chỉ xóa dòng `PolicyTierCategory`, không bao giờ xóa Category Master).
+     *
+     * Ngược lại hẳn với "Lưu phiên bản mới" (route `versions.store` đi qua
+     * `createSystemVersion()` + `createTemplateBlueprint()`): hai luồng này không
+     * được trộn.
+     *
+     * @param  array<string, mixed>  $data  effective_from, min_total_spend, max_cashback_total_per_period, tiers[]
+     */
+    public function updateSystemVersion(
+        PolicyTemplate $template,
+        PolicyVersion $version,
+        array $data,
+    ): PolicyVersion {
+        $this->assertSystemOnlyCategories($data['tiers'] ?? []);
+
+        return DB::connection('creditcard')->transaction(function () use ($template, $version, $data): PolicyVersion {
+            if ((int) $version->template_id !== (int) $template->id || $version->user_card_id !== null) {
+                throw new InvalidArgumentException('Phiên bản không thuộc blueprint của chính sách này.');
+            }
+
+            if ($version->is_locked) {
+                throw new LogicException('Phiên bản đã bị khoá (kỳ đã finalize), không cập nhật được.');
+            }
+
+            foreach (['effective_from', 'min_total_spend', 'max_cashback_total_per_period'] as $field) {
+                if (array_key_exists($field, $data)) {
+                    $value = in_array($field, ['min_total_spend', 'max_cashback_total_per_period'], true)
+                        ? $this->money($data[$field])
+                        : $data[$field];
+                    $version->forceFill([$field => $value])->save();
+                }
+            }
+
+            if (array_key_exists('tiers', $data)) {
+                $this->syncTiers($version, $data['tiers']);
+            }
+
+            return $version->refresh();
+        });
+    }
+
+    /**
+     * Đặt một blueprint của template thành version MẶC ĐỊNH.
+     *
+     * Đây là nguồn clone cho user MỚI (thay cho khái niệm "latest" cũ). Bất kỳ
+     * version nào thuộc blueprint của template đều có thể được chọn; cột scalar
+     * `default_version_id` đảm bảo luôn chỉ có MỘT default.
+     */
+    public function setDefaultVersion(PolicyTemplate $template, int $versionId): PolicyVersion
+    {
+        return DB::connection('creditcard')->transaction(function () use ($template, $versionId): PolicyVersion {
+            $blueprint = PolicyVersion::query()
+                ->where('id', $versionId)
+                ->where('template_id', $template->id)
+                ->whereNull('user_card_id')
+                ->first();
+
+            if ($blueprint === null) {
+                throw new InvalidArgumentException('Phiên bản không thuộc blueprint của chính sách này.');
+            }
+
+            $template->forceFill(['default_version_id' => $blueprint->id])->save();
+
+            return $blueprint->refresh();
+        });
+    }
+
+    /**
+     * Xóa một blueprint (version) của template hệ thống.
+     *
+     * Quy tắc duy nhất chặn xóa: version đang là MẶC ĐỊNH (`default_version_id`).
+     * Mọi trường hợp còn lại đều xóa được — kể cả version gốc của chuỗi, kể cả
+     * version đã có thẻ/giao dịch/kỳ sao kê trỏ tới: thẻ nhận DEEP CLONE nên
+     * policy của thẻ là bản SAO độc lập, không FK trực tiếp về blueprint.
+     *
+     * Khi xóa version gốc, `root_policy_id` của các version còn lại được remap sang
+     * version thấp nhất còn lại (version mới tự trỏ về chính nó) để không còn
+     * `root_policy_id` nào trỏ tới bản ghi đã xóa.
+     */
+    public function deleteSystemVersion(PolicyTemplate $template, PolicyVersion $version): void
+    {
+        if ((int) $version->template_id !== (int) $template->id || $version->user_card_id !== null) {
+            throw new InvalidArgumentException('Phiên bản không thuộc blueprint của chính sách này.');
+        }
+
+        if ((int) $template->default_version_id === (int) $version->id) {
+            throw new LogicException('Không thể xóa phiên bản MẶC ĐỊNH. Hãy đặt phiên bản khác làm mặc định trước.');
+        }
+
+        DB::connection('creditcard')->transaction(function () use ($version): void {
+            // Chuỗi version được nhận diện bằng root. Bản ghi root luôn tự trỏ về
+            // chính nó; fallback về chính id cho trường hợp legacy root_policy_id NULL.
+            $oldRootId = (int) ($version->root_policy_id ?? $version->id);
+
+            if ($version->isRoot()) {
+                $chainVersions = PolicyVersion::query()
+                    ->where(function ($query) use ($oldRootId): void {
+                        $query->where('id', $oldRootId)->orWhere('root_policy_id', $oldRootId);
+                    })
+                    ->whereKeyNot($version->id)
+                    ->orderBy('version_no')
+                    ->orderBy('id')
+                    ->get();
+
+                if ($chainVersions->isNotEmpty()) {
+                    $newRootId = (int) $chainVersions->first()->id;
+
+                    // Version thấp nhất còn lại làm gốc mới và tự trỏ về chính nó;
+                    // các version còn lại của chuỗi trỏ về gốc mới.
+                    PolicyVersion::query()
+                        ->where(function ($query) use ($oldRootId): void {
+                            $query->where('id', $oldRootId)->orWhere('root_policy_id', $oldRootId);
+                        })
+                        ->whereKeyNot($version->id)
+                        ->update(['root_policy_id' => $newRootId]);
+                }
+            }
+
+            PolicyVersion::query()->whereKey($version->id)->delete();
+        });
+    }
+
+    /**
+     * Mô tả các tham chiếu khiến version không xóa được, dạng ["N giao dịch", ...].
+     *
+     * @return Collection<int, string>
+     */
+    public function versionUsageLabels(PolicyVersion $version): Collection
+    {
+        $counts = $version->usageCounts();
+
+        $labels = collect();
+
+        if ($counts['transactions'] > 0) {
+            $labels->push($counts['transactions'].' giao dịch');
+        }
+
+        if ($counts['periods'] > 0) {
+            $labels->push($counts['periods'].' kỳ sao kê');
+        }
+
+        if ($counts['cards'] > 0) {
+            $labels->push($counts['cards'].' thẻ');
+        }
+
+        return $labels;
+    }
+
+    /**
+     * Backfill trần hoàn mỗi kỳ cho blueprint hệ thống legacy (idempotent).
+     *
+     * Trước đây trần hoàn mỗi kỳ nằm ở POLICY
+     * (`credit_card_policies.max_cashback_total_per_period`); nay nằm ở TỪNG BẬC
+     * (`credit_card_policy_tiers.max_cashback_per_period`). Hàm này được gọi từ
+     * migration 000014 để chuyển dữ liệu cũ:
+     *
+     *   - Blueprint có ĐÚNG MỘT bậc + trần policy ⇒ copy trần vào bậc (nếu bậc
+     *     chưa có trần). Cột policy cũ giữ nguyên.
+     *   - Blueprint NHIỀU bậc ⇒ không backfill (không biết trần thuộc bậc nào),
+     *     trả về danh sách để vận hành xử lý sau.
+     *
+     * Chạy lại an toàn: bậc đã có trần thì bỏ qua.
+     *
+     * @return array{backfilled: int, skipped_multi_tier: array<int, int>}
+     */
+    public function backfillSystemBlueprintCaps(): array
+    {
+        $blueprints = PolicyVersion::query()
+            ->whereNull('user_card_id')
+            ->whereNotNull('max_cashback_total_per_period')
+            ->with('tiers')
+            ->get();
+
+        $backfilled = 0;
+        $skipped = [];
+
+        foreach ($blueprints as $blueprint) {
+            $tiers = $blueprint->tiers;
+
+            if ($tiers->count() === 1) {
+                $tier = $tiers->first();
+
+                if ($tier->max_cashback_per_period === null) {
+                    $tier->forceFill([
+                        'max_cashback_per_period' => $blueprint->max_cashback_total_per_period,
+                    ])->save();
+
+                    $backfilled++;
+                }
+
+                continue;
+            }
+
+            $skipped[] = (int) $blueprint->id;
+        }
+
+        return [
+            'backfilled' => $backfilled,
+            'skipped_multi_tier' => array_values($skipped),
+        ];
+    }
+
+    /**
+     * Xoá bỏ con trỏ áp dụng khi template trỏ vào blueprint không còn tồn tại.
+     *
+     * Nội bộ: chỉ dùng khi phiên bản mặc định bị xóa (nullOnDelete) — đưa default
+     * về trạng thái chưa đặt, hệ thống sẽ fallback về current/latest.
+     */
+    public function normaliseDefault(PolicyTemplate $template): PolicyTemplate
+    {
+        if ($template->default_version_id !== null && $template->defaultVersion === null) {
+            $template->forceFill(['default_version_id' => null])->save();
+        }
+
+        return $template->refresh();
+    }
+
+    /**
+     * Sửa METADATA của template hệ thống (tên, mô tả, trang thái xuất bản).
+     *
+     * Đây là dữ liệu vỏ ngoài của template, KHÔNG phải business rule của blueprint
+     * (business rule chỉ đổi qua tạo version mới).
+     */
+    public function updateSystemMeta(PolicyTemplate $template, array $meta): PolicyTemplate
+    {
+        return DB::connection('creditcard')->transaction(function () use ($template, $meta): PolicyTemplate {
+            foreach (['name', 'description', 'is_active'] as $field) {
+                if (array_key_exists($field, $meta)) {
+                    $value = $meta[$field];
+
+                    if ($field === 'is_active') {
+                        $value = (bool) $value;
+                    }
+
+                    if ($field === 'name') {
+                        $value = trim((string) $value);
+                    }
+
+                    $template->forceFill([$field => $value])->save();
+                }
+            }
+
+            return $template->refresh();
+        });
+    }
+
+    /**
+     * Toàn bộ blueprint (các version) của một template hệ thống, theo version_no.
+     *
+     * @return Collection<int, PolicyVersion>
+     */
+    public function systemVersions(PolicyTemplate $template): Collection
+    {
+        return $template->blueprints()->get();
+    }
+
+    /**
      * Đổi tên version CHƯA dùng cho kỳ nào.
      *
      * Chỉ cho đổi metadata khi version chưa bị khoá và chưa superseded. Mọi thay
@@ -284,7 +612,7 @@ class PolicyService
             throw new InvalidArgumentException('Template này đã bị vô hiệu hoá.');
         }
 
-        if ($template->blueprint === null) {
+        if ($template->defaultBlueprint() === null) {
             throw new LogicException("Template \"{$template->name}\" chưa có cấu hình để sao chép.");
         }
 
@@ -328,13 +656,26 @@ class PolicyService
                 'sort_order' => $tier['sort_order'] ?? ($index + 1),
                 'min_total_spend' => $tier['min_total_spend'] ?? 0,
                 'max_total_spend' => $tier['max_total_spend'] ?? null,
+                'max_cashback_per_period' => $tier['max_cashback_per_period'] ?? null,
+                'transaction_caps' => $tier['transaction_caps'] ?? [],
             ]);
 
-            foreach ($tier['categories'] ?? [] as $rule) {
+            foreach ($tier['rules'] ?? [] as $rule) {
                 // Tương tự: `CategoryRuleService` kiểm danh mục còn dùng được,
                 // phần trăm hợp lệ và khoảng chi tiêu của rule.
+                $ruleScope = $rule['scope_type'] ?? PolicyTierCategory::SCOPE_CATEGORY;
+
+                // Fallback đã được `TierService::create()` tạo sẵn — payload chứa
+                // fallback chỉ để ĐỌC, không tạo bản thứ hai.
+                if ($ruleScope === PolicyTierCategory::SCOPE_OTHER) {
+                    continue;
+                }
+
                 $this->rules->create($created, [
-                    'category_id' => (int) $rule['category_id'],
+                    'scope_type' => PolicyTierCategory::SCOPE_CATEGORY,
+                    'category_id' => $rule['category_id'] ?? null,
+                    'combo_id' => $rule['combo_id'] ?? null,
+                    'counts_toward_tier_cap' => $rule['counts_toward_tier_cap'] ?? true,
                     'name' => $rule['name'] ?? null,
                     'sort_order' => $rule['sort_order'] ?? null,
                     'spend_from' => $rule['spend_from'] ?? 0,
@@ -350,6 +691,294 @@ class PolicyService
         }
     }
 
+    /**
+     * Đồng bộ tier của phiên bản với payload mới, GIỮ id của tier khi có thể.
+     *
+     * Tier vắng trong payload bị xóa (child rules xóa theo cascade của DB); tier
+     * giữ `id` được cập nhật các trường; tier không có `id` được tạo mới.
+     */
+    private function syncTiers(Policy $policy, array $tiers): void
+    {
+        if ($tiers === []) {
+            throw new InvalidArgumentException('Chính sách phải có ít nhất một bậc chi tiêu.');
+        }
+
+        $existing = $policy->tiers()->get()->keyBy('id');
+        $incoming = collect($tiers)->values();
+        $incomingIds = $incoming->pluck('id')->filter()->map(fn ($id): int => (int) $id)->all();
+
+        foreach ($existing as $tierId => $tier) {
+            if (! in_array($tierId, $incomingIds, true)) {
+                $tier->delete();
+                unset($existing[$tierId]);
+            }
+        }
+
+        foreach ($incoming as $index => $tier) {
+            $tierId = isset($tier['id']) && $tier['id'] !== null ? (int) $tier['id'] : null;
+            $model = $tierId !== null && $existing->has($tierId) ? $existing->get($tierId) : null;
+
+            if ($model === null) {
+                $model = $this->tiers->create($policy, [
+                    'name' => $tier['name'] ?? ('Bậc '.($index + 1)),
+                    'sort_order' => $tier['sort_order'] ?? ($index + 1),
+                    'min_total_spend' => $tier['min_total_spend'] ?? 0,
+                    'max_total_spend' => $tier['max_total_spend'] ?? null,
+                    'max_cashback_per_period' => $tier['max_cashback_per_period'] ?? null,
+                    'transaction_caps' => $tier['transaction_caps'] ?? [],
+                ]);
+            } else {
+                $model->forceFill([
+                    'name' => $tier['name'] ?? $model->name,
+                    'sort_order' => $tier['sort_order'] ?? ($index + 1),
+                    'min_total_spend' => array_key_exists('min_total_spend', $tier)
+                        ? (float) $tier['min_total_spend']
+                        : $model->min_total_spend,
+                    'max_total_spend' => array_key_exists('max_total_spend', $tier)
+                        ? ($tier['max_total_spend'] === null ? null : (float) $tier['max_total_spend'])
+                        : $model->max_total_spend,
+                    'max_cashback_per_period' => array_key_exists('max_cashback_per_period', $tier)
+                        ? $this->money($tier['max_cashback_per_period'])
+                        : $model->max_cashback_per_period,
+                ])->save();
+
+                // Cap động là tài sản của BẬC: khi payload mang key là thay CẢ khối.
+                if (array_key_exists('transaction_caps', $tier)) {
+                    $this->tiers->syncTransactionCaps($model, $tier['transaction_caps']);
+                }
+            }
+
+            $this->syncRules($model, $tier['rules'] ?? []);
+        }
+    }
+
+    /**
+     * Đồng bộ rule của tier với payload mới, GIỮ id của rule khi có thể.
+     *
+     * - Rule vắng trong payload bị xóa (chỉ xóa dòng `PolicyTierCategory`). FALLBACK
+     *   ("Các danh mục còn lại") không bao giờ bị xóa dù vắng trong payload.
+     * - Rule `scope_type = other` được hợp NHẤT vào đúng dòng fallback hiện có, không
+     *   tạo bản thứ hai (bất biến: đúng một fallback mỗi bậc).
+     * - Rule có `id` khớp được cập nhật các trường, kể cả chuyển target
+     *   (`category_id` ↔ `combo_id`); target đích kiểm ở tầng service.
+     * - Rule mới (không có `id` khớp) được tạo, kèm `spend_from=0` mặc định.
+     * - Hai rule trong cùng tier trỏ cùng một target (cùng danh mục HOẶC cùng combo)
+     *   là không hợp lệ: giữ rule xuất hiện trước, bỏ bản sau. Danh mục và combo là
+     *   hai không gian target riêng nên được phép trùng id số.
+     */
+    private function syncRules(PolicyTier $tier, array $rules): void
+    {
+        $existing = $tier->tierCategoryRules()->get()->keyBy('id');
+        $incoming = collect($rules)->values();
+        $incomingIds = $incoming->pluck('id')->filter()->map(fn ($id): int => (int) $id)->all();
+
+        foreach ($existing as $ruleId => $rule) {
+            if ($rule->isFallback()) {
+                continue;
+            }
+
+            if (! in_array($ruleId, $incomingIds, true)) {
+                $rule->delete();
+                unset($existing[$ruleId]);
+            }
+        }
+
+        $fallbackId = $existing
+            ->first(fn (PolicyTierCategory $row): bool => $row->isFallback())
+            ?->id;
+
+        $claimed = [];
+        $fallbackSeen = false;
+
+        foreach ($incoming as $ruleIndex => $rule) {
+            $ruleScope = $rule['scope_type'] ?? PolicyTierCategory::SCOPE_CATEGORY;
+            $ruleId = isset($rule['id']) && $rule['id'] !== null ? (int) $rule['id'] : null;
+
+            // ---- Fallback "Các danh mục còn lại" ----
+            if ($ruleScope === PolicyTierCategory::SCOPE_OTHER) {
+                if ($fallbackSeen) {
+                    continue;
+                }
+                $fallbackSeen = true;
+
+                $model = null;
+
+                if ($ruleId !== null && $existing->has($ruleId) && $existing->get($ruleId)->isFallback()) {
+                    $model = $existing->get($ruleId);
+                } elseif ($fallbackId !== null && $existing->has($fallbackId)) {
+                    $model = $existing->get($fallbackId);
+                }
+
+                if ($model === null) {
+                    $this->rules->create($tier, [
+                        'scope_type' => PolicyTierCategory::SCOPE_OTHER,
+                        'counts_toward_tier_cap' => $rule['counts_toward_tier_cap'] ?? false,
+                        'name' => $rule['name'] ?? PolicyTierCategory::FALLBACK_NAME,
+                        'sort_order' => $rule['sort_order'] ?? ($ruleIndex + 1),
+                        'spend_from' => $rule['spend_from'] ?? 0,
+                        'spend_to' => $rule['spend_to'] ?? null,
+                        'cashback_percent' => $rule['cashback_percent'] ?? 0,
+                        'max_cashback_per_transaction' => $rule['max_cashback_per_transaction'] ?? null,
+                        'max_cashback_per_category_per_period' => $rule['max_cashback_per_category_per_period'] ?? null,
+                        'min_transaction_amount' => $rule['min_transaction_amount'] ?? null,
+                        'is_enabled' => $rule['is_enabled'] ?? true,
+                    ]);
+                } else {
+                    $model->forceFill([
+                        // Fallback không mang target nào — ép null CẢ HAI.
+                        'category_id' => null,
+                        'combo_id' => null,
+                        'scope_type' => PolicyTierCategory::SCOPE_OTHER,
+                        'counts_toward_tier_cap' => array_key_exists('counts_toward_tier_cap', $rule)
+                            ? (bool) $rule['counts_toward_tier_cap']
+                            : false,
+                        'name' => array_key_exists('name', $rule)
+                            ? $rule['name']
+                            : ($model->name ?? PolicyTierCategory::FALLBACK_NAME),
+                        'sort_order' => $rule['sort_order'] ?? ($ruleIndex + 1),
+                        'cashback_percent' => array_key_exists('cashback_percent', $rule)
+                            ? (float) $rule['cashback_percent']
+                            : $model->cashback_percent,
+                        'max_cashback_per_transaction' => $this->money(array_key_exists('max_cashback_per_transaction', $rule)
+                            ? $rule['max_cashback_per_transaction']
+                            : $model->max_cashback_per_transaction),
+                        'max_cashback_per_category_per_period' => $this->money(array_key_exists('max_cashback_per_category_per_period', $rule)
+                            ? $rule['max_cashback_per_category_per_period']
+                            : $model->max_cashback_per_category_per_period),
+                        'min_transaction_amount' => $this->money(array_key_exists('min_transaction_amount', $rule)
+                            ? $rule['min_transaction_amount']
+                            : $model->min_transaction_amount),
+                        'is_enabled' => array_key_exists('is_enabled', $rule)
+                            ? (bool) $rule['is_enabled']
+                            : $model->is_enabled,
+                    ])->save();
+                }
+
+                continue;
+            }
+
+            // ---- Rule cụ thể: danh mục HOẶC combo ----
+            //
+            // Payload có thể chỉ gửi `scope_type` mà không kèm target (client cũ /
+            // PATCH một phần). Khi đó suy ra target hiện tại từ rule cùng `id` để
+            // giữ nguyên thay vì cố ý gán `category_id = null`.
+            $hasCombo = array_key_exists('combo_id', $rule)
+                && $rule['combo_id'] !== null
+                && $rule['combo_id'] !== '';
+            $hasCategory = array_key_exists('category_id', $rule)
+                && $rule['category_id'] !== null
+                && $rule['category_id'] !== '';
+
+            if (! $hasCombo && ! $hasCategory) {
+                $current = $ruleId !== null ? $existing->get($ruleId) : null;
+
+                if ($current === null) {
+                    continue;
+                }
+
+                if ($current->combo_id !== null) {
+                    $hasCombo = true;
+                    $rule['combo_id'] = $current->combo_id;
+                } elseif ($current->category_id !== null) {
+                    $hasCategory = true;
+                    $rule['category_id'] = $current->category_id;
+                } else {
+                    continue;
+                }
+            }
+
+            // Nếu client gửi cả hai, combo thắng (khớp `CategoryRuleService`).
+            if ($hasCombo) {
+                $hasCategory = false;
+            }
+
+            $comboId = $hasCombo ? (int) $rule['combo_id'] : null;
+            $categoryId = $hasCategory ? (int) $rule['category_id'] : null;
+            $claimKey = $hasCombo ? 'combo:'.$comboId : 'category:'.$categoryId;
+
+            if (isset($claimed[$claimKey])) {
+                if ($ruleId !== null && $existing->has($ruleId)) {
+                    $existing->get($ruleId)->delete();
+                    unset($existing[$ruleId]);
+                }
+
+                continue;
+            }
+            $claimed[$claimKey] = true;
+
+            $model = null;
+
+            if ($ruleId !== null && $existing->has($ruleId)) {
+                $model = $existing->get($ruleId);
+            } else {
+                $model = $existing->first(fn (PolicyTierCategory $row): bool => $hasCombo
+                    ? (int) $row->combo_id === $comboId
+                    : ((int) $row->category_id === $categoryId && $row->combo_id === null)) ?? null;
+            }
+
+            if ($model === null) {
+                $this->rules->create($tier, [
+                    'scope_type' => PolicyTierCategory::SCOPE_CATEGORY,
+                    'category_id' => $hasCombo ? null : $categoryId,
+                    'combo_id' => $hasCombo ? $comboId : null,
+                    'counts_toward_tier_cap' => $rule['counts_toward_tier_cap'] ?? true,
+                    'name' => $rule['name'] ?? null,
+                    'sort_order' => $rule['sort_order'] ?? ($ruleIndex + 1),
+                    'spend_from' => $rule['spend_from'] ?? 0,
+                    'spend_to' => $rule['spend_to'] ?? null,
+                    'cashback_percent' => $rule['cashback_percent'] ?? 0,
+                    'max_cashback_per_transaction' => $rule['max_cashback_per_transaction'] ?? null,
+                    'max_cashback_per_category_per_period' => $rule['max_cashback_per_category_per_period'] ?? null,
+                    'min_transaction_amount' => $rule['min_transaction_amount'] ?? null,
+                    'is_enabled' => $rule['is_enabled'] ?? true,
+                ]);
+            } else {
+                // Trước khi đổi target, xóa các rule khác trong tier đang giữ cùng
+                // target đích để không vi phạm UNIQUE (tier_id, category_id, spend_from).
+                foreach ($existing as $otherId => $other) {
+                    if ($otherId === $model->id) {
+                        continue;
+                    }
+
+                    $sameTarget = $hasCombo
+                        ? (int) $other->combo_id === $comboId
+                        : ((int) $other->category_id === $categoryId && $other->combo_id === null);
+
+                    if ($sameTarget) {
+                        $other->delete();
+                        unset($existing[$otherId]);
+                    }
+                }
+
+                $model->forceFill([
+                    'scope_type' => PolicyTierCategory::SCOPE_CATEGORY,
+                    'category_id' => $hasCombo ? null : $categoryId,
+                    'combo_id' => $hasCombo ? $comboId : null,
+                    'counts_toward_tier_cap' => array_key_exists('counts_toward_tier_cap', $rule)
+                        ? (bool) $rule['counts_toward_tier_cap']
+                        : $model->counts_toward_tier_cap,
+                    'name' => array_key_exists('name', $rule) ? $rule['name'] : $model->name,
+                    'sort_order' => $rule['sort_order'] ?? ($ruleIndex + 1),
+                    'cashback_percent' => array_key_exists('cashback_percent', $rule)
+                        ? (float) $rule['cashback_percent']
+                        : $model->cashback_percent,
+                    'max_cashback_per_transaction' => $this->money(array_key_exists('max_cashback_per_transaction', $rule)
+                        ? $rule['max_cashback_per_transaction']
+                        : $model->max_cashback_per_transaction),
+                    'max_cashback_per_category_per_period' => $this->money(array_key_exists('max_cashback_per_category_per_period', $rule)
+                        ? $rule['max_cashback_per_category_per_period']
+                        : $model->max_cashback_per_category_per_period),
+                    'min_transaction_amount' => $this->money(array_key_exists('min_transaction_amount', $rule)
+                        ? $rule['min_transaction_amount']
+                        : $model->min_transaction_amount),
+                ])->save();
+            }
+        }
+
+        // Bất biến: đúng một fallback mỗi bậc sau khi đồng bộ.
+        $this->rules->ensureSingleFallback($tier);
+    }
+
     private function money(mixed $value): ?string
     {
         if ($value === null || $value === '') {
@@ -357,6 +986,70 @@ class PolicyService
         }
 
         return number_format((float) $value, 2, '.', '');
+    }
+
+    /**
+     * Blueprint hệ thống CHỈ được tham chiếu danh mục hệ thống đang hoạt động.
+     *
+     * Tầng chặn phạm vi cấu hình (System / User Category) cho đường admin. Admin
+     * chỉ chọn danh mục hệ thống ở editor, nhưng API JSON vẫn nhận payload tùy ý —
+     * nếu thiếu chặn này, một blueprint (user_card_id = NULL) có thể trỏ vào danh
+     * mục riêng của người dùng, và mọi thẻ clone từ nó sẽ vi phạm cô lập tài nguyên.
+     *
+     * @param  array<int, array<string, mixed>>  $tiers
+     */
+    private function assertSystemOnlyCategories(array $tiers): void
+    {
+        $rules = collect($tiers)->flatMap(fn (array $tier) => collect($tier['rules'] ?? []));
+
+        $ids = $rules->pluck('category_id')
+            ->filter(fn ($id) => $id !== null && $id !== '')
+            ->map(fn ($id) => (int) $id)
+            ->values();
+
+        if ($ids->isNotEmpty()) {
+            $valid = Category::query()
+                ->system()
+                ->active()
+                ->whereIn('id', $ids->all())
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id);
+
+            $missing = $ids->diff($valid);
+
+            if ($missing->isNotEmpty()) {
+                throw new InvalidArgumentException(
+                    'Blueprint hệ thống chỉ được dùng danh mục hệ thống đang hoạt động (#'.$missing->implode(', #').').'
+                );
+            }
+        }
+
+        // Combo trong blueprint phải là combo HỆ THỐNG đang hoạt động — combo
+        // riêng của user không được nằm trong chính sách hệ thống. Cùng chặn
+        // phạm vi với `PolicyCloneService::assertSystemOnlyCategories()`.
+        $comboIds = $rules->pluck('combo_id')
+            ->filter(fn ($id) => $id !== null && $id !== '')
+            ->map(fn ($id) => (int) $id)
+            ->values();
+
+        if ($comboIds->isEmpty()) {
+            return;
+        }
+
+        $validCombos = CategoryCombo::query()
+            ->system()
+            ->active()
+            ->whereIn('id', $comboIds->all())
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id);
+
+        $missingCombos = $comboIds->diff($validCombos);
+
+        if ($missingCombos->isNotEmpty()) {
+            throw new InvalidArgumentException(
+                'Blueprint hệ thống chỉ được dùng combo hệ thống đang hoạt động (#'.$missingCombos->implode(', #').').'
+            );
+        }
     }
 
     private function rounding(string $mode): string

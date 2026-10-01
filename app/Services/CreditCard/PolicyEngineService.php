@@ -69,9 +69,6 @@ class PolicyEngineService
             policyVersion: $version,
             root: $version->isRoot() ? $version : $version->root,
             minTotalSpend: (float) $version->min_total_spend,
-            maxCashbackTotalPerPeriod: $version->max_cashback_total_per_period === null
-                ? null
-                : (float) $version->max_cashback_total_per_period,
             roundingMode: (string) $version->rounding_mode,
         );
     }

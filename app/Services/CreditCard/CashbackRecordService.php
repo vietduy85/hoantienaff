@@ -2,6 +2,7 @@
 
 namespace App\Services\CreditCard;
 
+use App\Models\CreditCard\PolicyTierCategory;
 use App\Models\CreditCard\PolicyVersion;
 use App\Models\CreditCard\StatementPeriod;
 use App\Models\CreditCard\Transaction;
@@ -129,16 +130,18 @@ class CashbackRecordService
             }
 
             $rules = $this->tiers->rulesForTier($tier);
+            $transactionCaps = $this->tiers->transactionCapsForTier($tier);
 
             // ---- 4-6. Hàm thuần + ghi snapshot ----
             $results = $this->calculator->calculate(
                 rules: $rules,
                 transactions: $lines,
                 minTotalSpend: (float) $version->min_total_spend,
-                maxCashbackTotalPerPeriod: $version->max_cashback_total_per_period === null
+                maxCashbackPerPeriod: $tier?->max_cashback_per_period === null
                     ? null
-                    : (float) $version->max_cashback_total_per_period,
+                    : (float) $tier->max_cashback_per_period,
                 roundingMode: (string) $version->rounding_mode,
+                transactionCaps: $transactionCaps,
             );
 
             $this->persistResults($userCard, $transactions, $results, $version, $tier?->id, $rules);
@@ -154,9 +157,9 @@ class CashbackRecordService
                 'tier_id' => $tier?->id,
                 'tier_name' => $tier?->name,
                 'min_total_spend' => (float) $version->min_total_spend,
-                'max_cashback_total_per_period' => $version->max_cashback_total_per_period === null
+                'max_cashback_per_period' => $tier?->max_cashback_per_period === null
                     ? null
-                    : (float) $version->max_cashback_total_per_period,
+                    : (float) $tier->max_cashback_per_period,
                 'rounding_mode' => (string) $version->rounding_mode,
                 'application_mode' => 'retroactive',
                 'transaction_count' => count($lines),
@@ -344,8 +347,24 @@ class CashbackRecordService
      */
     private function sumEligibleSpend(array $lines, PolicyVersion $version): float
     {
-        $rulesByCategory = collect($this->tiers->allEnabledRulesFor($version))
+        $allRules = $this->tiers->allEnabledRulesFor($version);
+
+        // Rule danh mục cụ thể, theo category_id.
+        $rulesByCategory = collect($allRules)
+            ->filter(fn (array $rule): bool => $rule['category_id'] !== null)
             ->groupBy('category_id');
+
+        // Rule COMBO, gom theo combo_id. Danh mục khớp combo khi nằm trong
+        // `combo_category_ids` (membership đã hydrate sẵn ở `TierResolverService`).
+        $rulesByCombo = collect($allRules)
+            ->filter(fn (array $rule): bool => ($rule['combo_id'] ?? null) !== null)
+            ->groupBy('combo_id');
+
+        // Fallback "Các danh mục còn lại": danh mục không có rule cụ thể vẫn được
+        // tính vào tổng nếu có fallback đang bật và giao dịch đạt mức sàn của nó.
+        $fallbackRules = collect($allRules)
+            ->filter(fn (array $rule): bool => ($rule['scope_type'] ?? PolicyTierCategory::SCOPE_CATEGORY) === PolicyTierCategory::SCOPE_OTHER)
+            ->values();
 
         $total = 0.0;
 
@@ -354,24 +373,83 @@ class CashbackRecordService
                 continue;
             }
 
-            $categoryRules = $rulesByCategory->get($line->categoryId);
+            // Đủ điều kiện nếu THẤT NHẤT MỘT rule khớp danh mục này đạt
+            // `min_transaction_amount`. Đây là cùng ngữ nghĩa với
+            // `CashbackCalculator::evaluate()`: danh mục chỉ cần thoả sàn nhỏ
+            // nhất, chưa chọn mức % theo khoảng.
+            //
+            // Nhóm xét theo thứ tự CATEGORY > COMBO > FALLBACK, giống lúc
+            // engine chọn rule thật, để một rule danh mục đạt sàn không bị một
+            // rule combo/combo chặn bởi sàn cao hơn.
+            $matched = $this->anyRuleMeetsFloor(
+                $rulesByCategory->get($line->categoryId),
+                $line->amountAsFloat()
+            );
 
-            if ($categoryRules === null || $categoryRules->isEmpty()) {
-                continue;
+            if (! $matched) {
+                $matched = $this->anyRuleMeetsFloor(
+                    $this->comboRulesFor($rulesByCombo, (int) $line->categoryId),
+                    $line->amountAsFloat()
+                );
             }
 
-            foreach ($categoryRules as $rule) {
-                $min = $rule['min_transaction_amount'];
+            if (! $matched) {
+                $matched = $this->anyRuleMeetsFloor($fallbackRules, $line->amountAsFloat());
+            }
 
-                if ($min === null || $line->amountAsFloat() >= (float) $min) {
-                    $total += $line->amountAsFloat();
-
-                    break;
-                }
+            if ($matched) {
+                $total += $line->amountAsFloat();
             }
         }
 
         return $total;
+    }
+
+    /**
+     * Rule combo mà danh mục này là thành viên.
+     *
+     * `sumEligibleSpend` chỉ cần biết "có rule nào đạt min_transaction_amount
+     * không", KHÔNG cần chọn đúng mức % theo khoảng — việc đó thuộc
+     * `CashbackCalculator`. Nên ở đây chỉ gom mọi rule combo chứa danh mục.
+     *
+     * @param  Collection<int|string, Collection<int, array<string, mixed>>>  $rulesByCombo
+     * @return Collection<int, array<string, mixed>>
+     */
+    private function comboRulesFor($rulesByCombo, int $categoryId)
+    {
+        return $rulesByCombo
+            ->filter(function ($comboRules) use ($categoryId): bool {
+                return $comboRules->contains(
+                    fn (array $rule): bool => in_array(
+                        $categoryId,
+                        array_map('intval', (array) ($rule['combo_category_ids'] ?? [])),
+                        true
+                    )
+                );
+            })
+            ->flatMap(fn ($comboRules) => $comboRules)
+            ->values();
+    }
+
+    /**
+     * Có rule nào trong nhóm đạt `min_transaction_amount` không?
+     *
+     * Rule không đặt `min_transaction_amount` ⇒ sàn 0 ⇒ luôn đạt, giống hành vi
+     * của `CashbackCalculator::minFloor()`.
+     *
+     * @param  Collection<int, array<string, mixed>>|null  $rules
+     */
+    private function anyRuleMeetsFloor($rules, float $amount): bool
+    {
+        foreach ($rules ?? collect() as $rule) {
+            $min = $rule['min_transaction_amount'] ?? null;
+
+            if ($min === null || $amount >= (float) $min) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function writePeriodTotals(

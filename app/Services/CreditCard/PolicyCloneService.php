@@ -2,6 +2,8 @@
 
 namespace App\Services\CreditCard;
 
+use App\Models\CreditCard\Category;
+use App\Models\CreditCard\CategoryCombo;
 use App\Models\CreditCard\Policy;
 use App\Models\CreditCard\PolicyTemplate;
 use App\Models\CreditCard\PolicyTier;
@@ -12,17 +14,21 @@ use Carbon\CarbonImmutable;
 use DateTimeInterface;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 use LogicException;
 
 /**
  * PolicyCloneService — mọi thao tác "sao chép" policy đều ĐI QUA đây.
  *
- * Ba nghiệp vụ dùng chung đúng một cơ chế deep clone:
+ * Các nghiệp vụ dùng chung đúng một cơ chế deep clone:
  *
- *  1. `attachTemplateToCard()` — chọn template cho thẻ: copy blueprint
+ *  1. `attachTemplateToCard()`      — chọn template cho thẻ: copy blueprint
  *     (policy + tiers + rules) thành chuỗi version riêng của thẻ.
- *  2. `saveAsTemplate()`         — lưu policy của thẻ thành template mới.
- *  3. `createNextVersion()`      — tạo version N+1 khi policy đổi.
+ *  2. `saveAsTemplate()`            — lưu policy của thẻ thành template mới.
+ *  3. `createNextVersion()`         — tạo version N+1 khi policy đổi.
+ *  4. `createSystemPolicyFromEditor()` — sao chép chính sách hệ thống thành
+ *     template mới từ payload editor (clone có chỉnh sửa); `cloneSystemPolicy()`
+ *     là lớp mỏng gọi engine này khi không có thay đổi cấu hình.
  *
  * ---------------------------------------------------------------------------
  * VÌ SAO PHẢI DEEP CLONE (§13)
@@ -42,6 +48,12 @@ use LogicException;
  */
 class PolicyCloneService
 {
+    public function __construct(
+        private readonly CategoryRuleService $rules,
+        private readonly TierService $tiers,
+        private readonly CategoryComboService $combos,
+    ) {}
+
     /**
      * Gắn template lên thẻ: tạo chuỗi version version 1 của thẻ từ blueprint.
      *
@@ -54,7 +66,7 @@ class PolicyCloneService
         ?string $name = null,
     ): PolicyVersion {
         return DB::connection('creditcard')->transaction(function () use ($userCard, $template, $effectiveFrom, $name): PolicyVersion {
-            $blueprint = $template->blueprint;
+            $blueprint = $template->defaultBlueprint();
 
             if ($blueprint === null) {
                 throw new LogicException("Template \"{$template->name}\" chưa có policy blueprint nào để sao chép.");
@@ -73,7 +85,9 @@ class PolicyCloneService
                 'note' => "Sao chép từ template \"{$template->name}\" (#{$template->id}).",
             ]);
 
-            $this->copyChildren($blueprint->id, $root->id);
+            // `$userCard->user_id` ⇒ combo hệ thống được snapshot thành bản sao
+            // scope `user` (xem `mapComboForClone`).
+            $this->copyChildren($blueprint->id, $root->id, (int) $userCard->user_id);
 
             // Thẻ trỏ về chuỗi version của chính nó.
             $userCard->forceFill([
@@ -226,6 +240,276 @@ class PolicyCloneService
     }
 
     /**
+     * Tạo một blueprint mới cho TEMPLATE (append-only, giống `createNextVersion`).
+     *
+     * Mục đích: admin đổi cấu hình một chính sách hệ thống ⇒ tạo blueprint N+1,
+     * KHÔNG sửa blueprint cũ. Thẻ đã clone từ blueprint cũ không bị ảnh hưởng; thẻ
+     * clone từ thời điểm sau sẽ nhận blueprint mới. Version cũ chỉ bị đóng
+     * `effective_to` + chuyển `superseded`.
+     *
+     * Khi `$sourceBlueprintId` được truyền vào (luồng "Chỉnh sửa version N"),
+     * version mới được tạo từ CHÍNH version đó — copy đúng bậc/rule của version
+     * được sửa cộng các thay đổi trong `$overrides` — thay vì từ current/latest.
+     * Version_no vẫn được cấp tiếp nối trên chuỗi (max+1) và blueprint current
+     * vẫn bị đóng như thường lệ. Blueprint nguồn phải thuộc template này.
+     *
+     * Với template MỚI (chưa có blueprint): tạo version 1 (root tự trỏ về chính nó).
+     *
+     * @param  array<string, mixed>  $overrides
+     */
+    public function createTemplateBlueprint(
+        PolicyTemplate $template,
+        DateTimeInterface $effectiveFrom,
+        array $overrides = [],
+        ?int $sourceBlueprintId = null,
+    ): PolicyVersion {
+        return DB::connection('creditcard')->transaction(function () use ($template, $effectiveFrom, $overrides, $sourceBlueprintId): PolicyVersion {
+            $previous = $template->currentBlueprint();
+
+            if ($previous !== null && $previous->is_locked) {
+                throw new LogicException('Blueprint hiện tại đang bị khoá, không tạo version mới được.');
+            }
+
+            if ($sourceBlueprintId !== null && $sourceBlueprintId !== $previous?->id) {
+                $source = PolicyVersion::query()
+                    ->where('id', $sourceBlueprintId)
+                    ->where('template_id', $template->id)
+                    ->whereNull('user_card_id')
+                    ->first();
+
+                if ($source === null) {
+                    throw new LogicException('Version nguồn không thuộc template này.');
+                }
+
+                $latest = $source;
+            } else {
+                // Không có source cụ thể: nguồn là current/latest như hành vi trước đây.
+                $latest = $previous;
+            }
+
+            if ($previous === null) {
+                $rootPolicyId = null;
+                $versionNo = 1;
+                $latest = null;
+            } else {
+                $root = $previous->isRoot() ? $previous : $previous->root;
+                $rootPolicyId = $root->id;
+                $versionNo = (int) PolicyVersion::query()
+                    ->where(function ($query) use ($root): void {
+                        $query->where('id', $root->id)->orWhere('root_policy_id', $root->id);
+                    })
+                    ->max('version_no') + 1;
+            }
+
+            $newBlueprint = $this->insertPolicyRoot([
+                'user_card_id' => null,
+                'template_id' => $template->id,
+                'name' => $overrides['name'] ?? ($latest?->name ?? $template->name),
+                'effective_from' => $effectiveFrom,
+                'effective_to' => $overrides['effective_to'] ?? null,
+                'min_total_spend' => $overrides['min_total_spend'] ?? ($latest?->min_total_spend ?? '0.00'),
+                'max_cashback_total_per_period' => array_key_exists('max_cashback_total_per_period', $overrides)
+                    ? $overrides['max_cashback_total_per_period']
+                    : ($latest?->max_cashback_total_per_period ?? null),
+                'rounding_mode' => $overrides['rounding_mode'] ?? ($latest?->rounding_mode ?? 'round'),
+                'status' => Policy::STATUS_ACTIVE,
+                'note' => $overrides['note'] ?? 'Blueprint version '.$versionNo.' của template "'.$template->name.'".',
+                'root_policy_id' => $rootPolicyId,
+                'version_no' => $versionNo,
+            ]);
+
+            if (isset($overrides['tiers'])) {
+                $this->replaceChildren($newBlueprint->id, $overrides['tiers']);
+            } elseif ($latest !== null) {
+                $this->copyChildren($latest->id, $newBlueprint->id);
+            } else {
+                // Template mới không kèm cấu hình: tạo tối thiểu một bậc để policy
+                // luôn resolve được tier (giống `createFromScratch` của user).
+                $this->replaceChildren($newBlueprint->id, [[
+                    'name' => 'Bậc cơ bản',
+                    'sort_order' => 1,
+                    'min_total_spend' => 0,
+                    'max_total_spend' => null,
+                ]]);
+            }
+
+            // Đóng blueprint cũ — CHỈ metadata vòng đời, không sửa business rule.
+            if ($previous !== null && $previous->id !== $newBlueprint->id) {
+                $previous->forceFill([
+                    'effective_to' => $this->dayBefore($effectiveFrom),
+                    'status' => Policy::STATUS_SUPERSEDED,
+                ])->save();
+            }
+
+            return $newBlueprint;
+        });
+    }
+
+    /**
+     * CLONE TOÀN BỘ chính sách hệ thống thành một template hệ thống MỚI, độc lập.
+     *
+     * Deep-clone: template → mọi blueprint (PolicyVersion) → tier → category rule.
+     * Từng bản ghi clone nhận ID MỚI, KHÔNG trỏ về bản ghi nguồn — khác với việc
+     * updateSystemVersion sửa cấu hình (không tạo identity mới), ở đây MỌI identity
+     * đều mới nên không thể ảnh hưởng chéo tới chính sách gốc hay thẻ đã clone.
+     *
+     *   - `version_no`, `status`, `effective_from/to`, business rules: giữ nguyên.
+     *   - `is_locked` luôn về `false` (bản clone mới chưa có kỳ nào finalize).
+     *   - `default_version_id` được remap sang blueprint clone tương ứng.
+     *
+     * Chỉ nhận template hệ thống (scope = 'system').
+     *
+     * Lớp mỏng giữ giao diện clone "nguyên trạng"; mọi nghiệp vụ clone nằm trong
+     * `createSystemPolicyFromEditor()` (cũng là luồng admin mở editor rồi lưu).
+     */
+    public function cloneSystemPolicy(PolicyTemplate $source, string $name): PolicyTemplate
+    {
+        return $this->createSystemPolicyFromEditor(
+            $source,
+            $name,
+            $source->description,
+            (bool) $source->is_active,
+            now(),
+            [],
+            null,
+        );
+    }
+
+    /**
+     * Tạo một chính sách hệ thống MỚI từ editor clone.
+     *
+     * Đây là ENGINE chung cho mọi luồng "sao chép chính sách hệ thống":
+     *
+     *   1. Deep-clone toàn bộ blueprint (version) của `$source` — mọi identity mới,
+     *      `is_locked` về `false`, chuỗi root/version_no giữ nguyên, TÀI NGUYÊN của
+     *      chính sách gốc KHÔNG bị đụng tới.
+     *   2. Overlay cấu hình blueprint đang chỉnh sửa (trỏ bởi `$sourceBlueprintId`
+     *      — id blueprint mà editor hydrate từ đó) bằng payload editor: `tiers`
+     *      thay toàn bộ (trần hoàn mỗi kỳ giờ nằm trong `tiers[].max_cashback_per_period`),
+     *      kèm `effective_from`, `min_total_spend`, `rounding_mode`. Các blueprint
+     *      còn lại được chép nguyên trạng.
+     *   3. Metadata template mới (`name`, `description`, `is_active`) lấy từ payload;
+     *      slug tự sinh; `sort_order` nối tiếp các template hệ thống.
+     *   4. `default_version_id` remap sang blueprint clone tương ứng. Nếu blueprint
+     *      đang sửa CHÍNH LÀ default của nguồn, default của bản clone trỏ về bản
+     *      clone đã overlay cấu hình mới — tức bản clone dùng hiệu lực ngay.
+     *
+     * Toàn bộ nằm trong MỘT transaction: fail giữa chừng → rollback sạch, không để
+     * lại template/blueprint dở dang. Danh mục phải thuộc scope hệ thống (giống
+     * `PolicyService::createSystemTemplate` / `createSystemVersion`).
+     *
+     * @param  array<string, mixed>  $overrides  cấu hình blueprint đang sửa (tiers[], min_total_spend, ...)
+     */
+    public function createSystemPolicyFromEditor(
+        PolicyTemplate $source,
+        string $name,
+        ?string $description,
+        bool $isActive,
+        DateTimeInterface $effectiveFrom,
+        array $overrides = [],
+        ?int $sourceBlueprintId = null,
+    ): PolicyTemplate {
+        if (! $source->isSystemScope()) {
+            throw new InvalidArgumentException('Chỉ được clone chính sách hệ thống.');
+        }
+
+        $this->assertSystemOnlyCategories(array_key_exists('tiers', $overrides) ? $overrides['tiers'] : []);
+
+        return DB::connection('creditcard')->transaction(function () use ($source, $name, $description, $isActive, $effectiveFrom, $overrides, $sourceBlueprintId): PolicyTemplate {
+            if (! $source->blueprints()->exists()) {
+                throw new LogicException('Chính sách hệ thống chưa có version nào để clone.');
+            }
+
+            $edited = null;
+
+            if ($sourceBlueprintId !== null) {
+                $edited = $source->blueprints()
+                    ->where('id', $sourceBlueprintId)
+                    ->whereNull('user_card_id')
+                    ->first();
+
+                if ($edited === null) {
+                    throw new LogicException('Version nguồn không thuộc chính sách này.');
+                }
+            }
+
+            $template = PolicyTemplate::create([
+                'scope' => PolicyTemplate::SCOPE_SYSTEM,
+                'owner_user_id' => PolicyTemplate::SYSTEM_OWNER_ID,
+                'name' => $name,
+                'slug' => $this->uniqueSlug($name),
+                'description' => $description,
+                'is_builtin' => false,
+                'is_active' => $isActive,
+                'sort_order' => ((int) PolicyTemplate::query()
+                    ->where('scope', PolicyTemplate::SCOPE_SYSTEM)
+                    ->max('sort_order')) + 1,
+            ]);
+
+            $idMap = [];
+            $clonedRootId = null;
+
+            foreach ($source->blueprints()->orderBy('version_no')->get() as $blueprint) {
+                $isEdited = $edited !== null && (int) $edited->id === (int) $blueprint->id;
+
+                $cloned = $this->insertPolicyRoot([
+                    'user_card_id' => null,
+                    'template_id' => $template->id,
+                    'root_policy_id' => $clonedRootId,
+                    'version_no' => (int) $blueprint->version_no,
+                    'status' => $blueprint->status,
+                    'name' => $isEdited ? $name : $blueprint->name,
+                    'effective_from' => $isEdited
+                        ? CarbonImmutable::instance($effectiveFrom)->toDateString()
+                        : $blueprint->effective_from?->toDateString(),
+                    'effective_to' => $blueprint->effective_to?->toDateString(),
+                    'min_total_spend' => $isEdited && array_key_exists('min_total_spend', $overrides)
+                        ? $overrides['min_total_spend']
+                        : $blueprint->min_total_spend,
+                    'max_cashback_total_per_period' => $isEdited && array_key_exists('max_cashback_total_per_period', $overrides)
+                        ? $overrides['max_cashback_total_per_period']
+                        : $blueprint->max_cashback_total_per_period,
+                    'rounding_mode' => $isEdited && array_key_exists('rounding_mode', $overrides)
+                        ? $overrides['rounding_mode']
+                        : $blueprint->rounding_mode,
+                    'note' => $blueprint->note,
+                    'is_locked' => false,
+                ]);
+
+                $idMap[$blueprint->id] = $cloned->id;
+                $clonedRootId ??= $cloned->id;
+
+                if ($isEdited && array_key_exists('tiers', $overrides)) {
+                    $this->replaceChildren($cloned->id, $overrides['tiers']);
+                } else {
+                    $this->copyChildren($blueprint->id, $cloned->id);
+                }
+            }
+
+            // Remap default: cùng `version_no` với default của nguồn. Nếu blueprint
+            // đang sửa là default, default của bản clone là chính bản clone đó (đã
+            // overlay cấu hình mới từ editor).
+            $editedClone = $edited !== null ? ($idMap[$edited->id] ?? null) : null;
+            $sourceDefaultId = $source->default_version_id
+                ? ($idMap[$source->default_version_id] ?? null)
+                : null;
+
+            if ($edited !== null && $source->default_version_id !== null
+                && (int) $source->default_version_id === (int) $edited->id && $editedClone !== null) {
+                $defaultId = $editedClone;
+            } elseif ($sourceDefaultId !== null) {
+                $defaultId = $sourceDefaultId;
+            } else {
+                $defaultId = (int) $template->blueprints()->orderBy('version_no')->value('id');
+            }
+
+            $template->forceFill(['default_version_id' => $defaultId])->save();
+
+            return $template->refresh();
+        });
+    }
+
+    /**
      * Tạo bản ghi policy version 1 (root tự trỏ về chính nó sau khi insert).
      *
      * @param  array<string, mixed>  $attributes
@@ -254,13 +538,18 @@ class PolicyCloneService
     /**
      * Copy tier + tier_category_rule từ version nguồn sang version đích.
      */
-    private function copyChildren(int $sourcePolicyId, int $targetPolicyId): void
+    private function copyChildren(int $sourcePolicyId, int $targetPolicyId, ?int $targetUserId = null): void
     {
         $tiers = PolicyTier::query()
             ->where('policy_id', $sourcePolicyId)
             ->orderBy('sort_order')
             ->orderBy('id')
             ->get();
+
+        // Cache combo đã snapshot trong lượt clone này: cùng một combo hệ thống
+        // dùng ở nhiều bậc chỉ tạo MỘT bản sao user, và các bậc đó dùng chung
+        // bản sao — nếu không, mỗi bậc sẽ tạo một combo trùng lặp.
+        $comboCache = [];
 
         foreach ($tiers as $tier) {
             $newTier = PolicyTier::create([
@@ -269,7 +558,12 @@ class PolicyCloneService
                 'sort_order' => $tier->sort_order,
                 'min_total_spend' => $tier->min_total_spend,
                 'max_total_spend' => $tier->max_total_spend,
+                'max_cashback_per_period' => $tier->max_cashback_per_period,
             ]);
+
+            // Cap động là tài sản của BẬC: copy theo bậc sang bản ghi MỚI (không
+            // tham chiếu dòng con của nguồn — "Lưu phiên bản mới" + clone).
+            $this->tiers->syncTransactionCaps($newTier, $this->tiers->capsPayload($tier));
 
             $rules = PolicyTierCategory::query()
                 ->where('tier_id', $tier->id)
@@ -278,9 +572,14 @@ class PolicyCloneService
                 ->get();
 
             foreach ($rules as $rule) {
-                PolicyTierCategory::create([
+                $newRule = PolicyTierCategory::create([
                     'tier_id' => $newTier->id,
                     'category_id' => $rule->category_id,
+                    'combo_id' => $this->mapComboForClone($rule, $targetUserId, $comboCache),
+                    'scope_type' => $rule->scope_type ?? PolicyTierCategory::SCOPE_CATEGORY,
+                    'counts_toward_tier_cap' => $rule->scope_type === PolicyTierCategory::SCOPE_OTHER
+                        ? false
+                        : (bool) ($rule->counts_toward_tier_cap ?? true),
                     'name' => $rule->name,
                     'sort_order' => $rule->sort_order,
                     'spend_from' => $rule->spend_from,
@@ -294,6 +593,63 @@ class PolicyCloneService
                 ]);
             }
         }
+    }
+
+    /**
+     * `combo_id` của rule sau khi deep-clone sang policy của thẻ.
+     *
+     * ---------------------------------------------------------------------------
+     * VÌ SAO PHẢI SNAPSHOT COMBO (đã chốt ở audit, Q3/Q4)
+     * ---------------------------------------------------------------------------
+     * `Category` được dùng CHUNG master row giữa blueprint và user policy, vì
+     * `category_id` là danh tính bất biến: đổi tên không đổi hành vi cashback.
+     *
+     * Combo thì KHÁC: membership của nó là nội dung mang behavior. Nếu user policy
+     * trỏ thẳng vào combo hệ thống, thì một lần sửa membership của admin sẽ đổi
+     * cashback của user policy ĐÃ CLONE — vi phạm đúng bất biến §13 mà cả module
+     * dựa vào ("sửa policy của A ⇒ B đổi theo — không ai muốn điều này").
+     *
+     * Nên khi clone sang policy của thẻ, combo được copy thành bản ghi `scope=user`
+     * của chính user đó (membership snapshot) và rule trỏ vào bản sao. Lịch sử
+     * cashback vì thế bất biến trước mọi thay đổi ở phía hệ thống.
+     *
+     * `$comboCache` đảm bảo một combo hệ thống chỉ bị copy MỘT lần cho cả policy
+     * (dùng ở nhiều bậc), tránh sinh combo trùng lặp.
+     *
+     * @param  array<string, CategoryCombo>  $comboCache
+     */
+    private function mapComboForClone(PolicyTierCategory $rule, ?int $targetUserId, array &$comboCache): ?int
+    {
+        if ($rule->combo_id === null) {
+            return null;
+        }
+
+        // Clone giữa hai policy CÙNG phạm vi (system→system, user→user): combo đã
+        // thuộc đúng owner rồi nên tham chiếu chung là đúng, không cần copy.
+        if ($targetUserId === null) {
+            return (int) $rule->combo_id;
+        }
+
+        $source = CategoryCombo::query()->whereKey($rule->combo_id)->first();
+
+        if ($source === null) {
+            throw new LogicException("Combo #{$rule->combo_id} không tồn tại nên không thể sao chép quy tắc.");
+        }
+
+        // Combo đã là của chính user đích (vd clone version N+1 từ version N):
+        // giữ nguyên, KHÔNG copy — copy sẽ sinh bản trùng mỗi lần lưu version.
+        if (! $source->isSystem() && (int) $source->owner_user_id === $targetUserId) {
+            return (int) $source->id;
+        }
+
+        $clone = $this->combos->cloneForUser(
+            $source,
+            $targetUserId,
+            $source->name.' (từ thẻ)',
+            $comboCache,
+        );
+
+        return (int) $clone->id;
     }
 
     /**
@@ -317,12 +673,34 @@ class PolicyCloneService
                 'sort_order' => $tier['sort_order'] ?? ($index + 1),
                 'min_total_spend' => $tier['min_total_spend'] ?? 0,
                 'max_total_spend' => $tier['max_total_spend'] ?? null,
+                'max_cashback_per_period' => $tier['max_cashback_per_period'] ?? null,
             ]);
 
-            foreach ($tier['categories'] ?? [] as $ruleIndex => $rule) {
-                PolicyTierCategory::create([
+            // Cap động của bậc (đã xoá all child ở đầu hàm nên không lo rò rỉ cũ).
+            $this->tiers->syncTransactionCaps($newTier, $tier['transaction_caps'] ?? []);
+
+            // Fallback từ payload chỉ được tạo MỘT lần, sau đó phủ cấu hình lên
+            // fallback của bậc. Bậc không có fallback trong payload vẫn được đảm
+            // bảo một fallback mặc định (bất biến).
+            $fallbackConfig = null;
+
+            foreach ($tier['rules'] ?? [] as $ruleIndex => $rule) {
+                $ruleScope = $rule['scope_type'] ?? PolicyTierCategory::SCOPE_CATEGORY;
+
+                if ($ruleScope === PolicyTierCategory::SCOPE_OTHER) {
+                    if ($fallbackConfig === null) {
+                        $fallbackConfig = $rule;
+                    }
+
+                    continue;
+                }
+
+                $created = PolicyTierCategory::create([
                     'tier_id' => $newTier->id,
-                    'category_id' => $rule['category_id'],
+                    'category_id' => $rule['category_id'] ?? null,
+                    'combo_id' => $rule['combo_id'] ?? null,
+                    'scope_type' => PolicyTierCategory::SCOPE_CATEGORY,
+                    'counts_toward_tier_cap' => (bool) ($rule['counts_toward_tier_cap'] ?? true),
                     'name' => $rule['name'] ?? null,
                     'sort_order' => $rule['sort_order'] ?? ($ruleIndex + 1),
                     'spend_from' => $rule['spend_from'] ?? 0,
@@ -335,6 +713,8 @@ class PolicyCloneService
                     'note' => $rule['note'] ?? null,
                 ]);
             }
+
+            $this->rules->ensureSingleFallback($newTier, $fallbackConfig);
         }
     }
 
@@ -357,7 +737,7 @@ class PolicyCloneService
         return CarbonImmutable::instance($date)->subDay()->toDateString();
     }
 
-    private function uniqueSlug(string $name): string
+    public function uniqueSlug(string $name): string
     {
         $base = Str::slug($name) ?: 'template';
         $slug = $base;
@@ -368,5 +748,68 @@ class PolicyCloneService
         }
 
         return $slug;
+    }
+
+    /**
+     * Blueprint hệ thống CHỈ được tham chiếu danh mục hệ thống và combo hệ thống
+     * đang hoạt động.
+     *
+     * Cùng chặn phạm vi như `PolicyService::assertSystemOnlyCategories()` — payload
+     * editor là JSON tùy ý, nếu thiếu chặn này thì bản clone hệ thống có thể trỏ
+     * vào danh mục/combo riêng của người dùng, phá vỡ cô lập tài nguyên.
+     *
+     * @param  array<int, array<string, mixed>>  $tiers
+     */
+    private function assertSystemOnlyCategories(array $tiers): void
+    {
+        $rules = collect($tiers)->flatMap(fn (array $tier) => collect($tier['rules'] ?? []));
+
+        $ids = $rules->pluck('category_id')
+            ->filter(fn ($id) => $id !== null && $id !== '')
+            ->map(fn ($id) => (int) $id)
+            ->values();
+
+        if ($ids->isNotEmpty()) {
+            $valid = Category::query()
+                ->system()
+                ->active()
+                ->whereIn('id', $ids->all())
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id);
+
+            $missing = $ids->diff($valid);
+
+            if ($missing->isNotEmpty()) {
+                throw new InvalidArgumentException(
+                    'Blueprint hệ thống chỉ được dùng danh mục hệ thống đang hoạt động (#'.$missing->implode(', #').').'
+                );
+            }
+        }
+
+        // Combo trong blueprint phải là combo HỆ THỐNG đang hoạt động — combo
+        // riêng của user không được nằm trong chính sách hệ thống.
+        $comboIds = $rules->pluck('combo_id')
+            ->filter(fn ($id) => $id !== null && $id !== '')
+            ->map(fn ($id) => (int) $id)
+            ->values();
+
+        if ($comboIds->isEmpty()) {
+            return;
+        }
+
+        $validCombos = CategoryCombo::query()
+            ->system()
+            ->active()
+            ->whereIn('id', $comboIds->all())
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id);
+
+        $missingCombos = $comboIds->diff($validCombos);
+
+        if ($missingCombos->isNotEmpty()) {
+            throw new InvalidArgumentException(
+                'Blueprint hệ thống chỉ được dùng combo hệ thống đang hoạt động (#'.$missingCombos->implode(', #').').'
+            );
+        }
     }
 }

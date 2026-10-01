@@ -4,12 +4,12 @@ namespace Tests\Concerns;
 
 use App\Models\CreditCard\Bank;
 use App\Models\CreditCard\Category;
-use App\Models\CreditCard\Product;
 use App\Models\CreditCard\Policy;
 use App\Models\CreditCard\PolicyTemplate;
 use App\Models\CreditCard\PolicyTier;
 use App\Models\CreditCard\PolicyTierCategory;
 use App\Models\CreditCard\PolicyVersion;
+use App\Models\CreditCard\Product;
 use App\Models\CreditCard\StatementPeriod;
 use App\Models\CreditCard\UserCard;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -62,7 +62,6 @@ trait InteractsWithCreditCardDatabase
 
         return array_values(array_unique(array_merge($default, ['creditcard'])));
     }
-
 
     private function migrateCreditCardDatabaseOnce(): void
     {

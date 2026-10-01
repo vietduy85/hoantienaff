@@ -68,6 +68,18 @@ class Category extends CreditCardModel
         return $this->hasMany(PolicyTierCategory::class, 'category_id');
     }
 
+    /**
+     * Combo nào chứa danh mục này (fk RESTRICT ⇒ không xoá cứng khi đã dùng).
+     *
+     * Một danh mục CÓ THỂ nằm trong nhiều combo khác nhau (cho phép ở tầng dữ
+     * liệu); việc chặn trùng khi gán rule là ràng buộc nghiệp vụ ở
+     * `CategoryRuleService`.
+     */
+    public function comboMemberships(): HasMany
+    {
+        return $this->hasMany(CategoryComboItem::class, 'category_id');
+    }
+
     public function transactions(): HasMany
     {
         return $this->hasMany(Transaction::class, 'category_id');

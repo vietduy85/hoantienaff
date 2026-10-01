@@ -90,6 +90,7 @@ class AppServiceProvider extends ServiceProvider
         }
 
         $this->registerCreditCardApiRateLimiter();
+        $this->registerCreditCardAdminApiRateLimiter();
     }
 
     /**
@@ -129,5 +130,35 @@ class AppServiceProvider extends ServiceProvider
         $configured = env('CREDIT_CARD_API_RATE_LIMIT');
 
         return is_numeric($configured) && (int) $configured > 0 ? (int) $configured : 60;
+    }
+
+    /**
+     * Limiter RIÊNG cho API quản trị chính sách hệ thống (`/admin/credit-card/api`).
+     *
+     * Tách khỏi `credit-card-api` (limiter của user) vì:
+     *   1. Hai đối tượng khác nhau, hai mức độ tin cậy khác nhau — gộp chung một bộ
+     *      đếm sẽ cho phép admin làm nghẽn lượt gọi của user và ngược lại.
+     *   2. Admin thao tác nặng hơn (tạo/đổi version kèm toàn bộ tier/rule), nên mức
+     *      giới hạn đặt cao hơn, không "quá thấp".
+     * Giới hạn theo USER như limiter user, không theo IP.
+     */
+    private function registerCreditCardAdminApiRateLimiter(): void
+    {
+        RateLimiter::for('credit-card-admin-api', function (Request $request) {
+            return Limit::perMinute(self::creditCardAdminApiRateLimit())
+                ->by($request->user()?->getAuthIdentifier() ?? $request->ip())
+                ->response(function (Request $request, array $headers) {
+                    return response()->json([
+                        'message' => 'Bạn gửi yêu cầu quá nhiều. Vui lòng thử lại sau.',
+                    ], 429, $headers);
+                });
+        });
+    }
+
+    private static function creditCardAdminApiRateLimit(): int
+    {
+        $configured = env('CREDIT_CARD_ADMIN_API_RATE_LIMIT');
+
+        return is_numeric($configured) && (int) $configured > 0 ? (int) $configured : 120;
     }
 }
