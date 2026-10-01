@@ -13,11 +13,11 @@ use Illuminate\Validation\Validator;
 /**
  * Admin "Lưu lại" — cập nhật IN-PLACE cấu hình của CHÍNH phiên bản blueprint đang sửa.
  *
- * KHÔNG tạo version mới và KHÔNG gộp metadata template ở đây: tên / mô tả / trạng
- * thái xuất bản là dữ liệu vỏ ngoài của template, lưu riêng qua PATCH
- * `admin.credit-card-policies.api.update` ("Lưu thay đổi").
+ * KHÔNG tạo version mới. Cấu hình thuộc VERSION (ngày hiệu lực, ngưỡng chi tiêu,
+ * tier/rules) do `updateSystemVersion()` ghi; metadata template (tên / mô tả /
+ * trạng thái) nếu editor gửi kèm được ghi qua `updateSystemMeta()` — cùng một lần
+ * bấm "Lưu lại", để ô Mô tả trên trang Chỉnh sửa không bị mất.
  *
- * Chỉ nhận cấu hình thuộc VERSION: ngày hiệu lực, ngưỡng chi tiêu và tier/rules.
  * Cấu trúc canonical là `tiers[].rules` — không có nhánh `tiers[].categories`.
  */
 class UpdateSystemPolicyVersionRequest extends FormRequest
@@ -34,6 +34,10 @@ class UpdateSystemPolicyVersionRequest extends FormRequest
         return [
             'effective_from' => ['sometimes', 'date_format:Y-m-d'],
             'min_total_spend' => ['sometimes', 'nullable', 'numeric', 'min:0'],
+
+            'name' => ['sometimes', 'string', 'max:150'],
+            'description' => ['sometimes', 'nullable', 'string', 'max:1000'],
+            'status' => ['sometimes', Rule::in(['draft', 'published', 'archived'])],
 
             'tiers' => ['sometimes', 'array'],
             'tiers.*.id' => ['sometimes', 'nullable', 'integer'],
@@ -70,6 +74,7 @@ class UpdateSystemPolicyVersionRequest extends FormRequest
     {
         return [
             'effective_from.date_format' => 'Ngày bắt đầu hiệu lực phải có định dạng Y-m-d.',
+            'status.in' => 'Trạng thái không hợp lệ.',
             'tiers.*.rules.*.scope_type.in' => 'Phạm vi danh mục của quy tắc không hợp lệ.',
             'tiers.*.rules.*.category_id.exists' => 'Danh mục không tồn tại.',
             'tiers.*.rules.*.combo_id.exists' => 'Combo không tồn tại.',
@@ -89,6 +94,33 @@ class UpdateSystemPolicyVersionRequest extends FormRequest
     public function withValidator(Validator $validator): void
     {
         $this->assertNestedTargets($validator, null);
+    }
+
+    /**
+     * Metadata template đi kèm khi bấm "Lưu lại" (nếu editor có gửi).
+     *
+     * Chỉ trả về field CÓ mặt trong payload ⇒ PATCH thuần cấu hình version vẫn
+     * không đụng metadata (hành vi cũ cho test/API cũ vẫn giữ nguyên).
+     *
+     * @return array<string, mixed>
+     */
+    public function meta(): array
+    {
+        $meta = [];
+
+        if ($this->has('name')) {
+            $meta['name'] = $this->input('name');
+        }
+
+        if ($this->has('description')) {
+            $meta['description'] = $this->input('description');
+        }
+
+        if ($this->has('status')) {
+            $meta['is_active'] = $this->input('status') === 'published';
+        }
+
+        return $meta;
     }
 
     /**

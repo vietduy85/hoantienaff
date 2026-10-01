@@ -197,11 +197,11 @@
                             <div class="flex items-center justify-between gap-2">
                                 <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">
                                     Quy tắc <span x-text="ri + 1"></span>
-                                    <span x-show="rule.scope_type === 'other'"
+                                    <span x-show="rule.target_scope === 'other'"
                                           class="ml-1 rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 normal-case">
                                         📦 Các danh mục còn lại
                                     </span>
-                                    <span x-show="rule.target_type === 'combo' && rule.scope_type === 'category'"
+                                    <span x-show="rule.target_scope === 'combo'"
                                           class="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 normal-case">
                                         🍱 <span x-text="comboLabel(rule.combo_id)"></span>
                                     </span>
@@ -213,23 +213,18 @@
                             </div>
 
                             <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                                {{-- "Phạm vi danh mục" = 3 TRẠNG THÁI target của rule.
+                                     Ưu tiên: danh mục cụ thể > combo > danh mục còn lại. --}}
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700" :for="`cc-r${ti}-${ri}-scope`">Phạm vi danh mục</label>
-                                    <select :id="`cc-r${ti}-${ri}-scope`" x-model="rule.scope_type" @change="onScopeChange(tier, rule)" :disabled="viewMode"
+                                    <select :id="`cc-r${ti}-${ri}-scope`" x-model="rule.target_scope" @change="onTargetScopeChange(tier, rule)" :disabled="viewMode"
                                             class="mt-1 block w-full min-h-[44px] rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
                                         <option value="category">Danh mục cụ thể</option>
-                                        <option value="other">📦 Các danh mục còn lại</option>
-                                    </select>
-                                </div>
-                                <div x-show="rule.scope_type === 'category'" x-cloak>
-                                    <label class="block text-sm font-medium text-gray-700" :for="`cc-r${ti}-${ri}-target`">Loại mục tiêu</label>
-                                    <select :id="`cc-r${ti}-${ri}-target`" x-model="rule.target_type" @change="onTargetTypeChange(rule)" :disabled="viewMode"
-                                            class="mt-1 block w-full min-h-[44px] rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
-                                        <option value="category">Danh mục</option>
                                         <option value="combo">🍱 Combo danh mục</option>
+                                        <option value="other">📦 Danh mục còn lại</option>
                                     </select>
                                 </div>
-                                <div x-show="rule.scope_type === 'category' && rule.target_type === 'category'">
+                                <div x-show="rule.target_scope === 'category'">
                                     <label class="block text-sm font-medium text-gray-700" :for="`cc-r${ti}-${ri}-cat`">Danh mục</label>
                                     <select :id="`cc-r${ti}-${ri}-cat`" x-model="rule.category_id" :disabled="viewMode"
                                             x-init="$nextTick(() => { $el.value = rule.category_id ?? ''; })"
@@ -240,7 +235,7 @@
                                         </template>
                                     </select>
                                 </div>
-                                <div x-show="rule.scope_type === 'category' && rule.target_type === 'combo'" x-cloak>
+                                <div x-show="rule.target_scope === 'combo'" x-cloak>
                                     <label class="block text-sm font-medium text-gray-700" :for="`cc-r${ti}-${ri}-combo`">Combo</label>
                                     <select :id="`cc-r${ti}-${ri}-combo`" x-model="rule.combo_id" :disabled="viewMode"
                                             x-init="$nextTick(() => { $el.value = rule.combo_id ?? ''; })"
@@ -257,7 +252,7 @@
                                         danh mục &gt; combo &gt; mặc định).
                                     </p>
                                 </div>
-                                <div x-show="rule.scope_type === 'other'" class="sm:col-span-1">
+                                <div x-show="rule.target_scope === 'other'" class="sm:col-span-1">
                                     <label class="block text-sm font-medium text-gray-700">&nbsp;</label>
                                     <p class="mt-1 text-xs text-gray-500 leading-relaxed">
                                         Quy tắc mặc định áp cho mọi danh mục chưa có quy tắc cụ thể
@@ -349,6 +344,19 @@
 
 @push('scripts')
 <script>
+    // Suy "Phạm vi danh mục" (giá trị của select) từ dữ liệu rule server trả về.
+    // Presenter xuất `scope_type` + `target_type`; rule cũ chỉ có `category_id` thì
+    // suy tiếp từ `combo_id` để không mất nhãn.
+    function ruleTargetScope(rule) {
+        if ((rule.scope_type ?? 'category') === 'other') {
+            return 'other';
+        }
+
+        const kind = rule.target_type ?? ((rule.combo_id ?? null) !== null ? 'combo' : 'category');
+
+        return kind === 'combo' ? 'combo' : 'category';
+    }
+
     window.systemPolicyEditor = function (initial, endpoint, categories, sourceVersionId, updateEndpoint = null, viewMode = false, combos = []) {
         return {
             sourceVersionId: sourceVersionId ?? null,
@@ -381,11 +389,10 @@
                         })),
                         rules: (tier.rules ?? []).map((rule) => ({
                             id: rule.id ?? null,
-                            scope_type: rule.scope_type ?? 'category',
-                            // Target thứ hai: `category` (danh mục) | `combo`. Presenter
-                            // xuất `target_type`; rule cũ chỉ có `category_id` vẫn mặc
-                            // định `category` ⇒ payload giữ nguyên như trước.
-                            target_type: rule.target_type ?? ((rule.combo_id ?? null) !== null ? 'combo' : 'category'),
+                            // "Phạm vi danh mục" gộp cả 3 trạng thái target nên là nguồn
+                            // sự thật duy nhất: presenter xuất `scope_type` + `target_type`,
+                            // rule cũ chỉ có `category_id` vẫn mặc định "Danh mục cụ thể".
+                            target_scope: ruleTargetScope(rule),
                             counts_toward_tier_cap: rule.scope_type === 'other'
                                 ? (rule.counts_toward_tier_cap ?? false)
                                 : (rule.counts_toward_tier_cap ?? true),
@@ -426,8 +433,7 @@
             addRule(tier) {
                 tier.rules.push({
                     id: null,
-                    scope_type: 'category',
-                    target_type: 'category',
+                    target_scope: 'category',
                     counts_toward_tier_cap: true,
                     category_id: '',
                     combo_id: '',
@@ -466,53 +472,37 @@
             removeRule(tier, idx) {
                 const rule = tier.rules[idx];
 
-                if (rule && rule.scope_type === 'other') {
-                    this.error = "Quy tắc '📦 Các danh mục còn lại' là quy tắc mặc định của mỗi bậc và không thể xóa.";
+                if (rule && rule.target_scope === 'other') {
+                    this.error = "Quy tắc '📦 Danh mục còn lại' là quy tắc mặc định của mỗi bậc và không thể xóa.";
                     return;
                 }
 
                 tier.rules.splice(idx, 1);
             },
 
-            onScopeChange(tier, rule) {
-                if (rule.scope_type === 'other') {
-                    if (tier.rules.some((other) => other !== rule && other.scope_type === 'other')) {
-                        this.error = "Chỉ được có một quy tắc '📦 Các danh mục còn lại' trong mỗi bậc.";
-                        rule.scope_type = 'category';
+            // Đổi "Phạm vi danh mục" giữa 3 trạng thái: danh mục cụ thể | combo | còn lại.
+            // Mỗi lần đổi chỉ giữ lại target của trạng thái mới để payload KHÔNG BAO GIỜ
+            // mang cả `category_id` lẫn `combo_id` (server 422 khi loại trừ lẫn nhau).
+            onTargetScopeChange(tier, rule) {
+                if (rule.target_scope === 'other') {
+                    if (tier.rules.some((other) => other !== rule && other.target_scope === 'other')) {
+                        this.error = "Chỉ được có một quy tắc '📦 Danh mục còn lại' trong mỗi bậc.";
+                        rule.target_scope = 'category';
                         return;
                     }
 
                     rule.counts_toward_tier_cap = false;
                     // Fallback không mang target: service ép null cả hai, editor gửi
                     // null luôn để payload không mang id mồ côi.
-                    rule.category_id = null;
-                    rule.combo_id = null;
+                    rule.category_id = '';
+                    rule.combo_id = '';
                     return;
                 }
 
-                // Quay lại rule cụ thể: chỉ khôi phục ô nhập của target đang chọn.
-                if (rule.target_type === 'combo') {
-                    if (rule.combo_id === null) {
-                        rule.combo_id = '';
-                    }
-                } else if (rule.category_id === null) {
+                if (rule.target_scope === 'combo') {
                     rule.category_id = '';
-                }
-            },
-
-            // Đổi giữa "danh mục" và "combo": xoá target cũ để không bao giờ gửi
-            // payload mang CẢ hai (server sẽ 422 vì loại trừ lẫn nhau).
-            onTargetTypeChange(rule) {
-                if (rule.target_type === 'combo') {
-                    rule.category_id = null;
-                    if (rule.combo_id === null) {
-                        rule.combo_id = '';
-                    }
                 } else {
-                    rule.combo_id = null;
-                    if (rule.category_id === null) {
-                        rule.category_id = '';
-                    }
+                    rule.combo_id = '';
                 }
             },
 
@@ -560,15 +550,16 @@
                             }))
                             : [],
                         rules: (tier.rules ?? []).map((rule) => {
-                            const scope = rule.scope_type ?? 'category';
-                            const isFallback = scope === 'other';
-                            // Target: fallback ⇒ cả hai null; còn lại chỉ MỘT trong
-                            // category_id / combo_id được gửi (ưu tiên target_type).
-                            const useCombo = ! isFallback && (rule.target_type ?? 'category') === 'combo';
+                            // "Phạm vi danh mục" quyết định trạng thái payload: fallback
+                            // (`scope_type=other`) ⇒ cả hai target null; còn lại chỉ MỘT
+                            // trong category_id / combo_id được gửi.
+                            const kind = rule.target_scope ?? 'category';
+                            const isFallback = kind === 'other';
+                            const useCombo = kind === 'combo';
 
                             return {
                                 id: rule.id ?? null,
-                                scope_type: scope,
+                                scope_type: isFallback ? 'other' : 'category',
                                 counts_toward_tier_cap: rule.counts_toward_tier_cap ?? (isFallback ? false : true),
                                 category_id: isFallback || useCombo ? null : this.targetId(rule.category_id),
                                 combo_id: isFallback || ! useCombo ? null : this.targetId(rule.combo_id),
@@ -583,15 +574,32 @@
                 };
             },
 
+            // Metadata template (vỏ ngoài). Gửi kèm cho CẢ "Lưu lại" lẫn "Lưu phiên
+            // bản mới" để tên/mô tả/trạng thái đã nhập không bị mất khi bấm Lưu lại.
+            templateMeta() {
+                return {
+                    name: this.meta.name,
+                    description: this.meta.description === '' ? null : this.meta.description,
+                    status: this.meta.status,
+                };
+            },
+
+            // Payload cho "Lưu lại" (PATCH versions.update): cấu hình version + metadata
+            // template. KHÔNG có `source_version_id` vì không tạo version mới.
+            currentPayload() {
+                return {
+                    ...this.versionConfig(),
+                    ...this.templateMeta(),
+                };
+            },
+
             // Payload đầy đủ cho "Lưu phiên bản mới" / tạo mới: metadata template +
             // cấu hình version. Nguồn copy để và giữ id NGHĨA LÀ SỬA; bấm nút này luôn
             // TẠO phiên bản kế tiếp, không được lẫn với "Lưu lại".
             payload() {
                 const payload = {
                     ...this.versionConfig(),
-                    name: this.meta.name,
-                    description: this.meta.description === '' ? null : this.meta.description,
-                    status: this.meta.status,
+                    ...this.templateMeta(),
                 };
 
                 if (this.sourceVersionId !== null) {
@@ -627,7 +635,7 @@
                             'X-Requested-With': 'XMLHttpRequest',
                             'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
                         },
-                        body: JSON.stringify(isCurrent ? this.versionConfig() : this.payload()),
+                        body: JSON.stringify(isCurrent ? this.currentPayload() : this.payload()),
                     });
 
                     const data = await response.json().catch(() => ({}));

@@ -1712,6 +1712,36 @@ class SystemPolicyManagementTest extends TestCase
         $this->assertSame((int) $v1->id, (int) $v1->root_policy_id, 'Lưu lại KHÔNG đổi gốc chuỗi.');
     }
 
+    #[Test]
+    public function in_place_save_persists_the_template_description(): void
+    {
+        $template = $this->makeSystemPolicy(3.0);
+        $v1 = $template->currentBlueprint();
+
+        $this->assertNull($template->description);
+
+        // Editor "Lưu lại" gửi kèm `description` cùng cấu hình version.
+        $this->actingAs($this->manager)
+            ->patchJson(route('admin.credit-card-policies.api.versions.update', [$template->id, $v1->id]), [
+                'effective_from' => '2026-09-15',
+                'description' => 'Updated description via in-place save',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.id', (int) $v1->id);
+
+        $template->refresh();
+        $this->assertSame('Updated description via in-place save', $template->description, 'Lưu lại phải lưu mô tả mới.');
+        $this->assertSame(1, $template->blueprints()->count(), 'Lưu lại mô tả KHÔNG tạo version mới.');
+
+        // Reload trang Chỉnh sửa: mô tả mới được hydrate lại vào editor.
+        $html = $this->actingAs($this->manager)
+            ->get(route('admin.credit-card-policies.edit', [$template->id, 'version' => $v1->id]))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('Updated description via in-place save', $html);
+    }
+
     // =====================================================================
     // Giới hạn hoàn tiền theo giá trị giao dịch (§23)
     // =====================================================================
@@ -2862,6 +2892,83 @@ class SystemPolicyManagementTest extends TestCase
             ->assertSee('📦 Các danh mục còn lại', false)
             ->assertSee('Tính vào giới hạn hoàn tiền của bậc', false)
             ->assertSee('Mỗi bậc chỉ có', false);
+    }
+
+    #[Test]
+    public function editor_offers_only_the_three_target_scopes_and_no_source_selector(): void
+    {
+        $template = $this->makeSystemPolicy(3.0);
+
+        $html = $this->actingAs($this->manager)
+            ->get(route('admin.credit-card-policies.edit', $template))
+            ->assertOk()
+            ->getContent();
+
+        // "Phạm vi danh mục" gộp 3 trạng thái target: danh mục | combo | còn lại.
+        $this->assertStringContainsString('>Phạm vi danh mục<', $html);
+        $this->assertStringContainsString('<option value="category">Danh mục cụ thể</option>', $html);
+        $this->assertStringContainsString('<option value="combo">🍱 Combo danh mục</option>', $html);
+        $this->assertStringContainsString('<option value="other">📦 Danh mục còn lại</option>', $html);
+
+        // Select dùng state `target_scope` (3 trạng thái gộp), không tách 2 dropdown cũ.
+        $this->assertStringContainsString('x-model="rule.target_scope"', $html);
+        $this->assertStringNotContainsString('onScopeChange', $html);
+        $this->assertStringNotContainsString('onTargetTypeChange', $html);
+
+        // "Loại danh mục" đã bị gỡ hoàn toàn (cả label lẫn state).
+        $this->assertStringNotContainsString('Loại danh mục', $html);
+        $this->assertStringNotContainsString('Loại mục tiêu', $html);
+        $this->assertStringNotContainsString('category_scope', $html);
+    }
+
+    #[Test]
+    public function in_place_save_writes_the_three_target_states_as_mutually_exclusive_targets(): void
+    {
+        $catA = $this->makeSystemCategory();
+        $catB = $this->makeSystemCategory();
+        $combo = $this->makeSystemCombo();
+        $template = $this->makeSystemPolicy(3.0, $catA->id);
+        $v1 = $template->currentBlueprint();
+        $tier = $v1->tiers()->firstOrFail();
+
+        // Editor gửi đúng 3 trạng thái: danh mục cụ thể | combo | còn lại.
+        $this->actingAs($this->manager)
+            ->patchJson(route('admin.credit-card-policies.api.versions.update', [$template->id, $v1->id]), [
+                'effective_from' => '2026-09-01',
+                'tiers' => [[
+                    'id' => (int) $tier->id,
+                    'name' => 'Bậc cơ bản',
+                    'sort_order' => 1,
+                    'min_total_spend' => 0,
+                    'max_total_spend' => null,
+                    'rules' => [
+                        ['scope_type' => 'category', 'category_id' => $catA->id, 'combo_id' => null, 'cashback_percent' => 3],
+                        ['scope_type' => 'category', 'category_id' => null, 'combo_id' => $combo->id, 'cashback_percent' => 5],
+                        ['scope_type' => 'other', 'category_id' => null, 'combo_id' => null, 'cashback_percent' => 0],
+                    ],
+                ]],
+            ])
+            ->assertOk();
+
+        $rules = $tier->refresh()->tierCategoryRules()->orderBy('id')->get();
+
+        $byCategory = $rules->firstWhere('category_id', $catA->id);
+        $this->assertNotNull($byCategory, 'Trạng thái "Danh mục cụ thể" phải ghi category_id.');
+        $this->assertSame(PolicyTierCategory::SCOPE_CATEGORY, $byCategory->scope_type);
+        $this->assertNull($byCategory->combo_id, 'Danh mục cụ thể KHÔNG mang combo_id.');
+
+        $byCombo = $rules->firstWhere('combo_id', $combo->id);
+        $this->assertNotNull($byCombo, 'Trạng thái "Combo danh mục" phải ghi combo_id.');
+        $this->assertSame(PolicyTierCategory::SCOPE_CATEGORY, $byCombo->scope_type);
+        $this->assertNull($byCombo->category_id, 'Combo KHÔNG mang category_id.');
+
+        $fallback = $rules->firstWhere('scope_type', PolicyTierCategory::SCOPE_OTHER);
+        $this->assertNotNull($fallback, 'Trạng thái "Danh mục còn lại" phải tồn tại.');
+        $this->assertNull($fallback->category_id);
+        $this->assertNull($fallback->combo_id);
+
+        $this->assertCount(3, $rules);
+        $this->assertSame(1, $rules->where('scope_type', PolicyTierCategory::SCOPE_OTHER)->count(), 'Mỗi bậc chỉ một fallback.');
     }
 
     #[Test]

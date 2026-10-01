@@ -169,6 +169,10 @@ class SystemPolicyApiController extends Controller
      * KHÔNG tạo version mới (ngược hẳn `storeVersion`); giữ nguyên `version_no`,
      * giữ id của tier/rule khi có thể, xóa rule vắng trong payload, KHÔNG đổi
      * default và KHÔNG cascade sang user policy (thẻ clone là bản sao độc lập).
+     *
+     * Nếu editor gửi kèm metadata template (tên / mô tả / trạng thái) thì ghi luôn
+     * để ô "Mô tả" không bị mất khi bấm "Lưu lại". Metadata chỉ được ghi SAU khi
+     * cấu hình version hợp lệ, tránh lưu mô tả khi version bị từ chối (422).
      */
     public function updateVersion(UpdateSystemPolicyVersionRequest $request, PolicyTemplate $template, PolicyVersion $version): JsonResponse
     {
@@ -176,6 +180,12 @@ class SystemPolicyApiController extends Controller
 
         try {
             $updated = $this->policies->updateSystemVersion($template, $version, $request->overrides());
+
+            $meta = $request->meta();
+
+            if ($meta !== []) {
+                $this->policies->updateSystemMeta($template, $meta);
+            }
         } catch (InvalidArgumentException|LogicException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }

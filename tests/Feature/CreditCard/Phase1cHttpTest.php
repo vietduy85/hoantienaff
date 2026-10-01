@@ -512,6 +512,100 @@ class Phase1cHttpTest extends TestCase
     }
 
     #[Test]
+    public function a_user_rule_supports_all_three_target_scopes(): void
+    {
+        $card = $this->makeUserCard($this->owner->id);
+        $category = $this->makeSystemCategory();
+        $combo = $this->makeComboForUser($this->owner->id);
+        $policy = $this->makePolicyForCard($card, [['min' => 0, 'max' => null]], []);
+        $tier = $policy->tiers()->firstOrFail();
+
+        // 1) "Danh mục cụ thể" — chỉ category_id.
+        $this->actingAs($this->owner)
+            ->postJson(route('credit-cards.api.rules.store', $tier), [
+                'scope_type' => 'category',
+                'category_id' => $category->id,
+                'combo_id' => null,
+                'cashback_percent' => 3,
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.target_type', 'category')
+            ->assertJsonPath('data.category_id', $category->id)
+            ->assertJsonPath('data.combo_id', null);
+
+        // 2) "Combo danh mục" — chỉ combo_id.
+        $this->actingAs($this->owner)
+            ->postJson(route('credit-cards.api.rules.store', $tier), [
+                'scope_type' => 'category',
+                'category_id' => null,
+                'combo_id' => $combo->id,
+                'cashback_percent' => 4,
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.target_type', 'combo')
+            ->assertJsonPath('data.combo_id', $combo->id)
+            ->assertJsonPath('data.category_id', null);
+
+        // 3) "Danh mục còn lại" — không mang target nào.
+        $this->actingAs($this->owner)
+            ->postJson(route('credit-cards.api.rules.store', $tier), [
+                'scope_type' => 'other',
+                'category_id' => null,
+                'combo_id' => null,
+                'cashback_percent' => 0,
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.target_type', 'other')
+            ->assertJsonPath('data.category_id', null)
+            ->assertJsonPath('data.combo_id', null);
+
+        $rules = PolicyTierCategory::where('tier_id', $tier->id)->get();
+
+        $this->assertCount(3, $rules);
+        $this->assertSame(
+            1,
+            $rules->filter(fn (PolicyTierCategory $rule) => $rule->isFallback())->count(),
+            'Chi co mot quy tac "Danh muc con lai" moi bac.',
+        );
+
+        foreach ($rules as $rule) {
+            $this->assertFalse(
+                $rule->category_id !== null && $rule->combo_id !== null,
+                'Khong rule nao duoc mang ca category_id va combo_id.',
+            );
+        }
+    }
+
+    #[Test]
+    public function the_user_editor_offers_only_the_three_target_scopes_and_no_source_selector(): void
+    {
+        $this->makeUserCard($this->owner->id);
+
+        $html = $this->actingAs($this->owner)
+            ->get(route('credit-cards.policies'))
+            ->assertOk()
+            ->getContent();
+
+        // "Phạm vi danh mục" gộp 3 trạng thái target.
+        $this->assertStringContainsString('>Phạm vi danh mục<', $html);
+        $this->assertStringContainsString('<option value="category">Danh mục cụ thể</option>', $html);
+        $this->assertStringContainsString('<option value="combo">🍱 Combo danh mục</option>', $html);
+        $this->assertStringContainsString('<option value="other">📦 Danh mục còn lại</option>', $html);
+
+        // "Loại danh mục" đã bị gỡ hoàn toàn (label, state, handler).
+        $this->assertStringNotContainsString('Loại danh mục', $html);
+        $this->assertStringNotContainsString('Loại mục tiêu', $html);
+        $this->assertStringNotContainsString('category_scope', $html);
+        $this->assertStringNotContainsString('onRuleCategoryScopeChange', $html);
+
+        // Danh mục/combo vẫn phân nhóm HỆ THỐNG / CỦA TÔI ngay trong dropdown.
+        $this->assertStringContainsString('<optgroup label="🏦 Danh mục hệ thống">', $html);
+        $this->assertStringContainsString('<optgroup label="👤 Danh mục của tôi">', $html);
+        $this->assertStringContainsString('<optgroup label="🏦 Combo hệ thống">', $html);
+        $this->assertStringContainsString('<optgroup label="👤 Combo của tôi">', $html);
+    }
+
+    #[Test]
     public function the_rule_form_meta_exposes_combos_and_target_type(): void
     {
         $card = $this->makeUserCard($this->owner->id);

@@ -311,10 +311,7 @@
                                         <tbody class="divide-y divide-gray-100">
                                             <template x-for="rule in tier.rules" :key="rule.id">
                                                 <tr>
-                                                    <td class="py-1.5 pr-3 text-gray-800">
-                                                        <span x-show="rule.combo_id" x-text="'🍱 ' + (rule.combo_name ?? `Combo #${rule.combo_id}`)"></span>
-                                                        <span x-show="! rule.combo_id" x-text="rule.category_name ?? `#${rule.category_id}`"></span>
-                                                    </td>
+                                                    <td class="py-1.5 pr-3 text-gray-800" x-text="ruleTargetLabel(rule)"></td>
                                                     <td class="py-1.5 pr-3 text-gray-800" x-text="rule.cashback_percent"></td>
                                                     <td class="py-1.5 pr-3 text-gray-800"
                                                         x-text="rule.max_cashback_per_transaction === null ? '—' : money(rule.max_cashback_per_transaction)"></td>
@@ -326,7 +323,9 @@
                                                                     class="rounded-lg bg-white px-2 py-0.5 text-xs font-semibold text-gray-700 border border-gray-300 hover:bg-gray-50">
                                                                 Nhân bản
                                                             </button>
+                                                            {{-- Fallback là quy tắc bất biến của bậc: service cấm xoá. --}}
                                                             <button type="button" @click="removeRule(rule)"
+                                                                    x-show="rule.target_type !== 'other'"
                                                                     class="rounded-lg bg-white px-2 py-0.5 text-xs font-semibold text-rose-600 border border-rose-200 hover:bg-rose-50">
                                                                 Xoá
                                                             </button>
@@ -410,15 +409,16 @@
                         </div>
 
                         <div>
-                            <label class="block text-sm font-medium text-gray-700" for="cc-rule-target">Loại mục tiêu</label>
-                            <select id="cc-rule-target" x-model="ruleForm.target_type" @change="onRuleTargetTypeChange()"
+                            <label class="block text-sm font-medium text-gray-700" for="cc-rule-scope">Phạm vi danh mục</label>
+                            <select id="cc-rule-scope" x-model="ruleForm.target_scope" @change="onRuleTargetScopeChange()"
                                     class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
-                                <option value="category">Danh mục</option>
+                                <option value="category">Danh mục cụ thể</option>
                                 <option value="combo">🍱 Combo danh mục</option>
+                                <option value="other">📦 Danh mục còn lại</option>
                             </select>
                         </div>
 
-                        <div x-show="ruleForm.target_type === 'category'">
+                        <div x-show="ruleForm.target_scope === 'category'">
                             <label class="block text-sm font-medium text-gray-700" for="cc-rule-category">Danh mục</label>
                             <select id="cc-rule-category" x-model="ruleForm.category_id"
                                     class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
@@ -436,7 +436,7 @@
                             </select>
                         </div>
 
-                        <div x-show="ruleForm.target_type === 'combo'" x-cloak>
+                        <div x-show="ruleForm.target_scope === 'combo'" x-cloak>
                             <label class="block text-sm font-medium text-gray-700" for="cc-rule-combo">Combo</label>
                             <select id="cc-rule-combo" x-model="ruleForm.combo_id"
                                     class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
@@ -457,6 +457,14 @@
                             <p class="mt-1 text-xs text-gray-500">
                                 Quy tắc combo tính hoàn trên <strong>tổng</strong> chi tiêu của mọi danh mục trong
                                 combo. Danh mục có quy tắc riêng vẫn thắng (ưu tiên danh mục &gt; combo &gt; mặc định).
+                            </p>
+                        </div>
+
+                        <div x-show="ruleForm.target_scope === 'other'" x-cloak>
+                            <label class="block text-sm font-medium text-gray-700">&nbsp;</label>
+                            <p class="mt-1 text-xs text-gray-500 leading-relaxed">
+                                Quy tắc mặc định áp cho mọi danh mục chưa có quy tắc cụ thể trong bậc này.
+                                Mỗi bậc chỉ có <strong>một</strong> quy tắc này — không cần chọn danh mục.
                             </p>
                         </div>
 
@@ -543,9 +551,7 @@
                             <div class="grid gap-1.5 sm:grid-cols-2">
                                 <template x-for="(rule, ri) in tier.rules ?? []" :key="rule.id ?? `r-${ri}`">
                                     <div class="rounded-lg bg-white border border-gray-100 px-3 py-2 text-[13px] flex items-center justify-between gap-2">
-                                        <span class="text-gray-700" x-text="rule.combo_id
-                                            ? '🍱 ' + (rule.combo_name ?? `Combo #${rule.combo_id}`)
-                                            : (rule.category_name ?? `#${rule.category_id}`)"></span>
+                                        <span class="text-gray-700" x-text="ruleTargetLabel(rule)"></span>
                                         <span class="font-semibold text-emerald-600" x-text="`${rule.cashback_percent}%`"></span>
                                     </div>
                                 </template>
@@ -598,7 +604,7 @@
                     saveTemplate: { open: false, name: '' },
                     tierForm: { open: false, name: '', min_total_spend: 0, max_total_spend: '' },
                     ruleForm: {
-                        open: false, tier_id: '', target_type: 'category',
+                        open: false, tier_id: '', target_scope: 'category',
                         category_id: '', combo_id: '', cashback_percent: 0,
                         max_cashback_per_transaction: '', max_cashback_per_category_per_period: '',
                     },
@@ -870,16 +876,36 @@
                         this.ruleForm = {
                             open: true,
                             tier_id: tier ? tier.id : (this.detail?.tiers?.[0]?.id ?? ''),
-                            target_type: 'category',
+                            // "Phạm vi danh mục" = 3 trạng thái target.
+                            target_scope: 'category',
                             category_id: '', combo_id: '', cashback_percent: 0,
                             max_cashback_per_transaction: '', max_cashback_per_category_per_period: '',
                         };
                     },
 
-                    // Server chỉ nhận MỘT target cho mỗi rule: đổi loại thì xoá target
-                    // cũ, nếu không payload sẽ mang cả hai và bị 422.
-                    onRuleTargetTypeChange() {
-                        if (this.ruleForm.target_type === 'combo') {
+                    // Đổi "Phạm vi danh mục": mỗi trạng thái chỉ giữ target của chính nó
+                    // (fallback không mang target) để payload không bao giờ có cả hai id.
+                    onRuleTargetScopeChange() {
+                        if (this.ruleForm.target_scope === 'other') {
+                            // Mỗi bậc chỉ MỘT "Danh mục còn lại" — chặn trước để không gửi
+                            // payload chắc chắn bị service từ chối.
+                            const tier = (this.detail?.tiers ?? []).find(
+                                (item) => String(item.id) === String(this.ruleForm.tier_id),
+                            );
+                            const hasFallback = (tier?.rules ?? []).some((rule) => rule.target_type === 'other');
+
+                            if (hasFallback) {
+                                this.error = "Chỉ được có một quy tắc '📦 Các danh mục còn lại' trong mỗi bậc.";
+                                this.ruleForm.target_scope = 'category';
+                                return;
+                            }
+
+                            this.ruleForm.category_id = '';
+                            this.ruleForm.combo_id = '';
+                            return;
+                        }
+
+                        if (this.ruleForm.target_scope === 'combo') {
                             this.ruleForm.category_id = '';
                         } else {
                             this.ruleForm.combo_id = '';
@@ -887,14 +913,16 @@
                     },
 
                     async saveRule() {
-                        const numericOrNull = (v) => (v === '' ? null : v);
-                        const useCombo = this.ruleForm.target_type === 'combo';
+                        const numericOrNull = (v) => (v === '' || v === null || v === undefined ? null : v);
+                        // Ba trạng thái, loại trừ lẫn nhau: fallback ⇒ cả hai null; "Danh mục
+                        // cụ thể" ⇒ chỉ category_id; "Combo danh mục" ⇒ chỉ combo_id.
+                        const kind = this.ruleForm.target_scope;
 
                         const body = {
                             tier_id: this.ruleForm.tier_id,
-                            // Loại trừ lẫn nhau: combo ⇒ không gửi category_id.
-                            category_id: useCombo ? null : this.ruleForm.category_id,
-                            combo_id: useCombo ? this.ruleForm.combo_id : null,
+                            scope_type: kind === 'other' ? 'other' : 'category',
+                            category_id: kind === 'category' ? numericOrNull(this.ruleForm.category_id) : null,
+                            combo_id: kind === 'combo' ? numericOrNull(this.ruleForm.combo_id) : null,
                             cashback_percent: this.ruleForm.cashback_percent,
                             max_cashback_per_transaction: numericOrNull(this.ruleForm.max_cashback_per_transaction),
                             max_cashback_per_category_per_period: numericOrNull(this.ruleForm.max_cashback_per_category_per_period),
@@ -937,6 +965,20 @@
                         });
 
                         if (payload) this.openVersion(this.detail.id);
+                    },
+
+                    // Nhãn target của rule theo 3 trạng thái: combo | danh mục | còn lại.
+                    // Fallback không có id nào nên phải nhận diện qua `target_type`.
+                    ruleTargetLabel(rule) {
+                        if (rule.target_type === 'other' || (! rule.combo_id && ! rule.category_id)) {
+                            return '📦 Các danh mục còn lại';
+                        }
+
+                        if (rule.combo_id) {
+                            return '🍱 ' + (rule.combo_name ?? `Combo #${rule.combo_id}`);
+                        }
+
+                        return rule.category_name ?? `#${rule.category_id}`;
                     },
 
                     money(value) {

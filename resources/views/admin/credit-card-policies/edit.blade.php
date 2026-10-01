@@ -44,7 +44,7 @@
                 <p class="font-semibold">Lưu ý về phiên bản</p>
                 <p class="mt-1">Trang này có hai cách lưu:</p>
                 <ul class="mt-1 list-disc pl-5 space-y-1">
-                    <li><strong>Lưu lại</strong> — cập nhật ngay <em>chính</em> phiên bản đang sửa (giữ nguyên số phiên bản và ngày hiệu lực, tên/mô tả vẫn đổi qua nút "Lưu thay đổi" ở trang danh sách). Dùng khi chỉnh lại cấu hình của kỳ chưa finalize.</li>
+                    <li><strong>Lưu lại</strong> — cập nhật ngay <em>chính</em> phiên bản đang sửa (giữ nguyên số phiên bản) cùng tên/mô tả/trạng thái đang nhập. Dùng khi chỉnh lại cấu hình của kỳ chưa finalize.</li>
                     <li><strong>Lưu phiên bản mới</strong> — sao chép phiên bản đang sửa thành phiên bản kế tiếp (bắt đầu hiệu lực từ ngày bạn chọn), phiên bản cũ giữ nguyên để đối soát.</li>
                 </ul>
 
