@@ -60,6 +60,9 @@ class UpdateSystemPolicyVersionRequest extends FormRequest
                 Rule::in([PolicyTierCategory::SCOPE_CATEGORY, PolicyTierCategory::SCOPE_OTHER]),
             ],
             'tiers.*.rules.*.counts_toward_tier_cap' => ['sometimes', 'boolean'],
+            // Cờ "tính hạn mức chi tiêu còn lại" — bất biến "cùng một bậc" chặn ở
+            // `CategoryRuleService` vì cần nhìn cả các bậc khác của version.
+            'tiers.*.rules.*.is_quota_category' => ['sometimes', 'boolean'],
             'tiers.*.rules.*.category_id' => ['sometimes', 'nullable', 'integer', Rule::exists(Category::class, 'id')],
             'tiers.*.rules.*.combo_id' => ['sometimes', 'nullable', 'integer', Rule::exists(CategoryCombo::class, 'id')],
             'tiers.*.rules.*.name' => ['nullable', 'string', 'max:150'],

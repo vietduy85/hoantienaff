@@ -345,6 +345,25 @@
                                     “Hoàn tiền tối đa của bậc / kỳ”.</span>
                                 </span>
                             </label>
+
+                            {{-- "Tính hạn mức chi tiêu còn lại" — KHÁC hẳn cờ trên:
+                                 - cờ trên là cấu hình ENGINE (cap bậc), engine đọc;
+                                 - cờ này là cấu hình QUOTA, chỉ dùng để báo "còn chi
+                                   thêm được bao nhiêu" ở Tổng quan.
+                                 Fallback không có mục tiêu chi tiêu cụ thể nên ẩn, và
+                                 state ép false để không bao giờ gửi tick lên fallback. --}}
+                            <template x-if="rule.target_scope !== 'other'">
+                                <label class="flex items-start gap-2 text-sm rounded-xl bg-white/70 p-2.5 border border-gray-100">
+                                    <input type="checkbox" x-model="rule.is_quota_category" :disabled="{{ $p }}viewMode"
+                                           @change="{{ $p }}onQuotaCategoryToggle(rule)"
+                                           class="mt-0.5 h-5 w-5 shrink-0 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 disabled:bg-gray-50">
+                                    <span class="min-w-0">
+                                        <span class="font-medium text-gray-700">Tính hạn mức chi tiêu còn lại</span>
+                                        <span class="block text-xs text-gray-500">Dùng danh mục này để tính số tiền bạn còn có thể chi thêm
+                                        để nhận tối đa hoàn tiền.</span>
+                                    </span>
+                                </label>
+                            </template>
                         </div>
                     </template>
 
@@ -358,6 +377,15 @@
                         class="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 border border-emerald-200 hover:bg-emerald-50">
                     + Thêm quy tắc cashback
                 </button>
+
+                {{-- Bất biến "mọi quy tắc tính hạn mức phải cùng một bậc". Backend
+                     chặn (422), nhưng cảnh báo ngay tại ô nhập để admin không phải
+                     submit lên rồi mới biết. --}}
+                <p class="text-xs text-gray-500">
+                    Các quy tắc được chọn “Tính hạn mức chi tiêu còn lại”
+                    <strong>phải cùng thuộc một bậc</strong> trong chính sách này — chỉ một bậc được tính hạn mức
+                    (bậc ứng với mục tiêu chi tiêu của người dùng).
+                </p>
             </div>
         </template>
 
@@ -403,6 +431,17 @@
 
 @push('scripts')
 <script>
+    /**
+     * Thông báo bất biến "mọi quy tắc tính hạn mức phải cùng một bậc".
+     *
+     * Đặt ở `window` để dùng CHUNG ở mọi bản hiển thị của partial (partial này
+     * được include 4 lần: create / edit / show / form thẻ) — khai báo trùng tên
+     * trong các scope khác nhau là hợp lệ, nhưng một hằng số là đủ và luôn khớp
+     * với hằng số `CategoryRuleService::QUOTA_TIER_CONFLICT_MESSAGE` mà backend trả
+     * về. Test khoá đúng câu này.
+     */
+    window.CC_QUOTA_TIER_MESSAGE = @js(\App\Services\CreditCard\CategoryRuleService::QUOTA_TIER_CONFLICT_MESSAGE);
+
     /**
      * Suy "Phạm vi danh mục" (giá trị của select) từ dữ liệu rule server trả về.
      * Presenter xuất `scope_type` + `target_type`; rule cũ chỉ có `category_id` thì
@@ -473,6 +512,7 @@
                             counts_toward_tier_cap: rule.scope_type === 'other'
                                 ? (rule.counts_toward_tier_cap ?? false)
                                 : (rule.counts_toward_tier_cap ?? true),
+                            is_quota_category: rule.is_quota_category === true,
                             category_id: rule.category_id ?? '',
                             combo_id: rule.combo_id ?? '',
                             name: rule.name ?? null,
@@ -520,6 +560,7 @@
                     id: null,
                     target_scope: 'category',
                     counts_toward_tier_cap: true,
+                    is_quota_category: false,
                     category_id: '',
                     combo_id: '',
                     name: null,
@@ -581,6 +622,9 @@
                     }
 
                     rule.counts_toward_tier_cap = false;
+                    // Fallback không phải một danh mục cụ thể ⇒ không có hạn mức nào
+                    // để tính. Ép false để payload không bao giờ mang cờ lên fallback.
+                    rule.is_quota_category = false;
                     // Fallback không mang target: service ép null cả hai, editor gửi
                     // null luôn để payload không mang id mồ côi.
                     rule.category_id = '';
@@ -593,6 +637,33 @@
                 } else {
                     rule.combo_id = '';
                 }
+            },
+
+            /**
+             * Bật/tắt "Tính hạn mức chi tiêu còn lại".
+             *
+             * Bất biến nghiệp vụ: trong MỘT policy version, các quy tắc được tick
+             * phải cùng thuộc MỘT bậc (quota chỉ xác định một bậc rồi đọc các quy
+             * tắc được tick của bậc đó). Ở đây chỉ CẢNH BÁO SỚM và bỏ tick để lưu
+             * được — backend `CategoryRuleService` mới là nơi bắt buộc, vì editor là
+             * UI còn client/script có thể gửi payload bất kỳ.
+             */
+            onQuotaCategoryToggle(rule) {
+                if (!rule.is_quota_category) {
+                    return;
+                }
+
+                if (this.quotaCategoryTierCount() > 1) {
+                    rule.is_quota_category = false;
+                    this.error = window.CC_QUOTA_TIER_MESSAGE;
+                }
+            },
+
+            /**
+             * Số bậc đang có ít nhất một quy tắc được tick.
+             */
+            quotaCategoryTierCount() {
+                return this.tiers.filter((tier) => (tier.rules ?? []).some((rule) => rule.is_quota_category === true)).length;
             },
 
             // Combo đã ẩn vẫn có trong danh sách để không mất nhãn rule cũ.
@@ -663,6 +734,9 @@
                                 id: rule.id ?? null,
                                 scope_type: isFallback ? 'other' : 'category',
                                 counts_toward_tier_cap: rule.counts_toward_tier_cap ?? (isFallback ? false : true),
+                                // Fallback không bao giờ tính hạn mức — gửi false để
+                                // service không phải chặn một payload vô hại.
+                                is_quota_category: !isFallback && rule.is_quota_category === true,
                                 category_id: isFallback || useCombo ? null : this.targetId(rule.category_id),
                                 combo_id: isFallback || ! useCombo ? null : this.targetId(rule.combo_id),
                                 name: rule.name ?? null,

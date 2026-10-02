@@ -72,9 +72,38 @@ use LogicException;
  *
  * Lưu ý: một danh mục vừa có rule danh mục vừa nằm trong combo rule ĐƯỢC phép —
  * engine ưu tiên rule danh mục (CATEGORY > COMBO > FALLBACK), nên vẫn tất định.
+ *
+ * ---------------------------------------------------------------------------
+ * `is_quota_category` — "TÍNH HẠN MỨC CHI TIÊU CÒN LẠI"
+ * ---------------------------------------------------------------------------
+ * Cờ cấu hình của Policy Version: rule được tick ⇒ cashback của nó là cơ sở báo
+ * cho user "còn có thể chi thêm bao nhiêu để nhận tối đa hoàn tiền". KHÔNG liên
+ * quan tới engine — `CashbackCalculator` không đọc cột này.
+ *
+ * Hai bất biến, cả hai ở đây vì mọi đường ghi đều đi qua service:
+ *
+ *   1. FALLBACK KHÔNG ĐƯỢC TICK. "📦 Các danh mục còn lại" không phải một mục tiêu
+ *      chi tiêu cụ thể; tick vào sẽ sinh một hạn mức vô nghĩa.
+ *   2. TRONG MỘT POLICY VERSION, MỌI RULE ĐƯỢC TICK PHẢI CÙNG MỘT BẬC — vì quota
+ *      chỉ xác định MỘT bậc (từ `UserCard.desired_spend`) rồi đọc rule được tick
+ *      của bậc đó (`CashbackQuotaService`). Cho phép tick ở hai bậc thì mọi bậc
+ *      sau đó không xác định được quota lấy từ đâu.
+ *
+ *   Bất biến 1 chặn ở `create()`/`update()`/`ensureSingleFallback()`; bất biến 2
+ *   chặn ở `assertQuotaCategoryTierUniqueness()` (kiểm CẢ payload trước khi ghi)
+ *   và ở `assertQuotaCategoryTierIsUniqueIn()` (chặn từng rule khi sửa lẻ, vì một
+ *   rule đơn lẻ không nhìn thấy các bậc khác trong payload).
  */
 class CategoryRuleService
 {
+    /**
+     * Thông báo khi rule được tick ở hai bậc khác nhau của cùng một policy version.
+     *
+     * Hằng số vì đây là hợp đồng nghiệp vụ: frontend hiển thị đúng câu này và test
+     * khoá lại, nên đổi câu ở một chỗ phải đổi cả hai nơi.
+     */
+    public const QUOTA_TIER_CONFLICT_MESSAGE = 'Các danh mục tính hạn mức chi tiêu còn lại phải thuộc cùng một bậc.';
+
     public function __construct(
         private readonly CategoryComboService $combos,
     ) {}
@@ -89,6 +118,113 @@ class CategoryRuleService
         // `combo` eager-load: presenter trả `combo_name` cho từng rule, không có
         // eager-load thì mỗi rule một query (N+1) trên màn cấu hình.
         return $tier->tierCategoryRules()->with('combo')->orderBy('sort_order')->orderBy('id')->get();
+    }
+
+    /**
+     * =====================================================================
+     * §QUOTA — CỜ "TÍNH HẠN MỨC CHI TIÊU CÒN LẠI"
+     * =====================================================================
+     */
+
+    /**
+     * Chặn FALLBACK được tick.
+     *
+     * Gọi khi chuẩn hoá giá trị cờ, trước khi ghi bất kỳ dòng nào. Ném
+     * `InvalidArgumentException` (⇒ HTTP 422 ở controller) chứ không `LogicException`
+     * vì đây là dữ liệu đầu vào sai, không phải chương trình hỏng.
+     */
+    private function assertNotFallbackQuota(bool $isQuotaCategory, string $scope): void
+    {
+        if ($isQuotaCategory && $scope === PolicyTierCategory::SCOPE_OTHER) {
+            throw new InvalidArgumentException(
+                'Quy tắc "'.PolicyTierCategory::FALLBACK_NAME.'" không thể tính hạn mức chi tiêu còn lại.'
+            );
+        }
+    }
+
+    /**
+     * Chuẩn hoá cờ `is_quota_category` từ input.
+     *
+     * Default `false` — KHÔNG tự tick rule cũ. Fallback ép `false` kể cả khi
+     * client gửi `true`, và việc gửi `true` lên fallback vẫn bị chặn ở đây để
+     * admin biết mình đang cấu hình sai.
+     */
+    private function normaliseQuotaFlag(mixed $value, string $scope): bool
+    {
+        $requested = $this->booleanOr($value, false);
+
+        $this->assertNotFallbackQuota($requested, $scope);
+
+        return $requested;
+    }
+
+    /**
+     * Bất biến "mọi rule được tick phải cùng một bậc" — kiểm TRÊN PAYLOAD, trước
+     * khi ghi bất kỳ dòng nào.
+     *
+     * Đây là hàng rào chính cho luồng Policy Editor (một lần submit mang cả các
+     * bậc) nên biết ngay trong payload có bậc nào đang tick mà không cần rà DB.
+     * Gọi ở `PolicyService::insertTiers()`/`syncTiers()` và
+     * `PolicyCloneService::replaceChildren()` — hàm cuối XOÁ toàn bộ rule cũ
+     * TRƯỚC khi tạo lại, nên kiểm sau khi xoá thì đã muộn.
+     *
+     * @param  array<int, array<string, mixed>>  $tiers  payload `tiers[]`
+     */
+    public function assertQuotaCategoryTierUniqueness(array $tiers): void
+    {
+        $tiersWithQuota = [];
+
+        foreach (array_values($tiers) as $tierIndex => $tier) {
+            if (! is_array($tier) || ! is_array($tier['rules'] ?? null)) {
+                continue;
+            }
+
+            $hasQuotaRule = false;
+
+            foreach ($tier['rules'] as $rule) {
+                if (! is_array($rule) || ! ($rule['is_quota_category'] ?? false)) {
+                    continue;
+                }
+
+                $scope = (string) ($rule['scope_type'] ?? PolicyTierCategory::SCOPE_CATEGORY);
+
+                $this->assertNotFallbackQuota(true, $scope);
+
+                $hasQuotaRule = true;
+            }
+
+            if ($hasQuotaRule) {
+                $tiersWithQuota[] = (int) $tierIndex;
+            }
+        }
+
+        if (count($tiersWithQuota) > 1) {
+            throw new InvalidArgumentException(self::QUOTA_TIER_CONFLICT_MESSAGE);
+        }
+    }
+
+    /**
+     * Bất biến "mọi rule được tick phải cùng một bậc" — kiểm trên DB khi sửa MỘT
+     * rule.
+     *
+     * Bổ sung cho `assertQuotaCategoryTierUniqueness()`: đường rule lẻ
+     * (`CategoryRuleController`) chỉ thấy một bậc, nên nếu không hỏi DB thì tick
+     * thêm ở bậc thứ hai vẫn lọt — đúng cái lỗi §1.5 cần chặn.
+     *
+     * @param  int|null  $ignoreRuleId  rule đang sửa, bỏ qua khi đếm bậc khác
+     */
+    private function assertQuotaCategoryTierIsUniqueIn(PolicyTier $tier, ?int $ignoreRuleId = null): void
+    {
+        $conflict = PolicyTierCategory::query()
+            ->where('is_quota_category', true)
+            ->where('tier_id', '!=', $tier->id)
+            ->whereIn('tier_id', PolicyTier::query()->where('policy_id', $tier->policy_id)->select('id'))
+            ->when($ignoreRuleId !== null, fn ($query) => $query->whereKeyNot($ignoreRuleId))
+            ->exists();
+
+        if ($conflict) {
+            throw new InvalidArgumentException(self::QUOTA_TIER_CONFLICT_MESSAGE);
+        }
     }
 
     /**
@@ -164,13 +300,22 @@ class CategoryRuleService
             $scope === PolicyTierCategory::SCOPE_OTHER ? false : true,
         );
 
-        return DB::connection('creditcard')->transaction(function () use ($tier, $attributes, $scope, $categoryId, $comboId, $countsTowardTierCap): PolicyTierCategory {
+        // Tick quota ở bậc đã có bậc khác tick trong CÙNG policy version ⇒ bậc mới
+        // không xác định được quota lấy từ đâu (§1.5).
+        $isQuotaCategory = $this->normaliseQuotaFlag($attributes['is_quota_category'] ?? null, $scope);
+
+        if ($isQuotaCategory) {
+            $this->assertQuotaCategoryTierIsUniqueIn($tier);
+        }
+
+        return DB::connection('creditcard')->transaction(function () use ($tier, $attributes, $scope, $categoryId, $comboId, $countsTowardTierCap, $isQuotaCategory): PolicyTierCategory {
             $rule = PolicyTierCategory::create([
                 'tier_id' => $tier->id,
                 'category_id' => $categoryId,
                 'combo_id' => $comboId,
                 'scope_type' => $scope,
                 'counts_toward_tier_cap' => $countsTowardTierCap,
+                'is_quota_category' => $isQuotaCategory,
                 'name' => $scope === PolicyTierCategory::SCOPE_OTHER
                     ? ($attributes['name'] ?? PolicyTierCategory::FALLBACK_NAME)
                     : ($attributes['name'] ?? null),
@@ -197,7 +342,8 @@ class CategoryRuleService
     public function update(int $ruleId, array $attributes): PolicyTierCategory
     {
         $rule = $this->findEditable($ruleId);
-        $policy = $this->policyOfTier(PolicyTier::query()->whereKey($rule->tier_id)->firstOrFail());
+        $tier = PolicyTier::query()->whereKey($rule->tier_id)->firstOrFail();
+        $policy = $this->policyOfTier($tier);
 
         $tierId = (int) $rule->tier_id;
         $scope = array_key_exists('scope_type', $attributes)
@@ -211,7 +357,7 @@ class CategoryRuleService
             $this->assertNoOtherFallback($tierId, $ruleId);
         }
 
-        return DB::connection('creditcard')->transaction(function () use ($rule, $tierId, $scope, $attributes, $policy): PolicyTierCategory {
+        return DB::connection('creditcard')->transaction(function () use ($rule, $tier, $tierId, $scope, $attributes, $policy): PolicyTierCategory {
             if ($scope === PolicyTierCategory::SCOPE_OTHER) {
                 $rule->scope_type = PolicyTierCategory::SCOPE_OTHER;
                 $rule->category_id = null;
@@ -225,8 +371,25 @@ class CategoryRuleService
                     $attributes['counts_toward_tier_cap'] ?? null,
                     false,
                 );
-            } elseif (array_key_exists('counts_toward_tier_cap', $attributes)) {
-                $rule->counts_toward_tier_cap = (bool) $attributes['counts_toward_tier_cap'];
+                // Fallback không mang target nào ⇒ không có hạn mức nào để tính.
+                // Gửi `true` lên fallback vẫn bị chặn (⇒ 422) để admin biết mình
+                // đang cấu hình sai, chứ không âm thầm ghi false làm tick biến mất.
+                $this->normaliseQuotaFlag($attributes['is_quota_category'] ?? null, $scope);
+                $rule->is_quota_category = false;
+            } else {
+                if (array_key_exists('counts_toward_tier_cap', $attributes)) {
+                    $rule->counts_toward_tier_cap = (bool) $attributes['counts_toward_tier_cap'];
+                }
+
+                if (array_key_exists('is_quota_category', $attributes)) {
+                    $requested = $this->normaliseQuotaFlag($attributes['is_quota_category'], $scope);
+
+                    if ($requested && ! $rule->is_quota_category) {
+                        $this->assertQuotaCategoryTierIsUniqueIn($tier, (int) $rule->id);
+                    }
+
+                    $rule->is_quota_category = $requested;
+                }
             }
 
             if (array_key_exists('name', $attributes)) {
@@ -336,6 +499,7 @@ class CategoryRuleService
                     'combo_id' => null,
                     'scope_type' => PolicyTierCategory::SCOPE_OTHER,
                     'counts_toward_tier_cap' => (bool) ($config['counts_toward_tier_cap'] ?? false),
+                    'is_quota_category' => false,
                     'name' => $config['name'] ?? PolicyTierCategory::FALLBACK_NAME,
                     'sort_order' => (int) ($config['sort_order'] ?? $this->nextSortOrder($tier->id)),
                     'spend_from' => $this->normalizeMoney($config['spend_from'] ?? 0),
@@ -350,6 +514,9 @@ class CategoryRuleService
             } elseif ($config !== null) {
                 $kept->forceFill([
                     'counts_toward_tier_cap' => (bool) ($config['counts_toward_tier_cap'] ?? $kept->counts_toward_tier_cap),
+                    // Fallback KHÔNG BAO GIỜ tính hạn mức, kể cả khi payload cũ mang
+                    // cờ true lên (bất biến §1.3, ép ở tầng service).
+                    'is_quota_category' => false,
                     'name' => array_key_exists('name', $config)
                         ? ($config['name'] ?? PolicyTierCategory::FALLBACK_NAME)
                         : $kept->name,
@@ -387,9 +554,13 @@ class CategoryRuleService
      * Nhân bản một rule sang bậc khác (cùng hoặc khác policy version).
      *
      * Bản sao là bản ghi RIÊNG — sửa bản ghi nguồn không ảnh hưởng bản sao. Copy
-     * đủ `scope_type` + `counts_toward_tier_cap`; fallback giữ
+     * đủ `scope_type` + `counts_toward_tier_cap` + `is_quota_category`; fallback giữ
      * `category_id = combo_id = NULL`; rule combo giữ `combo_id` và được chặn
      * nếu chia sẻ danh mục với combo rule đã có trong bậc đích.
+     *
+     * Copy `is_quota_category` giữ nguyên (§1.7) — nhưng bậc đích PHẢI không có
+     * bậc khác đã tick, nếu không bản sao sẽ vi phạm bất biến §1.5. Kiểm ở đây
+     * (trước khi insert) để không sinh dữ liệu vi phạm bất biến.
      *
      * Combo KHÔNG được clone ở đây: bản sao vẫn nằm trong CÙNG policy scope
      * (cùng thẻ hoặc cùng blueprint) nên tham chiếu chung combo là đúng. Việc
@@ -401,6 +572,12 @@ class CategoryRuleService
         $policy = $this->policyOfTier($targetTier);
         $this->assertMutable($policy);
 
+        $isQuotaCategory = $source->isQuotaCategory();
+
+        if ($isQuotaCategory) {
+            $this->assertQuotaCategoryTierIsUniqueIn($targetTier);
+        }
+
         // Nhân bản fallback sẽ vi phạm bất biến "đúng một fallback mỗi bậc".
         if ($source->isFallback()) {
             $this->assertNoExistingFallback($targetTier);
@@ -411,7 +588,7 @@ class CategoryRuleService
             $this->assertNoDuplicateCategory($targetTier, (int) $source->category_id);
         }
 
-        return DB::connection('creditcard')->transaction(function () use ($source, $targetTier, $sortOrder): PolicyTierCategory {
+        return DB::connection('creditcard')->transaction(function () use ($source, $targetTier, $sortOrder, $isQuotaCategory): PolicyTierCategory {
             $copy = PolicyTierCategory::create([
                 'tier_id' => $targetTier->id,
                 'category_id' => $source->category_id,
@@ -420,6 +597,7 @@ class CategoryRuleService
                 'counts_toward_tier_cap' => $source->scope_type === PolicyTierCategory::SCOPE_OTHER
                     ? false
                     : (bool) ($source->counts_toward_tier_cap ?? true),
+                'is_quota_category' => $isQuotaCategory,
                 'name' => $source->name,
                 'sort_order' => $sortOrder ?? $this->nextSortOrder($targetTier->id),
                 'spend_from' => $source->spend_from,
@@ -465,6 +643,7 @@ class CategoryRuleService
 
             $config = $sourceFallback === null ? null : [
                 'counts_toward_tier_cap' => false,
+                'is_quota_category' => false,
                 'cashback_percent' => $sourceFallback->cashback_percent,
                 'max_cashback_per_transaction' => $sourceFallback->max_cashback_per_transaction,
                 'max_cashback_per_category_per_period' => $sourceFallback->max_cashback_per_category_per_period,

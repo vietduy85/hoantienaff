@@ -720,6 +720,11 @@ class PolicyService
             throw new InvalidArgumentException('Policy phải có ít nhất một bậc chi tiêu.');
         }
 
+        // Bất biến §1.5 "mọi rule tính hạn mức phải cùng một bậc" — kiểm TRÊN PAYLOAD
+        // trước khi tạo bất kỳ dòng nào, nên policy không bao giờ bị dựng dở rồi mới
+        // lỗi.
+        $this->rules->assertQuotaCategoryTierUniqueness($tiers);
+
         foreach ($tiers as $index => $tier) {
             // Ủy quyền cho `TierService` thay vì tự `PolicyTier::create()`: nếu
             // insert thẳng ở đây thì các kiểm tra (khoảng đảo ngược, khoảng chồng
@@ -750,6 +755,7 @@ class PolicyService
                     'category_id' => $rule['category_id'] ?? null,
                     'combo_id' => $rule['combo_id'] ?? null,
                     'counts_toward_tier_cap' => $rule['counts_toward_tier_cap'] ?? true,
+                    'is_quota_category' => $rule['is_quota_category'] ?? false,
                     'name' => $rule['name'] ?? null,
                     'sort_order' => $rule['sort_order'] ?? null,
                     'spend_from' => $rule['spend_from'] ?? 0,
@@ -776,6 +782,9 @@ class PolicyService
         if ($tiers === []) {
             throw new InvalidArgumentException('Chính sách phải có ít nhất một bậc chi tiêu.');
         }
+
+        // Bất biến §1.5 — kiểm trên TOÀN BỘ payload trước khi xoá/sửa dòng nào.
+        $this->rules->assertQuotaCategoryTierUniqueness($tiers);
 
         $existing = $policy->tiers()->get()->keyBy('id');
         $incoming = collect($tiers)->values();
@@ -887,6 +896,9 @@ class PolicyService
                     $this->rules->create($tier, [
                         'scope_type' => PolicyTierCategory::SCOPE_OTHER,
                         'counts_toward_tier_cap' => $rule['counts_toward_tier_cap'] ?? false,
+                        // Fallback không có hạn mức — `CategoryRuleService` ép false
+                        // và từ chối payload gửi `true` lên fallback.
+                        'is_quota_category' => $rule['is_quota_category'] ?? false,
                         'name' => $rule['name'] ?? PolicyTierCategory::FALLBACK_NAME,
                         'sort_order' => $rule['sort_order'] ?? ($ruleIndex + 1),
                         'spend_from' => $rule['spend_from'] ?? 0,
@@ -907,6 +919,7 @@ class PolicyService
                         'counts_toward_tier_cap' => array_key_exists('counts_toward_tier_cap', $rule)
                             ? (bool) $rule['counts_toward_tier_cap']
                             : false,
+                        'is_quota_category' => false,
                         'name' => array_key_exists('name', $rule)
                             ? $rule['name']
                             : ($model->name ?? PolicyTierCategory::FALLBACK_NAME),
@@ -1006,6 +1019,7 @@ class PolicyService
                     'category_id' => $hasCombo ? null : $categoryId,
                     'combo_id' => $hasCombo ? $comboId : null,
                     'counts_toward_tier_cap' => $rule['counts_toward_tier_cap'] ?? true,
+                    'is_quota_category' => $rule['is_quota_category'] ?? false,
                     'name' => $rule['name'] ?? null,
                     'sort_order' => $rule['sort_order'] ?? ($ruleIndex + 1),
                     'spend_from' => $rule['spend_from'] ?? 0,
@@ -1042,6 +1056,7 @@ class PolicyService
                     'counts_toward_tier_cap' => array_key_exists('counts_toward_tier_cap', $rule)
                         ? (bool) $rule['counts_toward_tier_cap']
                         : $model->counts_toward_tier_cap,
+                    'is_quota_category' => $this->quotaFlagFor($rule, $model),
                     'name' => array_key_exists('name', $rule) ? $rule['name'] : $model->name,
                     'sort_order' => $rule['sort_order'] ?? ($ruleIndex + 1),
                     'cashback_percent' => array_key_exists('cashback_percent', $rule)
@@ -1082,6 +1097,27 @@ class PolicyService
         }
 
         return number_format((float) $value, 2, '.', '');
+    }
+
+    /**
+     * Cờ "tính hạn mức chi tiêu còn lại" khi sửa tại chỗ một rule.
+     *
+     * Editor luôn gửi kèm cờ trong payload (`versionConfig()`), nên nhánh có
+     * `array_key_exists` là đường đi bình thường. Nhánh giữ giá trị cũ dành cho
+     * PATCH một phần không nhắc tới cờ — giống hệt cách các field khác giữ mình.
+     *
+     * `assertQuotaCategoryTierUniqueness()` đã bảo đảm bất biến "cùng một bậc"
+     * cho payload trước khi vào đây, nên không cần hỏi DB lần nữa.
+     *
+     * @param  array<string, mixed>  $rule
+     */
+    private function quotaFlagFor(array $rule, PolicyTierCategory $model): bool
+    {
+        if (! array_key_exists('is_quota_category', $rule)) {
+            return (bool) $model->is_quota_category;
+        }
+
+        return (bool) $rule['is_quota_category'];
     }
 
     /**

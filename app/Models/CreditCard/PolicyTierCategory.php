@@ -38,6 +38,20 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * được chặn ở `CategoryRuleService`, không phải bằng UNIQUE index (NULL lặp
  * được trong MySQL nên UNIQUE không bảo vệ được các case này).
  *
+ * ---------------------------------------------------------------------------
+ * `is_quota_category` — CƠ SỞ TÍNH "HẠN MỨC CHI TIÊU CÒN LẠI"
+ * ---------------------------------------------------------------------------
+ * Cờ CẤU HÌNH, không phải cấu hình engine: `CashbackCalculator` KHÔNG đọc cột
+ * này. Rule được tick ⇒ cashback của nó là cơ sở để báo cho user "còn có thể
+ * chi thêm bao nhiêu để nhận tối đa hoàn tiền" (xem `CashbackQuotaService`).
+ *
+ * Chỉ rule DANH MỤC và rule COMBO được tick; fallback "📦 Các danh mục còn lại"
+ * không phải một danh mục cụ thể nên `canBeQuotaCategory()` trả false.
+ *
+ * Trong MỘT policy version, các rule được tick phải thuộc cùng một bậc — vì
+ * quota chỉ xác định một bậc (từ `UserCard.desired_spend`) rồi đọc các rule
+ * được tick của bậc đó. Chặn ở `CategoryRuleService`.
+ *
  * KHÔNG có `min_cashback`. KHÔNG có `min_total_spend` (minimum spend thuộc
  * Card Policy / Policy Version, §11).
  *
@@ -47,6 +61,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int|null $combo_id (NULL khi rule danh mục hoặc fallback)
  * @property string $scope_type category | other
  * @property bool $counts_toward_tier_cap
+ * @property bool $is_quota_category
  * @property string|null $name
  * @property int $sort_order
  * @property string $spend_from
@@ -76,6 +91,7 @@ class PolicyTierCategory extends CreditCardModel
         'combo_id',
         'scope_type',
         'counts_toward_tier_cap',
+        'is_quota_category',
         'name',
         'sort_order',
         'spend_from',
@@ -96,6 +112,7 @@ class PolicyTierCategory extends CreditCardModel
             'combo_id' => 'integer',
             'scope_type' => 'string',
             'counts_toward_tier_cap' => 'boolean',
+            'is_quota_category' => 'boolean',
             'sort_order' => 'integer',
             'spend_from' => 'decimal:2',
             'spend_to' => 'decimal:2',
@@ -119,9 +136,33 @@ class PolicyTierCategory extends CreditCardModel
 
     public function isComboSpecific(): bool
     {
-        return $this->scope_type === self::SCOPE_CATEGORY
+        return $this->scope_type === PolicyTierCategory::SCOPE_CATEGORY
             && $this->combo_id !== null
             && $this->category_id === null;
+    }
+
+    /**
+     * Rule này CÓ được phép tick "Tính hạn mức chi tiêu còn lại" không?
+     *
+     * Chỉ danh mục và combo. Fallback "📦 Các danh mục còn lại" không phải một mục
+     * tiêu chi tiêu cụ thể — nó là phần dư của bậc, tick vào sẽ tạo ra một "hạn
+     * mức" không có nghĩa với người dùng.
+     */
+    public function canBeQuotaCategory(): bool
+    {
+        return ! $this->isFallback();
+    }
+
+    /**
+     * Rule này có thực sự được tick làm cơ sở tính hạn mức không?
+     *
+     * `false` cho fallback kể cả khi cột bị để bẩn (`is_quota_category = true` do
+     * dữ liệu tay/script): phần quota đọc qua đây nên không bao giờ rơi vào
+     * fallback dù cột sai.
+     */
+    public function isQuotaCategory(): bool
+    {
+        return $this->is_quota_category === true && $this->canBeQuotaCategory();
     }
 
     public function tier(): BelongsTo
@@ -163,6 +204,17 @@ class PolicyTierCategory extends CreditCardModel
     public function scopeComboSpecific(Builder $query): Builder
     {
         return $query->where('scope_type', self::SCOPE_CATEGORY)->whereNotNull('combo_id');
+    }
+
+    /**
+     * Rule được tick làm cơ sở tính hạn mức chi tiêu còn lại.
+     *
+     * Luôn loại fallback ở tầng query (không chỉ dựa vào cột) để quota không bao
+     * giờ đọc một rule fallback bị bẩn cờ.
+     */
+    public function scopeQuotaCategory(Builder $query): Builder
+    {
+        return $query->where('is_quota_category', true)->categorySpecific();
     }
 
     /**

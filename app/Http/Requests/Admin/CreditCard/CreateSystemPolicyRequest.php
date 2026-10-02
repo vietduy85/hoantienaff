@@ -52,6 +52,10 @@ class CreateSystemPolicyRequest extends FormRequest
             'tiers.*.rules' => ['sometimes', 'array'],
             'tiers.*.rules.*.id' => ['sometimes', 'nullable', 'integer'],
             'tiers.*.rules.*.counts_toward_tier_cap' => ['sometimes', 'boolean'],
+            // Cờ "tính hạn mức chi tiêu còn lại". Bất biến "cùng một bậc" và "không
+            // tick fallback" chặn ở `CategoryRuleService` (⇒ 422), không ở đây:
+            // cần nhìn cả các bậc khác của version, request chỉ có payload.
+            'tiers.*.rules.*.is_quota_category' => ['sometimes', 'boolean'],
             // Target (danh mục | combo | fallback) được kiểm ở `withValidator`:
             // `required_unless` không diễn đạt được case combo.
             'tiers.*.rules.*.scope_type' => [

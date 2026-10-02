@@ -594,6 +594,10 @@ class PolicyCloneService
                     'counts_toward_tier_cap' => $rule->scope_type === PolicyTierCategory::SCOPE_OTHER
                         ? false
                         : (bool) ($rule->counts_toward_tier_cap ?? true),
+                    // Cờ quota là CẤU HÌNH của policy version nên clone phải mang
+                    // nguyên (§1.7). `isQuotaCategory()` ép false cho fallback kể cả
+                    // khi cột bị bẩn — clone không được nhân bản dữ liệu sai.
+                    'is_quota_category' => $rule->isQuotaCategory(),
                     'name' => $rule->name,
                     'sort_order' => $rule->sort_order,
                     'spend_from' => $rule->spend_from,
@@ -674,6 +678,11 @@ class PolicyCloneService
      */
     private function replaceChildren(int $policyId, array $tiers): void
     {
+        // Bất biến §1.5 "mọi rule tính hạn mức phải cùng một bậc" — kiểm TRƯỚC khi
+        // xoá: hàm này xoá sạch rule cũ rồi dựng lại, kiểm sau là quá muộn và policy
+        // đã mất cấu hình.
+        $this->rules->assertQuotaCategoryTierUniqueness($tiers);
+
         PolicyTierCategory::query()
             ->whereIn('tier_id', PolicyTier::query()->where('policy_id', $policyId)->select('id'))
             ->delete();
@@ -715,6 +724,7 @@ class PolicyCloneService
                     'combo_id' => $rule['combo_id'] ?? null,
                     'scope_type' => PolicyTierCategory::SCOPE_CATEGORY,
                     'counts_toward_tier_cap' => (bool) ($rule['counts_toward_tier_cap'] ?? true),
+                    'is_quota_category' => (bool) ($rule['is_quota_category'] ?? false),
                     'name' => $rule['name'] ?? null,
                     'sort_order' => $rule['sort_order'] ?? ($ruleIndex + 1),
                     'spend_from' => $rule['spend_from'] ?? 0,

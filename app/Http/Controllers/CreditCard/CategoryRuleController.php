@@ -150,6 +150,7 @@ class CategoryRuleController extends Controller
             'combo_name' => $rule->combo?->name,
             'scope_type' => $rule->scope_type ?? PolicyTierCategory::SCOPE_CATEGORY,
             'counts_toward_tier_cap' => (bool) ($rule->counts_toward_tier_cap ?? ! $rule->isFallback()),
+            'is_quota_category' => $rule->isQuotaCategory(),
             'name' => $rule->name,
             'sort_order' => (int) $rule->sort_order,
             'spend_from' => (float) $rule->spend_from,

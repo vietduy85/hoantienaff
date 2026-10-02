@@ -94,6 +94,10 @@ trait ValidatesCardPolicySelection
             "{$prefix}policy.tiers.*.rules.*.spend_from" => ['sometimes', 'numeric', 'min:0'],
             "{$prefix}policy.tiers.*.rules.*.spend_to" => ['sometimes', 'nullable', 'numeric', 'min:0'],
             "{$prefix}policy.tiers.*.rules.*.counts_toward_tier_cap" => ['sometimes', 'boolean'],
+            // Cờ "tính hạn mức chi tiêu còn lại" — bất biến "cùng một bậc" và
+            // "không tick fallback" chặn ở `CategoryRuleService` (⇒ 422): cần nhìn
+            // cả các bậc khác của version, request chỉ có payload.
+            "{$prefix}policy.tiers.*.rules.*.is_quota_category" => ['sometimes', 'boolean'],
             "{$prefix}policy.tiers.*.rules.*.is_enabled" => ['sometimes', 'boolean'],
         ];
     }

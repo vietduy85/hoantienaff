@@ -53,6 +53,9 @@ class StoreCategoryRuleRequest extends FormRequest
             'max_cashback_per_category_per_period' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'min_transaction_amount' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'is_enabled' => ['sometimes', 'boolean'],
+            // Bất biến "cùng một bậc" chặn ở `CategoryRuleService` (cần hỏi DB xem
+            // bậc khác trong version đã tick chưa) ⇒ trả 422 kèm đúng message.
+            'is_quota_category' => ['sometimes', 'boolean'],
             'note' => ['sometimes', 'nullable', 'string', 'max:1000'],
         ]);
     }
@@ -89,6 +92,7 @@ class StoreCategoryRuleRequest extends FormRequest
             'max_cashback_per_category_per_period' => $this->input('max_cashback_per_category_per_period'),
             'min_transaction_amount' => $this->input('min_transaction_amount'),
             'is_enabled' => $this->input('is_enabled', true),
+            'is_quota_category' => (bool) $this->input('is_quota_category', false),
             'note' => $this->input('note'),
         ];
     }

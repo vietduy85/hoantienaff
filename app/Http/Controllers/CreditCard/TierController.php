@@ -136,6 +136,7 @@ class TierController extends Controller
                 'category_id' => $rule->category_id,
                 'scope_type' => $rule->scope_type ?? PolicyTierCategory::SCOPE_CATEGORY,
                 'counts_toward_tier_cap' => (bool) ($rule->counts_toward_tier_cap ?? ! $rule->isFallback()),
+                'is_quota_category' => $rule->isQuotaCategory(),
                 'name' => $rule->name,
                 'spend_from' => (float) $rule->spend_from,
                 'spend_to' => $rule->spend_to === null ? null : (float) $rule->spend_to,

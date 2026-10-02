@@ -196,6 +196,13 @@
                                                     <span class="text-[11px] text-gray-500 rounded-lg bg-gray-50 border border-gray-100 px-2 py-0.5">
                                                         Tính vào cap Bậc: <strong>{{ ($rule['counts_toward_tier_cap'] ?? true) ? 'Có' : 'Không' }}</strong>
                                                     </span>
+                                                    {{-- Cờ quota: chỉ hiện với danh mục/combo, fallback
+                                                         không có mục tiêu chi tiêu riêng nên không bao giờ tick. --}}
+                                                    @if (! $isFallback && ($rule['is_quota_category'] ?? false))
+                                                        <span class="text-[11px] text-emerald-700 rounded-lg bg-emerald-50 border border-emerald-100 px-2 py-0.5">
+                                                            Tính hạn mức chi tiêu còn lại
+                                                        </span>
+                                                    @endif
                                                 </span>
                                             </div>
                                         @endforeach

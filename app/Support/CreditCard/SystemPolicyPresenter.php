@@ -183,6 +183,11 @@ class SystemPolicyPresenter
                         'combo_name' => $rule->combo?->name,
                         'scope_type' => $rule->scope_type ?? PolicyTierCategory::SCOPE_CATEGORY,
                         'counts_toward_tier_cap' => (bool) ($rule->counts_toward_tier_cap ?? ! $rule->isFallback()),
+                        // Cờ quota PHẢI xuất ra: không có ô nhập nào khác ghi nó, mà
+                        // `replaceChildren()` dựng lại rule từ payload ⇒ thiếu là mất
+                        // cấu hình (đúng bài học của `note` bên dưới). Fallback ép
+                        // false để editor không bao giờ nhận fallback đang tick.
+                        'is_quota_category' => $rule->isQuotaCategory(),
                         'name' => $rule->name,
                         'sort_order' => (int) $rule->sort_order,
                         'spend_from' => (float) $rule->spend_from,

@@ -158,7 +158,7 @@ trait InteractsWithCreditCardDatabase
      * Tạo một policy version hoàn chỉnh (root + tiers + rules).
      *
      * @param  array<int, array{name?:string, min:float, max:float|null, cap_period?:string|null}>  $tiers
-     * @param  array<int, array{category_id:int, percent:string, spend_from?:float, spend_to?:float, cap_tx?:float|null, cap_cat?:float|null, counts_cap?:bool}>  $rules
+     * @param  array<int, array{category_id:int, percent:string, spend_from?:float, spend_to?:float, cap_tx?:float|null, cap_cat?:float|null, counts_cap?:bool, quota?:bool}>  $rules
      */
     protected function makePolicyForCard(UserCard $userCard, array $tiers, array $rules, array $attributes = []): Policy
     {
@@ -207,6 +207,9 @@ trait InteractsWithCreditCardDatabase
                     // Lớp cap toàn kỳ CHỈ ăn cashback của rule bật cờ này, nên
                     // "đã dùng" cũng phải lọc đúng cờ.
                     'counts_toward_tier_cap' => $rule['counts_cap'] ?? true,
+                    // Cờ "tính hạn mức chi tiêu còn lại" (§1.5): mặc định false —
+                    // fixture không tự tick.
+                    'is_quota_category' => $rule['quota'] ?? false,
                 ]);
             }
         }
