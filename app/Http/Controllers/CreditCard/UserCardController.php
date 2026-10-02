@@ -9,6 +9,7 @@ use App\Models\CreditCard\UserCard;
 use App\Services\CreditCard\BankService;
 use App\Services\CreditCard\CardPolicySaveService;
 use App\Services\CreditCard\CategoryService;
+use App\Services\CreditCard\CreditCardOverviewService;
 use App\Services\CreditCard\UserCardService;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
@@ -32,17 +33,23 @@ class UserCardController extends Controller
         private readonly UserCardService $cards,
         private readonly BankService $banks,
         private readonly CategoryService $categories,
+        private readonly CreditCardOverviewService $overview,
         private readonly CardPolicySaveService $cardPolicy,
     ) {}
 
     /**
      * Danh sách thẻ + dữ liệu cho form thêm/sửa.
+     *
+     * `meta` còn phục vụ việc LÀM MỚI trang Tổng quan sau khi lưu/giao dịch, nên
+     * mang cả 4 chỉ số và số liệu từng thẻ. Cả hai đọc từ `forPage()` nên chỉ quét
+     * DB một lượt cho cả trang.
      */
     public function index(Request $request): JsonResponse
     {
         $this->authorize('viewAny', UserCard::class);
 
         $userId = (int) $request->user()->id;
+        $overview = $this->overview->forPage($userId);
 
         return response()->json([
             'data' => $this->cards->listFor($userId)->map(fn (UserCard $card) => $this->present($card)),
@@ -61,6 +68,15 @@ class UserCardController extends Controller
                         'scope' => $category->scope,
                     ]),
                 'total_active_limit' => $this->cards->totalActiveLimit($userId),
+                // Bốn chỉ số Tổng quan. Trang Tổng quan gọi lại endpoint này sau khi
+                // lưu giao dịch để làm mới số liệu từ đúng nguồn sự thật — không
+                // cộng tay ở trình duyệt và không cần endpoint thứ hai.
+                'summary' => $overview['summary'],
+                // Số liệu từng thẻ (chi tiêu kỳ hiện tại, tiến độ theo mục tiêu,
+                // cashback engine đã ghi, quota còn lại), khoá theo `user_card_id`.
+                // Cần cho cả thanh tiến độ lẫn quota nên phải làm mới cùng lúc với
+                // 4 chỉ số, nếu không thẻ vừa ghi sẽ hiện số cũ.
+                'card_metrics' => $overview['cards'],
             ],
         ]);
     }

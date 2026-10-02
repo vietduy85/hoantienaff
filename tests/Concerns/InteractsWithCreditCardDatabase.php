@@ -157,8 +157,8 @@ trait InteractsWithCreditCardDatabase
     /**
      * Tạo một policy version hoàn chỉnh (root + tiers + rules).
      *
-     * @param  array<int, array{name?:string, min:float, max:float|null}>  $tiers
-     * @param  array<int, array{category_id:int, percent:string, spend_from?:float, spend_to?:float, cap_tx?:float|null, cap_cat?:float|null}>  $rules
+     * @param  array<int, array{name?:string, min:float, max:float|null, cap_period?:string|null}>  $tiers
+     * @param  array<int, array{category_id:int, percent:string, spend_from?:float, spend_to?:float, cap_tx?:float|null, cap_cat?:float|null, counts_cap?:bool}>  $rules
      */
     protected function makePolicyForCard(UserCard $userCard, array $tiers, array $rules, array $attributes = []): Policy
     {
@@ -183,6 +183,8 @@ trait InteractsWithCreditCardDatabase
                 'sort_order' => $index,
                 'min_total_spend' => $tier['min'],
                 'max_total_spend' => $tier['max'] ?? null,
+                // Lớp cap thứ ba của engine: trần TOÀN KỲ của bậc — đây là "quota".
+                'max_cashback_per_period' => $tier['cap_period'] ?? null,
             ]);
 
             foreach ($rules as $rule) {
@@ -202,6 +204,9 @@ trait InteractsWithCreditCardDatabase
                     'max_cashback_per_category_per_period' => $rule['cap_cat'] ?? null,
                     'min_transaction_amount' => $rule['min_tx'] ?? null,
                     'is_enabled' => $rule['is_enabled'] ?? true,
+                    // Lớp cap toàn kỳ CHỈ ăn cashback của rule bật cờ này, nên
+                    // "đã dùng" cũng phải lọc đúng cờ.
+                    'counts_toward_tier_cap' => $rule['counts_cap'] ?? true,
                 ]);
             }
         }

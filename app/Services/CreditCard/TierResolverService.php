@@ -30,17 +30,51 @@ class TierResolverService
      */
     public function resolveTier(PolicyVersion $policyVersion, float $total): ?PolicyTier
     {
-        $tiers = PolicyTier::query()
-            ->where('policy_id', $policyVersion->id)
-            ->get()
+        return $this->resolveTierFromTiers($this->tiersOfVersion($policyVersion), $total);
+    }
+
+    /**
+     * Bậc chứa `total` trong MỘT tập bậc đã load sẵn.
+     *
+     * ---------------------------------------------------------------------------
+     * VÌ SAO TÁCH RIÊNG
+     * ---------------------------------------------------------------------------
+     * Khi cần tra nhiều thẻ cùng lúc (quota từng thẻ), gọi `resolveTier()` cho
+     * từng thẻ sẽ bắn một query `PolicyTier` mỗi thẻ — N+1. Hàm này nhận tập bậc
+     * đã gom sẵn nên người gọi chỉ cần MỘT query cho tất cả thẻ.
+     *
+     * Toàn bộ quy tắc khoảng (`contains`) và cách chọn khi cấu hình chồng nhau
+     * (`width` + `id`) vẫn nằm trong class này, và `resolveTier()` gọi lại chính
+     * nó — nên chỉ có MỘT cách hiểu "bậc nào chứa tổng này" trong toàn module,
+     * không có bản sao nào ở nơi khác.
+     *
+     * @param  Collection<int, PolicyTier>  $tiers
+     */
+    public function resolveTierFromTiers(Collection $tiers, float $total): ?PolicyTier
+    {
+        return $tiers
             ->filter(fn (PolicyTier $tier): bool => $this->contains($tier, $total))
             ->sortBy(fn (PolicyTier $tier): array => [
                 $this->width($tier),
                 $tier->id,
             ])
-            ->values();
+            ->values()
+            ->first();
+    }
 
-        return $tiers->first();
+    /**
+     * Toàn bộ bậc của một policy version.
+     *
+     * Cho phép gom bậc của NHIỀU version trong MỘT query rồi đưa vào
+     * {@see resolveTierFromTiers()}.
+     *
+     * @return Collection<int, PolicyTier>
+     */
+    public function tiersOfVersion(PolicyVersion $policyVersion): Collection
+    {
+        return PolicyTier::query()
+            ->where('policy_id', $policyVersion->id)
+            ->get();
     }
 
     /**

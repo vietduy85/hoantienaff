@@ -2,7 +2,10 @@
 
 namespace App\Http\Requests\CreditCard;
 
+use App\Http\Requests\CreditCard\Concerns\ValidatesTransactionDateInCurrentPeriod;
 use App\Models\CreditCard\Category;
+use App\Models\CreditCard\Transaction;
+use App\Models\CreditCard\UserCard;
 use Closure;
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -10,9 +13,19 @@ use Illuminate\Foundation\Http\FormRequest;
  * Sửa giao dịch nhập tay. Tất cả field `sometimes` (PATCH một phần).
  *
  * KHÔNG cho đổi `user_card_id`: giao dịch không di chuyển giữa các thẻ.
+ *
+ * ---------------------------------------------------------------------------
+ * NGÀY VẪN PHẢI THUỘC KỲ HIỆN TẠI
+ * ---------------------------------------------------------------------------
+ * Sửa cũng dùng chung rule với thêm mới (`ValidatesTransactionDateInCurrentPeriod`)
+ * và lấy thẻ từ chính giao dịch, không từ payload — nên không có đường vừa sửa ngày
+ * vừa đổi thẻ để lách rule. Lưu ý: nếu chỉ sửa SỐ TIỀN/DANH MỤC/GHI CHÚ mà
+ * không gửi `transaction_date` thì rule không chạy, đúng như PATCH một phần.
  */
 class UpdateTransactionRequest extends FormRequest
 {
+    use ValidatesTransactionDateInCurrentPeriod;
+
     public function authorize(): bool
     {
         return $this->user() !== null;
@@ -41,9 +54,15 @@ class UpdateTransactionRequest extends FormRequest
                     }
                 },
             ],
-            'transaction_date' => ['sometimes', 'required', 'date_format:Y-m-d'],
+            'transaction_date' => [
+                'sometimes',
+                'required',
+                'date_format:Y-m-d',
+                $this->transactionDateWithinCurrentPeriod(),
+            ],
             'posted_date' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
-            'amount' => ['sometimes', 'required', 'numeric', 'not_in:0'],
+            // Sửa tay cũng là chi tiêu ⇒ số dương, khớp `StoreTransactionRequest`.
+            'amount' => ['sometimes', 'required', 'numeric', 'gt:0'],
             'merchant' => ['sometimes', 'nullable', 'string', 'max:191'],
             'note' => ['sometimes', 'nullable', 'string', 'max:1000'],
         ];
@@ -52,9 +71,10 @@ class UpdateTransactionRequest extends FormRequest
     public function messages(): array
     {
         return [
+            'transaction_date.required' => 'Vui lòng chọn ngày giao dịch.',
             'transaction_date.date_format' => 'Ngày giao dịch phải có định dạng Y-m-d.',
             'posted_date.date_format' => 'Ngày ghi nhận phải có định dạng Y-m-d.',
-            'amount.not_in' => 'Số tiền giao dịch phải khác 0.',
+            'amount.gt' => 'Số tiền giao dịch phải lớn hơn 0.',
             'amount.numeric' => 'Số tiền không hợp lệ.',
         ];
     }
@@ -73,5 +93,21 @@ class UpdateTransactionRequest extends FormRequest
         }
 
         return $payload;
+    }
+
+    protected function cardForTransactionDateValidation(): ?UserCard
+    {
+        $transaction = $this->route('transaction');
+
+        if (! is_numeric($transaction)) {
+            return null;
+        }
+
+        // Chỉ cần thẻ để tính ranh giới kỳ — không nạp quan hệ, không kiểm tra quyền
+        // ở đây (Policy lo việc đó trước khi service chạy).
+        return Transaction::query()
+            ->select('id', 'user_card_id')
+            ->find((int) $transaction)
+            ?->userCard;
     }
 }

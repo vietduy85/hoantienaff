@@ -155,6 +155,45 @@ class StatementPeriodService
     }
 
     /**
+     * Ranh giới kỳ SAO KẾ HIỆN TẠI — chỉ tính toán, không tạo bản ghi.
+     *
+     * `currentPeriod()` (trên) trả về MODEL và TẠO kỳ nếu chưa có — dùng khi
+     * thực sự cần ghi. Bản này dành cho mọi chỗ chỉ cần biết "kỳ này chạy từ
+     * ngày nào đến ngày nào" mà không được phép sinh bản ghi.
+     *
+     * @return array{0: CarbonImmutable, 1: CarbonImmutable}
+     */
+    public function currentBoundaries(UserCard $userCard, ?CarbonInterface $today = null): array
+    {
+        $today = $today ? CarbonImmutable::instance($today) : CarbonImmutable::now();
+
+        return $this->boundariesForDate($userCard, $today);
+    }
+
+    /**
+     * `$date` có nằm trong kỳ sao kê HIỆN TẠI của thẻ không.
+     *
+     * ---------------------------------------------------------------------------
+     * VÌ SAO SO SÁH THEO KỲ, KHÔNG SO SÁH THEO NGÀY
+     * ---------------------------------------------------------------------------
+     * Giao dịch nhập tay chỉ được ghi vào kỳ đang mở: nếu cho nhận ngày ngoài kỳ,
+     * giao dịch rơi sang kỳ khác và "Tổng quan" (chỉ đọc kỳ hiện tại) nhảy số bất
+     * ngờ. Ranh giới suy ra từ `statement_day` nên thẻ chưa có bản ghi kỳ nào vẫn
+     * trả lời được, và hàm này KHÔNG tạo kỳ.
+     *
+     * Hai ngày cùng kỳ ⇔ cùng tháng chốt ⇔ `boundariesForDate()` trùng nhau.
+     * So sánh chuỗi ngày chứ không so sánh object để không phụ thuộc timezone.
+     */
+    public function isInCurrentPeriod(UserCard $userCard, CarbonInterface $date, ?CarbonInterface $today = null): bool
+    {
+        [$start, $end] = $this->currentBoundaries($userCard, $today);
+        [$dateStart, $dateEnd] = $this->boundariesForDate($userCard, $date);
+
+        return $dateStart->toDateString() === $start->toDateString()
+            && $dateEnd->toDateString() === $end->toDateString();
+    }
+
+    /**
      * Tìm kỳ chứa ngày mà KHÔNG TẠO mới.
      *
      * Dùng cho các trang chỉ ĐỌC (trang tổng quan): không được phép sinh bản ghi

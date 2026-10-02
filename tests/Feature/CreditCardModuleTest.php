@@ -109,6 +109,9 @@ class CreditCardModuleTest extends TestCase
             'credit-cards.compare',
             'credit-cards.settings',
             'credit-cards.policies',
+            // Trang lịch sử giao dịch của một thẻ (đọc + sửa nhanh). Thêm giao
+            // dịch nằm ở Tổng quan nên không có route trang cho việc đó.
+            'credit-cards.transactions',
             // API thẻ tín dụng (Phase 1B)
             'credit-cards.api.cards.index',
             'credit-cards.api.cards.store',
@@ -925,8 +928,13 @@ class CreditCardModuleTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('Thẻ ABC');
-        $response->assertSee('Ngân hàng ABC');
         $response->assertSee('50.000.000');
+
+        // Danh sách thẻ chỉ giữ tên thẻ + 4 số cuối; tên ngân hàng không lặp lại
+        // ở đây (nó chỉ nằm trong payload của ô chọn thẻ để phân biệt khi có
+        // nhiều thẻ).
+        $response->assertSee('•••• 1234');
+        $response->assertDontSee('Ngân hàng ABC');
         $response->assertDontSee('Bạn chưa thêm thẻ tín dụng nào.');
     }
 

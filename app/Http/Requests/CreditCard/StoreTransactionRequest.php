@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\CreditCard;
 
+use App\Http\Requests\CreditCard\Concerns\ValidatesTransactionDateInCurrentPeriod;
 use App\Models\CreditCard\Category;
 use App\Models\CreditCard\UserCard;
 use Closure;
@@ -14,9 +15,23 @@ use Illuminate\Validation\Rule;
  * KHÔNG có `cashback_amount` / `cashback_percent`: cashback do hệ thống tính.
  * Cột Excel chứa cashback cũng bị từ chối khi import (xem
  * `TransactionSheetReader`) — ở đây cũng vậy để không mở đường nhập tay.
+ *
+ * ---------------------------------------------------------------------------
+ * NGÀY PHẢI THUỘC KỲ SAO KẾ HIỆN TẠI
+ * ---------------------------------------------------------------------------
+ * Người dùng CHỌN ngày (UI mặc định hôm nay) nhưng ngày đó không được nằm ngoài
+ * kỳ sao kê đang mở của thẻ: nếu không, giao dịch rơi sang kỳ khác và "Tổng
+ * quan" — vốn chỉ đọc kỳ hiện tại — nhảy số bất ngờ.
+ *
+ * Ranh giới do `StatementPeriodService::boundariesForDate()` tính từ
+ * `statement_day`: CHỈ tính toán, không truy vấn, không tạo bản ghi. Nên thẻ chưa
+ * có kỳ nào trong DB vẫn validate được và việc kiểm tra không sinh ra kỳ mới; kỳ
+ * chỉ được tạo khi giao dịch thật sự lưu.
  */
 class StoreTransactionRequest extends FormRequest
 {
+    use ValidatesTransactionDateInCurrentPeriod;
+
     public function authorize(): bool
     {
         return $this->user() !== null;
@@ -55,9 +70,17 @@ class StoreTransactionRequest extends FormRequest
                     }
                 },
             ],
-            'transaction_date' => ['required', 'date_format:Y-m-d'],
+            'transaction_date' => [
+                'required',
+                'date_format:Y-m-d',
+                $this->transactionDateWithinCurrentPeriod(),
+            ],
             'posted_date' => ['nullable', 'date_format:Y-m-d'],
-            'amount' => ['required', 'numeric', 'not_in:0'],
+            // Ô nhập tay ghi CHI TIÊU nên chỉ nhận số dương: `gt:0` chặn cả 0 lẫn
+            // âm. Hoàn tiền (số âm) vẫn vào được qua luồng IMPORT Excel
+            // (`TransactionImportService`, có test riêng cho số âm) — không mở
+            // lại đường nhập tay số âm trên UI.
+            'amount' => ['required', 'numeric', 'gt:0'],
             'merchant' => ['nullable', 'string', 'max:191'],
             'note' => ['nullable', 'string', 'max:1000'],
         ];
@@ -69,11 +92,11 @@ class StoreTransactionRequest extends FormRequest
             'user_card_id.required' => 'Vui lòng chọn thẻ tín dụng.',
             'user_card_id.exists' => 'Thẻ tín dụng không hợp lệ hoặc không thuộc về bạn.',
             'category_id.integer' => 'Danh mục không hợp lệ.',
-            'transaction_date.required' => 'Vui lòng nhập ngày giao dịch.',
+            'transaction_date.required' => 'Vui lòng chọn ngày giao dịch.',
             'transaction_date.date_format' => 'Ngày giao dịch phải có định dạng Y-m-d.',
             'posted_date.date_format' => 'Ngày ghi nhận phải có định dạng Y-m-d.',
             'amount.required' => 'Vui lòng nhập số tiền.',
-            'amount.not_in' => 'Số tiền giao dịch phải khác 0.',
+            'amount.gt' => 'Số tiền giao dịch phải lớn hơn 0.',
             'amount.numeric' => 'Số tiền không hợp lệ.',
         ];
     }
@@ -91,5 +114,18 @@ class StoreTransactionRequest extends FormRequest
             'merchant' => $this->input('merchant'),
             'note' => $this->input('note'),
         ];
+    }
+
+    protected function cardForTransactionDateValidation(): ?UserCard
+    {
+        $cardId = $this->input('user_card_id');
+
+        if (! is_numeric($cardId)) {
+            return null;
+        }
+
+        return UserCard::query()
+            ->ownedBy((int) $this->user()->id)
+            ->find((int) $cardId);
     }
 }

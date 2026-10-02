@@ -44,7 +44,8 @@ class UpdateUserCardRequest extends FormRequest
             ],
             'name' => ['sometimes', 'required', 'string', 'max:150'],
             'card_number_last4' => ['sometimes', 'nullable', 'digits:4'],
-            'credit_limit' => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            // `max` khớp sức chứa cột `decimal(16,2)` — xem `StoreUserCardRequest`.
+            'credit_limit' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:99999999999999.99'],
             'desired_spend' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'statement_day' => ['sometimes', 'integer', 'between:1,31'],
             'payment_due_day' => ['sometimes', 'integer', 'between:1,31'],
@@ -76,6 +77,8 @@ class UpdateUserCardRequest extends FormRequest
             'bank_id.exists' => 'Ngân hàng không tồn tại hoặc không còn được chọn.',
             'name.required' => 'Vui lòng nhập tên thẻ.',
             'card_number_last4.digits' => 'Số cuối thẻ phải đúng 4 chữ số.',
+            'credit_limit.min' => 'Hạn mức tín dụng không được âm.',
+            'credit_limit.max' => 'Hạn mức tín dụng vượt quá giới hạn lưu trữ.',
             'statement_day.between' => 'Ngày chốt kỳ phải từ 1 đến 31.',
             'payment_due_day.between' => 'Ngày đến hạn phải từ 1 đến 31.',
             'desired_spend.min' => 'Số tiền mong muốn chi không được âm.',

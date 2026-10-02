@@ -7,6 +7,8 @@ use App\Models\CreditCard\Transaction;
 use App\Models\CreditCard\UserCard;
 use App\Models\User;
 use App\Services\CreditCard\CreditCardTransactionService;
+use App\Services\CreditCard\StatementPeriodService;
+use Carbon\CarbonImmutable;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Concerns\InteractsWithCreditCardDatabase;
 use Tests\TestCase;
@@ -277,7 +279,7 @@ class Phase1bHttpTest extends TestCase
             ->postJson(route('credit-cards.api.transactions.store'), [
                 'user_card_id' => $card->id,
                 'category_id' => $category->id,
-                'transaction_date' => '2026-09-10',
+                'transaction_date' => $this->dateInsideCurrentPeriod($card),
                 'amount' => '1000000',
                 'merchant' => 'Shopee',
             ])
@@ -304,7 +306,7 @@ class Phase1bHttpTest extends TestCase
             ->postJson(route('credit-cards.api.transactions.store'), [
                 'user_card_id' => $card->id,
                 'category_id' => $category->id,
-                'transaction_date' => '2026-09-10',
+                'transaction_date' => $this->dateInsideCurrentPeriod($card),
                 'amount' => '1000000',
                 // Cố ép cashback 999.999.999 — phải bị bỏ qua hoàn toàn.
                 'cashback_amount' => 999999999,
@@ -313,6 +315,33 @@ class Phase1bHttpTest extends TestCase
             ->assertCreated();
 
         $this->assertEquals(50000.0, $response->json('data.cashback_amount'), 'Cashback phải do hệ thống tính.');
+    }
+
+    /**
+     * Ngày nằm trong kỳ sao kê HIỆN TẠI của thẻ.
+     *
+     * Giao dịch nhập tay chỉ được ghi vào kỳ đang mở, nên test không được hardcode
+     * một ngày cố định — hôm đó test sẽ hỏng mỗi khi tháng chuyển. Ranh giới lấy
+     * từ chính `StatementPeriodService` nên không phụ thuộc `statement_day` nào.
+     */
+    private function dateInsideCurrentPeriod(UserCard $card, int $offset = 0): string
+    {
+        [$start, $end] = app(StatementPeriodService::class)->currentBoundaries(
+            $card,
+            CarbonImmutable::now(),
+        );
+
+        $date = CarbonImmutable::now()->addDays($offset);
+
+        if ($date->lessThan($start)) {
+            $date = $start;
+        }
+
+        if ($date->greaterThan($end)) {
+            $date = $end;
+        }
+
+        return $date->toDateString();
     }
 
     #[Test]

@@ -6,9 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\CreditCard\Category;
 use App\Models\CreditCard\CategoryCombo;
 use App\Models\CreditCard\PolicyTemplate;
-use App\Models\CreditCard\StatementPeriod;
 use App\Models\CreditCard\UserCard;
 use App\Services\CreditCard\BankService;
+use App\Services\CreditCard\CategoryService;
+use App\Services\CreditCard\CreditCardOverviewService;
 use App\Services\CreditCard\StatementPeriodService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -29,16 +30,30 @@ class CreditCardController extends Controller
     public function __construct(
         private readonly StatementPeriodService $periods,
         private readonly BankService $banks,
+        private readonly CreditCardOverviewService $overview,
+        private readonly CategoryService $categories,
     ) {}
 
     /**
      * Trang tổng quan /thetindung.
      *
-     * Số liệu lấy thật từ DB (mặc định 0 / "Chưa có dữ liệu"), không hard-code.
+     * Bốn chỉ số (tổng số thẻ, tổng hạn mức, tổng chi tiêu, cashback dự kiến) đến
+     * từ `CreditCardOverviewService` — aggregate SQL, KHÔNG tính lại cashback ở
+     * đây (§8/§9). Danh sách thẻ vẫn render sẵn để mở form được tức thì trên
+     * mạng yếu, đúng ưu tiên mobile.
+     *
+     * Trang này KHÔNG có nút "+ Thêm thẻ" (chỉ nằm ở Quản lý thẻ) nhưng CÓ
+     * "+ Nhập giao dịch" — nên cần danh sách thẻ dùng được + danh mục giao dịch
+     * được chọn. Cả hai đã lọc ở tầng truy vấn theo `auth()->id()`.
+     *
+     * Trang KHÔNG hiện "Nhắc chi tiêu": ngày nhắc là metadata phụ (`spending_deadline_day`)
+     * chỉ để nhở, còn kỳ sao kê do `statement_day` quyết định — hiện nó gây hiểu nhầm
+     * là một mốc hạn chức năng. Ô ngày + ranh giới kỳ đã thay thế vai trò nhắc ngày.
      */
     public function index(): View
     {
         $userId = (int) auth()->id();
+        $today = CarbonImmutable::now();
 
         $userCreditCards = UserCard::query()
             ->ownedBy($userId)
@@ -48,61 +63,60 @@ class CreditCardController extends Controller
             ->ordered()
             ->get();
 
-        $totalLimit = (float) $userCreditCards->sum('credit_limit');
+        // Một lượt đọc cho cả 4 chỉ số lẫn số liệu từng thẻ.
+        $overview = $this->overview->forPage($userId);
 
         return view('credit-card.index', [
             'userCreditCards' => $userCreditCards,
-            'totalCards' => $userCreditCards->count(),
-            'totalLimit' => $totalLimit,
-            'currentPeriod' => $this->currentPeriodFor($userId),
-            'deadlineWarnings' => $this->deadlineWarnings($userCreditCards),
+            'summary' => $overview['summary'],
+            // Số liệu từng thẻ: chi tiêu kỳ hiện tại, tiến độ theo `desired_spend`,
+            // cashback engine đã ghi và quota hoàn tiền còn lại. Khoá theo id thẻ.
+            'cardMetrics' => $overview['cards'],
+            // Chỉ thẻ CÒN NHẬN GIAO DỊCH mới hiện trong ô chọn thẻ của form
+            // nhập giao dịch. Thẻ đã đóng vẫn hiện ở danh sách để xem lịch sử.
+            'transactionCards' => $userCreditCards->filter(fn (UserCard $card): bool => $card->isUsable())->values(),
+            'transactionCategories' => $this->categories->selectableFor($userId)
+                ->map(fn (Category $category): array => [
+                    'id' => (int) $category->id,
+                    'name' => $category->name,
+                    // Đánh dấu danh mục hệ thống / riêng để UI hiển thị cho rõ,
+                    // không phải để quyết định quyền (quyền đã lọc ở truy vấn).
+                    'scope' => $category->scope,
+                ])
+                ->values()
+                ->all(),
+            'currentPeriod' => $overview['current_periods']->first(),
+            // Ranh giới kỳ hiện tại cho Ô NGÀY: chặn chọn ngoài kỳ ngay trên máy,
+            // server còn chặn lại ở `StoreTransactionRequest`.
+            'periodBounds' => $this->periodBounds($userCreditCards, $today),
+            'today' => $today->toDateString(),
         ]);
     }
 
     /**
-     * Kỳ sao kê hiện tại của thẻ đầu tiên của user.
+     * Ranh giới kỳ sao kê hiện tại của từng thẻ, khoá theo `user_card_id`.
      *
-     * Trang tổng quan là GET nên chỉ ĐỌC: dùng `findForDate()` để không sinh bản
-     * ghi mới khi user chỉ mở trang. Muốn tạo kỳ thì gọi
-     * `resolvePeriodForDate()` ở luồng ghi (import giao dịch).
-     */
-    private function currentPeriodFor(int $userId): ?StatementPeriod
-    {
-        $card = UserCard::query()->ownedBy($userId)->orderBy('id')->first();
-
-        if ($card === null) {
-            return null;
-        }
-
-        return $this->periods->findForDate($card, CarbonImmutable::now());
-    }
-
-    /**
-     * Cảnh báo "nên chi tiêu trước ngày X" — CHỈ NHẮC NHỞ, không ảnh hưởng kỳ.
-     *
-     * `spendingDeadlineWarning()` cần ngày chốt kỳ, lấy từ
-     * `boundariesForDate()` (tính thuần theo `statement_day`) nên cảnh báo vẫn
-     * đúng kể cả khi kỳ chưa được tạo trong DB.
+     * `currentBoundaries()` CHỈ TÍNH TOÁN theo `statement_day`, không truy vấn và
+     * không tạo bản ghi — nên thẻ chưa có kỳ nào trong DB vẫn có ranh giới đúng,
+     * và mở trang không sinh ra kỳ sao kê nào.
      *
      * @param  Collection<int, UserCard>  $cards
-     * @return array<int, array{name: string, message: string}>
+     * @return array<int, array{start: string, end: string}>
      */
-    private function deadlineWarnings($cards): array
+    private function periodBounds(Collection $cards, CarbonImmutable $today): array
     {
-        $today = CarbonImmutable::now();
-        $warnings = [];
+        $bounds = [];
 
         foreach ($cards as $card) {
-            [, $periodEnd] = $this->periods->boundariesForDate($card, $today);
+            [$start, $end] = $this->periods->currentBoundaries($card, $today);
 
-            $message = $card->spendingDeadlineWarning($today, $periodEnd);
-
-            if ($message !== null) {
-                $warnings[] = ['name' => $card->name, 'message' => $message];
-            }
+            $bounds[(int) $card->id] = [
+                'start' => $start->toDateString(),
+                'end' => $end->toDateString(),
+            ];
         }
 
-        return $warnings;
+        return $bounds;
     }
 
     /**

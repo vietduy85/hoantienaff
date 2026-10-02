@@ -66,6 +66,9 @@
                     'statement_period_end' => $card->statement_period_end?->toDateString(),
                     'payment_due_day' => $card->payment_due_day,
                     'spending_deadline_day' => $card->spending_deadline_day,
+                    // Hạn mức là dữ liệu RIÊNG của thẻ (decimal(16,2)), không lấy từ
+                    // ngân hàng/policy/product. Sửa thẻ ⇒ nạp đúng hạn mức hiện tại.
+                    'credit_limit' => $card->credit_limit,
                     'desired_spend' => $card->desired_spend,
                     'promotion_info' => $card->promotion_info,
                     'note' => $card->note,
@@ -152,6 +155,16 @@
 
                             {{-- Số liệu chính: bọc w-full để không đẩy ngang --}}
                             <dl class="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+                                <div class="min-w-0">
+                                    <dt class="text-gray-400">Hạn mức tín dụng</dt>
+                                    <dd class="text-gray-700 font-medium break-words">
+                                        @if ($card->credit_limit !== null)
+                                            <x-credit-card.money :value="$card->credit_limit" />
+                                        @else
+                                            <span class="text-gray-300">Chưa khai</span>
+                                        @endif
+                                    </dd>
+                                </div>
                                 <div class="min-w-0">
                                     <dt class="text-gray-400">Kỳ sao kê</dt>
                                     <dd class="text-gray-700 font-medium break-words">
@@ -349,6 +362,25 @@
                     </div>
                 </div>
 
+                {{-- ═══ Hạn mức tín dụng ═══
+                     Dữ liệu RIÊNG của thẻ: `credit_card_user_cards.credit_limit`
+                     (decimal(16,2), NULL = chưa khai). KHÔNG lấy từ ngân hàng,
+                     không lấy từ policy, không lấy từ product.
+
+                     Đứng TRƯỚC "Số tiền mong muốn chi tiêu" vì hai ô rất dễ nhầm:
+                     hạn mức là con số ngân hàng cho phép, còn mục tiêu chi là
+                     con số user tự đặt. --}}
+                <div class="space-y-1.5">
+                    <label for="cc-credit-limit" class="block text-sm font-semibold text-gray-700">Hạn mức tín dụng</label>
+                    <input id="cc-credit-limit" type="number" inputmode="decimal" min="0" step="1000000"
+                           x-model="form.credit_limit"
+                           placeholder="Ví dụ: 50000000"
+                           class="w-full h-12 rounded-xl border-gray-300 text-base px-4 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                    <p class="text-xs text-gray-500">
+                        Hạn mức ngân hàng cấp cho thẻ này. Để trống nếu chưa biết — hệ thống <strong>không</strong> suy ra từ ngân hàng hay chính sách.
+                    </p>
+                </div>
+
                 {{-- Số tiền mong muốn chi tiêu --}}
                 <div class="space-y-1.5">
                     <label for="cc-desired" class="block text-sm font-semibold text-gray-700">Số tiền mong muốn chi tiêu</label>
@@ -530,6 +562,9 @@
     </div>
 
     @once
+        {{-- `ccMoney()` / `ccNumber()` dùng chung với Tổng quan — xem partial. --}}
+        @include('credit-card.partials.money-js')
+
         <script>
             /**
              * Bản sao của `UserCardService::statementPeriodEnd()` cho phần hiển thị
@@ -607,6 +642,7 @@
                     statement_period_end: '',
                     payment_due_day: 25,
                     spending_deadline_day: '',
+                    credit_limit: '',
                     desired_spend: '',
                     promotion_info: '',
                     note: '',
@@ -647,18 +683,9 @@
                 return Number.isFinite(number) ? number : null;
             }
 
-            /** Số tiền kiểu Việt Nam. `maximumFractionDigits: 0` vì các trần đều tròn. */
-            function ccMoney(value) {
-                return Number(value ?? 0).toLocaleString('vi-VN', { maximumFractionDigits: 0 });
-            }
+            /** Số tiền kiểu Việt Nam + tỷ lệ: nguồn duy nhất ở `partials/money-js`. */
 
-            /** Tỷ lệ giữ tối đa 2 chữ số thập phân, bỏ số 0 vô nghĩa. */
-            function ccNumber(value) {
-                return Number(value ?? 0).toLocaleString('vi-VN', { maximumFractionDigits: 2 });
-            }
-
-            function creditCardManager(state) {
-                return {
+            function creditCardManager(state) {                return {
                     banks: state.banks,
                     cards: state.cards,
                     templates: state.templates,
@@ -855,6 +882,7 @@
                             statement_period_end: card.statement_period_end ?? '',
                             payment_due_day: card.payment_due_day ?? 25,
                             spending_deadline_day: card.spending_deadline_day ?? '',
+                            credit_limit: card.credit_limit ?? '',
                             desired_spend: card.desired_spend ?? '',
                             promotion_info: card.promotion_info ?? '',
                             note: card.note ?? '',
@@ -1003,6 +1031,7 @@
                             statement_period_start: this.form.statement_period_start || null,
                             payment_due_day: this.form.payment_due_day === '' ? null : this.form.payment_due_day,
                             spending_deadline_day: this.form.spending_deadline_day === '' ? null : this.form.spending_deadline_day,
+                            credit_limit: this.form.credit_limit === '' ? null : this.form.credit_limit,
                             desired_spend: this.form.desired_spend === '' ? null : this.form.desired_spend,
                             promotion_info: this.form.promotion_info || null,
                             note: this.form.note || null,

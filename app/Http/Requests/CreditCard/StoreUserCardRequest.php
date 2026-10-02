@@ -45,7 +45,10 @@ class StoreUserCardRequest extends FormRequest
             ],
             'name' => ['required', 'string', 'max:150'],
             'card_number_last4' => ['nullable', 'digits:4'],
-            'credit_limit' => ['nullable', 'numeric', 'min:0'],
+            // `max` khớp sức chứa cột `decimal(16,2)` (14 chữ số nguyên). Thiếu chặn này
+            // thì một số vượt ngưỡng lọt xuống DB và nổ thành lỗi SQL 500 thay vì
+            // 422 — người dùng tưởng hệ thống hỏng.
+            'credit_limit' => ['nullable', 'numeric', 'min:0', 'max:99999999999999.99'],
             // Số tiền user MONG MUỐN chi — khác hạn mức `credit_limit` của ngân hàng.
             'desired_spend' => ['nullable', 'numeric', 'min:0'],
             'statement_day' => ['nullable', 'integer', 'between:1,31'],
@@ -80,6 +83,7 @@ class StoreUserCardRequest extends FormRequest
             'name.max' => 'Tên thẻ không được vượt quá 150 ký tự.',
             'card_number_last4.digits' => 'Số cuối thẻ phải đúng 4 chữ số.',
             'credit_limit.min' => 'Hạn mức tín dụng không được âm.',
+            'credit_limit.max' => 'Hạn mức tín dụng vượt quá giới hạn lưu trữ.',
             'statement_day.between' => 'Ngày chốt kỳ phải từ 1 đến 31.',
             'payment_due_day.between' => 'Ngày đến hạn phải từ 1 đến 31.',
             'spending_deadline_day.between' => 'Ngày nên chi tiêu phải từ 1 đến 31.',

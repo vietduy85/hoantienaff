@@ -24,6 +24,7 @@ use App\Http\Controllers\CreditCard\PolicyController;
 use App\Http\Controllers\CreditCard\PolicyTemplateController;
 use App\Http\Controllers\CreditCard\TierController;
 use App\Http\Controllers\CreditCard\TransactionController;
+use App\Http\Controllers\CreditCard\TransactionHistoryController;
 use App\Http\Controllers\CreditCard\UserCardController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Debug\CookieDebugController;
@@ -120,6 +121,10 @@ Route::middleware('auth')->group(function () {
         Route::get('/so-sanh', [CreditCardController::class, 'compare'])->name('compare');
         Route::get('/cai-dat', [CreditCardController::class, 'settings'])->name('settings');
         Route::get('/chinh-sach', [CreditCardController::class, 'policies'])->name('policies');
+
+        // Lịch sử giao dịch của MỘT thẻ (trang HTML, đọc + sửa nhanh).
+        // Thêm giao dịch nằm ở Tổng quan để không phải rời trang tổng quan.
+        Route::get('/the/{userCard}/giao-dich', [TransactionHistoryController::class, 'index'])->name('transactions');
 
         // === Phase 1B/1C: API domain (JSON, thin controller) ===
         // Mọi route dưới đây nằm trong middleware `auth` của group cha. Không
