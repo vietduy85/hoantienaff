@@ -2206,6 +2206,21 @@ class SystemPolicyManagementTest extends TestCase
     // =====================================================================
 
     #[Test]
+    public function the_admin_editor_keeps_its_policy_metadata_fields(): void
+    {
+        // Form thẻ đã bỏ "Tên chính sách"/"Ngày bắt đầu hiệu lực" cho gọn, nhưng
+        // trang quản trị PHẢI giữ hai ô đó — đó là nơi duy nhất người quản trị đặt
+        // tên và ngày hiệu lực của một chính sách hệ thống.
+        $this->actingAs($this->manager)
+            ->get(route('admin.credit-card-policies.create'))
+            ->assertOk()
+            ->assertSee('Tên chính sách')
+            ->assertSee('Ngày bắt đầu hiệu lực')
+            ->assertSee('Mô tả')
+            ->assertSee('Trạng thái');
+    }
+
+    #[Test]
     public function manager_show_page_renders_readonly_editor_with_tier_cap(): void
     {
         $template = $this->makeSystemPolicy(3.0);

@@ -7,6 +7,7 @@ use App\Models\CreditCard\Policy;
 use App\Models\CreditCard\PolicyTemplate;
 use App\Models\CreditCard\PolicyTier;
 use App\Models\CreditCard\PolicyTierCategory;
+use App\Models\CreditCard\PolicyVersion;
 use App\Models\CreditCard\UserCard;
 use App\Models\User;
 use App\Services\CreditCard\UserCardService;
@@ -804,28 +805,45 @@ class CardManagementUxTest extends TestCase
             ]
         )->assertOk();
 
-        // Version MỚI là version 2; version cũ giữ nguyên version_no và chỉ bị
-        // đóng `superseded` — không bị sửa tay.
-        $this->assertSame(1, (int) Policy::findOrFail($policyA)->version_no);
-
-        $newVersion = (int) UserCard::findOrFail($cardA)->current_policy_id;
-        $this->assertNotSame($policyA, $newVersion, 'Sửa cấu hình phải sinh version mới, không sửa đè version cũ.');
-        $this->assertSame(2, (int) Policy::findOrFail($newVersion)->version_no);
-        $this->assertSame($policyA, (int) Policy::findOrFail($newVersion)->root_policy_id);
-        $this->assertSame(Policy::STATUS_SUPERSEDED, Policy::findOrFail($policyA)->status);
-
-        $newTier = PolicyTier::query()->where('policy_id', $newVersion)->sole();
-        $this->assertSame('Bậc riêng của A', $newTier->name);
-
-        // Bậc của version cũ vẫn nguyên vẹn (append-only).
+        // Sửa policy RIÊNG của thẻ ⇒ ghi đè version đang chạy, KHÔNG sinh version mới:
+        // đây là lần thứ hai bấm "Lưu thẻ" nhưng thẻ vẫn chỉ có MỘT version.
         $this->assertSame(
-            'Bậc cơ bản',
-            PolicyTier::query()->where('policy_id', $policyA)->sole()->name,
-            'Version cũ đã bị sửa cấu hình — cashback lịch sử không tái lập lại được.'
+            $policyA,
+            (int) UserCard::findOrFail($cardA)->current_policy_id,
+            'Sửa cấu hình phải cập nhật policy đang chạy, không tạo version mới.'
+        );
+
+        $this->assertSame(
+            1,
+            Policy::query()->where('user_card_id', $cardA)->count(),
+            'Sửa thẻ không được nhân bản version của thẻ đó.'
+        );
+
+        $currentVersion = Policy::findOrFail($policyA);
+        $this->assertSame(1, (int) $currentVersion->version_no);
+        $this->assertSame(Policy::STATUS_ACTIVE, $currentVersion->status);
+        $this->assertNull(
+            $currentVersion->effective_to,
+            'Version đang chạy không được bị đóng effective_to.'
+        );
+        $this->assertSame(
+            '2026-10-01',
+            CarbonImmutable::parse($currentVersion->effective_from)->toDateString(),
+            'Ngày hiệu lực của version đã chạy phải giữ nguyên.'
+        );
+
+        $newTier = PolicyTier::query()->where('policy_id', $policyA)->sole();
+        $this->assertSame('Bậc riêng của A', $newTier->name);
+        $this->assertSame(
+            7.5,
+            (float) PolicyTierCategory::query()->where('tier_id', $newTier->id)->where('category_id', $category->id)->sole()->cashback_percent
         );
 
         // Thẻ B không bị đụng tới.
-        $this->assertSame($policyB, (int) UserCard::findOrFail((int) $second->json('data.id'))->current_policy_id);
+        $this->assertSame(
+            $policyB,
+            (int) UserCard::findOrFail((int) $second->json('data.id'))->current_policy_id
+        );
         $this->assertSame(
             1,
             (int) Policy::findOrFail($policyB)->version_no,
@@ -858,6 +876,278 @@ class CardManagementUxTest extends TestCase
 
         $this->assertSame($policyId, (int) UserCard::findOrFail($cardId)->current_policy_id);
         $this->assertSame(1, Policy::query()->where('user_card_id', $cardId)->count());
+    }
+
+    #[Test]
+    public function editing_a_card_never_touches_the_source_policy_of_the_card(): void
+    {
+        $template = $this->makeSystemTemplateWithBlueprint();
+        $category = $this->makeSystemCategory();
+        $blueprintId = (int) $template->defaultBlueprint()->id;
+
+        $cardId = (int) $this->actingAs($this->owner)->postJson(
+            route('credit-cards.api.cards.store'),
+            [
+                'name' => 'Thẻ clone',
+                'policy' => ['template_id' => $template->id, 'effective_from' => '2026-10-01'],
+            ]
+        )->assertCreated()->json('data.id');
+
+        // Chụp lại toàn bộ bản ghi nguồn trước khi sửa thẻ.
+        $sourceBefore = Policy::findOrFail($blueprintId)->toArray();
+        $sourceTiersBefore = PolicyTier::query()->where('policy_id', $blueprintId)->get()
+            ->map(fn (PolicyTier $tier): array => $tier->only(['name', 'sort_order', 'min_total_spend', 'max_cashback_per_period']))->all();
+
+        $this->actingAs($this->owner)->patchJson(
+            route('credit-cards.api.cards.update', $cardId),
+            [
+                'name' => 'Thẻ clone đã sửa',
+                'policy' => ['tiers' => [[
+                    'name' => 'Bậc sửa tại chỗ',
+                    'min_total_spend' => 0,
+                    'max_total_spend' => 9000000,
+                    'max_cashback_per_period' => 1200000,
+                    'transaction_caps' => [[
+                        'min_transaction_amount' => 500000,
+                        'max_transaction_amount' => 3000000,
+                        'max_cashback_per_transaction' => 120000,
+                    ]],
+                    'rules' => [[
+                        'scope_type' => PolicyTierCategory::SCOPE_CATEGORY,
+                        'category_id' => $category->id,
+                        'cashback_percent' => 9,
+                        'is_enabled' => false,
+                        'note' => 'tắt tạm',
+                    ]],
+                ]]],
+            ]
+        )->assertOk();
+
+        // Bản ghi nguồn (blueprint của System Policy) y hệt trước khi sửa.
+        $this->assertSame(
+            $sourceBefore,
+            Policy::findOrFail($blueprintId)->toArray(),
+            'Sửa policy riêng của thẻ đã làm thay đổi System Policy nguồn.'
+        );
+
+        $this->assertSame(
+            $sourceTiersBefore,
+            PolicyTier::query()->where('policy_id', $blueprintId)->get()
+                ->map(fn (PolicyTier $tier): array => $tier->only(['name', 'sort_order', 'min_total_spend', 'max_cashback_per_period']))->all(),
+            'Sửa policy riêng của thẻ đã ghi đè bậc của bản ghi nguồn.'
+        );
+
+        // Lịch sử version của System Policy vẫn chỉ có blueprint (bản `user_card_id`
+        // null). Bản riêng của thẻ không tính vào đó.
+        $this->assertSame(
+            1,
+            PolicyVersion::query()
+                ->where('template_id', $template->id)
+                ->whereNull('user_card_id')
+                ->count(),
+            'Lịch sử version của System Policy đã bị đổi.'
+        );
+
+        // Còn bản riêng của thẻ thì đã nhận cấu hình mới.
+        // Bản riêng của thẻ là bản CLONE, không phải bản ghi của blueprint.
+        $cardPolicyId = (int) UserCard::findOrFail($cardId)->current_policy_id;
+        $this->assertNotSame(
+            $blueprintId,
+            $cardPolicyId,
+            'Thẻ phải giữ bản riêng (clone), không được tham chiếu thẳng bản ghi nguồn.'
+        );
+
+        $tier = PolicyTier::query()->where('policy_id', $cardPolicyId)->sole();
+        $this->assertSame('Bậc sửa tại chỗ', $tier->name);
+        $this->assertSame('9000000.00', $tier->max_total_spend);
+        $this->assertSame('1200000.00', $tier->max_cashback_per_period);
+
+        // Field không có ô nhập vẫn phải được ghi khi sửa tại chỗ.
+        $rule = PolicyTierCategory::query()->where('tier_id', $tier->id)->where('category_id', $category->id)->sole();
+        $this->assertFalse((bool) $rule->is_enabled);
+        $this->assertSame('tắt tạm', $rule->note);
+
+        $cap = $tier->transactionCaps()->sole();
+        $this->assertSame('120000.00', $cap->max_cashback_per_transaction);
+    }
+
+    #[Test]
+    public function editing_a_card_keeps_the_rules_it_did_not_touch(): void
+    {
+        $template = $this->makeSystemTemplateWithBlueprint();
+        $category = $this->makeSystemCategory();
+        $combo = CategoryCombo::create([
+            'scope' => CategoryCombo::SCOPE_USER,
+            'owner_user_id' => $this->owner->id,
+            'name' => 'Combo đi kèm '.uniqid(),
+            'slug' => 'combo-'.uniqid(),
+            'is_active' => true,
+        ]);
+
+        $cardId = (int) $this->actingAs($this->owner)->postJson(
+            route('credit-cards.api.cards.store'),
+            [
+                'name' => 'Thẻ hai rule',
+                'policy' => [
+                    'template_id' => $template->id,
+                    'effective_from' => '2026-10-01',
+                    'tiers' => [[
+                        'name' => 'Bậc 1',
+                        'min_total_spend' => 0,
+                        'rules' => [[
+                            'scope_type' => PolicyTierCategory::SCOPE_CATEGORY,
+                            'category_id' => $category->id,
+                            'cashback_percent' => 3,
+                            'note' => 'giữ nguyên',
+                        ], [
+                            'scope_type' => PolicyTierCategory::SCOPE_CATEGORY,
+                            'combo_id' => $combo->id,
+                            'cashback_percent' => 5,
+                        ]],
+                    ]],
+                ],
+            ]
+        )->assertCreated()->json('data.id');
+
+        $policyId = (int) UserCard::findOrFail($cardId)->current_policy_id;
+        $ruleIdsBefore = PolicyTierCategory::query()
+            ->where('tier_id', PolicyTier::query()->where('policy_id', $policyId)->sole()->id)
+            ->pluck('id')
+            ->sort()
+            ->values()
+            ->all();
+
+        // Người dùng mở form (editor mang `id` của từng rule), đổi MỘT tỷ lệ rồi lưu.
+        $tiers = $this->policyShowPayload($cardId, $policyId);
+
+        $tiers['tiers'][0]['rules'][0]['cashback_percent'] = 6.5;
+
+        $this->actingAs($this->owner)->patchJson(
+            route('credit-cards.api.cards.update', $cardId),
+            ['name' => 'Thẻ hai rule', 'policy' => $tiers]
+        )->assertOk();
+
+        $rules = PolicyTierCategory::query()
+            ->where('tier_id', PolicyTier::query()->where('policy_id', $policyId)->sole()->id)
+            ->orderBy('sort_order')
+            ->get();
+
+        // Sửa tại chỗ phải GIỮ id của các dòng còn tồn tại, để giao dịch đã finalize
+        // vẫn trỏ đúng rule (FK `policy_tier_category_id` không bị set null).
+        $this->assertSame(
+            $ruleIdsBefore,
+            $rules->pluck('id')->sort()->values()->all(),
+            'Sửa cấu hình đã xoá tạo lại rule — giao dịch cũ mất liên kết với rule.'
+        );
+
+        $categoryRule = $rules->firstWhere('category_id', $category->id);
+        $this->assertSame('6.500', $categoryRule->cashback_percent);
+        $this->assertSame('giữ nguyên', $categoryRule->note, 'Ghi chú của rule không bị mất khi sửa tại chỗ.');
+
+        $comboRule = $rules->first(fn (PolicyTierCategory $rule): bool => $rule->combo_id !== null);
+        $this->assertNotNull($comboRule);
+        $this->assertSame('5.000', $comboRule->cashback_percent, 'Rule không bị sửa vẫn phải giữ nguyên.');
+        $this->assertSame($combo->id, (int) $comboRule->combo_id);
+
+        // Chính sách vẫn là MỘT version sau khi sửa.
+        $this->assertSame(
+            1,
+            Policy::query()->where('user_card_id', $cardId)->count()
+        );
+    }
+
+    #[Test]
+    public function picking_another_source_policy_clones_it_instead_of_editing_in_place(): void
+    {
+        $template = $this->makeSystemTemplateWithBlueprint();
+        $otherTemplate = $this->makeSystemTemplateWithBlueprint();
+
+        $cardId = (int) $this->actingAs($this->owner)->postJson(
+            route('credit-cards.api.cards.store'),
+            ['name' => 'Thẻ đổi nguồn', 'policy' => ['template_id' => $template->id, 'effective_from' => '2026-10-01']]
+        )->assertCreated()->json('data.id');
+
+        $ownPolicyId = (int) UserCard::findOrFail($cardId)->current_policy_id;
+
+        // Chọn mẫu KHÁC trong khu vực chỉnh sách rồi bấm "Lưu thẻ".
+        $this->actingAs($this->owner)->patchJson(
+            route('credit-cards.api.cards.update', $cardId),
+            [
+                'name' => 'Thẻ đổi nguồn',
+                'policy' => [
+                    'template_id' => $otherTemplate->id,
+                    'effective_from' => '2026-11-01',
+                    'tiers' => [['name' => 'Bậc từ mẫu mới', 'min_total_spend' => 0]],
+                ],
+            ]
+        )->assertOk();
+
+        $newPolicyId = (int) UserCard::findOrFail($cardId)->current_policy_id;
+
+        // Chọn nguồn khác là SANG bản riêng mới (clone), không sửa tại chỗ bản cũ.
+        $this->assertNotSame($ownPolicyId, $newPolicyId, 'Đổi nguồn phải tạo bản riêng mới cho thẻ.');
+        $this->assertSame(
+            (int) $otherTemplate->id,
+            (int) Policy::findOrFail($newPolicyId)->template_id
+        );
+        $this->assertSame(
+            'Bậc từ mẫu mới',
+            PolicyTier::query()->where('policy_id', $newPolicyId)->sole()->name
+        );
+
+        // Bản riêng CŨ vẫn còn nguyên trong DB (không bị xoá), và thẻ trỏ sang bản mới.
+        $this->assertSame(
+            Policy::STATUS_ACTIVE,
+            Policy::findOrFail($newPolicyId)->status
+        );
+    }
+
+    #[Test]
+    public function a_locked_policy_version_cannot_be_edited_in_place(): void
+    {
+        $template = $this->makeSystemTemplateWithBlueprint();
+
+        $cardId = (int) $this->actingAs($this->owner)->postJson(
+            route('credit-cards.api.cards.store'),
+            ['name' => 'Thẻ đã khoá', 'policy' => ['template_id' => $template->id, 'effective_from' => '2026-10-01']]
+        )->assertCreated()->json('data.id');
+
+        $policyId = (int) UserCard::findOrFail($cardId)->current_policy_id;
+        Policy::query()->whereKey($policyId)->update(['is_locked' => true]);
+
+        $this->actingAs($this->owner)->patchJson(
+            route('credit-cards.api.cards.update', $cardId),
+            [
+                'name' => 'Thẻ đã khoá',
+                'policy' => ['tiers' => [['name' => 'Cố sửa', 'min_total_spend' => 0]]],
+            ]
+        )->assertStatus(409);
+
+        // Version bị khoá giữ nguyên, và tên thẻ cũng không đổi (cùng transaction).
+        $this->assertSame(
+            'Bậc cơ bản',
+            PolicyTier::query()->where('policy_id', $policyId)->sole()->name
+        );
+        $this->assertSame('Thẻ đã khoá', UserCard::findOrFail($cardId)->name);
+    }
+
+    /**
+     * Payload `policy` đúng như trình duyệt nhận được khi mở form Sửa thẻ.
+     *
+     * @return array<string, mixed>
+     */
+    private function policyShowPayload(int $cardId, int $policyId): array
+    {
+        $detail = $this->actingAs($this->owner)
+            ->getJson(route('credit-cards.api.policies.show', ['userCard' => $cardId, 'policy' => $policyId]))
+            ->assertOk()
+            ->json('data');
+
+        return [
+            'name' => $detail['name'],
+            'effective_from' => $detail['effective_from'],
+            'tiers' => $detail['tiers'],
+        ];
     }
 
     #[Test]
@@ -914,6 +1204,197 @@ class CardManagementUxTest extends TestCase
     }
 
     #[Test]
+    public function editing_a_card_locks_the_policy_until_the_edit_button_is_pressed(): void
+    {
+        $html = $this->actingAs($this->owner)
+            ->get(route('credit-cards.manage'))
+            ->assertOk()
+            ->getContent();
+
+        $dom = new DOMDocument;
+        @$dom->loadHTML($html);
+        $xpath = new DOMXPath($dom);
+
+        // Sửa thẻ mở ra ở chế độ chỉ đọc, có đúng MỘT nút mở khoá.
+        $this->assertSame(1, $xpath->query("//*[@data-testid='policy-readonly']")->length);
+        $this->assertSame(1, $xpath->query("//*[@data-testid='policy-edit-toggle']")->length);
+        $this->assertStringContainsString('✏️ Chỉnh sửa', $html);
+
+        // Không khoá bằng thuộc tính DOM tĩnh: bấm nút là mở được ngay, nên phải do
+        // state quyết định — cụ thể là `viewMode` của chính Policy Editor.
+        $this->assertStringContainsString('get policyReadonly()', $html);
+        $this->assertStringContainsString('startPolicyEdit()', $html);
+        $this->assertStringContainsString('this.policyEditor.viewMode = !this.policyEditMode', $html);
+
+        // Mở form sửa thẻ phải vào chế độ chỉ đọc (`policyEditMode = false`); thêm thẻ
+        // thì vào thẳng chế độ sửa vì chưa có policy nào để xem.
+        $this->assertMatchesRegularExpression(
+            '/openEdit\(id\)\s*\{.*?this\.policyEditMode = false.*?this\.loadPolicy\(card\);/s',
+            $html,
+            'Mở form sửa phải khoá chính sách trước khi nạp cấu hình.'
+        );
+        $this->assertMatchesRegularExpression(
+            '/openCreate\(\)\s*\{.*?this\.policyEditMode = true/s',
+            $html,
+            'Thêm thẻ không có gì để xem nên phải vào thẳng chế độ sửa.'
+        );
+
+        // Nút "Lưu thẻ" phải đóng lại chế độ sửa, không để người dùng tưởng còn sửa
+        // được sau khi đã lưu.
+        $this->assertMatchesRegularExpression(
+            '/this\.upsertCard\(saved\);.*?this\.policyEditMode = false.*?this\.loadPolicy\(saved\);/s',
+            $html
+        );
+    }
+
+    #[Test]
+    public function the_readonly_mode_still_shows_every_tier_and_rule(): void
+    {
+        $html = $this->actingAs($this->owner)
+            ->get(route('credit-cards.manage'))
+            ->assertOk()
+            ->getContent();
+
+        // "Chỉ đọc" = KHOÁ ô nhập, không phải giấu cấu hình đi. Editor phải luôn render
+        // và khoá bằng `viewMode` của chính state, nên đổi cờ là mở khoá ngay.
+        $this->assertStringNotContainsString('x-show="!policyReadonly" class="space-y-4', $html);
+        $this->assertMatchesRegularExpression(
+            '/data-testid="policy-editor"/',
+            $html
+        );
+        $this->assertStringNotContainsString('x-show="!policyReadonly" data-testid="policy-editor"', $html);
+
+        // Mọi ô nhập của editor vẫn khoá theo cùng một cờ.
+        $this->assertStringContainsString(':disabled="policyEditor.viewMode"', $html);
+        $this->assertStringContainsString('x-show="!policyEditor.viewMode"', $html);
+
+        // Còn ô chọn mẫu + hàng Lưu/Huỷ thì chỉ hiện khi đang sửa.
+        $this->assertStringContainsString('x-show="!policyReadonly && form.id"', $html);
+    }
+
+    #[Test]
+    public function the_policy_picker_only_appears_inside_the_editing_area(): void
+    {
+        $html = $this->actingAs($this->owner)
+            ->get(route('credit-cards.manage'))
+            ->assertOk()
+            ->getContent();
+
+        $dom = new DOMDocument;
+        @$dom->loadHTML($html);
+        $xpath = new DOMXPath($dom);
+
+        $select = $xpath->query("//*[@data-testid='policy-template-select']")->item(0);
+        $this->assertInstanceOf(DOMElement::class, $select);
+
+        // Selector phải NẰM TRONG khu vực chỉnh sửa, không phải nằm trên đầu khu vực
+        // chính sách: đi ngược lên cha, phải gặp `x-show="!policyReadonly"`.
+        $ancestorToggles = '';
+        for ($node = $select->parentNode; $node instanceof DOMElement; $node = $node->parentNode) {
+            $ancestorToggles .= ' '.$node->getAttribute('x-show');
+        }
+
+        $this->assertStringContainsString(
+            '!policyReadonly',
+            $ancestorToggles,
+            'Ô "Chọn chính sách" phải nằm trong khu vực chỉnh sửa, không đứng ở phía trên.'
+        );
+
+        // Không có hộp nhập "Tên chính sách"/"Ngày bắt đầu hiệu lực" ở form thẻ.
+        $this->assertStringNotContainsString('id="cc-sp-name"', $html);
+        $this->assertStringNotContainsString('id="cc-sp-from"', $html);
+
+        // Nhưng tên vẫn phải hiện cho người dùng (ở tóm tắt), và payload vẫn mang
+        // tên lấy từ state — bỏ ô nhập KHÔNG được biến thành mất tên.
+        $this->assertStringContainsString('policyEditor.meta.name', $html);
+        $this->assertStringContainsString('name: this.policyEditor.meta.name', $html);
+    }
+
+    #[Test]
+    public function cancelling_the_policy_edit_restores_the_configuration_from_before(): void
+    {
+        $html = $this->actingAs($this->owner)
+            ->get(route('credit-cards.manage'))
+            ->assertOk()
+            ->getContent();
+
+        // Huỷ phải có ảnh chụp để trả lại, gồm cả mẫu đang chọn và version server đang
+        // chạy — nếu thiếu thì đổi mẫu rồi huỷ sẽ lệch payload so với DB.
+        $this->assertStringContainsString('policySnapshot', $html);
+        $this->assertMatchesRegularExpression(
+            '/startPolicyEdit\(\)\s*\{.*?this\.policySnapshot = \{.*?template_id: this\.policy\.template_id/s',
+            $html,
+            'Vào chế độ sửa phải chụp lại mẫu đang chọn.'
+        );
+        $this->assertMatchesRegularExpression(
+            '/cancelPolicyEdit\(\)\s*\{.*?this\.policySnapshot = null;.*?this\.policyEditMode = false;.*?this\.policy\.template_id = snapshot\.template_id;.*?this\.policy\.current_version_id = snapshot\.current_version_id;.*?this\.mountPolicyEditor\(\{/s',
+            $html,
+            'Huỷ phải trả lại cả mẫu lẫn version đang chạy trước khi mount lại cấu hình.'
+        );
+
+        // Khu vực chính sách chỉ còn Huỷ, KHÔNG có nút lưu riêng: nút "Lưu thẻ"
+        // dính đáy form là nút lưu DUY NHẤT (thẻ + policy trong một transaction).
+        $this->assertStringContainsString('data-testid="policy-actions"', $html);
+        $this->assertStringContainsString('Huỷ chỉnh sửa', $html);
+        $this->assertMatchesRegularExpression(
+            '/data-testid="policy-actions".*?@click="cancelPolicyEdit\(\)"/s',
+            $html
+        );
+
+        $this->assertStringNotContainsString('💾 Lưu', $html);
+        $this->assertStringNotContainsString('“Lưu” ở đây', $html);
+
+        // (Việc "cả form chỉ có một nút submit" được khoá bằng DOM ở test dưới.)
+
+        // Huỷ KHÔNG được gọi mạng: nó chỉ trả lại snapshot trên máy người dùng.
+        $this->assertMatchesRegularExpression('/cancelPolicyEdit\(\)\s*\{/', $html);
+
+        $cancelBody = substr(
+            (string) strstr($html, 'cancelPolicyEdit() {'),
+            0,
+            2000
+        );
+
+        $this->assertStringContainsString(
+            'policySnapshot = null',
+            $cancelBody,
+            'Huỷ phải xoá snapshot sau khi khôi phục.'
+        );
+        $this->assertStringNotContainsString(
+            'this.request(',
+            $cancelBody,
+            'Huỷ phải thuần client, không gửi request nào.'
+        );
+    }
+
+    #[Test]
+    public function the_card_form_has_exactly_one_save_button_at_the_bottom(): void
+    {
+        $html = $this->actingAs($this->owner)
+            ->get(route('credit-cards.manage'))
+            ->assertOk()
+            ->getContent();
+
+        $dom = new DOMDocument;
+        @$dom->loadHTML($html);
+        $xpath = new DOMXPath($dom);
+
+        // Cả form chỉ có MỘT nút submit. Mọi nút khác phải là `type="button"` để
+        // bấm nhầm không phát sinh request.
+        $submits = $xpath->query("//form//button[@type='submit']");
+        $this->assertSame(1, $submits->length, 'Form thẻ chỉ được có đúng một nút lưu.');
+
+        $save = $submits->item(0);
+        $this->assertStringContainsString('Lưu thẻ', $save->textContent);
+
+        // Nút lưu nằm trong thanh hành động dính đáy form (chạm bằng ngón cái).
+        $this->assertStringContainsString(
+            'sticky',
+            $save->parentNode->parentNode->getAttribute('class')
+        );
+    }
+
+    #[Test]
     public function the_policy_summary_and_editor_never_open_a_second_horizontal_scroll(): void
     {
         $html = $this->actingAs($this->owner)
@@ -927,7 +1408,7 @@ class CardManagementUxTest extends TestCase
 
         // Mọi khối policy phải là cột một trên mobile: không lưới cứng >2 cột và
         // không ô nhập bị ghim chiều rộng, ở BẤT KỲ node nào trong nhánh đó.
-        foreach (['policy-summary', 'policy-editor'] as $testId) {
+        foreach (['policy-summary', 'policy-editor', 'policy-readonly'] as $testId) {
             $nodes = $xpath->query("//*[@data-testid='{$testId}']");
             $this->assertGreaterThan(0, $nodes->length, "Thiếu khối {$testId}.");
 

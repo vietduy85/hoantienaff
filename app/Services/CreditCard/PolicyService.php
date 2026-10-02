@@ -187,6 +187,72 @@ class PolicyService
     }
 
     /**
+     * Sửa policy RIÊNG của thẻ ⇒ ghi ĐÈ version đang chạy, KHÔNG tạo version mới.
+     *
+     * ---------------------------------------------------------------------------
+     * KHÁC `createVersion()` Ở ĐÂY
+     * ---------------------------------------------------------------------------
+     * `createVersion()` là luồng APPEND-ONLY: version cũ giữ nguyên, version mới
+     * mở `effective_from` mới. Đó là điều đúng cho SYSTEM POLICY (thay đổi luật
+     * phải giữ được lịch sử) và cho việc thêm version thủ công.
+     *
+     * Màn "Sửa thẻ" thì khác: người dùng đang chỉnh CẤU HÌNH RIÊNG CỦA MÌNH, và
+     * mỗi lần bấm "Lưu thẻ" lại sinh version mới khiến lịch sử đầy phiên bản trùng
+     * nội dung. Nên ở đây version đang chạy được sửa tại chỗ.
+     *
+     * ---------------------------------------------------------------------------
+     * VÌ SAO VẪN AN TOÀN
+     * ---------------------------------------------------------------------------
+     *   - Chỉ đụng version của CHÍNH thẻ này. Template hệ thống / template của user
+     *     là bản ghi khác hẳn (thẻ luôn clone, không tham chiếu trực tiếp), nên
+     *     sửa ở đây không chạm nguồn và không đụng lịch sử version của System Policy.
+     *   - `syncTiers()`/`syncRules()` GIỮ `id` của bậc/rule còn tồn tại, chỉ thêm
+     *     dòng mới và xoá dòng bị gỡ. Nhờ vậy giao dịch đã finalize vẫn trỏ đúng
+     *     rule cũ, và tiền hoàn đã ghi (`*_snapshot`) không bị đụng.
+     *   - Version `is_locked` (kỳ đã finalize) hoặc `superseded` bị từ chối: những
+     *     version đó thuộc lịch sử, sửa là phá invariant.
+     *
+     * `effective_from` CỐ Ý KHÔNG đổi: version đã chạy từ ngày nào thì giữ nguyên,
+     * nếu không giao dịch kỳ trước sẽ bị áp nhầm cấu hình mới.
+     *
+     * @param  array<string, mixed>  $overrides  `name` (tuỳ chọn) + `tiers`
+     */
+    public function updateCurrentVersionInPlace(UserCard $userCard, array $overrides = []): PolicyVersion
+    {
+        $this->assertCardUsable($userCard);
+
+        $current = $userCard->currentPolicy;
+
+        if ($current === null) {
+            throw new LogicException('Thẻ chưa có policy nào để sửa.');
+        }
+
+        if ($current->is_locked) {
+            throw new LogicException('Policy đang bị khoá (kỳ đã finalize), không sửa được.');
+        }
+
+        if ($current->status === Policy::STATUS_SUPERSEDED) {
+            throw new LogicException('Policy version đã bị thay thế, không sửa được.');
+        }
+
+        return DB::connection('creditcard')->transaction(function () use ($userCard, $current, $overrides): PolicyVersion {
+            // Khoá dòng version: hai request sửa thẻ song song không được ghi đè
+            // lẫn nhau (mỗi request đều xoá/insert lại tier/rule).
+            $version = PolicyVersion::query()->whereKey($current->id)->lockForUpdate()->firstOrFail();
+
+            $this->syncTiers($version, $overrides['tiers'] ?? []);
+
+            if (array_key_exists('name', $overrides) && $overrides['name'] !== null) {
+                $version->forceFill(['name' => trim((string) $overrides['name'])])->save();
+            }
+
+            $userCard->unsetRelation('currentPolicy');
+
+            return $version->refresh();
+        });
+    }
+
+    /**
      * Lưu policy hiện tại của thẻ thành User Template (deep clone ngược chiều).
      *
      * Template thuộc user sở hữu thẻ — suy ra từ thẻ, không nhận từ caller.
@@ -559,8 +625,13 @@ class PolicyService
 
     /**
      * Version hiện hành của thẻ.
+     *
+     * Quan hệ `currentPolicy` khai báo trỏ tới `Policy` (không phải `PolicyVersion`)
+     * vì `Gate` tra policy theo tên class — xem `PolicyController::asVersion()`. Ở đây
+     * nên trả về đúng kiểu mà quan hệ trả về, đừng hứa `PolicyVersion` rồi ném
+     * TypeError.
      */
-    public function currentVersion(UserCard $userCard): ?PolicyVersion
+    public function currentVersion(UserCard $userCard): ?Policy
     {
         return $userCard->currentPolicy;
     }
@@ -825,6 +896,7 @@ class PolicyService
                         'max_cashback_per_category_per_period' => $rule['max_cashback_per_category_per_period'] ?? null,
                         'min_transaction_amount' => $rule['min_transaction_amount'] ?? null,
                         'is_enabled' => $rule['is_enabled'] ?? true,
+                        'note' => $rule['note'] ?? null,
                     ]);
                 } else {
                     $model->forceFill([
@@ -854,6 +926,15 @@ class PolicyService
                         'is_enabled' => array_key_exists('is_enabled', $rule)
                             ? (bool) $rule['is_enabled']
                             : $model->is_enabled,
+                        // Ba field dưới không có ô nhập ở Policy Editor nhưng vẫn phải
+                        // đi kèm khi SỬA TẠI CHỖ: bỏ sót là mất cấu hình của rule cũ.
+                        'spend_from' => array_key_exists('spend_from', $rule)
+                            ? (float) $rule['spend_from']
+                            : $model->spend_from,
+                        'spend_to' => array_key_exists('spend_to', $rule)
+                            ? $this->money($rule['spend_to'])
+                            : $model->spend_to,
+                        'note' => array_key_exists('note', $rule) ? $rule['note'] : $model->note,
                     ])->save();
                 }
 
@@ -934,6 +1015,7 @@ class PolicyService
                     'max_cashback_per_category_per_period' => $rule['max_cashback_per_category_per_period'] ?? null,
                     'min_transaction_amount' => $rule['min_transaction_amount'] ?? null,
                     'is_enabled' => $rule['is_enabled'] ?? true,
+                    'note' => $rule['note'] ?? null,
                 ]);
             } else {
                 // Trước khi đổi target, xóa các rule khác trong tier đang giữ cùng
@@ -974,6 +1056,17 @@ class PolicyService
                     'min_transaction_amount' => $this->money(array_key_exists('min_transaction_amount', $rule)
                         ? $rule['min_transaction_amount']
                         : $model->min_transaction_amount),
+                    // Giữ đủ field khi sửa tại chỗ — xem giải thích ở nhánh fallback.
+                    'is_enabled' => array_key_exists('is_enabled', $rule)
+                        ? (bool) $rule['is_enabled']
+                        : $model->is_enabled,
+                    'spend_from' => array_key_exists('spend_from', $rule)
+                        ? (float) $rule['spend_from']
+                        : $model->spend_from,
+                    'spend_to' => array_key_exists('spend_to', $rule)
+                        ? $this->money($rule['spend_to'])
+                        : $model->spend_to,
+                    'note' => array_key_exists('note', $rule) ? $rule['note'] : $model->note,
                 ])->save();
             }
         }

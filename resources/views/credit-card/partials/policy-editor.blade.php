@@ -35,6 +35,10 @@
                               vẫn là biến cục bộ nên KHÔNG bỏ tiền tố.
       $showTemplateMeta bool   false ⇒ ẩn "Mô tả"/"Trạng thái" (thuộc TEMPLATE, không có
                               trong policy riêng của thẻ).
+      $showPolicyMeta   bool   false ⇒ ẩn "Tên chính sách" + "Ngày bắt đầu hiệu lực".
+                              Màn chào mừng thẻ dùng policy nên hai ô này chỉ làm rối:
+                              tên hiện ở tóm tắt, còn ngày bắt đầu lấy theo kỳ sao kê.
+                              Giá trị vẫn nằm trong state nên payload không đổi.
       $redirectUrl     ?string URL quay về sau khi lưu (nút Hủy + fallback khi API trả 200).
 
     ---------------------------------------------------------------------------
@@ -70,6 +74,7 @@
     $viewMode = $viewMode ?? false;
     $hosted = $hosted ?? false;
     $showTemplateMeta = $showTemplateMeta ?? true;
+    $showPolicyMeta = $showPolicyMeta ?? true;
     $redirectUrl = $redirectUrl ?? null;
     $scopePrefix = $scopePrefix ?? ($hosted ? 'policyEditor.' : '');
     $p = $scopePrefix;
@@ -93,17 +98,20 @@
     <div x-show="{{ $p }}error" class="rounded-2xl bg-rose-50 border border-rose-200 p-4 text-sm text-rose-700"
          role="alert" x-text="{{ $p }}error"></div>
 
-    {{-- Metadata chính sách --}}
+    {{-- Metadata chính sách. Ẩn trọn khối khi màn cha không cần ô nào. --}}
+    @if ($showPolicyMeta || $showTemplateMeta)
     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-5 space-y-3">
         <h3 class="font-semibold text-gray-800 text-sm">Thông tin chính sách</h3>
 
         <div class="grid gap-3 sm:grid-cols-2">
+            @if ($showPolicyMeta)
             <div class="sm:col-span-2">
                 <label class="block text-sm font-medium text-gray-700" for="cc-sp-name">Tên chính sách</label>
                 <input id="cc-sp-name" type="text" x-model="{{ $p }}meta.name" maxlength="150" required :disabled="{{ $p }}viewMode"
                        placeholder="Ví dụ: MB JCB Ultimate"
                        class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
             </div>
+            @endif
             @if ($showTemplateMeta)
             <div class="sm:col-span-2">
                 <label class="block text-sm font-medium text-gray-700" for="cc-sp-desc">Mô tả</label>
@@ -111,11 +119,13 @@
                           class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500"></textarea>
             </div>
             @endif
+            @if ($showPolicyMeta)
             <div>
                 <label class="block text-sm font-medium text-gray-700" for="cc-sp-from">Ngày bắt đầu hiệu lực</label>
                 <input id="cc-sp-from" type="date" x-model="{{ $p }}meta.effective_from" :disabled="{{ $p }}viewMode"
                        class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
             </div>
+            @endif
             @if ($showTemplateMeta)
             <div>
                 <label class="block text-sm font-medium text-gray-700" for="cc-sp-status">Trạng thái</label>
@@ -129,6 +139,7 @@
             @endif
         </div>
     </div>
+    @endif
 
     {{-- Bậc chi tiêu & quy tắc --}}
     <div class="space-y-4 sm:space-y-5">

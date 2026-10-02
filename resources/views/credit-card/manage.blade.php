@@ -374,39 +374,22 @@
                 </div>
             </div>
 
-            {{-- ═══ Chính sách hoàn tiền ═══ --}}
+            {{-- ═══ Chính sách hoàn tiền ═══
+                 Sửa thẻ: mở ra thấy chính sách ĐANG CHẠY ở chế độ chỉ đọc; muốn sửa
+                 thì bấm "✏️ Chỉnh sửa", lúc đó mới hiện ô chọn mẫu + ô nhập + Lưu/Huỷ.
+                 Thêm thẻ: chưa có gì để "xem" nên vào thẳng chế độ sửa. --}}
             <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-5 space-y-4">
                 <div>
                     <h3 class="font-bold text-gray-800 text-base">🎯 Chính sách hoàn tiền</h3>
                     <p class="text-xs text-gray-500 mt-1">
-                        Chọn mẫu hệ thống hoặc mẫu của bạn. Hệ thống <strong>sao chép</strong> thành bản
-                        riêng cho thẻ này — mẫu gốc không bị thay đổi. Thẻ và chính sách được lưu
-                        <strong>cùng một lần</strong>.
-                    </p>
-                </div>
-
-                {{-- Chọn mẫu. Không cần lưu thẻ trước: mọi thứ đi trong payload của nút "Lưu thẻ". --}}
-                <div class="space-y-1.5">
-                    <label for="cc-template" class="block text-sm font-semibold text-gray-700">Chọn chính sách</label>
-                    <select id="cc-template" x-model="policy.template_id" @change="loadDraftFromTemplate()"
-                            data-testid="policy-template-select"
-                            class="w-full h-12 rounded-xl border-gray-300 text-base px-3 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
-                        <option value="">— Không dùng chính sách —</option>
-                        <template x-for="t in systemTemplates" :key="'s' + t.id">
-                            <option :value="t.id" x-text="'🏦 ' + t.name"></option>
-                        </template>
-                        <template x-for="t in userTemplates" :key="'u' + t.id">
-                            <option :value="t.id" x-text="'👤 ' + t.name"></option>
-                        </template>
-                    </select>
-                    <p class="text-xs text-gray-500">
-                        Đang áp dụng: <span class="font-medium text-gray-700" x-text="policyName || 'chưa có'"></span>
+                        Hệ thống <strong>sao chép</strong> mẫu thành bản riêng cho thẻ này — mẫu gốc
+                        không bị thay đổi. Thẻ và chính sách được lưu <strong>cùng một lần</strong>.
                     </p>
                 </div>
 
                 {{-- ═══ TÓM TẮT ═══
                      Đọc thẳng từ `policyEditor` — cùng state object mà ô nhập bên dưới
-                     ghi vào. Không có bản sao riêng để lệch. --}}
+                     ghi vào. Không có bản sao riêng để lệch. Hiện ở CẢ HAI chế độ. --}}
                 <template x-if="policyEditor">
                     <div class="rounded-xl border-2 border-emerald-200 bg-emerald-50/60 p-4 space-y-3 min-w-0"
                          data-testid="policy-summary">
@@ -445,34 +428,89 @@
                     </div>
                 </template>
 
-                {{-- ═══ CHỈNH SỬA — CHÍNH POLICY EDITOR CHÍNH THỨC ═══
+                {{-- ═══ CHẾ ĐỘ CHỈ ĐỌC ═══
+                     Không khoá bằng `readonly`/`disabled` cứng: bấm nút này sẽ mở khoá
+                     ngay, nên state phải quyết định chứ không phải thuộc tính DOM. --}}
+                <div x-show="policyReadonly" class="rounded-xl border border-gray-200 p-4 space-y-3 min-w-0"
+                     data-testid="policy-readonly">
+                    <p class="text-xs text-gray-600">
+                        <span x-show="!policyEditor">Thẻ này chưa có chính sách nào.</span>
+                        <span x-show="policyEditor">Đang xem chính sách đang chạy. Bậc, tỷ lệ hoàn và
+                            giới hạn đều khoá — bấm nút bên dưới để sửa.</span>
+                    </p>
+                    <button type="button" @click="startPolicyEdit()" data-testid="policy-edit-toggle"
+                            class="w-full h-12 rounded-xl border-2 border-emerald-500 text-base font-bold text-emerald-700 hover:bg-emerald-50">
+                        ✏️ Chỉnh sửa
+                    </button>
+                </div>
+
+                {{-- ═══ KHU VỰC CẤU HÌNH ═══
                      Ở đây KHÔNG dựng lại form bậc/rule: partial dưới đây là bản canonical
                      dùng chung với trang quản trị, nên form Thẻ và trang admin không
                      thể lệch nhau về bất biến target, ô cap hay cách gửi payload.
 
                      `hosted` ⇒ partial không sinh `x-data` và KHÔNG có nút lưu: nút
                      "Lưu thẻ" dính đáy form là nút lưu DUY NHẤT (một transaction
-                     ghi cả thẻ lẫn chính sách). --}}
-                <template x-if="policyEditor">
-                    <div class="rounded-xl border border-gray-200 p-4 space-y-4 min-w-0" data-testid="policy-editor">
-                        <div>
-                            <p class="text-sm font-bold text-gray-800">✏️ Chỉnh sửa cấu hình</p>
-                            <p class="text-xs text-gray-500 mt-1">
-                                Sửa ở đây chỉ đổi bản riêng của thẻ này. Mẫu gốc giữ nguyên.
+                     ghi cả thẻ lẫn chính sách).
+
+                     Editor LUÔN render — kể cả lúc chỉ đọc — để người dùng thấy toàn
+                     bộ cấu hình đang chạy. Chỉ có `policyEditor.viewMode` khoá ô nhập;
+                     nó là state của chính editor nên đổi cờ là mọi `:disabled` /
+                     `x-show="!viewMode"` trong partial tự theo, không cần render lại.
+                     Ô chọn mẫu và nút Huỷ thì chỉ hiện khi đang sửa.
+
+                     Lưu KHÔNG nằm ở đây: nút "Lưu thẻ" dính đáy form là nút lưu DUY
+                     NHẤT, gửi thẻ + policy trong cùng một transaction. --}}
+                <div class="space-y-4 min-w-0">
+                    {{-- Chọn mẫu, nằm TRONG khu vực chỉnh sửa. Không cần lưu thẻ trước:
+                         mọi thứ đi trong payload của nút "Lưu thẻ". --}}
+                    <div x-show="!policyReadonly" class="rounded-xl border border-gray-200 p-4 space-y-2 min-w-0">
+                        <div class="space-y-1.5">
+                            <label for="cc-template" class="block text-sm font-semibold text-gray-700">Chọn chính sách</label>
+                            <select id="cc-template" x-model="policy.template_id" @change="loadDraftFromTemplate()"
+                                    data-testid="policy-template-select"
+                                    class="w-full h-12 rounded-xl border-gray-300 text-base px-3 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                                <option value="">— Không dùng chính sách —</option>
+                                <template x-for="t in systemTemplates" :key="'s' + t.id">
+                                    <option :value="t.id" x-text="'🏦 ' + t.name"></option>
+                                </template>
+                                <template x-for="t in userTemplates" :key="'u' + t.id">
+                                    <option :value="t.id" x-text="'👤 ' + t.name"></option>
+                                </template>
+                            </select>
+                            <p class="text-xs text-gray-500">
+                                Chọn mẫu khác sẽ nạp cấu hình của mẫu đó để sửa. Mẫu gốc không bị đổi.
                             </p>
                         </div>
-
-                        @include('credit-card.partials.policy-editor', [
-                            'hosted' => true,
-                            // Mọi binding của editor trỏ vào `policyEditor.*` trên
-                            // component cha ⇒ tóm tắt và ô nhập dùng CHUNG một state.
-                            'scopePrefix' => 'policyEditor.',
-                            // "Mô tả"/"Trạng thái" thuộc TEMPLATE, policy riêng của
-                            // thẻ không có hai field đó.
-                            'showTemplateMeta' => false,
-                        ])
                     </div>
-                </template>
+
+                    <template x-if="policyEditor">
+                        <div class="rounded-xl border border-gray-200 p-4 space-y-4 min-w-0" data-testid="policy-editor">
+                            @include('credit-card.partials.policy-editor', [
+                                'hosted' => true,
+                                // Mọi binding của editor trỏ vào `policyEditor.*` trên
+                                // component cha ⇒ tóm tắt và ô nhập dùng CHUNG một state.
+                                'scopePrefix' => 'policyEditor.',
+                                // "Mô tả"/"Trạng thái" thuộc TEMPLATE, policy riêng của
+                                // thẻ không có hai field đó.
+                                'showTemplateMeta' => false,
+                                // "Tên chính sách"/"Ngày bắt đầu" do mẹ quyết định (tên hiện ở
+                                // tóm tắt, ngày lấy theo kỳ sao kê) ⇒ không cho gõ tay.
+                                'showPolicyMeta' => false,
+                            ])
+                        </div>
+                    </template>
+
+                    {{-- Huỷ chỉ trả lại cấu hình trước khi sửa (client-side, KHÔNG gọi mạng).
+                         Việc LƯU là của nút "Lưu thẻ" dính đáy form — thẻ và
+                         chính sách đi trong cùng MỘT transaction. --}}
+                    <div x-show="!policyReadonly && form.id" data-testid="policy-actions">
+                        <button type="button" @click="cancelPolicyEdit()"
+                                class="w-full h-12 rounded-xl border border-gray-300 text-base font-semibold text-gray-600">
+                            Huỷ chỉnh sửa
+                        </button>
+                    </div>
+                </div>
             </section>
 
             {{-- Thanh hành động dính đáy: nút lớn, chạm bằng ngón cái --}}
@@ -650,16 +688,38 @@
                     policy: ccBlankPolicyDraft(),
                     policyEditor: null,
 
+                    /**
+                     * Sửa thẻ: mở ra ở chế độ CHỈ ĐỌC, bấm "✏️ Chỉnh sửa" mới mở khoá.
+                     * Thêm thẻ thì không có gì để "chỉ đọc" nên vào thẳng chế độ sửa.
+                     *
+                     * Cờ này KHÔNG đi vào payload — nó chỉ quyết định UI. Mọi thay đổi
+                     * cấu hình đều đọc từ `policyEditor` giống hệt trước đây.
+                     */
+                    policyEditMode: true,
+
+                    /**
+                     * Bản cấu hình cần trả lại nếu người dùng bấm "Huỷ" trong khu vực
+                     * chính sách. `null` = chưa vào chế độ sửa lần nào.
+                     *
+                     * Chụp lại OBJECT ĐANG SỬA, không chụp từ server: nếu không có gì để
+                     * sửa thì Huỷ chỉ cần đóng chế độ sửa, không gọi mạng.
+                     */
+                    policySnapshot: null,
+
+                    /**
+                     * Thẻ đang có + chưa vào chế độ sửa ⇒ khu vực chính sách ở chế độ
+                     * chỉ đọc. Thêm thẻ luôn vào chế độ sửa (chưa có policy để xem).
+                     */
+                    get policyReadonly() {
+                        return Boolean(this.form.id) && !this.policyEditMode;
+                    },
+
                     get systemTemplates() {
                         return this.templates.filter((t) => t.is_system);
                     },
 
                     get userTemplates() {
                         return this.templates.filter((t) => !t.is_system);
-                    },
-
-                    get policyName() {
-                        return this.policyEditor ? this.policyEditor.meta.name : '';
                     },
 
                     /**
@@ -774,6 +834,8 @@
                         this.form = { ...ccBlankCardForm(), open: true };
                         this.policy = ccBlankPolicyDraft();
                         this.policyEditor = null;
+                        this.policyEditMode = true;
+                        this.policySnapshot = null;
                     },
 
                     openEdit(id) {
@@ -800,6 +862,10 @@
 
                         this.policy = ccBlankPolicyDraft();
                         this.policyEditor = null;
+                        // Sửa thẻ mở ra ở chế độ CHỈ ĐỌC: thấy policy đang chạy trước,
+                        // muốn đổi thì bấm "✏️ Chỉnh sửa".
+                        this.policyEditMode = false;
+                        this.policySnapshot = null;
 
                         this.loadPolicy(card);
                     },
@@ -808,9 +874,68 @@
                         this.form = ccBlankCardForm();
                         this.policy = ccBlankPolicyDraft();
                         this.policyEditor = null;
+                        this.policyEditMode = true;
+                        this.policySnapshot = null;
                         this.closeBankPicker();
                         this.error = '';
                         this.notice = '';
+                    },
+
+                    /**
+                     * Bấm "✏️ Chỉnh sửa" ⇒ mở khoá ô nhập, trước hết chụp lại cấu hình
+                     * đang có để "Huỷ" trả lại được nguyên trạng.
+                     */
+                    startPolicyEdit() {
+                        this.error = '';
+
+                        this.policySnapshot = {
+                            // Mẫu đang chọn + version server đang chạy cũng phải trả lại:
+                            // đổi mẫu sẽ xoá hai field này, mà payload dựa vào chúng để
+                            // biết đang sửa bản riêng hay chọn mẫu mới.
+                            template_id: this.policy.template_id,
+                            current_version_id: this.policy.current_version_id,
+                            current_version_no: this.policy.current_version_no,
+                            meta: this.policyEditor ? { ...this.policyEditor.meta } : null,
+                            tiers: this.policyEditor
+                                ? JSON.parse(JSON.stringify(this.policyEditor.tiers))
+                                : [],
+                        };
+
+                        this.policyEditMode = true;
+
+                        if (this.policyEditor) this.policyEditor.viewMode = false;
+                    },
+
+                    /**
+                     * Huỷ trong khu vực chính sách ⇒ khôi phục cấu hình trước khi sửa và
+                     * quay lại chế độ chỉ đọc. KHÔNG đóng form, KHÔNG gọi mạng.
+                     *
+                     * Set `policyEditMode` TRƯỚC khi mount để editor mount ra ở đúng
+                     * chế độ (chỉ đọc).
+                     */
+                    cancelPolicyEdit() {
+                        const snapshot = this.policySnapshot;
+
+                        this.policySnapshot = null;
+                        this.policyEditMode = false;
+
+                        if (!snapshot) return;
+
+                        this.policy.template_id = snapshot.template_id;
+                        this.policy.current_version_id = snapshot.current_version_id;
+                        this.policy.current_version_no = snapshot.current_version_no;
+
+                        if (snapshot.meta) {
+                            this.mountPolicyEditor({
+                                name: snapshot.meta.name,
+                                description: snapshot.meta.description,
+                                effective_from: snapshot.meta.effective_from,
+                                status: snapshot.meta.status,
+                                tiers: snapshot.tiers,
+                            });
+                        } else {
+                            this.policyEditor = null;
+                        }
                     },
 
                     /** Ngày bắt đầu đổi ⇒ ngày kết thúc tính lại (bỏ giá trị đã lưu). */
@@ -906,7 +1031,10 @@
                         this.upsertCard(saved);
 
                         // Nạp lại policy ĐÃ LƯU từ server để draft khớp DB. Sau khi lưu
-                        // không còn sửa tiếp được nữa (sẽ tạo version mới ở lần lưu kế).
+                        // không còn sửa tiếp được nữa (sẽ tạo version mới ở lần lưu kế),
+                        // nên đóng chế độ sửa lại trước khi nạp.
+                        this.policyEditMode = false;
+                        this.policySnapshot = null;
                         await this.loadPolicy(saved);
                     },
 
@@ -978,6 +1106,11 @@
                             this.ruleCombos,
                             false,
                         );
+
+                        // `viewMode` là state của chính editor ⇒ đổi ở đây là mọi
+                        // `:disabled` / `x-show="!viewMode"` trong partial tự theo, không
+                        // cần render lại. Mở form sửa thẻ ⇒ khoá; đang sửa ⇒ mở khoá.
+                        this.policyEditor.viewMode = !this.policyEditMode;
                     },
 
                     /**

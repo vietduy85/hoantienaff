@@ -2,7 +2,7 @@
 
 namespace App\Services\CreditCard;
 
-use App\Models\CreditCard\PolicyVersion;
+use App\Models\CreditCard\Policy;
 use App\Models\CreditCard\UserCard;
 use Carbon\CarbonImmutable;
 use DateTimeInterface;
@@ -44,10 +44,13 @@ use InvalidArgumentException;
  *   - Không gửi `policy`              ⇒ giữ nguyên hiện trạng (thêm: thẻ không policy).
  *   - Có `template_id`, không tiers   ⇒ clone nguyên blueprint template.
  *   - Có `template_id` + tiers        ⇒ clone rồi ghi bằng cấu hình đã sửa, vẫn 1 version.
- *   - Không `template_id`, có tiers   ⇒ sửa policy RIÊNG của thẻ ⇒ tạo version mới.
+ *   - Không `template_id`, có tiers   ⇒ sửa policy RIÊNG của thẻ ⇒ ghi đè version đang
+ *                                      chạy, KHÔNG tạo version mới.
  *
- * Nhánh cuối là lý do `PolicyCloneService` giữ version append-only: version cũ
- * đã có giao dịch snapshot thì không được sửa tay.
+ * Nhánh cuối là nhánh của nút "Chỉnh sửa" ở màn Sửa thẻ. Nó cố tình KHÔNG theo
+ * append-only của `PolicyCloneService`: bấm "Lưu thẻ" là chỉnh lại cấu hình của
+ * chính mình, sinh version mới mỗi lần sẽ đầy lịch sử bản trùng nội dung. Xem
+ * `PolicyService::updateCurrentVersionInPlace()` để biết chỗ nào vẫn bất biến.
  */
 class CardPolicySaveService
 {
@@ -125,7 +128,7 @@ class CardPolicySaveService
 
         if ($creating) {
             // Form thêm mà không chọn template vẫn cho sửa cấu hình tay: dựng
-            // version 1 rỗng rồi áp ngay để không phát sinh version 2 rỗng.
+            // version 1 rồi áp ngay để không phát sinh version 2 rỗng.
             $this->policies->createFromScratch($card, $effectiveFrom, [
                 'name' => $policy['name'] ?? 'Chính sách của tôi',
                 'tiers' => $tiers,
@@ -134,7 +137,26 @@ class CardPolicySaveService
             return;
         }
 
-        $this->policies->createVersion($card, $effectiveFrom, ['tiers' => $tiers]);
+        if ($card->current_policy_id === null) {
+            // Sửa thẻ mà thẻ chưa từng có policy (ví dụ thẻ tạo trước khi có tính
+            // năng này) ⇒ đây là lần ĐẦU có cấu hình, nên tạo version 1.
+            $this->policies->createFromScratch($card, $effectiveFrom, [
+                'name' => $policy['name'] ?? 'Chính sách của tôi',
+                'tiers' => $tiers,
+            ]);
+
+            return;
+        }
+
+        // Sửa policy RIÊNG của thẻ ⇒ ghi đè version đang chạy, KHÔNG tạo version mới.
+        // Mỗi lần bấm "Lưu thẻ" chỉ là chỉnh lại cấu hình của chính mình, nên lịch
+        // sử version của thẻ không bị nhân lên các bản trùng nội dung. Bản ghi nguồn
+        // (System Policy / User Policy) là dữ liệu khác nên không bị đụng, và lịch
+        // sử version của System Policy vốn append-only vẫn nguyên vẹn.
+        $this->policies->updateCurrentVersionInPlace($card, [
+            'name' => $policy['name'] ?? null,
+            'tiers' => $tiers,
+        ]);
     }
 
     /**
@@ -159,7 +181,7 @@ class CardPolicySaveService
     /**
      * Policy hiện hành của thẻ sau khi lưu (dùng để trả kèm response).
      */
-    public function currentPolicyOf(UserCard $card): ?PolicyVersion
+    public function currentPolicyOf(UserCard $card): ?Policy
     {
         return $this->policies->currentVersion($card);
     }
