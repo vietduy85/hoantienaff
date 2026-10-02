@@ -1107,7 +1107,7 @@ class SystemPolicyCloneTest extends TestCase
     }
 
     /**
-     * Payload editor đúng như `partials/editor.blade.php` gửi đi: metadata
+     * Payload editor đúng như `credit-card/partials/policy-editor.blade.php` gửi đi: metadata
      * template + cấu hình blueprint DEFAULT (version nguồn editor hydrate) +
      * `source_version_id` trỏ chính blueprint đó — chính là payload clone API nhận.
      *

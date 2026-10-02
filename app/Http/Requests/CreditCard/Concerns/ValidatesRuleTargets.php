@@ -32,7 +32,7 @@ use Illuminate\Validation\Validator;
  * - `ruleTargetRules()`: bộ rule khai báo cho 3 field target.
  * - `assertSingleTarget()`: kiểm tra 1 rule phẳng (API rule của user).
  * - `assertNestedTargets()`: kiểm tra các rule lồng trong `tiers[].rules[]`
- *   (màn System Policy editor).
+ *   (màn System Policy editor và form thẻ ở `policy.tiers[].rules[]`).
  */
 trait ValidatesRuleTargets
 {
@@ -73,11 +73,14 @@ trait ValidatesRuleTargets
 
     /**
      * Kiểm tra target của các rule lồng trong `tiers[].rules[]`.
+     *
+     * `$root` cho phép dùng lại khi tiers KHÔNG nằm ở gốc payload: form thẻ gửi
+     * `policy.tiers[].rules[]` (xem `ValidatesCardPolicySelection`).
      */
-    protected function assertNestedTargets(Validator $validator, ?int $userId = null): void
+    protected function assertNestedTargets(Validator $validator, ?int $userId = null, string $root = 'tiers'): void
     {
-        $validator->after(function (Validator $validator) use ($userId): void {
-            $tiers = $this->input('tiers');
+        $validator->after(function (Validator $validator) use ($userId, $root): void {
+            $tiers = $this->input($root);
 
             if (! is_array($tiers)) {
                 return;
@@ -93,7 +96,7 @@ trait ValidatesRuleTargets
                         continue;
                     }
 
-                    $prefix = "tiers.{$i}.rules.{$j}.";
+                    $prefix = "{$root}.{$i}.rules.{$j}.";
 
                     $this->assertTargetCombination(
                         $validator,

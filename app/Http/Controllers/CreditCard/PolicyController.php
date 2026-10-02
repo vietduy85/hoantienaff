@@ -8,11 +8,9 @@ use App\Http\Requests\CreditCard\StorePolicyRequest;
 use App\Http\Requests\CreditCard\StorePolicyVersionRequest;
 use App\Http\Requests\CreditCard\StoreTemplateRequest;
 use App\Models\CreditCard\Policy;
-use App\Models\CreditCard\PolicyTierCategory;
 use App\Models\CreditCard\PolicyVersion;
-use App\Services\CreditCard\CategoryRuleService;
 use App\Services\CreditCard\PolicyService;
-use App\Services\CreditCard\TierService;
+use App\Support\CreditCard\SystemPolicyPresenter;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -42,8 +40,7 @@ class PolicyController extends Controller
 
     public function __construct(
         private readonly PolicyService $policies,
-        private readonly TierService $tiers,
-        private readonly CategoryRuleService $rules,
+        private readonly SystemPolicyPresenter $presenter,
     ) {}
 
     /**
@@ -174,10 +171,34 @@ class PolicyController extends Controller
     }
 
     /**
+     * Nâng một bản ghi `credit_card_policies` lên kiểu `PolicyVersion`.
+     *
+     * `versionOfCard()` trả về `Policy` (để `Gate` tra theo tên class chính xác),
+     * còn `SystemPolicyPresenter::tiers()` type-hint `PolicyVersion`. Hai class dùng
+     * CHUNG một bảng, nên chỉ cần đổi kiểu — không query lại DB.
+     *
+     * Cố tình KHÔNG truy vấn bằng `PolicyVersion::query()`: `Gate` tra policy theo
+     * tên class chính xác nên `PolicyVersion` sẽ không resolve được
+     * `PolicyPolicy` (đã auto-discover cho `Policy`) và mọi `authorize()` sẽ 403.
+     */
+    private function asVersion(Policy $policy): PolicyVersion
+    {
+        $version = new PolicyVersion;
+        $version->setRawAttributes($policy->getAttributes(), sync: true);
+        $version->setRelations($policy->getRelations());
+        $version->exists = $policy->exists;
+        $version->setConnection($policy->getConnectionName());
+
+        return $version;
+    }
+
+    /**
      * @return array<string, mixed>
      */
-    private function present(PolicyVersion $version, bool $withDetails = false): array
+    private function present(Policy $policy, bool $withDetails = false): array
     {
+        $version = $this->asVersion($policy);
+
         $data = [
             'id' => $version->id,
             'user_card_id' => $version->user_card_id,
@@ -200,39 +221,10 @@ class PolicyController extends Controller
             return $data;
         }
 
-        $tiers = $this->tiers->listFor($version)->map(function ($tier) {
-            return [
-                'id' => $tier->id,
-                'name' => $tier->name,
-                'sort_order' => (int) $tier->sort_order,
-                'min_total_spend' => (float) $tier->min_total_spend,
-                'max_total_spend' => $tier->max_total_spend === null ? null : (float) $tier->max_total_spend,
-                'rules' => $this->rules->listFor($tier)->map(fn ($rule) => [
-                    'id' => $rule->id,
-                    'category_id' => $rule->category_id,
-                    'category_name' => $rule->category?->name,
-                    'scope_type' => $rule->scope_type ?? PolicyTierCategory::SCOPE_CATEGORY,
-                    'counts_toward_tier_cap' => (bool) ($rule->counts_toward_tier_cap ?? ! $rule->isFallback()),
-                    'name' => $rule->name,
-                    'sort_order' => (int) $rule->sort_order,
-                    'spend_from' => (float) $rule->spend_from,
-                    'spend_to' => $rule->spend_to === null ? null : (float) $rule->spend_to,
-                    'cashback_percent' => (float) $rule->cashback_percent,
-                    'max_cashback_per_transaction' => $rule->max_cashback_per_transaction === null
-                        ? null
-                        : (float) $rule->max_cashback_per_transaction,
-                    'max_cashback_per_category_per_period' => $rule->max_cashback_per_category_per_period === null
-                        ? null
-                        : (float) $rule->max_cashback_per_category_per_period,
-                    'min_transaction_amount' => $rule->min_transaction_amount === null
-                        ? null
-                        : (float) $rule->min_transaction_amount,
-                    'is_enabled' => (bool) $rule->is_enabled,
-                    'note' => $rule->note,
-                ]),
-            ];
-        });
-
-        return $data + ['tiers' => $tiers];
+        // Bậc + rule + `transaction_caps` dùng CHUNG presenter với trang quản trị,
+        // nên form Thẻ hydrate đúng một hình dạng dữ liệu với Policy Editor chính
+        // thức. Thiếu `transaction_caps` ở đây là mất cấu hình cap theo bậc ngay
+        // lần mở form đầu tiên — trước đây có trường này thì phải sửa tay.
+        return $data + ['tiers' => $this->presenter->tiers($version)];
     }
 }

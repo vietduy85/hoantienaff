@@ -3,6 +3,7 @@
 namespace App\Services\CreditCard;
 
 use App\Models\CreditCard\Category;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -79,13 +80,17 @@ class SystemCategoryService
     }
 
     /**
-     * Đổi tên (mô tả) danh mục hệ thống.
+     * Sửa danh mục hệ thống: tên, slug, mô tả.
      *
      * CHỈ trên cùng bản ghi `Category` đã có. `category_id` bất biến; không tạo
-     * danh mục mới; không tạo version policy mới. Slug giữ nguyên (slug là khoá
-     * ánh xạ của `CategoryIcon` và khớp seeder).
+     * danh mục mới; không tạo version policy mới. Slug CHỈ đổi khi payload có
+     * khoá `slug` (tức người dùng thực sự gửi) — đổi tên KHÔNG tự sinh slug mới.
      *
-     * @param  array{name?:string, description?:string|null}  $attributes
+     * `category_id` là tham chiếu của policy rule và combo item, còn `slug` chỉ là
+     * nhãn/khoá ánh xạ hiển thị (`CategoryIcon`), nên đổi slug không làm hỏng tham
+     * chiếu nào.
+     *
+     * @param  array{name?:string, slug?:string, description?:string|null}  $attributes
      */
     public function update(Category $category, array $attributes): Category
     {
@@ -102,6 +107,10 @@ class SystemCategoryService
                 $category->name = $name;
             }
 
+            if (array_key_exists('slug', $attributes)) {
+                $category->slug = $this->normalizeSlug($attributes['slug'], $category);
+            }
+
             if (array_key_exists('description', $attributes)) {
                 $description = $attributes['description'];
 
@@ -112,6 +121,38 @@ class SystemCategoryService
 
             return $category->refresh();
         });
+    }
+
+    /**
+     * Chuẩn hoá slug khi sửa: trim + lowercase + kebab-case, và chặn trùng.
+     *
+     * `Str::slug()` xử lý ký tự tiếng Việt (`Đại chúng` → `dai-chung`) nên người
+     * dùng không phải tự gõ dấu `-`. Request đã chuẩn hoá + chặn trùng trước đó,
+     * nhưng vẫn giữ `Str::slug()` ở đây làm lưới an toàn cho các call path khác
+     * gọi thẳng service (đường ghi này KHÔNG được tin validation của request).
+     *
+     * Trùng được chặn ở TẦNG SERVICE (không chỉ ở request) vì đây là đường ghi duy
+     * nhất: DB có unique `(scope, owner_user_id, slug)` nên thiếu check sẽ nổi
+     * lỗi 1062 khó hiểu thay vì thông báo rõ ràng.
+     */
+    private function normalizeSlug(mixed $value, Category $category): string
+    {
+        $slug = Str::slug(mb_strtolower(trim((string) $value)));
+
+        if ($slug === '') {
+            throw new InvalidArgumentException('Slug danh mục không được để trống.');
+        }
+
+        // Chính nó thì không phải trùng — lưu lại slug cũ phải hợp lệ.
+        if ($slug === $category->slug) {
+            return $slug;
+        }
+
+        if ($this->slugExists($slug, $category)) {
+            throw new InvalidArgumentException(sprintf('Slug "%s" đã tồn tại trong danh mục hệ thống.', $slug));
+        }
+
+        return $slug;
     }
 
     /**
@@ -155,11 +196,12 @@ class SystemCategoryService
         }
     }
 
-    private function slugExists(string $slug): bool
+    private function slugExists(string $slug, ?Category $except = null): bool
     {
         return Category::query()
             ->system()
             ->where('slug', $slug)
+            ->when($except !== null, fn (Builder $query) => $query->whereKeyNot($except->getKey()))
             ->exists();
     }
 }

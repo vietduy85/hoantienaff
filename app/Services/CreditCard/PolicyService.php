@@ -123,6 +123,7 @@ class PolicyService
         int $templateId,
         DateTimeInterface $effectiveFrom,
         ?string $name = null,
+        array $overrides = [],
     ): PolicyVersion {
         $template = PolicyTemplate::query()->whereKey($templateId)->first();
 
@@ -134,7 +135,7 @@ class PolicyService
             throw new InvalidArgumentException('Chỉ được chọn template hệ thống tại đây.');
         }
 
-        return $this->cloneTemplate($userCard, $templateId, $effectiveFrom, $name);
+        return $this->cloneTemplate($userCard, $templateId, $effectiveFrom, $name, $overrides);
     }
 
     /**
@@ -150,6 +151,7 @@ class PolicyService
         int $templateId,
         DateTimeInterface $effectiveFrom,
         ?string $name = null,
+        array $overrides = [],
     ): PolicyVersion {
         $template = PolicyTemplate::query()->whereKey($templateId)->first();
 
@@ -158,14 +160,14 @@ class PolicyService
         }
 
         if ($template->isSystemScope()) {
-            return $this->cloneTemplate($userCard, $templateId, $effectiveFrom, $name);
+            return $this->cloneTemplate($userCard, $templateId, $effectiveFrom, $name, $overrides);
         }
 
         if (! $template->isOwnedBy((int) $userCard->user_id)) {
             throw new InvalidArgumentException('Bạn chỉ được dùng template của chính mình.');
         }
 
-        return $this->cloneTemplate($userCard, $templateId, $effectiveFrom, $name);
+        return $this->cloneTemplate($userCard, $templateId, $effectiveFrom, $name, $overrides);
     }
 
     /**
@@ -599,6 +601,7 @@ class PolicyService
         int $templateId,
         DateTimeInterface $effectiveFrom,
         ?string $name,
+        array $overrides = [],
     ): PolicyVersion {
         $this->assertCardUsable($userCard);
 
@@ -616,7 +619,7 @@ class PolicyService
             throw new LogicException("Template \"{$template->name}\" chưa có cấu hình để sao chép.");
         }
 
-        return $this->cloner->attachTemplateToCard($userCard, $template, $effectiveFrom, $name);
+        return $this->cloner->attachTemplateToCard($userCard, $template, $effectiveFrom, $name, $overrides);
     }
 
     private function findVersionOfCard(UserCard $userCard, int $policyId): PolicyVersion

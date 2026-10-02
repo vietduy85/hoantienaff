@@ -57,7 +57,7 @@
             </div>
         @endif
 
-        @include('admin.credit-card-policies.partials.editor', [
+        @include('credit-card.partials.policy-editor', [
             'endpoint' => ($cloneMode ?? false)
                 ? route('admin.credit-card-policies.api.clone', $templateId)
                 : route('admin.credit-card-policies.api.versions.store', $templateId),

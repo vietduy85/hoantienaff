@@ -146,7 +146,7 @@ class SystemPolicyPresenter
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function tiers(Policy $blueprint): array
+    public function tiers(Policy $blueprint): array
     {
         return $blueprint->tiers()->orderBy('sort_order')->orderBy('id')->with('transactionCaps')->get()->map(function (PolicyTier $tier): array {
             return [
@@ -169,7 +169,7 @@ class SystemPolicyPresenter
                         'max_cashback_per_transaction' => (float) $cap->max_cashback_per_transaction,
                     ])
                     ->all(),
-                'rules' => $tier->tierCategoryRules()->orderBy('sort_order')->orderBy('id')->with('combo')->get()->map(
+                'rules' => $tier->tierCategoryRules()->orderBy('sort_order')->orderBy('id')->with(['category', 'combo'])->get()->map(
                     fn (PolicyTierCategory $rule): array => [
                         'id' => $rule->id,
                         // Target: danh mục | combo | fallback. `category_id` và
@@ -198,6 +198,10 @@ class SystemPolicyPresenter
                             ? null
                             : (float) $rule->min_transaction_amount,
                         'is_enabled' => (bool) $rule->is_enabled,
+                        // `note` không có ô nhập trong editor nhưng `replaceChildren()`
+                        // ghi lại từ payload, nên presenter PHẢI xuất ra: thiếu nó thì
+                        // mở lại policy rồi lưu là mất ghi chú của rule cũ.
+                        'note' => $rule->note,
                     ],
                 )->all(),
             ];

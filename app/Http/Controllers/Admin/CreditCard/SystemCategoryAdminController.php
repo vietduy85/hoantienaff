@@ -37,7 +37,11 @@ class SystemCategoryAdminController extends Controller
 
     public function store(StoreSystemCategoryRequest $request): JsonResponse
     {
-        $category = $this->categories->create($request->payload());
+        try {
+            $category = $this->categories->create($request->payload());
+        } catch (\InvalidArgumentException $exception) {
+            return response()->json(['message' => $exception->getMessage()], 422);
+        }
 
         return response()->json(['data' => $this->present($category)], 201);
     }
@@ -48,7 +52,14 @@ class SystemCategoryAdminController extends Controller
             abort(404);
         }
 
-        $updated = $this->categories->update($category, $request->payload());
+        try {
+            $updated = $this->categories->update($category, $request->payload());
+        } catch (\InvalidArgumentException $exception) {
+            // Slug trùng / rỗng: trả 422 kèm message đọc được thay vì lỗi 500.
+            // Request đã chặn trùng bằng `Rule::unique`, đây là lưới an toàn cho
+            // mọi call path khác đi vào service.
+            return response()->json(['message' => $exception->getMessage()], 422);
+        }
 
         return response()->json(['data' => $this->present($updated)]);
     }

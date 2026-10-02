@@ -7,6 +7,7 @@ use App\Http\Requests\CreditCard\StoreUserCardRequest;
 use App\Http\Requests\CreditCard\UpdateUserCardRequest;
 use App\Models\CreditCard\UserCard;
 use App\Services\CreditCard\BankService;
+use App\Services\CreditCard\CardPolicySaveService;
 use App\Services\CreditCard\CategoryService;
 use App\Services\CreditCard\UserCardService;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
@@ -31,6 +32,7 @@ class UserCardController extends Controller
         private readonly UserCardService $cards,
         private readonly BankService $banks,
         private readonly CategoryService $categories,
+        private readonly CardPolicySaveService $cardPolicy,
     ) {}
 
     /**
@@ -67,7 +69,12 @@ class UserCardController extends Controller
     {
         $this->authorize('create', UserCard::class);
 
-        $card = $this->cards->create((int) $request->user()->id, $request->payload());
+        // Thẻ + policy là MỘT khối: cùng transaction, lỗi policy ⇒ không có thẻ mồ côi.
+        $card = $this->cardPolicy->create(
+            (int) $request->user()->id,
+            $request->payload(),
+            $request->policySelection(),
+        );
 
         return response()->json(['data' => $this->present($card)], 201);
     }
@@ -92,9 +99,8 @@ class UserCardController extends Controller
             unset($payload['status']);
         }
 
-        if ($payload !== []) {
-            $this->cards->update($userId, $card->id, $payload);
-            $card->refresh();
+        if ($payload !== [] || $request->policySelection() !== null) {
+            $card = $this->cardPolicy->update($userId, $card->id, $payload, $request->policySelection());
         }
 
         if ($status === UserCard::STATUS_INACTIVE && $card->isActive()) {
@@ -157,16 +163,20 @@ class UserCardController extends Controller
             ],
             'card_number_last4' => $card->card_number_last4,
             'credit_limit' => (float) $card->credit_limit,
+            'desired_spend' => $card->desired_spend === null ? null : (float) $card->desired_spend,
             'statement_day' => $card->statement_day,
             'payment_due_day' => $card->payment_due_day,
             'spending_deadline_day' => $card->spending_deadline_day,
             'statement_date_basis' => $card->statement_date_basis,
             'opened_at' => $card->opened_at?->toDateString(),
+            'statement_period_start' => $card->statement_period_start?->toDateString(),
+            'statement_period_end' => $card->statement_period_end?->toDateString(),
             'closed_at' => $card->closed_at?->toDateString(),
             'status' => $card->status,
             'is_usable' => $card->isUsable(),
             'sort_order' => $card->sort_order,
             'note' => $card->note,
+            'promotion_info' => $card->promotion_info,
             'policy' => $card->currentPolicy === null ? null : [
                 'id' => $card->currentPolicy->id,
                 'name' => $card->currentPolicy->name,

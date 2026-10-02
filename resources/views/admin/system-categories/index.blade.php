@@ -184,7 +184,7 @@
                                    maxlength="150"
                                    placeholder="y-te"
                                    class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
-                            <p class="mt-1 text-xs text-gray-500">Tự động tạo từ tên. Dùng chữ thường + gạch ngang, phải duy nhất trong danh mục hệ thống.</p>
+                            <p class="mt-1 text-xs text-gray-500">Chữ thường, số và gạch ngang (ví dụ <code class="text-[11px]">y-te</code>), phải duy nhất trong danh mục hệ thống. Khi thêm mới, slug được tự tạo từ tên; khi sửa, slug giữ nguyên nếu bạn không tự đổi. Ký tự lạ sẽ được hệ thống tự đổi thành gạch nối.</p>
                             <p class="mt-1 text-xs text-rose-600" x-show="form.errors.slug" x-text="form.errors.slug" role="alert"></p>
                         </div>
 

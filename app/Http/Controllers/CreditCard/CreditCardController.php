@@ -3,8 +3,12 @@
 namespace App\Http\Controllers\CreditCard;
 
 use App\Http\Controllers\Controller;
+use App\Models\CreditCard\Category;
+use App\Models\CreditCard\CategoryCombo;
+use App\Models\CreditCard\PolicyTemplate;
 use App\Models\CreditCard\StatementPeriod;
 use App\Models\CreditCard\UserCard;
+use App\Services\CreditCard\BankService;
 use App\Services\CreditCard\StatementPeriodService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -24,6 +28,7 @@ class CreditCardController extends Controller
 {
     public function __construct(
         private readonly StatementPeriodService $periods,
+        private readonly BankService $banks,
     ) {}
 
     /**
@@ -100,10 +105,62 @@ class CreditCardController extends Controller
         return $warnings;
     }
 
-    /** /thetindung/quan-ly-the — placeholder giai đoạn sau. */
+    /**
+     * /thetindung/quan-ly-the — thêm / sửa thẻ (UX mobile-first).
+     *
+     * Trang render SẴN danh sách thẻ + danh sách ngân hàng + mẫu chính sách
+     * (hệ thống + riêng của user). Render sẵn thay vì gọi JSON API giúp mở form
+     * nhanh trên mạng yếu — đúng ưu tiên mobile — và không lặp lại quy tắc scope.
+     *
+     * `PolicyTemplate::scopeSelectableBy()` đã lọc ở tầng truy vấn: chỉ trả
+     * template HỆ THỐNG + template RIÊNG của chính user, nên không thể lọt mẫu
+     * của người khác vào danh sách chọn.
+     *
+     * `ruleCategories` / `ruleCombos` là danh sách target cho Policy Editor (ô
+     * "Phạm vi danh mục"). Truyền kèm để editor mở được ngay, đồng thời để danh sách
+     * đi qua `scopeSelectableBy()` — lọc ở tầng truy vấn, không bao giờ lộ danh mục
+     * hay combo riêng của user khác. Editor này KHÔNG gọi API danh mục.
+     */
     public function manage(): View
     {
-        return view('credit-card.manage');
+        $userId = (int) auth()->id();
+
+        return view('credit-card.manage', [
+            'userCreditCards' => UserCard::query()
+                ->ownedBy($userId)
+                ->with(['bank', 'currentPolicy'])
+                ->ordered()
+                ->get(),
+            'ruleCategories' => Category::query()
+                ->selectableBy($userId)
+                ->orderBy('sort_order')
+                ->orderBy('name')
+                ->get()
+                ->map(fn (Category $category): array => [
+                    'id' => $category->id,
+                    'name' => $category->name,
+                ])
+                ->values()
+                ->all(),
+            'ruleCombos' => CategoryCombo::query()
+                ->selectableBy($userId)
+                ->with('items')
+                ->orderBy('sort_order')
+                ->orderBy('name')
+                ->get()
+                ->map(fn (CategoryCombo $combo): array => [
+                    'id' => $combo->id,
+                    'name' => $combo->name,
+                    'category_count' => $combo->items->count(),
+                ])
+                ->values()
+                ->all(),
+            'banks' => $this->banks->selectable(),
+            'policyTemplates' => PolicyTemplate::query()
+                ->selectableBy($userId)
+                ->orderBy('name')
+                ->get(),
+        ]);
     }
 
     /** /thetindung/danh-muc — placeholder giai đoạn sau. */

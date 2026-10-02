@@ -86,7 +86,9 @@ class CategoryRuleService
      */
     public function listFor(PolicyTier $tier)
     {
-        return $tier->tierCategoryRules()->orderBy('sort_order')->orderBy('id')->get();
+        // `combo` eager-load: presenter trả `combo_name` cho từng rule, không có
+        // eager-load thì mỗi rule một query (N+1) trên màn cấu hình.
+        return $tier->tierCategoryRules()->with('combo')->orderBy('sort_order')->orderBy('id')->get();
     }
 
     /**

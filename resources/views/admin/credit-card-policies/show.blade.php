@@ -64,8 +64,8 @@
                 @endif</p>
         </div>
 
-        {{-- Editor ở CHẾ ĐỘ XEM — dùng chung component editor.blade.php, chỉ đọc --}}
-        @include('admin.credit-card-policies.partials.editor', [
+        {{-- Editor ở CHẾ ĐỘ XEM — dùng chung partial policy-editor.blade.php, chỉ đọc --}}
+        @include('credit-card.partials.policy-editor', [
             'endpoint' => '',
             'updateEndpoint' => null,
             'submitLabel' => 'Lưu',

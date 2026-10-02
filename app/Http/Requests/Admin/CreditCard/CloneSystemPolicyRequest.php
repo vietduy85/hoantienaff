@@ -6,10 +6,10 @@ namespace App\Http\Requests\Admin\CreditCard;
  * Clone một chính sách hoàn tiền hệ thống từ payload của EDITOR ADMIN.
  *
  * Payload đúng bằng payload trang "Chỉnh sửa"/"Tạo mới" gửi đi (`payload()`
- * trong `partials/editor.blade.php`): metadata template + cấu hình blueprint
- * nguồn (đang hydrate) + `source_version_id`. Nên mọi rule validate tái dùng
- * `StoreSystemPolicyVersionRequest`, chỉ thêm bắt buộc `name` (tạo chính sách
- * MỚI phải có tên).
+ * trong `credit-card/partials/policy-editor.blade.php`): metadata template + cấu
+ * hình blueprint nguồn (đang hydrate) + `source_version_id`. Nên mọi rule validate
+ * tái dùng `StoreSystemPolicyVersionRequest`, chỉ thêm bắt buộc `name` (tạo chính
+ * sách MỚI phải có tên).
  *
  * Route API đã gắn `permission:credit-cards.manage`; phân quyền phạm vi hệ
  * thống do `PolicyCloneService::createSystemPolicyFromEditor()` bảo vệ tiếp.

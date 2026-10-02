@@ -4,9 +4,7 @@ namespace App\Http\Controllers\CreditCard;
 
 use App\Http\Controllers\Controller;
 use App\Models\CreditCard\PolicyTemplate;
-use App\Models\CreditCard\PolicyTierCategory;
-use App\Services\CreditCard\CategoryRuleService;
-use App\Services\CreditCard\TierService;
+use App\Support\CreditCard\SystemPolicyPresenter;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -35,8 +33,7 @@ class PolicyTemplateController extends Controller
     use AuthorizesRequests;
 
     public function __construct(
-        private readonly TierService $tiers,
-        private readonly CategoryRuleService $rules,
+        private readonly SystemPolicyPresenter $presenter,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -106,28 +103,10 @@ class PolicyTemplateController extends Controller
         }
 
         return $data + [
-            'tiers' => $this->tiers->listFor($blueprint)->map(fn ($tier) => [
-                'name' => $tier->name,
-                'sort_order' => (int) $tier->sort_order,
-                'min_total_spend' => (float) $tier->min_total_spend,
-                'max_total_spend' => $tier->max_total_spend === null ? null : (float) $tier->max_total_spend,
-                'rules' => $this->rules->listFor($tier)->map(fn ($rule) => [
-                    'category_id' => $rule->category_id,
-                    'category_name' => $rule->category?->name,
-                    'scope_type' => $rule->scope_type ?? PolicyTierCategory::SCOPE_CATEGORY,
-                    'counts_toward_tier_cap' => (bool) ($rule->counts_toward_tier_cap ?? ! $rule->isFallback()),
-                    'spend_from' => (float) $rule->spend_from,
-                    'spend_to' => $rule->spend_to === null ? null : (float) $rule->spend_to,
-                    'cashback_percent' => (float) $rule->cashback_percent,
-                    'max_cashback_per_transaction' => $rule->max_cashback_per_transaction === null
-                        ? null
-                        : (float) $rule->max_cashback_per_transaction,
-                    'max_cashback_per_category_per_period' => $rule->max_cashback_per_category_per_period === null
-                        ? null
-                        : (float) $rule->max_cashback_per_category_per_period,
-                    'is_enabled' => (bool) $rule->is_enabled,
-                ]),
-            ]),
+            // Cùng presenter với trang admin và với policy của thẻ: blueprint mà
+            // form Thẻ sẽ hydrate vào Policy Editor phải có `transaction_caps`,
+            // `target_type`, `spend_from`/`spend_to`/`is_enabled` y hệt.
+            'tiers' => $this->presenter->tiers($blueprint),
         ];
     }
 }

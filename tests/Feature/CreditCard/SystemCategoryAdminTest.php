@@ -298,6 +298,155 @@ class SystemCategoryAdminTest extends TestCase
     }
 
     // =====================================================================
+    // Sửa slug
+    //
+    // Lỗi thật trước đây: form Sửa gửi cả `slug` lên nhưng
+    // `UpdateSystemCategoryRequest` không khai báo rule cho nó, nên slug bị bỏ
+    // qua — admin sửa slug xong nhưng DB không đổi, không có lỗi báo ra.
+    // =====================================================================
+
+    #[Test]
+    public function admin_can_change_the_slug_of_a_system_category(): void
+    {
+        $category = $this->makeSystemCategory(['name' => 'Y tế & Bệnh viện', 'slug' => 'y-te-benh-vien']);
+        $rule = $this->makeRuleReferencing($category);
+
+        $this->actingAs($this->manager)
+            ->patchJson(route('admin.credit-card.system-categories.update', $category), [
+                'name' => 'Y tế & Bệnh viện',
+                'slug' => 'y-te-va-benh-vien',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.slug', 'y-te-va-benh-vien')
+            ->assertJsonPath('data.id', $category->id);
+
+        $refreshed = $category->refresh();
+        $this->assertSame('y-te-va-benh-vien', $refreshed->slug, 'Slug phải được ghi xuống DB.');
+        $this->assertNull(
+            Category::query()->system()->where('slug', 'y-te-benh-vien')->first(),
+            'Slug cũ không được còn lại.'
+        );
+
+        // Đổi slug KHÔNG được đổi định danh: mọi tham chiếu giữ nguyên.
+        $this->assertSame($category->id, $refreshed->id);
+        $this->assertSame($category->id, $rule->refresh()->category_id, 'category_id của rule KHÔNG đổi.');
+    }
+
+    #[Test]
+    public function slug_is_normalized_to_kebab_case_on_update_like_on_create(): void
+    {
+        $category = $this->makeSystemCategory(['name' => 'Ăn uống', 'slug' => 'an-uong']);
+
+        // Cùng kiểu input mà form Thêm chấp nhận thì form Sửa cũng phải chấp nhận.
+        $this->actingAs($this->manager)
+            ->patchJson(route('admin.credit-card.system-categories.update', $category), [
+                'name' => 'Ăn uống',
+                'slug' => '  Am Thuc & An Uong  ',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.slug', 'am-thuc-an-uong');
+
+        $this->assertSame('am-thuc-an-uong', $category->refresh()->slug);
+    }
+
+    #[Test]
+    public function renaming_without_changing_the_slug_keeps_the_slug(): void
+    {
+        $category = $this->makeSystemCategory(['name' => 'Ẩm thực', 'slug' => 'am-thuc']);
+
+        $this->actingAs($this->manager)
+            ->patchJson(route('admin.credit-card.system-categories.update', $category), [
+                'name' => 'Ẩm thực đường phố',
+            ])
+            ->assertOk();
+
+        $refreshed = $category->refresh();
+        $this->assertSame('Ẩm thực đường phố', $refreshed->name);
+        $this->assertSame('am-thuc', $refreshed->slug, 'Đổi tên KHÔNG được tự sinh slug mới.');
+    }
+
+    #[Test]
+    public function resubmitting_the_same_slug_is_allowed(): void
+    {
+        $category = $this->makeSystemCategory(['name' => 'Mua sắm', 'slug' => 'mua-sam']);
+
+        // Lưu lại y hệt slug cũ KHÔNG được báo trùng (bỏ qua chính nó).
+        $this->actingAs($this->manager)
+            ->patchJson(route('admin.credit-card.system-categories.update', $category), [
+                'name' => 'Mua sắm online',
+                'slug' => 'mua-sam',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.slug', 'mua-sam');
+
+        $this->assertSame('mua-sam', $category->refresh()->slug);
+    }
+
+    #[Test]
+    public function changing_the_slug_to_an_existing_one_is_rejected(): void
+    {
+        $category = $this->makeSystemCategory(['name' => 'Danh mục A', 'slug' => 'danh-muc-a']);
+        $this->makeSystemCategory(['name' => 'Danh mục B', 'slug' => 'danh-muc-b']);
+
+        $this->actingAs($this->manager)
+            ->patchJson(route('admin.credit-card.system-categories.update', $category), [
+                'name' => 'Danh mục A',
+                'slug' => 'danh-muc-b',
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('slug');
+
+        $this->assertSame('danh-muc-a', $category->refresh()->slug, 'Slug cũ phải được giữ nguyên khi bị trùng.');
+    }
+
+    #[Test]
+    public function an_unusable_slug_is_rejected_on_update(): void
+    {
+        $category = $this->makeSystemCategory(['name' => 'Danh mục', 'slug' => 'danh-muc']);
+
+        $this->actingAs($this->manager)
+            ->patchJson(route('admin.credit-card.system-categories.update', $category), [
+                'name' => 'Danh mục',
+                'slug' => '!!!',
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('slug');
+
+        $this->actingAs($this->manager)
+            ->patchJson(route('admin.credit-card.system-categories.update', $category), [
+                'name' => 'Danh mục',
+                'slug' => '   ',
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('slug');
+
+        $this->assertSame('danh-muc', $category->refresh()->slug);
+    }
+
+    #[Test]
+    public function changing_the_slug_does_not_create_new_policy_or_touch_rules(): void
+    {
+        $category = $this->makeSystemCategory(['name' => 'Shopee', 'slug' => 'shopee']);
+        $template = $this->makeSystemPolicy(percent: 2.0, categoryId: $category->id);
+
+        $blueprintId = $template->blueprint()->firstOrFail()->id;
+        $policiesBefore = Policy::count();
+        $rulesBefore = PolicyTierCategory::query()->where('category_id', $category->id)->count();
+        $this->assertSame(1, $rulesBefore);
+
+        $this->actingAs($this->manager)
+            ->patchJson(route('admin.credit-card.system-categories.update', $category), [
+                'name' => 'Shopee',
+                'slug' => 'shopee-tiki',
+            ])
+            ->assertOk();
+
+        $this->assertSame(1, Policy::findOrFail($blueprintId)->version_no, 'Không tạo version mới khi đổi slug.');
+        $this->assertSame($policiesBefore, Policy::count());
+        $this->assertSame($rulesBefore, PolicyTierCategory::query()->where('category_id', $category->id)->count());
+    }
+
+    // =====================================================================
     // Đổi tên
     // =====================================================================
 

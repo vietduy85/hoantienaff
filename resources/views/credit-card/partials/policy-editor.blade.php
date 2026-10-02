@@ -1,30 +1,64 @@
 {{--
-    Editor admin cho "Chính sách hoàn tiền hệ thống" — dùng chung cho trang
-    Tạo mới (create) và Chỉnh sửa (edit).
+    Policy Editor CANONICAL — dùng chung cho MỌI màn hình sửa cấu hình hoàn tiền:
+      - Admin: Tạo mới / Chỉnh sửa / [Xem] chính sách hệ thống.
+      - User:  form Thêm / Sửa thẻ (chính sách riêng của thẻ).
 
-    Dữ liệu:
-      $initial        array  metadata + tiers (server-side, qua present())
+    Đây là partial DUY NHẤT. Không copy sang trang khác: mọi khác biệt về giao diện
+    được xử lý bằng props bên dưới, state/payload thì dùng chung `policyEditorState()`.
+
+    ---------------------------------------------------------------------------
+    DATA
+    ---------------------------------------------------------------------------
+      $initial        array  metadata + tiers (server-side, qua presenter)
       $endpoint       string URL JSON cần POST (tạo mới / "Lưu phiên bản mới")
       $updateEndpoint ?string  URL PATCH cập nhật in-place version ("Lưu lại") — chỉ có trên trang
                               Chỉnh sửa; khi có, editor hiện 2 nút Lưu lại / Lưu phiên bản mới
       $submitLabel    string nhãn nút lưu (chỉ dùng trang Tạo mới)
-      $categories     list<{id, name}> danh mục hệ thống đang active
-      $combos         list<{id, name, category_count}> combo hệ thống (đã ẩn vẫn nạp
-                      để rule cũ không mất nhãn khi mở lại editor)
+      $categories     list<{id, name}> danh mục editor được phép chọn
+      $combos         list<{id, name, category_count}> combo editor được phép chọn.
+                      Nạp target đã ẩn hay không là việc của màn hình chủ: Admin
+                      nạp cả combo ẩn, còn form Thẻ chỉ nạp combo active — đều OK,
+                      vì `categoryLabel()`/`comboLabel()` tự hiện "… đã ẩn" cho id
+                      không có trong danh sách, và `id` đó VẪN được giữ trong state
+                      (LƯU Ý: re-save rule đang trỏ target ẩn vẫn bị
+                      `ValidatesRuleTargets` từ chối — xem note cuối partial).
       $sourceVersionId ?int  phiên bản làm nguồn copy (luồng "Chỉnh sửa version N")
-      $viewMode       bool   CHẾ ĐỘ XEM — trang "[Xem]" dùng chung editor này ở chế độ
-                             read-only: mọi ô nhập bị khoá, không có bất kỳ nút thêm/xoá/lưu nào.
+      $viewMode       bool   CHẾ ĐỘ XEM: mọi ô nhập bị khoá, không có nút thêm/xoá/lưu nào.
 
-    CẤU TRÚC CANONICAL: `tiers[].rules` ở MỌI nơi — presenter xuất `rules`, editor giữ
-    state `tier.rules` và payload gửi `rules`. KHÔNG có `tier.categories` (bug cũ rules
-    ↔ categories đã từng xoá sạch rule khi lưu). Giới hạn hoàn tiền theo giá trị giao
-    dịch nằm ở `tiers[].transaction_caps` (tài sản của BẬC, §23) — KHÔNG còn ở rule.
+    ---------------------------------------------------------------------------
+    CHẾ ĐỘ HOSTED (form Thẻ)
+    ---------------------------------------------------------------------------
+      $hosted          bool   true ⇒ editor KHÔNG tự sinh `x-data` và KHÔNG có nút lưu:
+                              nút "Lưu thẻ" của form cha gửi đi. Editor chỉ lo phần state.
+      $scopePrefix     ?string tên state trên scope CHA (mặc định `policyEditor.` khi hosted).
+                              Mọi binding bỏ tiền tố này; biến `x-for` (`tier`, `rule`, `cap`)
+                              vẫn là biến cục bộ nên KHÔNG bỏ tiền tố.
+      $showTemplateMeta bool   false ⇒ ẩn "Mô tả"/"Trạng thái" (thuộc TEMPLATE, không có
+                              trong policy riêng của thẻ).
+      $redirectUrl     ?string URL quay về sau khi lưu (nút Hủy + fallback khi API trả 200).
 
-    Trần hoàn mỗi kỳ nằm ở TỪNG BẬC (`tiers[].max_cashback_per_period`) — không còn
-    ô "Hoàn tiền tối đa / kỳ" ở cấp chính sách.
+    ---------------------------------------------------------------------------
+    CẤU TRÚC CANONICAL
+    ---------------------------------------------------------------------------
+    `tiers[].rules` ở MỌI nơi — presenter xuất `rules`, editor giữ state `tier.rules` và
+    payload gửi `rules`. KHÔNG có `tier.categories` (bug cũ rules ↔ categories đã từng
+    xoá sạch rule khi lưu). Giới hạn hoàn tiền theo giá trị giao dịch nằm ở
+    `tiers[].transaction_caps` (tài sản của BẬC) — KHÔNG còn ở rule.
+    Trần hoàn mỗi kỳ nằm ở TỪNG BẬC (`tiers[].max_cashback_per_period`).
 
     KHÔNG nhập tiền hoàn "bên trái" ở đây: bậc/tỷ lệ/cap là CẤU HÌNH, tiền thật do
     hệ thống tính khi giao dịch vào sổ.
+
+    ---------------------------------------------------------------------------
+    TARGET ĐÃ ẨN
+    ---------------------------------------------------------------------------
+      Rule cũ trỏ category/combo đã bị ẩn vẫn render đủ (nhãn "Danh mục đã ẩn" /
+      "Combo đã ẩn") và giữ nguyên `category_id`/`combo_id` trong state — không
+      mất dữ liệu khi MỞ form. Nhưng `ValidatesRuleTargets` chỉ chấp nhận target
+      đang active, nên LƯU lại policy đó vẫn bị 422. Editor không tự "chữa" bằng
+      cách đổi rule sang fallback: làm vậy là âm thầm đổi cấu hình cashback của
+      khách. Muốn cho lưu được thì phải nới rule ở tầng nghiệp vụ (grandfather
+      target đã tồn tại), không xử lý ở đây.
 --}}
 @php
     $endpoint = $endpoint ?? '';
@@ -34,6 +68,11 @@
     $combos = $combos ?? [];
     $sourceVersionId = $sourceVersionId ?? null;
     $viewMode = $viewMode ?? false;
+    $hosted = $hosted ?? false;
+    $showTemplateMeta = $showTemplateMeta ?? true;
+    $redirectUrl = $redirectUrl ?? null;
+    $scopePrefix = $scopePrefix ?? ($hosted ? 'policyEditor.' : '');
+    $p = $scopePrefix;
     $initial = $initial ?? [
         'name' => '',
         'description' => '',
@@ -43,12 +82,16 @@
     ];
 @endphp
 
+@if ($hosted)
+<div class="space-y-4 sm:space-y-5">
+@else
 <div x-data="systemPolicyEditor(@js($initial), @js($endpoint), @js($categories), @js($sourceVersionId),
 @js($updateEndpoint), @js($viewMode), @js($combos))"
      class="space-y-4 sm:space-y-5">
+@endif
 
-    <div x-show="error" class="rounded-2xl bg-rose-50 border border-rose-200 p-4 text-sm text-rose-700"
-         role="alert" x-text="error"></div>
+    <div x-show="{{ $p }}error" class="rounded-2xl bg-rose-50 border border-rose-200 p-4 text-sm text-rose-700"
+         role="alert" x-text="{{ $p }}error"></div>
 
     {{-- Metadata chính sách --}}
     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-5 space-y-3">
@@ -57,29 +100,33 @@
         <div class="grid gap-3 sm:grid-cols-2">
             <div class="sm:col-span-2">
                 <label class="block text-sm font-medium text-gray-700" for="cc-sp-name">Tên chính sách</label>
-                <input id="cc-sp-name" type="text" x-model="meta.name" maxlength="150" required :disabled="viewMode"
+                <input id="cc-sp-name" type="text" x-model="{{ $p }}meta.name" maxlength="150" required :disabled="{{ $p }}viewMode"
                        placeholder="Ví dụ: MB JCB Ultimate"
                        class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
             </div>
+            @if ($showTemplateMeta)
             <div class="sm:col-span-2">
                 <label class="block text-sm font-medium text-gray-700" for="cc-sp-desc">Mô tả</label>
-                <textarea id="cc-sp-desc" x-model="meta.description" rows="2" maxlength="1000" :disabled="viewMode"
+                <textarea id="cc-sp-desc" x-model="{{ $p }}meta.description" rows="2" maxlength="1000" :disabled="{{ $p }}viewMode"
                           class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500"></textarea>
             </div>
+            @endif
             <div>
                 <label class="block text-sm font-medium text-gray-700" for="cc-sp-from">Ngày bắt đầu hiệu lực</label>
-                <input id="cc-sp-from" type="date" x-model="meta.effective_from" :disabled="viewMode"
+                <input id="cc-sp-from" type="date" x-model="{{ $p }}meta.effective_from" :disabled="{{ $p }}viewMode"
                        class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
             </div>
+            @if ($showTemplateMeta)
             <div>
                 <label class="block text-sm font-medium text-gray-700" for="cc-sp-status">Trạng thái</label>
-                <select id="cc-sp-status" x-model="meta.status" :disabled="viewMode"
+                <select id="cc-sp-status" x-model="{{ $p }}meta.status" :disabled="{{ $p }}viewMode"
                         class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
                     <option value="draft">Nháp</option>
                     <option value="published">Đang sử dụng</option>
                     <option value="archived">Lưu trữ</option>
                 </select>
             </div>
+            @endif
         </div>
     </div>
 
@@ -87,7 +134,7 @@
     <div class="space-y-4 sm:space-y-5">
         <div class="flex items-center justify-between">
             <h3 class="font-semibold text-gray-800 text-sm">Bậc chi tiêu & quy tắc hoàn tiền</h3>
-            <button type="button" @click="addTier()" x-show="!viewMode"
+            <button type="button" @click="{{ $p }}addTier()" x-show="!{{ $p }}viewMode"
                     class="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 border border-emerald-200 hover:bg-emerald-50">
                 + Thêm bậc chi tiêu
             </button>
@@ -99,46 +146,46 @@
             hệ thống tính khi giao dịch vào sổ.
         </p>
 
-        <template x-for="(tier, ti) in tiers" :key="ti">
+        <template x-for="(tier, ti) in {{ $p }}tiers" :key="ti">
             <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-5 space-y-3">
                 <div class="flex flex-wrap items-center justify-between gap-2">
                     <h4 class="font-semibold text-gray-800 text-sm">Bậc chi tiêu <span x-text="ti + 1"></span></h4>
-                    <button type="button" @click="removeTier(ti)" x-show="!viewMode"
+                    <button type="button" @click="{{ $p }}removeTier(ti)" x-show="!{{ $p }}viewMode"
                             class="rounded-lg bg-white px-2.5 py-1 text-xs font-semibold text-rose-600 border border-rose-200 hover:bg-rose-50">
                         Xoá bậc
                     </button>
                 </div>
 
                 <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    <div>
+                    <div class="min-w-0">
                         <label class="block text-sm font-medium text-gray-700" :for="`cc-t${ti}-name`">Tên bậc</label>
-                        <input :id="`cc-t${ti}-name`" type="text" x-model="tier.name" maxlength="150" :disabled="viewMode"
+                        <input :id="`cc-t${ti}-name`" type="text" x-model="tier.name" maxlength="150" :disabled="{{ $p }}viewMode"
                                placeholder="Ví dụ: Chi tiêu cơ bản"
                                class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
                     </div>
-                    <div>
+                    <div class="min-w-0">
                         <label class="block text-sm font-medium text-gray-700" :for="`cc-t${ti}-min`">Tổng chi tiêu tối thiểu</label>
-                        <input :id="`cc-t${ti}-min`" type="number" min="0" step="0.01" x-model="tier.min_total_spend" :disabled="viewMode"
+                        <input :id="`cc-t${ti}-min`" type="number" min="0" step="0.01" x-model="tier.min_total_spend" :disabled="{{ $p }}viewMode"
                                class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
                         <p class="mt-1 text-xs text-gray-500">Mức chi tiêu tối thiểu để đạt bậc này.</p>
                     </div>
-                    <div>
+                    <div class="min-w-0">
                         <label class="block text-sm font-medium text-gray-700" :for="`cc-t${ti}-max`">Tổng chi tiêu tối đa</label>
-                        <input :id="`cc-t${ti}-max`" type="number" min="0" step="0.01" x-model="tier.max_total_spend" :disabled="viewMode"
+                        <input :id="`cc-t${ti}-max`" type="number" min="0" step="0.01" x-model="tier.max_total_spend" :disabled="{{ $p }}viewMode"
                                class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
                         <p class="mt-1 text-xs text-gray-500">Mức chi tiêu cao nhất thuộc bậc này. Để trống nếu không giới hạn.</p>
                     </div>
-                    <div>
+                    <div class="min-w-0">
                         <label class="block text-sm font-medium text-gray-700" :for="`cc-t${ti}-cap`">Hoàn tiền tối đa của bậc / kỳ</label>
-                        <input :id="`cc-t${ti}-cap`" type="number" min="0" step="0.01" x-model="tier.max_cashback_per_period" :disabled="viewMode"
+                        <input :id="`cc-t${ti}-cap`" type="number" min="0" step="0.01" x-model="tier.max_cashback_per_period" :disabled="{{ $p }}viewMode"
                                class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
                         <p class="mt-1 text-xs text-gray-500">Tổng số tiền hoàn tối đa của bậc này trong một kỳ. Để trống nếu không giới hạn.</p>
                     </div>
                 </div>
 
                 <label class="flex items-start gap-2 text-sm">
-                    <input type="checkbox" x-model="tier.use_transaction_caps" :disabled="viewMode"
-                           @change="onTransactionCapsToggle(tier)"
+                    <input type="checkbox" x-model="tier.use_transaction_caps" :disabled="{{ $p }}viewMode"
+                           @change="{{ $p }}onTransactionCapsToggle(tier)"
                            class="mt-0.5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 disabled:bg-gray-50">
                     <span>
                         <span class="font-medium text-gray-700">Giới hạn hoàn tiền theo giá trị giao dịch</span>
@@ -152,7 +199,7 @@
                     <div class="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3 space-y-2">
                         <div class="flex flex-wrap items-center justify-between gap-2">
                             <p class="text-xs font-semibold text-emerald-700">Điều kiện theo giá trị giao dịch</p>
-                            <button type="button" @click="addTransactionCap(tier)" x-show="!viewMode"
+                            <button type="button" @click="{{ $p }}addTransactionCap(tier)" x-show="!{{ $p }}viewMode"
                                     class="rounded-lg bg-white px-2.5 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200 hover:bg-emerald-50">
                                 + Thêm khoảng
                             </button>
@@ -160,23 +207,23 @@
 
                         <template x-for="(cap, ci) in tier.transaction_caps" :key="ci">
                             <div class="grid gap-2 grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
-                                <div>
+                                <div class="min-w-0">
                                     <label class="block text-xs font-medium text-gray-600" :for="`cc-t${ti}-tc${ci}-min`">Từ</label>
-                                    <input :id="`cc-t${ti}-tc${ci}-min`" type="number" min="0" step="0.01" x-model="cap.min_transaction_amount" :disabled="viewMode"
+                                    <input :id="`cc-t${ti}-tc${ci}-min`" type="number" min="0" step="0.01" x-model="cap.min_transaction_amount" :disabled="{{ $p }}viewMode"
                                            class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
                                 </div>
-                                <div>
+                                <div class="min-w-0">
                                     <label class="block text-xs font-medium text-gray-600" :for="`cc-t${ti}-tc${ci}-max`">Đến</label>
-                                    <input :id="`cc-t${ti}-tc${ci}-max`" type="number" min="0" step="0.01" x-model="cap.max_transaction_amount" :disabled="viewMode"
+                                    <input :id="`cc-t${ti}-tc${ci}-max`" type="number" min="0" step="0.01" x-model="cap.max_transaction_amount" :disabled="{{ $p }}viewMode"
                                            placeholder="Không giới hạn"
                                            class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
                                 </div>
-                                <div>
+                                <div class="min-w-0">
                                     <label class="block text-xs font-medium text-gray-600" :for="`cc-t${ti}-tc${ci}-cap`">Hoàn tối đa / giao dịch</label>
-                                    <input :id="`cc-t${ti}-tc${ci}-cap`" type="number" min="0" step="0.01" x-model="cap.max_cashback_per_transaction" :disabled="viewMode"
+                                    <input :id="`cc-t${ti}-tc${ci}-cap`" type="number" min="0" step="0.01" x-model="cap.max_cashback_per_transaction" :disabled="{{ $p }}viewMode"
                                            class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
                                 </div>
-                                <button type="button" @click="removeTransactionCap(tier, ci)" x-show="!viewMode"
+                                <button type="button" @click="{{ $p }}removeTransactionCap(tier, ci)" x-show="!{{ $p }}viewMode"
                                         class="rounded-lg bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-600 border border-rose-200 hover:bg-rose-50 sm:mb-0.5">
                                     Xoá
                                 </button>
@@ -203,10 +250,10 @@
                                     </span>
                                     <span x-show="rule.target_scope === 'combo'"
                                           class="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 normal-case">
-                                        🍱 <span x-text="comboLabel(rule.combo_id)"></span>
+                                        🍱 <span x-text="{{ $p }}comboLabel(rule.combo_id)"></span>
                                     </span>
                                 </p>
-                                <button type="button" @click="removeRule(tier, ri)" x-show="!viewMode"
+                                <button type="button" @click="{{ $p }}removeRule(tier, ri)" x-show="!{{ $p }}viewMode"
                                         class="rounded-lg bg-white px-2.5 py-1 text-xs font-semibold text-rose-600 border border-rose-200 hover:bg-rose-50">
                                     Xoá
                                 </button>
@@ -215,33 +262,33 @@
                             <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                                 {{-- "Phạm vi danh mục" = 3 TRẠNG THÁI target của rule.
                                      Ưu tiên: danh mục cụ thể > combo > danh mục còn lại. --}}
-                                <div>
+                                <div class="min-w-0">
                                     <label class="block text-sm font-medium text-gray-700" :for="`cc-r${ti}-${ri}-scope`">Phạm vi danh mục</label>
-                                    <select :id="`cc-r${ti}-${ri}-scope`" x-model="rule.target_scope" @change="onTargetScopeChange(tier, rule)" :disabled="viewMode"
+                                    <select :id="`cc-r${ti}-${ri}-scope`" x-model="rule.target_scope" @change="{{ $p }}onTargetScopeChange(tier, rule)" :disabled="{{ $p }}viewMode"
                                             class="mt-1 block w-full min-h-[44px] rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
                                         <option value="category">Danh mục cụ thể</option>
                                         <option value="combo">🍱 Combo danh mục</option>
                                         <option value="other">📦 Danh mục còn lại</option>
                                     </select>
                                 </div>
-                                <div x-show="rule.target_scope === 'category'">
+                                <div class="min-w-0" x-show="rule.target_scope === 'category'">
                                     <label class="block text-sm font-medium text-gray-700" :for="`cc-r${ti}-${ri}-cat`">Danh mục</label>
-                                    <select :id="`cc-r${ti}-${ri}-cat`" x-model="rule.category_id" :disabled="viewMode"
+                                    <select :id="`cc-r${ti}-${ri}-cat`" x-model="rule.category_id" :disabled="{{ $p }}viewMode"
                                             x-init="$nextTick(() => { $el.value = rule.category_id ?? ''; })"
                                             class="mt-1 block w-full min-h-[44px] rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
                                         <option value="">— Chọn danh mục —</option>
-                                        <template x-for="cat in categories" :key="cat.id">
+                                        <template x-for="cat in {{ $p }}categories" :key="cat.id">
                                             <option :value="cat.id" x-text="cat.name"></option>
                                         </template>
                                     </select>
                                 </div>
-                                <div x-show="rule.target_scope === 'combo'" x-cloak>
+                                <div class="min-w-0" x-show="rule.target_scope === 'combo'" x-cloak>
                                     <label class="block text-sm font-medium text-gray-700" :for="`cc-r${ti}-${ri}-combo`">Combo</label>
-                                    <select :id="`cc-r${ti}-${ri}-combo`" x-model="rule.combo_id" :disabled="viewMode"
+                                    <select :id="`cc-r${ti}-${ri}-combo`" x-model="rule.combo_id" :disabled="{{ $p }}viewMode"
                                             x-init="$nextTick(() => { $el.value = rule.combo_id ?? ''; })"
                                             class="mt-1 block w-full min-h-[44px] rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
                                         <option value="">— Chọn combo —</option>
-                                        <template x-for="combo in combos" :key="combo.id">
+                                        <template x-for="combo in {{ $p }}combos" :key="combo.id">
                                             <option :value="combo.id"
                                                     x-text="combo.name + ' (' + combo.category_count + ' danh mục)'"></option>
                                         </template>
@@ -252,34 +299,34 @@
                                         danh mục &gt; combo &gt; mặc định).
                                     </p>
                                 </div>
-                                <div x-show="rule.target_scope === 'other'" class="sm:col-span-1">
+                                <div class="min-w-0 sm:col-span-1" x-show="rule.target_scope === 'other'">
                                     <label class="block text-sm font-medium text-gray-700">&nbsp;</label>
                                     <p class="mt-1 text-xs text-gray-500 leading-relaxed">
                                         Quy tắc mặc định áp cho mọi danh mục chưa có quy tắc cụ thể
                                         trong bậc này. Mỗi bậc chỉ có <strong>một</strong> quy tắc này.
                                     </p>
                                 </div>
-                                <div>
+                                <div class="min-w-0">
                                     <label class="block text-sm font-medium text-gray-700" :for="`cc-r${ti}-${ri}-pct`">Hoàn tiền (%)</label>
-                                    <input :id="`cc-r${ti}-${ri}-pct`" type="number" min="0" max="100" step="0.001" x-model="rule.cashback_percent" :disabled="viewMode"
+                                    <input :id="`cc-r${ti}-${ri}-pct`" type="number" min="0" max="100" step="0.001" x-model="rule.cashback_percent" :disabled="{{ $p }}viewMode"
                                            class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
                                 </div>
-                                <div>
+                                <div class="min-w-0">
                                     <label class="block text-sm font-medium text-gray-700" :for="`cc-r${ti}-${ri}-cap-tx`">Hoàn tối đa / giao dịch</label>
-                                    <input :id="`cc-r${ti}-${ri}-cap-tx`" type="number" min="0" step="0.01" x-model="rule.max_cashback_per_transaction" :disabled="viewMode"
+                                    <input :id="`cc-r${ti}-${ri}-cap-tx`" type="number" min="0" step="0.01" x-model="rule.max_cashback_per_transaction" :disabled="{{ $p }}viewMode"
                                            class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
                                     <p class="mt-1 text-xs text-gray-500">Số tiền hoàn cao nhất cho một giao dịch.</p>
                                 </div>
-                                <div>
+                                <div class="min-w-0">
                                     <label class="block text-sm font-medium text-gray-700" :for="`cc-r${ti}-${ri}-cap-cat`">Hoàn tối đa / danh mục</label>
-                                    <input :id="`cc-r${ti}-${ri}-cap-cat`" type="number" min="0" step="0.01" x-model="rule.max_cashback_per_category_per_period" :disabled="viewMode"
+                                    <input :id="`cc-r${ti}-${ri}-cap-cat`" type="number" min="0" step="0.01" x-model="rule.max_cashback_per_category_per_period" :disabled="{{ $p }}viewMode"
                                            class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
                                     <p class="mt-1 text-xs text-gray-500">Tổng số tiền hoàn cao nhất của danh mục trong một kỳ sao kê.</p>
                                 </div>
                             </div>
 
                             <label class="flex items-start gap-2 text-sm">
-                                <input type="checkbox" x-model="rule.counts_toward_tier_cap" :disabled="viewMode"
+                                <input type="checkbox" x-model="rule.counts_toward_tier_cap" :disabled="{{ $p }}viewMode"
                                        class="mt-0.5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 disabled:bg-gray-50">
                                 <span>
                                     <span class="font-medium text-gray-700">Tính vào giới hạn hoàn tiền của bậc</span>
@@ -296,32 +343,33 @@
                     </div>
                 </div>
 
-                <button type="button" @click="addRule(tier)" x-show="!viewMode"
+                <button type="button" @click="{{ $p }}addRule(tier)" x-show="!{{ $p }}viewMode"
                         class="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 border border-emerald-200 hover:bg-emerald-50">
                     + Thêm quy tắc cashback
                 </button>
             </div>
         </template>
 
-        <div x-show="tiers.length === 0"
+        <div x-show="{{ $p }}tiers.length === 0"
              class="rounded-2xl bg-gray-50 border border-dashed border-gray-300 p-4 text-sm text-gray-500">
             Chưa có bậc chi tiêu nào. Bấm "+ Thêm bậc chi tiêu" để bắt đầu.
         </div>
     </div>
 
-    {{-- Hành động (chỉ khi KHÔNG phải chế độ xem) --}}
-    @if (! $viewMode)
+    {{-- Hành động. Ở chế độ HOSTED (form thẻ) KHÔNG có: nút "Lưu thẻ" của form
+         cha là nút lưu duy nhất, tránh hai nút cùng ghi một chính sách. --}}
+    @if (! $viewMode && ! $hosted)
     <template x-if="updateEndpoint">
         <div class="flex flex-col gap-2 sm:flex-row">
-            <button type="button" @click="submit('current')" :disabled="busy"
+            <button type="button" @click="{{ $p }}submit('current')" :disabled="{{ $p }}busy"
                     class="rounded-xl bg-emerald-600 px-4 py-2.5 min-h-[44px] text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 w-full sm:w-auto">
                 Lưu lại
             </button>
-            <button type="button" @click="submit('new')" :disabled="busy"
+            <button type="button" @click="{{ $p }}submit('new')" :disabled="{{ $p }}busy"
                     class="rounded-xl bg-white px-4 py-2.5 min-h-[44px] text-sm font-semibold text-gray-700 border border-gray-300 hover:bg-gray-50 w-full sm:w-auto">
                 Lưu phiên bản mới
             </button>
-            <a href="{{ route('admin.credit-card-policies.index') }}"
+            <a href="{{ $redirectUrl ?? route('admin.credit-card-policies.index') }}"
                class="rounded-xl bg-white px-4 py-2.5 min-h-[44px] text-sm font-semibold text-gray-700 border border-gray-300 hover:bg-gray-50 text-center w-full sm:w-auto">
                 Hủy
             </a>
@@ -329,11 +377,11 @@
     </template>
     <template x-if="!updateEndpoint">
         <div class="flex flex-col gap-2 sm:flex-row">
-            <button type="button" @click="submit('new')" :disabled="busy"
+            <button type="button" @click="{{ $p }}submit('new')" :disabled="{{ $p }}busy"
                     class="rounded-xl bg-emerald-600 px-4 py-2.5 min-h-[44px] text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 w-full sm:w-auto">
                 {{ $submitLabel }}
             </button>
-            <a href="{{ route('admin.credit-card-policies.index') }}"
+            <a href="{{ $redirectUrl ?? route('admin.credit-card-policies.index') }}"
                class="rounded-xl bg-white px-4 py-2.5 min-h-[44px] text-sm font-semibold text-gray-700 border border-gray-300 hover:bg-gray-50 text-center w-full sm:w-auto">
                 Hủy
             </a>
@@ -344,9 +392,15 @@
 
 @push('scripts')
 <script>
-    // Suy "Phạm vi danh mục" (giá trị của select) từ dữ liệu rule server trả về.
-    // Presenter xuất `scope_type` + `target_type`; rule cũ chỉ có `category_id` thì
-    // suy tiếp từ `combo_id` để không mất nhãn.
+    /**
+     * Suy "Phạm vi danh mục" (giá trị của select) từ dữ liệu rule server trả về.
+     * Presenter xuất `scope_type` + `target_type`; rule cũ chỉ có `category_id` thì
+     * suy tiếp từ `combo_id` để không mất nhãn.
+     *
+     * BẤT BIẾN TARGET: rule COMBO vẫn mang `scope_type = category` (xem
+     * `ValidatesRuleTargets`), nên combo KHÔNG nhận diện được qua `scope_type` —
+     * phải nhìn `combo_id`. `scope_type` chỉ phân biệt "còn lại" với "có điều kiện".
+     */
     function ruleTargetScope(rule) {
         if ((rule.scope_type ?? 'category') === 'other') {
             return 'other';
@@ -357,10 +411,22 @@
         return kind === 'combo' ? 'combo' : 'category';
     }
 
-    window.systemPolicyEditor = function (initial, endpoint, categories, sourceVersionId, updateEndpoint = null, viewMode = false, combos = []) {
+    /**
+     * STATE + PAYLOAD CỦA POLICY EDITOR — nguồn sự thật DUY NHẤT cho mọi màn hình.
+     *
+     * Tách riêng khỏi `systemPolicyEditor()` vì form Thẻ cần đúng phần này mà KHÔNG
+     * có nút lưu/endpoint riêng: nó gọi thẳng `policyEditorState()` để dựng state
+     * ngay trong component cha, rồi render lại CHÍNH partial này ở chế độ hosted.
+     * Nhờ vậy không tồn tại hai bộ chuyển đổi payload — sửa bug ở đây là sửa cả hai
+     * nơi.
+     *
+     * @param initial    array  metadata + tiers từ presenter
+     * @param categories array  danh mục user được chọn
+     * @param combos     array  combo user được chọn (kèm `category_count`)
+     * @param viewMode   bool   khoá toàn bộ ô nhập
+     */
+    window.policyEditorState = function (initial, categories, combos, viewMode) {
         return {
-            sourceVersionId: sourceVersionId ?? null,
-            updateEndpoint: updateEndpoint ?? null,
             viewMode: viewMode ?? false,
             meta: {
                 name: initial.name ?? '',
@@ -399,6 +465,14 @@
                             category_id: rule.category_id ?? '',
                             combo_id: rule.combo_id ?? '',
                             name: rule.name ?? null,
+                            // Không có ô nhập cho các cờ dưới đây trong UI, nhưng BẮT BUỘC
+                            // phải mang qua payload: lưu thẻ tạo version MỚI bằng
+                            // `replaceChildren()` (xoá rồi tạo lại dòng), nên thiếu chúng
+                            // là mất cấu hình cũ. Mang theo ⇒ mở lại vẫn y nguyên.
+                            spend_from: rule.spend_from ?? 0,
+                            spend_to: rule.spend_to ?? '',
+                            is_enabled: rule.is_enabled !== false,
+                            note: rule.note ?? null,
                             cashback_percent: rule.cashback_percent ?? 0,
                             max_cashback_per_transaction: rule.max_cashback_per_transaction ?? '',
                             max_cashback_per_category_per_period: rule.max_cashback_per_category_per_period ?? '',
@@ -407,8 +481,8 @@
                     };
                 })
                 : [],
-            categories: categories,
-            combos: combos,
+            categories: categories ?? [],
+            combos: combos ?? [],
             busy: false,
             error: '',
 
@@ -438,6 +512,10 @@
                     category_id: '',
                     combo_id: '',
                     name: null,
+                    spend_from: 0,
+                    spend_to: '',
+                    is_enabled: true,
+                    note: null,
                     cashback_percent: 0,
                     max_cashback_per_transaction: '',
                     max_cashback_per_category_per_period: '',
@@ -517,6 +595,18 @@
                 return found ? found.name : 'Combo đã ẩn';
             },
 
+            // Nhãn danh mục cho TÓM TẮT của form Thẻ. Danh mục ẩn không nằm trong
+            // danh sách chọn được nên phải nói rõ thay vì hiện tên rỗng.
+            categoryLabel(categoryId) {
+                if (categoryId === null || categoryId === '') {
+                    return 'Danh mục';
+                }
+
+                const found = this.categories.find((category) => String(category.id) === String(categoryId));
+
+                return found ? found.name : 'Danh mục đã ẩn';
+            },
+
             num(value) {
                 if (value === '' || value === null || value === undefined) return null;
                 return Number(value);
@@ -531,7 +621,8 @@
                 return Number.isFinite(parsed) ? parsed : null;
             },
 
-            // Chỉ cấu hình thuộc VERSION — thân của "Lưu lại" (PATCH versions.update).
+            // Cấu hình thuộc VERSION — thân của "Lưu lại" (PATCH versions.update) và
+            // cũng là phần `tiers` mà form Thẻ gửi kèm. Một hàm, hai nơi dùng.
             versionConfig() {
                 return {
                     effective_from: this.meta.effective_from,
@@ -549,7 +640,7 @@
                                 max_cashback_per_transaction: this.num(cap.max_cashback_per_transaction),
                             }))
                             : [],
-                        rules: (tier.rules ?? []).map((rule) => {
+                        rules: (tier.rules ?? []).map((rule, ri) => {
                             // "Phạm vi danh mục" quyết định trạng thái payload: fallback
                             // (`scope_type=other`) ⇒ cả hai target null; còn lại chỉ MỘT
                             // trong category_id / combo_id được gửi.
@@ -564,15 +655,34 @@
                                 category_id: isFallback || useCombo ? null : this.targetId(rule.category_id),
                                 combo_id: isFallback || ! useCombo ? null : this.targetId(rule.combo_id),
                                 name: rule.name ?? null,
+                                // Cờ không có ô nhập vẫn phải đi kèm — xem giải thích ở state.
+                                spend_from: this.num(rule.spend_from) ?? 0,
+                                spend_to: this.num(rule.spend_to),
+                                is_enabled: rule.is_enabled !== false,
+                                note: rule.note ?? null,
                                 cashback_percent: this.num(rule.cashback_percent),
                                 max_cashback_per_transaction: this.num(rule.max_cashback_per_transaction),
                                 max_cashback_per_category_per_period: this.num(rule.max_cashback_per_category_per_period),
                                 min_transaction_amount: this.num(rule.min_transaction_amount),
+                                sort_order: ri + 1,
                             };
                         }),
                     })),
                 };
             },
+        };
+    };
+
+    /**
+     * Editor System Policy: state chung + vỏ giao tiếp với API (nút lưu, redirect).
+     * Form Thẻ KHÔNG dùng lớp này — nó dùng `policyEditorState()` và tự lưu.
+     */
+    window.systemPolicyEditor = function (initial, endpoint, categories, sourceVersionId, updateEndpoint, viewMode, combos) {
+        return {
+            ...window.policyEditorState(initial, categories, combos, viewMode),
+            endpoint: endpoint ?? '',
+            sourceVersionId: sourceVersionId ?? null,
+            updateEndpoint: updateEndpoint ?? null,
 
             // Metadata template (vỏ ngoài). Gửi kèm cho CẢ "Lưu lại" lẫn "Lưu phiên
             // bản mới" để tên/mô tả/trạng thái đã nhập không bị mất khi bấm Lưu lại.
@@ -616,7 +726,7 @@
                 }
 
                 const isCurrent = mode === 'current';
-                const url = isCurrent ? this.updateEndpoint : endpoint;
+                const url = isCurrent ? this.updateEndpoint : this.endpoint;
 
                 if (!url) {
                     this.error = 'Không có đích lưu cho hành động này.';
@@ -649,7 +759,7 @@
 
                     // API có thể trả `redirect` (vd: clone → trang sửa chính sách MỚI);
                     // không có thì quay về danh sách như trước.
-                    window.location.href = data?.redirect || @js(route('admin.credit-card-policies.index'));
+                    window.location.href = data?.redirect || @js($redirectUrl ?? route('admin.credit-card-policies.index'));
                 } catch (e) {
                     this.error = 'Không kết nối được máy chủ. Vui lòng thử lại.';
                     this.busy = false;

@@ -70,14 +70,16 @@
         </div>
     @endif
 
-    {{-- Danh sách thẻ --}}
+    {{-- Danh sách thẻ (chỉ xem tại đây; thêm/sửa nằm ở "Quản lý thẻ") --}}
     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4">
-        <div class="flex items-center justify-between gap-3">
+        <div class="flex items-center justify-between gap-3 min-w-0">
             <h3 class="font-bold text-gray-800">Thẻ tín dụng đang có</h3>
-            <a href="{{ route('credit-cards.manage') }}"
-               class="shrink-0 inline-flex items-center gap-1.5 h-10 px-4 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm">
-                <span aria-hidden="true">+</span> Thêm thẻ
-            </a>
+            @if ($userCreditCards->isNotEmpty())
+                <a href="{{ route('credit-cards.manage') }}"
+                   class="shrink-0 inline-flex items-center h-10 px-3 bg-gray-50 hover:bg-gray-100 text-gray-600 text-sm font-semibold rounded-xl transition-colors">
+                    Quản lý
+                </a>
+            @endif
         </div>
 
         @if ($userCreditCards->isEmpty())

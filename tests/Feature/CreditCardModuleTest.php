@@ -6,8 +6,13 @@ use App\Models\CreditCard\Policy;
 use App\Models\CreditCard\StatementPeriod;
 use App\Models\CreditCard\UserCard;
 use App\Models\User;
+use DOMDocument;
+use DOMElement;
+use DOMNodeList;
+use DOMXPath;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Concerns\InteractsWithCreditCardDatabase;
 use Tests\TestCase;
@@ -237,25 +242,385 @@ class CreditCardModuleTest extends TestCase
             $response->assertSee($label);
         }
 
-        // Chưa có thẻ => thông báo chuẩn + nút thêm thẻ
+        // Chưa có thẻ => thông báo chuẩn. Nút "+ Thêm thẻ" đã BỎ khỏi tổng quan
+        // (nút nằm ở trang Quản lý thẻ) — xem `overview_has_no_add_card_button`.
         $response->assertSee('Bạn chưa thêm thẻ tín dụng nào.');
-        $response->assertSee('Thêm thẻ');
         $response->assertSee('Chưa có dữ liệu');
     }
 
-    /** TEST 7: Nút "+ Thêm thẻ" dẫn tới /thetindung/quan-ly-the. */
+    /** TEST 6b: Tổng quan KHÔNG còn nút "+ Thêm thẻ" (nút nằm ở trang Quản lý thẻ). */
     #[Test]
-    public function add_card_button_points_to_manage_page(): void
+    public function overview_has_no_add_card_button(): void
     {
         $user = User::factory()->create();
 
-        $response = $this->actingAs($user)->get('/thetindung');
+        $doc = $this->domOf($this->actingAs($user)->get('/thetindung')->assertOk());
 
-        $response->assertOk();
-        $this->assertStringContainsString(
-            'href="'.route('credit-cards.manage').'"',
-            $response->getContent()
+        $this->assertSame(
+            0,
+            $this->addCardButtons($doc)->length,
+            'Tổng quan không được có nút "+ Thêm thẻ" (nút thuộc trang Quản lý thẻ).'
         );
+    }
+
+    /**
+     * TEST 7: Trang Quản lý thẻ có nút "+ Thêm thẻ" nối tới form hiện có.
+     *
+     * Cố tình KHÔNG grep chuỗi "Thêm thẻ": lỗi thật trước đây là nút CÓ trong HTML
+     * nhưng không dùng được, mà grep chuỗi vẫn xanh. Test này phải xác nhận đủ:
+     *   1. nút tồn tại theo selector,
+     *   2. nằm cùng hàng với tiêu đề "Thẻ của bạn" (đầu section, không cuối trang),
+     *   3. gọi `openCreate()` — dùng lại form sẵn có, không tạo form thứ hai,
+     *   4. không bị ẩn sẵn bởi CSS (`style="display:none"`).
+     */
+    #[Test]
+    public function manage_page_offers_the_add_card_form(): void
+    {
+        $user = User::factory()->create();
+
+        // Ô chọn ngân hàng CHỈ hữu ích khi server gửi kèm tên / mã / alias.
+        // Seed sẵn 2 bank active (một bank có alias) + 1 bank ngừng hoạt động để
+        // kiểm tra cả payload lẫn việc loại bank không chọn được.
+        $this->makeBank(['name' => 'Sacombank', 'short_name' => 'STB', 'slug' => 'stb', 'aliases' => ['scb']]);
+        $this->makeBank(['name' => 'Quốc tế VIB', 'short_name' => 'VIB', 'slug' => 'vib']);
+        $this->makeBank([
+            'name' => 'Ngân hàng Đã Ngừng Hoạt Động',
+            'short_name' => 'OFF',
+            'slug' => 'ngan-hang-da-ngung-hoat-dong',
+            'is_active' => false,
+        ]);
+
+        $response = $this->actingAs($user)->get(route('credit-cards.manage'))->assertOk();
+        $doc = $this->domOf($response);
+        $responseHtml = $response->getContent();
+
+        $buttons = $this->addCardButtons($doc);
+        $this->assertSame(1, $buttons->length, 'Trang Quản lý thẻ phải có đúng một nút "+ Thêm thẻ".');
+
+        /** @var DOMElement $button */
+        $button = $buttons->item(0);
+
+        // Nút mở form sẵn có, không phải form/URL mới.
+        $this->assertSame('button', $button->tagName);
+        $this->assertSame('', $button->getAttribute('href'), 'Nút phải là <button>, không được điều hướng.');
+
+        // Chỉ ẩn khi form đang mở; không được ẩn sẵn bằng CSS.
+        $this->assertSame('! form.open', trim($button->getAttribute('x-show')));
+        $this->assertStringNotContainsString('display:none', (string) $button->getAttribute('style'));
+
+        // `@click` KHÔNG đọc được qua DOM: libxml bỏ attribute bắt đầu bằng `@`.
+        // Vì thế assert trên đúng markup của NÚT này, không grep cả trang.
+        $buttonHtml = $this->addCardButtonHtml($responseHtml);
+        $this->assertStringContainsString('@click="openCreate()"', $buttonHtml);
+        $this->assertStringNotContainsString('display:none', $buttonHtml);
+
+        // Nút nằm trong section "Thẻ của bạn" — tức đầu section danh sách.
+        // PHẢI scope vào section của nút: `getElementsByTagName('h3')->item(0)` sẽ
+        // lấy h3 đầu tiên CỦA TRANG, tức chrome dùng chung (không phải của màn này).
+        $section = $this->closestSection($button);
+        $this->assertNotNull($section, 'Nút phải nằm trong một <section>.');
+
+        $xpath = new DOMXPath($doc);
+
+        // Nút và tiêu đề phải chung một hàng: h3 là hậu duệ của cha nút.
+        // (Nút là anh em với `<div class="min-w-0">` bọc h3, không cùng cha trực tiếp.)
+        $row = $button->parentNode;
+        $headings = $xpath->query('.//h3', $row);
+        $this->assertGreaterThan(0, $headings->length, 'Nút phải chung hàng với tiêu đề section.');
+        $this->assertSame('Thẻ của bạn', trim($headings->item(0)->textContent));
+
+        // Hàng tiêu đề phải là phần tử ĐẦU của section => nút ở đầu danh sách.
+        // `previousElementSibling` chứ không phải `previousSibling`: Blade để lại
+        // node khoảng trắng nên `previousSibling` không bao giờ null.
+        $this->assertNull($row->previousElementSibling, 'Nút phải ở đầu section, không phải cuối trang.');
+
+        // Cùng MỘT form thẻ: nút bấm vào, form hiện ra.
+        // KHÔNG đếm toàn bộ <form> của trang: layout dùng chung có sẵn 2 form
+        // `logout`, nên phải lọc theo chính form của màn quản lý thẻ.
+        $cardForms = $xpath->query('//form[@x-show="form.open"]');
+        $this->assertSame(1, $cardForms->length, 'Chỉ được có MỘT form thẻ, không tạo form trùng.');
+
+        // Form đó phải là form nhập thẻ thật, không phải form nào đó tình cờ.
+        $this->assertGreaterThan(
+            0,
+            $xpath->query('.//*[@id="cc-name"]', $cardForms->item(0))->length,
+            'Form bị ẩn khi mở phải là form nhập thẻ.'
+        );
+
+        // Các trường form bắt buộc của màn hình — tra theo `id`, không grep.
+        foreach (['cc-name', 'cc-period-start', 'cc-due-day', 'cc-deadline-day', 'cc-desired', 'cc-promo', 'cc-note'] as $field) {
+            $this->assertSame(
+                1,
+                $xpath->query('//*[@id="'.$field.'"]')->length,
+                "Thiếu ô nhập #{$field}."
+            );
+        }
+
+        // Ô chọn ngân hàng: combo box có tìm kiếm, KHÔNG phải lưới nhiều cột.
+        //
+        // Grid nhiều cột là thủ phạm của thanh cuộn ngang trên mobile. Danh sách
+        // ngân hàng nay là `<ul>` một cột cuộn dọc, nên phải khẳng định KHÔNG còn
+        // lưới nhiều cột nào chứa các lựa chọn ngân hàng.
+        $this->assertSame(
+            1,
+            $xpath->query('//*[@data-testid="bank-selector"]')->length,
+            'Phải có đúng một ô chọn ngân hàng.'
+        );
+
+        $this->assertSame(
+            'true',
+            $xpath->query('//*[@data-testid="bank-selector"]')->item(0)->getAttribute('data-bank-searchable'),
+            'Ô chọn ngân hàng phải bật tìm kiếm.'
+        );
+
+        // Khung bao quanh ô chọn (div `relative` chứa cả trigger lẫn dropdown).
+        $bankScope = $xpath->query('//*[@data-testid="bank-selector"]/ancestor::div[contains(concat(" ", normalize-space(@class), " "), " relative ")][1]');
+        $this->assertSame(1, $bankScope->length, 'Không tìm thấy khung của ô chọn ngân hàng.');
+        $bankScopeNode = $bankScope->item(0);
+
+        // Danh sách ngân hàng KHÔNG được nằm trong lưới nhiều cột.
+        $multiColumn = $xpath->query(
+            './/*[contains(concat(" ", normalize-space(@class), " "), " grid-cols-2 ")
+               or contains(concat(" ", normalize-space(@class), " "), " grid-cols-3 ")
+               or contains(concat(" ", normalize-space(@class), " "), " sm:grid-cols-2 ")
+               or contains(concat(" ", normalize-space(@class), " "), " sm:grid-cols-3 ")]',
+            $bankScopeNode
+        );
+        $this->assertSame(0, $multiColumn->length, 'Lựa chọn ngân hàng không được nằm trong lưới nhiều cột (gây cuộn ngang).');
+
+        // Ô tìm kiếm gắn với `bankQuery` — nguồn lọc phía client.
+        $search = $xpath->query('.//*[@data-testid="bank-search"]', $bankScopeNode);
+        $this->assertSame(1, $search->length, 'Thiếu ô tìm ngân hàng.');
+        $this->assertSame(
+            'bankQuery',
+            $search->item(0)->getAttribute('x-model'),
+            'Ô tìm kiếm phải gắn với bankQuery.'
+        );
+
+        // Danh sách lựa chọn là `<ul>` một cột, cuộn DỌC, và dropdown được
+        // `absolute` + `z-50` nên không bị container cha cắt mất.
+        $list = $xpath->query('.//ul[@role="listbox"]', $bankScopeNode);
+        $this->assertSame(1, $list->length, 'Danh sách ngân hàng phải là một listbox duy nhất.');
+        $this->assertStringContainsString(
+            'overflow-y-auto',
+            $list->item(0)->getAttribute('class'),
+            'Danh sách ngân hàng phải cuộn dọc.'
+        );
+
+        $dropdown = $xpath->query('.//div[@x-show="bankPickerOpen"]', $bankScopeNode);
+        $this->assertSame(1, $dropdown->length, 'Thiếu dropdown ngân hàng.');
+        $dropdownClass = $dropdown->item(0)->getAttribute('class');
+        $this->assertStringContainsString('absolute', $dropdownClass, 'Dropdown phải nổi (absolute) để không đẩy layout.');
+        $this->assertStringContainsString('z-50', $dropdownClass, 'Dropdown phải nằm trên các phần tử khác.');
+
+        // Hai lựa chọn "chưa biết ngân hàng" — cùng lưu `bank_id = NULL`,
+        // KHÔNG tạo bank giả.
+        $scopeText = $bankScopeNode->textContent;
+        $this->assertStringContainsString(
+            'Chưa biết / Không chọn',
+            $scopeText,
+            'Thiếu lựa chọn "Chưa biết / Không chọn".'
+        );
+        $this->assertSame(
+            1,
+            $xpath->query('.//*[@data-testid="bank-other-option"]', $bankScopeNode)->length,
+            'Thiếu lựa chọn "Ngân hàng khác".'
+        );
+        $this->assertStringContainsString(
+            'Ngân hàng khác',
+            $scopeText,
+            'Thiếu nhãn "Ngân hàng khác".'
+        );
+
+        // Giá trị chọn đi vào payload qua input ẩn `bank_id`.
+        $this->assertSame(
+            1,
+            $xpath->query('//input[@name="bank_id"][@type="hidden"]')->length,
+            'Thiếu input ẩn bank_id để gửi giá trị đã chọn.'
+        );
+
+        // Payload phía client phải có đủ dữ liệu để tìm theo TÊN, MÃ và ALIAS
+        // (gõ "scb" vẫn ra Sacombank vì "scb" nằm trong `aliases`).
+        //
+        // Chọn ĐÚNG component quản lý thẻ: layout dùng chung có nhiều `x-data`
+        // khác (menu, hỗ trợ…), nên phải lọc theo tên hàm.
+        $component = $xpath->query('//*[contains(@x-data, "creditCardManager")]')->item(0);
+        $this->assertNotNull($component, 'Thiếu component Alpine của màn quản lý thẻ.');
+        $initialState = $component->getAttribute('x-data');
+        $this->assertStringContainsString('creditCardManager', $initialState);
+
+        foreach (['short_name', 'aliases', 'slug'] as $needle) {
+            $this->assertStringContainsString(
+                $needle,
+                $initialState,
+                "Payload ngân hàng thiếu trường [{$needle}] để tìm kiếm."
+            );
+        }
+
+        // Bank active phải vào payload kèm mã viết tắt và alias; bank ngừng
+        // hoạt động thì không (đừng cho chọn ngân hàng không dùng nữa).
+        $this->assertStringContainsString('Sacombank', $initialState);
+        $this->assertStringContainsString('STB', $initialState);
+        $this->assertStringContainsString('scb', $initialState, 'Alias "scb" phải được gửi để gõ mã cũ vẫn ra Sacombank.');
+        $this->assertStringContainsString('VIB', $initialState);
+        $this->assertStringNotContainsString(
+            'ngan-hang-da-ngung-hoat-dong',
+            $initialState,
+            'Bank ngừng hoạt động không được đưa vào danh sách chọn.'
+        );
+
+        // Hành vi lọc/tìm kiếm nằm trong <script> của component, không nằm trong
+        // `x-data`. `@click`/`x-text` không đọc được qua DOM nên assert trên HTML thô.
+        foreach (['filteredBanks', 'bankQuery', 'pickBank', 'bankKeyword'] as $needle) {
+            $this->assertStringContainsString(
+                $needle,
+                $responseHtml,
+                "Component quản lý thẻ thiếu logic tìm ngân hàng [{$needle}]."
+            );
+        }
+    }
+
+    /**
+     * TEST 7b: Nút "+ Thêm thẻ" hiện ngay cả khi user CHƯA có thẻ nào.
+     *
+     * Đây là lỗi đã gặp: nút bị nhốt trong nhánh điều kiện theo danh sách thẻ nên
+     * người dùng mới không có cách nào bắt đầu.
+     */
+    #[Test]
+    public function the_add_card_button_is_present_when_the_user_has_no_cards(): void
+    {
+        $user = User::factory()->create();
+
+        $doc = $this->domOf($this->actingAs($user)->get(route('credit-cards.manage'))->assertOk());
+
+        // Empty state vẫn phải còn. Dùng `textContent` chứ không phải `saveHTML()`:
+        // `saveHTML()` escape non-ASCII thành entity nên không so được tiếng Việt.
+        $this->assertStringContainsString('Chưa có thẻ nào', $doc->textContent);
+
+        $buttons = $this->addCardButtons($doc);
+        $this->assertSame(1, $buttons->length, 'Chưa có thẻ thì nút "+ Thêm thẻ" vẫn phải hiện.');
+        $this->assertStringNotContainsString('display:none', (string) $buttons->item(0)->getAttribute('style'));
+    }
+
+    /**
+     * TEST 7c: Component Alpine phải khởi tạo được — không gọi `this.<method>()` lúc
+     * khai báo state.
+     *
+     * `x-data="creditCardManager({...})"` gọi hàm như HÀM TRẦN nên `this` không phải
+     * component. `form: this.blankForm()` trong object literal vì thế ném `TypeError`
+     * ngay lúc Alpine khởi tạo, giết chết toàn bộ trang kể cả nút "+ Thêm thẻ".
+     * Test này chặn đúng lỗi đó.
+     */
+    #[Test]
+    public function the_manage_component_does_not_call_itself_while_building_state(): void
+    {
+        $user = User::factory()->create();
+
+        $html = $this->actingAs($user)->get(route('credit-cards.manage'))->assertOk()->getContent();
+
+        // Chỉ soi initializer của `form:`, không cấm chuỗi `this.blankForm(` ở đâu
+        // khác — nếu cấm rộng thì chính comment giải thích trong view cũng fail.
+        $this->assertDoesNotMatchRegularExpression(
+            '/form:\s*this\.\w+\(/',
+            $html,
+            'Gọi `this.<method>()` khi khai báo state sẽ ném TypeError vì Alpine gọi hàm như hàm trần.'
+        );
+
+        // `form` phải khai bằng hàm đứng riêng, và `open` phải là boolean thật —
+        // thiếu `open` thì nút luôn hiện còn form không bao giờ mở.
+        $this->assertMatchesRegularExpression('/form:\s*ccBlankCardForm\(\)/', $html);
+        $this->assertMatchesRegularExpression(
+            '/function ccBlankCardForm\(\)\s*\{\s*return\s*\{\s*open:\s*false,/',
+            $html
+        );
+        $this->assertMatchesRegularExpression('/openCreate\(\)\s*\{.*?open:\s*true/s', $html);
+    }
+
+    /**
+     * TEST 7d: Nút "+ Thêm thẻ" vẫn hiện khi user ĐÃ có thẻ — không được chỉ hiện ở
+     * empty state rồi biến mất, cũng không được đổi chức năng "Sửa" đang có.
+     */
+    #[Test]
+    public function the_add_card_button_is_still_present_when_the_user_has_cards(): void
+    {
+        $user = User::factory()->create();
+        $this->makeUserCard($user->id, ['name' => 'Thẻ đã có']);
+
+        $doc = $this->domOf($this->actingAs($user)->get(route('credit-cards.manage'))->assertOk());
+
+        $buttons = $this->addCardButtons($doc);
+        $this->assertSame(1, $buttons->length, 'Đã có thẻ thì nút "+ Thêm thẻ" vẫn phải hiện.');
+
+        // Danh sách thẻ + nút "Sửa" vẫn render như cũ.
+        $this->assertStringContainsString('Thẻ đã có', $doc->textContent);
+        $this->assertStringNotContainsString('Chưa có thẻ nào', $doc->textContent);
+
+        // Nút "Sửa" từng thẻ. Không lọc bằng `@click` vì DOM bỏ attribute `@...`.
+        $editButtons = (new DOMXPath($doc))->query('//button[normalize-space(.)="Sửa"]');
+        $this->assertGreaterThan(0, $editButtons->length, 'Nút "Sửa" từng thẻ phải còn nguyên.');
+    }
+
+    /**
+     * Parse HTML thành DOM để assert theo selector thật, không theo chuỗi thô.
+     */
+    private function domOf(TestResponse $response): DOMDocument
+    {
+        $doc = new DOMDocument;
+        $previous = libxml_use_internal_errors(true);
+        $doc->loadHTML('<?xml encoding="UTF-8">'.$response->getContent());
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        return $doc;
+    }
+
+    /**
+     * NodeList các nút "+ Thêm thẻ" trên trang (dùng `data-testid` làm hook ổn định).
+     *
+     * @return DOMNodeList<int, DOMElement>
+     */
+    private function addCardButtons(DOMDocument $doc): DOMNodeList
+    {
+        $xpath = new DOMXPath($doc);
+        $buttons = $xpath->query('//button[@data-testid="add-card-button"]');
+
+        $this->assertNotFalse($buttons, 'XPath không chạy được.');
+
+        return $buttons;
+    }
+
+    /**
+     * Markup thô của đúng nút "+ Thêm thẻ", dùng để kiểm `@click` / `x-show`.
+     *
+     * Tách riêng vì DOMDocument BỎ attribute bắt đầu bằng `@` (không hợp lệ theo
+     * HTML nên libxml âm thầm bỏ), trong khi `@click="openCreate()"` chính là thứ
+     * quyết định nút có hoạt động hay không.
+     */
+    private function addCardButtonHtml(string $html): string
+    {
+        $matched = preg_match(
+            '#<button\b[^>]*\bdata-testid="add-card-button".*?</button>#s',
+            $html,
+            $matches
+        );
+
+        $this->assertSame(1, $matched, 'Không tìm thấy markup nút "+ Thêm thẻ".');
+
+        return $matches[0];
+    }
+
+    /**
+     * Section gần nhất chứa nút, dùng để scope assert (không đụng chrome chung).
+     */
+    private function closestSection(DOMElement $element): ?DOMElement
+    {
+        for ($node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode) {
+            if ($node->tagName === 'section') {
+                return $node;
+            }
+        }
+
+        return null;
     }
 
     /** TEST 8: Active state của sidebar đổi theo route. */
@@ -287,14 +652,18 @@ class CreditCardModuleTest extends TestCase
         }
     }
 
-    /** TEST 9: Các trang placeholder hiển thị tên module + thông báo giai đoạn 2. */
+    /**
+     * TEST 9: Các trang placeholder hiển thị tên module + thông báo giai đoạn 2.
+     *
+     * `/thetindung/quan-ly-the` KHÔNG còn nằm trong danh sách này — nó đã thành
+     * màn hình thật (xem `manage_page_offers_the_add_card_form`).
+     */
     #[Test]
     public function placeholder_pages_show_module_name_and_next_phase_notice(): void
     {
         $user = User::factory()->create();
 
         $cases = [
-            '/thetindung/quan-ly-the' => 'Quản lý thẻ',
             '/thetindung/bao-cao' => 'Báo cáo',
             '/thetindung/so-sanh' => 'So sánh thẻ',
             '/thetindung/cai-dat' => 'Cài đặt',

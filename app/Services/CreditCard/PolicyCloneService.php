@@ -57,6 +57,13 @@ class PolicyCloneService
     /**
      * Gắn template lên thẻ: tạo chuỗi version version 1 của thẻ từ blueprint.
      *
+     * @param  array<string, mixed>  $overrides  Khi có `tiers`, blueprint KHÔNG được
+     *                                           copy nguyên xi mà được ghi bằng cấu hình
+     *                                           người dùng đã sửa ở màn hình thêm/sửa
+     *                                           thẻ. Vẫn là MỘT version: nếu clone rồi mới
+     *                                           áp override thì sẽ dựng version 1 rỗng +
+     *                                           version 2 trong cùng một lần bấm "Lưu thẻ",
+     *                                           gây nhiễu lịch sử version.
      * @return PolicyVersion version 1 vừa tạo
      */
     public function attachTemplateToCard(
@@ -64,8 +71,9 @@ class PolicyCloneService
         PolicyTemplate $template,
         DateTimeInterface $effectiveFrom,
         ?string $name = null,
+        array $overrides = [],
     ): PolicyVersion {
-        return DB::connection('creditcard')->transaction(function () use ($userCard, $template, $effectiveFrom, $name): PolicyVersion {
+        return DB::connection('creditcard')->transaction(function () use ($userCard, $template, $effectiveFrom, $name, $overrides): PolicyVersion {
             $blueprint = $template->defaultBlueprint();
 
             if ($blueprint === null) {
@@ -75,19 +83,25 @@ class PolicyCloneService
             $root = $this->insertPolicyRoot([
                 'user_card_id' => $userCard->id,
                 'template_id' => $template->id,
-                'name' => $name ?? $blueprint->name,
+                'name' => $overrides['name'] ?? $name ?? $blueprint->name,
                 'effective_from' => $effectiveFrom,
                 'effective_to' => null,
-                'min_total_spend' => $blueprint->min_total_spend,
-                'max_cashback_total_per_period' => $blueprint->max_cashback_total_per_period,
-                'rounding_mode' => $blueprint->rounding_mode,
+                'min_total_spend' => $overrides['min_total_spend'] ?? $blueprint->min_total_spend,
+                'max_cashback_total_per_period' => array_key_exists('max_cashback_total_per_period', $overrides)
+                    ? $overrides['max_cashback_total_per_period']
+                    : $blueprint->max_cashback_total_per_period,
+                'rounding_mode' => $overrides['rounding_mode'] ?? $blueprint->rounding_mode,
                 'status' => Policy::STATUS_ACTIVE,
                 'note' => "Sao chép từ template \"{$template->name}\" (#{$template->id}).",
             ]);
 
-            // `$userCard->user_id` ⇒ combo hệ thống được snapshot thành bản sao
-            // scope `user` (xem `mapComboForClone`).
-            $this->copyChildren($blueprint->id, $root->id, (int) $userCard->user_id);
+            if (isset($overrides['tiers'])) {
+                $this->replaceChildren($root->id, $overrides['tiers']);
+            } else {
+                // `$userCard->user_id` ⇒ combo hệ thống được snapshot thành bản sao
+                // scope `user` (xem `mapComboForClone`).
+                $this->copyChildren($blueprint->id, $root->id, (int) $userCard->user_id);
+            }
 
             // Thẻ trỏ về chuỗi version của chính nó.
             $userCard->forceFill([

@@ -11,7 +11,7 @@
     </x-slot>
 
     <div class="py-6 px-4 max-w-6xl mx-auto">
-        @include('admin.credit-card-policies.partials.editor', [
+        @include('credit-card.partials.policy-editor', [
             'endpoint' => route('admin.credit-card-policies.api.store'),
             'submitLabel' => 'Tạo chính sách hệ thống',
         ])

@@ -4,6 +4,15 @@
 > quản lý template hệ thống + version blueprint append-only), người dùng chỉ xem/clone bằng thẻ mình.
 > Ngày hoàn tất: 2026-09-30. Nhánh: `main`. **Chưa commit/push** (đúng quy ước các phase trước).
 
+> **Cập nhật vị trí file (sau giai đoạn này):** Policy Editor không còn nằm ở
+> `admin/credit-card-policies/partials/editor.blade.php`. Partial đó đã bị xoá và chuyển thành
+> `resources/views/credit-card/partials/policy-editor.blade.php` — bản CANONICAL dùng chung cho
+> cả trang quản trị lẫn form Thêm/Sửa thẻ (`manage.blade.php` render ở chế độ `hosted`: không
+> có `x-data`, không có nút lưu, state nằm ở `policyEditor.*`). State + payload nằm ở
+> `window.policyEditorState()` / `versionConfig()`; trang quản trị bọc thêm bằng
+> `window.systemPolicyEditor()` (nút lưu + endpoint API). Các dòng trong tài liệu này ghi đường
+> dẫn cũ vẫn còn hiệu lực về mặt LỊCH SỬ, không phải vị trí file hiện nay.
+
 ---
 
 ## 1. Tổng quan
