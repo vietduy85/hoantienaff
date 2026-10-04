@@ -73,6 +73,33 @@ final class Decimal
     }
 
     /**
+     * So sánh hai số: -1 nếu `$a` nhỏ hơn, 0 nếu bằng, 1 nếu lớn hơn.
+     *
+     * Hàm nền của {@see min()}/{@see max()}: so sánh PHẢI đi qua bcmath. So sánh
+     * chuỗi bằng `<` của PHP ép về float, mà float chính là thứ `Decimal` sinh ra
+     * để tránh.
+     */
+    public static function compare(string $a, string $b): int
+    {
+        self::ensureBcmath();
+
+        return bccomp(self::money($a), self::money($b), 2);
+    }
+
+    /**
+     * Số nhỏ hơn trong hai số.
+     */
+    public static function min(string $a, string $b): string
+    {
+        self::ensureBcmath();
+
+        $left = self::money($a);
+        $right = self::money($b);
+
+        return bccomp($left, $right, 2) <= 0 ? $left : $right;
+    }
+
+    /**
      * Số lớn hơn trong hai số.
      */
     public static function max(string $a, string $b): string
@@ -126,6 +153,71 @@ final class Decimal
         }
 
         return bcdiv(bcmul(self::money($part), '100', 4), $denominator, 2);
+    }
+
+    /**
+     * Hoàn tiền sinh ra từ một khoản chi: `$spend * $percent / 100`.
+     *
+     * Nhân trước ở scale 8 rồi mới chia 100 để không mất chữ số ở tỷ lệ có phần
+     * thập phân (cột `cashback_percent` là `decimal(?,3)`).
+     *
+     * `$percent` ≤ 0 ⇒ `0.00`. Ở đây tỷ lệ 0 là DỮ LIỆU hợp lệ (rule 0%), và nó
+     * khác hẳn {@see spendForCashback()} — nơi tỷ lệ 0 là lỗi vì không chia được.
+     */
+    public static function cashbackForSpend(string $spend, string $percent): string
+    {
+        self::ensureBcmath();
+
+        if (bccomp(self::money($percent), '0', 6) <= 0) {
+            return '0.00';
+        }
+
+        return bcdiv(bcmul(self::money($spend), self::money($percent), 8), '100', 2);
+    }
+
+    /**
+     * Chi bao nhiêu thì sinh ra đúng `$cashback` hoàn tiền ở tỷ lệ `$percent`.
+     *
+     * ---------------------------------------------------------------------------
+     * VÌ SAO LÀM TRÒN LÊN
+     * ---------------------------------------------------------------------------
+     * Đây là con số "cần chi thêm bao nhiêu". LÀM TRÒN XUỐNG sẽ báo một khoản nhỏ
+     * hơn số tiền thật cần chi ⇒ user chi theo con số đó thì vẫn thiếu, và quota
+     * không đạt max. Thiếu vài xu ở một ƯỚC LƯỢNG vô hại; hứa hẹn rồi không đạt
+     * thì mất niềm tin vào cả con số. Nên luôn làm tròn LÊN.
+     *
+     * ---------------------------------------------------------------------------
+     * VÌ SAO KHÔNG DÙNG `bcadd` ĐỂ LÀM TRÒN LÊN
+     * ---------------------------------------------------------------------------
+     * `bcadd()` BỎ CẦN PHẦN THẬP PHÂN, không làm tròn: `bcadd('3333.33333333',
+     * '0.00000001', 2)` = `3333.33`. Nên phải cắt phần nguyên trước, rồi dò phần
+     * thập phân còn lại và cộng thêm MỘT đơn vị nhỏ nhất ở `scale`:
+     *
+     *   100 / 3% = 3333,3333333333 → cắt còn 3333,33 → còn dư ⇒ +0,01 = 3333,34.
+     *   1.000.000 / 5% = 20.000.000  → cắt còn 20.000.000,00 → không dư ⇒ giữ nguyên.
+     *
+     * `$percent` ≤ 0 ⇒ `InvalidArgumentException`. Ở đây tỷ lệ 0 là LỖI, vì "chi bao
+     * nhiêu thì sinh ra hoàn tiền" với tỷ lệ 0 không có đáp án — trả `0.00` sẽ báo
+     * cho user rằng chi thêm 0 đồng là đủ, tức là nói dối. Khác hẳn
+     * {@see cashbackForSpend()}, nơi tỷ lệ 0 chỉ đơn giản là không sinh hoàn tiền.
+     */
+    public static function spendForCashback(string $cashback, string $percent): string
+    {
+        self::ensureBcmath();
+
+        if (bccomp(self::money($percent), '0', 6) <= 0) {
+            throw new \InvalidArgumentException('Không quy đổi được với tỷ lệ hoàn tiền bằng 0.');
+        }
+
+        $scale = 2;
+        $work = bcdiv(bcmul(self::money($cashback), '100', 8), self::money($percent), 10);
+        $truncated = bcdiv($work, '1', $scale);
+
+        if (bccomp($work, $truncated, 10) > 0) {
+            $truncated = bcadd($truncated, '0.01', $scale);
+        }
+
+        return $truncated;
     }
 
     /**

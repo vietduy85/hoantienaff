@@ -118,7 +118,12 @@ class CreditCardOverviewService
      *     progress_percent: string,
      *     has_goal: bool,
      *     has_period: bool,
-     *     quota: array<string, mixed>|null
+     *     quota: array<string, mixed>|null,
+     *     eligible_spend: string,
+     *     minimum_spend: string|null,
+     *     has_minimum: bool,
+     *     meets_minimum: bool,
+     *     minimum_percent: string|null
      * }>
      */
     private function perCardFrom(Collection $cards, Collection $currentPeriods): array
@@ -146,6 +151,33 @@ class CreditCardOverviewService
             $spent = $spentByCard[$cardId] ?? '0.00';
             $desiredSpend = Decimal::money($card->desired_spend);
 
+            // -------------------------------------------------------------------------
+            // MỨC CHI TIÊU TỐI THIỂU (chỉ để hiển thị — không quyết định nghiệp vụ)
+            // -------------------------------------------------------------------------
+            // Cổng "chưa đạt mức tối thiểu thì không hoàn tiền" của engine là
+            // `totalEligibleSpend < minTotalSpend` (`CashbackCalculator::calculate()`),
+            // trong đó `minTotalSpend` lấy từ `PolicyVersion.min_total_spend`.
+            //
+            // Vì vậy:
+            //   - Ngưỡng đọc từ `StatementPeriod.calculation_meta.min_total_spend` —
+            //     đúng ngưỡng ENGINE ĐÃ DÙNG cho kỳ này. Đọc cột `min_total_spend`
+            //     của policy version sẽ là logic thứ hai dễ lệch với engine (sai khi
+            //     version đổi giữa kỳ), nên ở đây chỉ đọc, không resolve.
+            //   - Vế phải là `total_eligible_spend` (cột engine ghi), KHÔNG phải
+            //     `spent`. `spent` là TỔNG mọi giao dịch kể cả giao dịch không đủ
+            //     điều kiện; so `spent` với ngưỡng sẽ báo "đã đạt" (xanh) trong khi
+            //     engine thực tế trả 0đ với lý do `below_minimum_spend` — tức là
+            //     thanh tiến độ nói dối ngay trên cùng màn hình với dòng cashback.
+            //
+            // Cả hai số đều đã nằm sẵn trên bản ghi kỳ ⇒ KHÔNG thêm truy vấn nào.
+            $eligibleSpend = $period === null ? '0.00' : Decimal::money($period->total_eligible_spend);
+            $minimumSpend = $period === null ? null : $this->minimumSpendOf($period);
+
+            // Ngưỡng 0 (hoặc không có ngưỡng) = không có mốc để vẽ ⇒ màu xanh bình
+            // thường, không vẽ vạch đỏ.
+            $hasMinimum = $minimumSpend !== null && Decimal::isPositive($minimumSpend);
+            $meetsMinimum = ! $hasMinimum || Decimal::compare($eligibleSpend, $minimumSpend) >= 0;
+
             $result[$cardId] = [
                 'desired_spend' => $desiredSpend,
                 'spent' => $spent,
@@ -156,6 +188,15 @@ class CreditCardOverviewService
                 'has_goal' => Decimal::isPositive($desiredSpend),
                 'has_period' => $period !== null,
                 'quota' => $quotas[$cardId] ?? null,
+
+                // --- Chỉ để dựng thanh tiến độ + vạch mốc tối thiểu ở Tổng quan ---
+                'eligible_spend' => $eligibleSpend,
+                'minimum_spend' => $minimumSpend,
+                'has_minimum' => $hasMinimum,
+                'meets_minimum' => $meetsMinimum,
+                // Vị trí vạch đỏ = ngưỡng / mục tiêu. `Decimal::percent()` trả `0.00`
+                // khi mục tiêu bằng 0; giao diện tự bỏ vạch khi `has_goal` = false.
+                'minimum_percent' => $hasMinimum ? Decimal::percent($minimumSpend, $desiredSpend) : null,
             ];
         }
 
@@ -179,7 +220,7 @@ class CreditCardOverviewService
         $cards = UserCard::query()
             ->ownedBy($userId)
             ->orderBy('id')
-            ->get(['id', 'desired_spend']);
+            ->get(['id', 'desired_spend', 'current_policy_id']);
 
         if ($cards->isEmpty()) {
             return [new Collection, new Collection];
@@ -238,6 +279,31 @@ class CreditCardOverviewService
                         ->sum('total_cashback')
                 ),
         ];
+    }
+
+    /**
+     * Ngưỡng chi tiêu tối thiểu mà ENGINE ĐÃ DÙNG cho kỳ này.
+     *
+     * `CashbackRecordService::writePeriodTotals()` ghi kèm
+     * `calculation_meta.min_total_spend` mỗi lần tính kỳ. Đọc thẳng giá trị đó
+     * thay vì tự resolve policy version là cố ý: ngưỡng hiển thị phải là ngưỡng
+     * đã áp dụng thật, và ngưỡng đổi theo version theo thời gian — tự resolve ở
+     * đây là một nguồn sự thật thứ hai dễ lệch với engine.
+     *
+     * Trả `null` khi kỳ chưa được tính, hoặc engine không áp cổng tối thiểu (chưa có
+     * policy version / không có bậc phủ) — đúng lúc đó KHÔNG có mốc để vẽ.
+     */
+    private function minimumSpendOf(StatementPeriod $period): ?string
+    {
+        $meta = $period->calculation_meta;
+
+        if (! is_array($meta) || ! array_key_exists('min_total_spend', $meta)) {
+            return null;
+        }
+
+        $value = $meta['min_total_spend'];
+
+        return $value === null ? null : Decimal::money($value);
     }
 
     /**

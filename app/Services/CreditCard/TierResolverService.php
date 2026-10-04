@@ -234,9 +234,44 @@ class TierResolverService
      *   2. Nếu không, lấy version hiệu lực mới nhất theo `effective_from`.
      *
      * User KHÔNG chọn version — hệ thống tự resolve.
+     *
+     * ---------------------------------------------------------------------------
+     * `$strictCurrentPolicy` — KHÔNG đoán bừa policy
+     * ---------------------------------------------------------------------------
+     * Bước 2 là một câu hỏi mơ hồ: "version hiệu lực mới nhất của thẻ" là version
+     * nào khi thẻ có NHIỀU policy cùng `status = active`? Không có câu trả lời duy
+     * nhất, nên bước này chỉ đúng khi thẻ thật sự CHƯA có `current_policy_id`.
+     *
+     * Đó chính là lỗ đã làm Tổng quan hiện sai bậc đích: một model `UserCard` nạp
+     * bằng `select()` giới hạn cột sẽ KHÔNG có `current_policy_id`, bước 1 bị bỏ
+     * qua, và bước 2 trả về một policy CŨ của thẻ — bậc của nó không có rule
+     * quota nào được tick ⇒ quota biến mất ở mọi thẻ chưa có kỳ sao kê.
+     *
+     *   - `false` (mặc định): giữ nguyên hành vi cũ. Dùng cho ENGINE
+     *     (`PolicyEngineService`), vì engine cố ý tra theo ngày hiệu lực để tính
+     *     đúng kỳ lịch sử và để trả `null` ⇒ `no_policy_version` khi thẻ chưa có
+     *     policy nào hiệu lực. Đổi bước 2 ở đây là đổi nghiệp vụ cashback.
+     *   - `true`: chỉ dùng đúng chuỗi `current_policy_id`; không có version hiệu
+     *     lực thì lấy version MỚI NHẤT của chính chuỗi đó, và không hề rơi sang
+     *     policy khác. Cột `current_policy_id` chưa được nạp thì trả `null` thay
+     *     vì bịa ra một policy. Dùng cho đường ĐỌC của quota.
      */
-    public function resolvePolicyVersion(UserCard $userCard, DateTimeInterface $date): ?PolicyVersion
-    {
+    public function resolvePolicyVersion(
+        UserCard $userCard,
+        DateTimeInterface $date,
+        bool $strictCurrentPolicy = false,
+    ): ?PolicyVersion {
+        // `getAttribute()` trả null cho cả hai trường hợp "cột có nhưng NULL" và
+        // "cột KHÔNG được nạp", nên phải hỏi thẳng mảng thuộc tính.
+        $hasCurrentPolicyColumn = array_key_exists('current_policy_id', $userCard->getAttributes());
+        $currentPolicyId = $userCard->getAttribute('current_policy_id');
+
+        if ($currentPolicyId === null && $strictCurrentPolicy && ! $hasCurrentPolicyColumn) {
+            // Không xác định được policy hiện tại của thẻ. Trả null để lỗi lộ ra
+            // ở test thay vì hiện ra một bậc/quota hoàn toàn không liên quan.
+            return null;
+        }
+
         $current = $userCard->currentPolicy;
 
         if ($current !== null) {
@@ -249,6 +284,13 @@ class TierResolverService
 
                 if ($version !== null) {
                     return $version;
+                }
+
+                // Có `current_policy_id` nhưng chưa có version nào hiệu lực vào
+                // `$date`. Ở chế độ strict thì lấy version mới nhất của chính chuỗi
+                // này — thẻ vẫn dùng policy của nó, chỉ là chưa tới ngày hiệu lực.
+                if ($strictCurrentPolicy) {
+                    return $this->latestVersionInChain($chain);
                 }
             }
         }
@@ -286,6 +328,28 @@ class TierResolverService
                     ->orWhereDate('effective_to', '>=', $date);
             })
             ->orderByDesc('version_no')
+            ->first();
+    }
+
+    /**
+     * Version MỚI NHẤT trong chuỗi `root`, không xét ngày hiệu lực.
+     *
+     * Dùng khi `current_policy_id` đã có nhưng chuỗi đó chưa tới ngày hiệu lực:
+     * thẻ vẫn thuộc chuỗi này, nên phải đọc chuỗi này chứ không được nhảy sang một
+     * policy khác của thẻ.
+     */
+    private function latestVersionInChain(Policy $root): ?PolicyVersion
+    {
+        $rootId = $root->id;
+
+        return PolicyVersion::query()
+            ->where(function ($query) use ($rootId): void {
+                $query->where('id', $rootId)
+                    ->orWhere('root_policy_id', $rootId);
+            })
+            ->whereIn('status', [Policy::STATUS_ACTIVE, Policy::STATUS_SUPERSEDED])
+            ->orderByDesc('version_no')
+            ->orderByDesc('id')
             ->first();
     }
 

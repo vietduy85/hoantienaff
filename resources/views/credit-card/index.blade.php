@@ -287,20 +287,56 @@
             </form>
         </section>
 
-        {{-- Danh sách thẻ (chỉ xem tại đây; thêm/sửa nằm ở "Quản lý thẻ") --}}
-        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4">
-            <div class="flex items-center justify-between gap-3 min-w-0">
+        {{-- Danh sách thẻ — MỘT bề mặt liền mạch.
+             KHÔNG bọc mỗi thẻ trong một ô bo góc: giữa các thẻ chỉ có đường kẻ mảnh
+             (`divide-y`) để trang thoáng và dễ quét (§3, §20). Các dòng số liệu
+             phân cấp bằng MÀU + độ đậm chữ, không bằng ô vuông — mỗi ô vuống thêm
+             một là mất không gian trên màn hình 390px mà không thêm thông tin. --}}
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+
+            <div class="flex items-center justify-between gap-3 min-w-0 px-4 sm:px-5 py-3">
                 <h3 class="font-bold text-gray-800">Thẻ tín dụng đang có</h3>
                 @if ($userCreditCards->isNotEmpty())
                     <a href="{{ route('credit-cards.manage') }}"
-                       class="shrink-0 inline-flex items-center h-10 px-3 bg-gray-50 hover:bg-gray-100 text-gray-600 text-sm font-semibold rounded-xl transition-colors">
+                       class="shrink-0 inline-flex items-center h-9 px-3 bg-gray-50 hover:bg-gray-100 text-gray-600 text-xs font-semibold rounded-xl transition-colors">
                         Quản lý
                     </a>
                 @endif
             </div>
 
+            {{-- ═══ "Hiển thị" — 3 tùy chọn ĐỘC LẬP ═══
+                 Một DẢI mảnh có đường kẻ, KHÔNG phải card lồng trong card. Chỉ ẩn/hiện
+                 phần hiển thị phía dưới trên MỌI thẻ; dữ liệu và nghiệp vụ không đổi,
+                 không reload trang (Alpine), và lựa chọn được nhớ trong localStorage
+                 nên tồn tại sau khi chuyển trang. --}}
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 sm:px-5 py-2.5 border-y border-gray-100 bg-gray-50/60"
+                 data-testid="overview-display-options">
+                <span class="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Hiển thị</span>
+
+                <label class="inline-flex items-center gap-1.5 text-xs sm:text-sm text-gray-700 cursor-pointer select-none">
+                    <input type="checkbox" x-model="display.spend" @change="persistDisplay()"
+                           data-testid="toggle-spend" checked
+                           class="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500">
+                    <span>Số tiền đã chi tiêu</span>
+                </label>
+
+                <label class="inline-flex items-center gap-1.5 text-xs sm:text-sm text-gray-700 cursor-pointer select-none">
+                    <input type="checkbox" x-model="display.cashback" @change="persistDisplay()"
+                           data-testid="toggle-cashback" checked
+                           class="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500">
+                    <span>Số tiền cashback dự kiến</span>
+                </label>
+
+                <label class="inline-flex items-center gap-1.5 text-xs sm:text-sm text-gray-700 cursor-pointer select-none">
+                    <input type="checkbox" x-model="display.quota" @change="persistDisplay()"
+                           data-testid="toggle-quota" checked
+                           class="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500">
+                    <span>Quota hoàn tiền còn lại</span>
+                </label>
+            </div>
+
             @if ($userCreditCards->isEmpty())
-                <div class="rounded-xl border border-dashed border-gray-200 py-8 px-4 text-center">
+                <div class="px-4 py-8 text-center">
                     <p class="text-sm text-gray-500">Bạn chưa thêm thẻ tín dụng nào.</p>
                     <a href="{{ route('credit-cards.manage') }}"
                        class="mt-3 inline-flex items-center justify-center h-11 px-4 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold">
@@ -308,105 +344,249 @@
                     </a>
                 </div>
             @else
-                <ul class="space-y-3">
+                <ul class="divide-y divide-gray-100">
                     @foreach ($cardRows as $row)
                         @php
                             $card = $row['card'];
-                            $metrics = $row['metrics'];
+                            $cardKey = (string) $card->id;
+                            $metrics = $row['metrics'] ?? null;
                             $quota = $metrics['quota'] ?? null;
-                            $hasGoal = $metrics['has_goal'] ?? false;
-                            $progress = min(100.0, (float) ($metrics['progress_percent'] ?? 0));
-                            $overGoal = $hasGoal && (float) $metrics['progress_percent'] > 100.0;
+
+                            // Chỉ đọc số ĐÃ TÍNH SẴN ở server. Blade/JS không có công
+                            // thức quota nào (§11, §15) — kể cả phần trăm vạch đỏ và
+                            // phần trăm thanh, đều lấy thẳng từ `CreditCardOverviewService`.
+                            $hasGoal = (bool) ($metrics['has_goal'] ?? false);
+                            $hasMinimum = (bool) ($metrics['has_minimum'] ?? false);
+                            $meetsMinimum = (bool) ($metrics['meets_minimum'] ?? true);
+
+                            // `min()` chỉ dùng cho CHIỀU RỘNG thanh; vạch đỏ cũng kẹp
+                            // 100% để ngưỡng lớn hơn mục tiêu không đẩy nó ra ngoài.
+                            $progressWidth = $hasGoal
+                                ? min(100.0, max(0.0, (float) ($metrics['progress_percent'] ?? 0)))
+                                : 0.0;
+                            $minimumLeft = $hasGoal && $hasMinimum
+                                ? min(100.0, max(0.0, (float) ($metrics['minimum_percent'] ?? 0)))
+                                : 0.0;
+
+                            // Trần CHUNG của bậc đích (theo `desired_spend`) — cùng số
+                            // mà `CashbackQuotaService` dùng cho quota, không phải số
+                            // tính lại ở đây.
+                            $tierCashbackMax = $quota['tier_cashback_max'] ?? null;
+                            $hasTierCashbackMax = (bool) ($quota['has_tier_cashback_max'] ?? false);
+
+                            // Chỉ rule ĐÃ TICK quota. Phase 2 đã lọc sẵn fallback và
+                            // rule thường; không có rule nào ⇒ không hiện tiêu đề rỗng.
+                            $quotaRules = $quota['rules'] ?? [];
                         @endphp
-                        <li class="rounded-xl border border-gray-100 p-4 min-w-0 space-y-3"
+
+                        <li class="px-4 sm:px-5 py-4 min-w-0 space-y-2"
                             data-testid="card-row"
                             data-card-id="{{ $card->id }}">
-                            {{-- Tên thẻ do USER tự đặt. KHÔNG in tên ngân hàng ở đây:
-                                 danh sách này đã dài trên điện thoại, và tên ngân hàng
-                                 trùng lặp giữa các thẻ không giúp gì; muốn xem thì vào
-                                 Quản lý thẻ. Chỉ giữ 4 số cuối để phân biệt thẻ. --}}
-                            <div class="flex items-start justify-between gap-2 min-w-0">
-                                <p class="font-semibold text-gray-800 break-words min-w-0">
+
+                            {{-- ═══ HEADER: DẢI MÀU PASTEL ═══
+                                 Tên thẻ là thứ user nhìn đầu tiên nên được tách riêng
+                                 thành MỘT DẢI MÀU chạy ngang hết bề ngang thẻ — không bọc
+                                 thêm khung, không bo góc, không đổ bóng, nên không sinh
+                                 card lồng trong card và không làm UI nặng thêm (§1, §3).
+                                 Chữ vẫn là xám-900 đậm trên nền rất nhạt ⇒ tương phản tốt
+                                 ở mọi màu pastel, kể cả dưới ánh sáng ngoài trời.
+
+                                 Màu xoay vòng theo THỨ TỰ THẺ đang hiển thị (`$loop->index`):
+                                 thêm/bớt thẻ không làm đổi thứ tự, chỉ chuyển màu các thẻ
+                                 phía sau — và hai thẻ liền nhau luôn khác màu vì bảng màu
+                                 dài hơn 1. --}}
+                            @php
+                                $cardPalette = ['bg-blue-100', 'bg-emerald-100', 'bg-amber-100', 'bg-purple-100', 'bg-pink-100'];
+                                $bandClass = $cardPalette[$loop->index % count($cardPalette)];
+                            @endphp
+                            <div class="-mx-4 sm:-mx-5 -mt-4 px-4 sm:px-5 py-2.5 {{ $bandClass }}
+                                        flex items-center justify-between gap-3 min-w-0"
+                                 data-testid="card-header">
+                                {{-- Tên do USER tự đặt, KHÔNG in tên ngân hàng (lặp giữa các
+                                     thẻ, không giúp gì trên điện thoại). Tên dài cắt bằng
+                                     `truncate` + `min-w-0` để nút "Chi tiết" không bị đẩy
+                                     xuống dòng và không sinh thanh cuộn ngang. --}}
+                                <p class="font-bold text-gray-900 text-[15px] leading-tight truncate min-w-0"
+                                   data-testid="card-title">
                                     {{ $card->name ?: 'Thẻ tín dụng' }}
                                     @if ($card->card_number_last4)
-                                        <span class="font-normal text-gray-400">· •••• {{ $card->card_number_last4 }}</span>
+                                        <span class="font-medium text-gray-500 text-sm">· •••• {{ $card->card_number_last4 }}</span>
                                     @endif
                                 </p>
+
+                                {{-- Route này là trang chi tiết/lịch sử của chính thẻ đó.
+                                     Nền trắng mờ để nổi trên dải pastel mà không thêm viền. --}}
                                 <a href="{{ $row['history_url'] }}"
                                    data-testid="card-history-link"
-                                   class="shrink-0 inline-flex items-center h-9 px-3 bg-gray-50 hover:bg-gray-100 text-gray-600 text-xs font-semibold rounded-xl transition-colors">
-                                    Lịch sử
+                                   class="shrink-0 inline-flex items-center whitespace-nowrap h-8 px-3 bg-white/80 hover:bg-white text-gray-700 text-xs font-semibold rounded-lg transition-colors">
+                                    Chi tiết
                                 </a>
                             </div>
 
-                            {{-- Tiến độ theo mục tiêu chi tiêu. Số đã tính ở server;
-                                 JS chỉ cập nhật bề rộng khi làm mới sau khi lưu. --}}
-                            <div class="space-y-1.5">
-                                <div class="flex items-center justify-between gap-2 text-xs text-gray-500 min-w-0">
-                                    <span class="min-w-0 truncate">
-                                        <span x-text="ccMoney(metricFor(@js((string) $card->id), 'spent')) + ' đ'">{{ $metrics['spent'] ?? '0.00' }}</span>
-                                        @if ($hasGoal)
-                                            / mục tiêu <span x-text="ccMoney(metricFor(@js((string) $card->id), 'desired_spend')) + ' đ'">{{ $metrics['desired_spend'] }}</span>
-                                        @else
-                                            <span class="text-gray-400">· chưa đặt mục tiêu</span>
-                                        @endif
-                                    </span>
-                                    <span class="shrink-0 font-semibold text-gray-700"
-                                          data-testid="card-progress-percent"
-                                          x-text="metricFor(@js((string) $card->id), 'progress_percent') + '%'">{{ $metrics['progress_percent'] ?? '0.00' }}%</span>
+                            {{-- ═══ THANH TIẾN ĐỘ ═══
+                                 `desired_spend` = 100% chiều dài. KHÔNG có mục tiêu thì
+                                 không vẽ thanh (không suy diễn chiều dài) và hiện dòng
+                                 gợi ý thay vì một thanh 0% giả. --}}
+                            @if ($hasGoal)
+                                <div class="relative h-3 rounded-full bg-gray-100 border border-gray-200/80 overflow-hidden"
+                                     data-testid="card-progress-track">
+
+                                    {{-- Màu theo đúng cổng của engine: CAM = chưa đạt mức
+                                         tối thiểu, XANH = đã đạt. So sánh bằng `eligible_spend`
+                                         (số engine dùng) chứ không phải tổng chi tiêu — nếu so
+                                         tổng chi tiêu, thẻ có giao dịch không đủ điều kiện sẽ
+                                         hiện xanh trong khi engine vẫn trả 0đ. --}}
+                                    <div class="h-full rounded-full transition-[width] duration-300"
+                                         data-testid="card-progress-bar"
+                                         style="width: {{ $progressWidth }}%"
+                                         :style="'width:' + progressWidth(@js($cardKey)) + '%'"
+                                         :class="meetsMinimumFor(@js($cardKey))
+                                             ? (isOverGoal(@js($cardKey)) ? 'bg-emerald-600' : 'bg-emerald-500')
+                                             : 'bg-amber-500'"></div>
+
+                                    {{-- Vượt mục tiêu: thanh kẹp 100% và đánh dấu bằng một
+                                         đoạn đặc biệt ở cuối, KHÔNG cho thanh dài hơn 100%
+                                         (sẽ tràn ngang trên điện thoại). --}}
+                                    <span class="absolute inset-y-0 right-0 w-1.5 bg-emerald-700"
+                                          data-testid="card-progress-overflow"
+                                          x-show="isOverGoal(@js($cardKey))"
+                                          :class="meetsMinimumFor(@js($cardKey)) ? 'bg-emerald-700' : 'bg-amber-600'"
+                                          aria-hidden="true"></span>
+
+                                    {{-- Vạch đỏ: vị trí ngưỡng tối thiểu trên thanh. --}}
+                                    @if ($hasMinimum)
+                                        <span class="absolute inset-y-0 w-0.5 bg-red-500"
+                                              data-testid="card-minimum-marker"
+                                              style="left: {{ $minimumLeft }}%"
+                                              :style="'left:' + minimumLeft(@js($cardKey)) + '%'"
+                                              title="Mức chi tiêu tối thiểu"></span>
+                                    @endif
                                 </div>
 
-                                @if ($hasGoal)
-                                    {{-- Vượt mục tiêu: thanh đầy 100% + nhãn riêng. Không vẽ
-                                         thanh tràn (>100%) vì sẽ phá layout trên
-                                         điện thoại; dấu hiệu vượt đến từ nhãn và màu. --}}
-                                    <div class="relative h-2.5 rounded-full bg-gray-100 overflow-hidden">
-                                        <div class="h-full rounded-full transition-[width] duration-300"
-                                             data-testid="card-progress-bar"
-                                             :class="metricFor(@js((string) $card->id), 'progress_percent') > 100 ? 'bg-amber-500' : 'bg-emerald-500'"
-                                             style="width: {{ $progress }}%"
-                                             :style="'width:' + progressWidth(@js((string) $card->id)) + '%'"></div>
-                                        {{-- Vạch mục tiêu ở cuối thanh — giữ đúng nghĩa
-                                             "đạt ở 100%" khi vượt. --}}
-                                        <span class="absolute inset-y-0 right-0 w-0.5 bg-gray-400"
-                                              aria-hidden="true"></span>
-                                    </div>
-                                    <p class="text-xs font-medium"
-                                       data-testid="card-progress-goal-state"
-                                       @if ($overGoal)
-                                           x-text="metricFor(@js((string) $card->id), 'progress_percent') > 100 ? 'Đã vượt mục tiêu kỳ này' : ''"
-                                       >Đã vượt mục tiêu kỳ này</p>
-                                    @else
-                                       <p class="text-xs text-gray-400" data-testid="card-progress-goal-state"></p>
+                                {{-- Nói rõ bằng chữ việc đã vượt mục tiêu. Đặt ở ĐÂY, cạnh
+                                     thanh, chứ không nhét vào dòng cashback: dòng cashback
+                                     nằm sau `x-show="showSection('cashback')"` nên bỏ tick
+                                     ô "Cashback" sẽ nuốt mất thông báo này. `x-show` thay
+                                     vì `@if` để nó còn đúng sau khi lưu giao dịch, khi
+                                     server chưa render lại trang. --}}
+                                <span class="mt-0.5 block text-[11px] font-medium text-emerald-600"
+                                      data-testid="card-progress-goal-state"
+                                      x-show="isOverGoal(@js($cardKey))">Đã vượt mục tiêu</span>
+                            @endif
+
+                            {{-- ═══ DÒNG CHI TIÊU ═══
+                                 "Chi tiêu : 8.000.000đ / 15.000.000đ" — số đã chi nổi bật,
+                                 mục tiêu đi theo màu trung tính. Một dòng, không ô vuông. --}}
+                            <div class="flex items-baseline justify-between gap-2 text-sm min-w-0"
+                                 x-show="showSection('spend')"
+                                 data-testid="card-spend-row">
+                                <span class="min-w-0 truncate">
+                                    <span class="text-gray-500">Chi tiêu :</span>
+                                    <span class="font-bold text-gray-900 tabular-nums"
+                                          x-text="ccMoney(metricFor(@js($cardKey), 'spent')) + ' đ'"><x-credit-card.money :value="$metrics['spent'] ?? '0.00'" /></span>
+                                    @if ($hasGoal)
+                                        <span class="text-gray-500 tabular-nums"
+                                              x-text="' / ' + ccMoney(metricFor(@js($cardKey), 'desired_spend')) + ' đ'">/<x-credit-card.money :value="$metrics['desired_spend'] ?? '0.00'" /></span>
                                     @endif
-                                @else
-                                    {{-- Không có mục tiêu ⇒ không vẽ thanh 0% giả: nói rõ
-                                         cần đặt mục tiêu thay vì hiện 0% như đã đo. --}}
-                                    <div class="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500"
-                                         data-testid="card-progress-goal-state">
-                                        Đặt mục tiêu chi tiêu ở Quản lý thẻ để xem tiến độ.
-                                    </div>
+                                </span>
+
+                                {{-- Vạch đỏ không tự giải thích được, nên nói rõ bằng chữ
+                                     — nhưng chỉ khi thẻ THẬT SỰ có ngưỡng tối thiểu. --}}
+                                @if ($hasMinimum)
+                                    <span class="shrink-0 text-[11px] font-medium text-red-600"
+                                          data-testid="card-minimum-caption">
+                                        Tối thiểu <span x-text="ccMoney(metricFor(@js($cardKey), 'minimum_spend')) + ' đ'">{{ $metrics['minimum_spend'] }}</span>
+                                    </span>
                                 @endif
                             </div>
 
-                            {{-- Quota hoàn tiền của kỳ: trần toàn kỳ theo bậc ứng với
-                                 `desired_spend`. "Còn lại" = trần − phần đã dùng, KHÔNG
-                                 âm. Không có trần ⇒ bậc không đặt trần, hiện "—". --}}
-                            <div class="flex items-center justify-between gap-2 text-xs min-w-0">
-                                <span class="text-gray-500 min-w-0 truncate" data-testid="card-quota-label">
-                                    Quota hoàn tiền
-                                    @if ($quota === null || ! $quota['has_limit'])
-                                        <span class="text-gray-400">· không giới hạn</span>
-                                    @else
-                                        <span x-text="' · còn ' + ccMoney(quotaFor(@js((string) $card->id), 'remaining')) + ' đ'">· còn {{ $quota['remaining'] }}</span>
+                            {{-- ═══ CASHBACK DỰ KIẾN ═══
+                                 Mẫu số là trần CHUNG của BẬC ĐÍCH — bậc chọn theo
+                                 `desired_spend` ở Phase 2, không phải theo chi tiêu thực. --}}
+                            <div class="flex items-baseline justify-between gap-2 text-sm min-w-0"
+                                 x-show="showSection('cashback')"
+                                 data-testid="card-cashback-row">
+                                <span class="min-w-0 truncate">
+                                    <span class="text-gray-500">Cashback dự kiến :</span>
+                                    <span class="font-bold text-gray-900 tabular-nums"
+                                          x-text="ccMoney(metricFor(@js($cardKey), 'cashback')) + ' đ'"><x-credit-card.money :value="$metrics['cashback'] ?? '0.00'" /></span>
+                                    @if ($hasTierCashbackMax)
+                                        <span class="text-gray-500 tabular-nums"
+                                              x-text="' / ' + ccMoney(tierCashbackMax(@js($cardKey))) + ' đ'">/<x-credit-card.money :value="$tierCashbackMax" /></span>
                                     @endif
                                 </span>
-                                @if ($quota !== null && $quota['has_limit'])
-                                    <span class="shrink-0 font-semibold text-gray-700"
-                                          data-testid="card-quota-remaining"
-                                          x-text="ccMoney(quotaFor(@js((string) $card->id), 'remaining')) + ' đ'">{{ $quota['remaining'] }}</span>
-                                @endif
                             </div>
+
+                            {{-- ═══ QUOTA HOÀN TIỀN ═══
+                                 Mỗi rule một dòng. KHÔNG có rule quota nào thì KHÔNG hiện
+                                 cả tiêu đề — tránh một mục rỗng trên trang (§12). --}}
+                            @if ($quotaRules !== [])
+                                <div class="pt-0.5 min-w-0"
+                                     x-show="showSection('quota')"
+                                     data-testid="card-quota-section">
+                                    <p class="text-xs font-semibold text-gray-700 mb-0.5">Quota hoàn tiền</p>
+
+                                    <ul class="space-y-0.5">
+                                        @foreach ($quotaRules as $ruleIndex => $quotaRule)
+                                            @php
+                                                // Tên hiển thị: combo thì tên combo, còn lại
+                                                // tên danh mục. Chỉ CHỌN nhãn — không suy
+                                                // luận danh mục hay quyết định có tính quota
+                                                // hay không (đó là việc của Phase 2).
+                                                $quotaLabel = $quotaRule['target_scope'] === 'combo'
+                                                    ? ($quotaRule['combo_name'] ?: ($quotaRule['name'] ?: 'Combo'))
+                                                    : ($quotaRule['category_name'] ?: ($quotaRule['name'] ?: 'Danh mục'));
+                                            @endphp
+                                            {{-- `flex-wrap` + `basis-full` cho phép dòng tự xuống
+                                                 dòng trên màn 390px thay vì bị bóp nghẹt hoặc
+                                                 tràn ngang (§3, §9). --}}
+                                            <li class="flex flex-wrap items-baseline gap-x-1.5 text-xs min-w-0"
+                                                data-testid="card-quota-row">
+                                                <span class="shrink-0 max-w-[42%] truncate font-medium text-gray-700">{{ $quotaLabel }}</span>
+                                                <span class="text-gray-300">:</span>
+
+                                                <span class="min-w-0 text-gray-600 tabular-nums">
+                                                    {{-- ĐÃ DÙNG --}}
+                                                    <span class="font-semibold text-gray-900"
+                                                          x-text="ccMoney(quotaRuleValue(@js($cardKey), {{ $ruleIndex }}, 'cashback_used')) + ' đ'"><x-credit-card.money :value="$quotaRule['cashback_used']" /></span>
+
+                                                    {{-- TRẦN RIÊNG. NULL = rule này KHÔNG có trần
+                                                         riêng (đã chốt ở Phase 2) ⇒ bỏ hẳn phần
+                                                         "/ max" thay vì bịa số hoặc hiện "???" (§11). --}}
+                                                    @if ($quotaRule['has_cashback_max'])
+                                                        <span class="text-gray-400"
+                                                              x-text="' / ' + ccMoney(quotaRuleValue(@js($cardKey), {{ $ruleIndex }}, 'cashback_max')) + ' đ'">/<x-credit-card.money :value="$quotaRule['cashback_max']" /></span>
+                                                    @else
+                                                        {{-- KHÔNG có trần riêng: vẫn phải thấy được
+                                                             `cashback_available_for_rule` — đây là ngân
+                                                             sách còn lại, tách bằng "· còn" để KHÔNG
+                                                             trông như một hạn mức của riêng rule (§4,
+                                                             §11). --}}
+                                                        @if ($quotaRule['cashback_available_for_rule'] !== null)
+                                                            <span class="text-gray-500">
+                                                                · còn<span data-testid="card-quota-available"
+                                                                      x-text="' ' + ccMoney(quotaRuleValue(@js($cardKey), {{ $ruleIndex }}, 'cashback_available_for_rule')) + ' đ'"> <x-credit-card.money :value="$quotaRule['cashback_available_for_rule']" /></span>
+                                                        @endif
+                                                    @endif
+
+                                                    {{-- SỐ TIỀN CHI THÊM — output Phase 2. Không hiện
+                                                         "+0đ" khi không có dải nào đạt được nữa, vì đó
+                                                         là số tiền đã bị giới hạn chứ không phải
+                                                         số tiền cần chi. --}}
+                                                    @if ($quotaRule['spend_remaining_estimate'] !== null)
+                                                        @if ($quotaRule['spend_estimate_is_reachable'])
+                                                            <span class="font-semibold text-emerald-600"
+                                                                  data-testid="card-quota-estimate">→ Có thể chi thêm ~<span class="font-bold"><x-credit-card.money :value="$quotaRule['spend_remaining_estimate']" /> đ</span></span>
+                                                        @else
+                                                            <span class="text-gray-400">· không đủ dải rate</span>
+                                                        @endif
+                                                    @endif
+                                                </span>
+                                            </li>
+                                        @endforeach
+                                    </ul>
+                                </div>
+                            @endif
                         </li>
                     @endforeach
                 </ul>
@@ -440,6 +620,59 @@
             }
 
             /**
+             * Khoá lưu lựa chọn hiển thị của Tổng quan.
+             *
+             * Chỉ là TÙY CHỌN HIỂN THỊ: bỏ tick chỉ ẩn phần tương ứng trên mọi thẻ,
+             * không đổi dữ liệu, không gọi API, không reload trang. Vì vậy để trong
+             * `localStorage` là đủ — không cần cột DB, migration hay endpoint.
+             */
+            const ccDisplayStorageKey = 'cc.overview.display';
+
+            /**
+             * 3 tùy chọn độc lập; MẶC ĐỊNH bật hết.
+             *
+             * Danh sách khoá đóng ở đây để khi đọc từ `localStorage` không tin
+             * bừa thuộc tính lạ trong JSON — nếu không, một giá trị rác sẽ tạo ra
+             * tên thuộc tính mà markup không dùng đến.
+             */
+            function ccDefaultDisplay() {
+                return { spend: true, cashback: true, quota: true };
+            }
+
+            /**
+             * Đọc lựa chọn đã lưu, chỉ nhận đúng 3 khoá boolean ở trên.
+             *
+             * Trả `null` khi chưa lưu, JSON hỏng, hoặc không còn khoá nào hợp lệ —
+             * khi đó dùng mặc định bật hết. Mọi lỗi bị nuốt: `localStorage` có thể
+             * bị chặn (chế độ riêng tư, quota đầy) và đó không phải lý do để hỏng
+             * cả trang.
+             */
+            function ccReadStoredDisplay() {
+                try {
+                    const raw = window.localStorage.getItem(ccDisplayStorageKey);
+
+                    if (!raw) return null;
+
+                    const parsed = JSON.parse(raw);
+
+                    if (!parsed || typeof parsed !== 'object') return null;
+
+                    const defaults = ccDefaultDisplay();
+                    const restored = {};
+
+                    for (const key of Object.keys(defaults)) {
+                        if (typeof parsed[key] === 'boolean') {
+                            restored[key] = parsed[key];
+                        }
+                    }
+
+                    return Object.keys(restored).length > 0 ? restored : null;
+                } catch (e) {
+                    return null;
+                }
+            }
+
+            /**
              * Tổng quan + nhập giao dịch.
              *
              * Controller KHÔNG orchestration gì ở đây: mọi quyết định nghiệp vụ
@@ -456,6 +689,35 @@
                     today: state.today ?? '',
                     store_url: state.store_url ?? '',
                     summary_url: state.summary_url ?? '',
+
+                    display: ccDefaultDisplay(),
+
+                    /**
+                     * Khôi phục lựa chọn hiển thị đã lưu. `init()` là hook đặc biệt của
+                     * Alpine, chạy một lần khi component khởi tạo.
+                     */
+                    init() {
+                        const stored = ccReadStoredDisplay();
+
+                        if (stored) {
+                            this.display = { ...this.display, ...stored };
+                        }
+                    },
+
+                    /** Section có đang được hiển thị không (mặc định: có). */
+                    showSection(key) {
+                        return this.display?.[key] !== false;
+                    },
+
+                    /** Ghi lựa chọn hiển thị để sống sót qua việc chuyển trang. */
+                    persistDisplay() {
+                        try {
+                            window.localStorage.setItem(ccDisplayStorageKey, JSON.stringify(this.display));
+                        } catch (e) {
+                            // Không lưu được thì chỉ mất lựa chọn sau khi tải lại
+                            // trang, vẫn tốt hơn là báo lỗi.
+                        }
+                    },
 
                     formOpen: false,
                     busy: false,
@@ -538,18 +800,66 @@
                         return this.card_metrics?.[String(id)]?.quota?.[key] ?? null;
                     },
 
+                    /** Các rule ĐÃ TICK quota của thẻ (Phase 2 đã lọc sẵn). */
+                    quotaRules(id) {
+                        return this.card_metrics?.[String(id)]?.quota?.rules ?? [];
+                    },
+
+                    /**
+                     * Một ô của rule quota theo THỨ TỰ.
+                     *
+                     * Tra theo chỉ số thay vì `x-for` để server vẫn render sẵn được
+                     * danh sách (không JS vẫn đọc được, và test kiểm tra được HTML).
+                     * Danh sách rule của một thẻ không đổi giữa hai lần làm mới cùng
+                     * một phiên nên chỉ số vẫn trỏ đúng rule.
+                     */
+                    quotaRuleValue(id, index, key) {
+                        return this.quotaRules(id)[index]?.[key] ?? null;
+                    },
+
+                    /** Trần CHUNG của bậc đích — mẫu số của dòng "Cashback dự kiến". */
+                    tierCashbackMax(id) {
+                        return this.quotaFor(id, 'tier_cashback_max');
+                    },
+
                     /**
                      * Bề rộng thanh tiến độ, kẹp [0, 100].
                      *
-                     * Vượt mục tiêu vẫn vẽ 100% và đổi màu ở Blade — thanh dài hơn
-                     * 100% sẽ tràn khung và phá layout trên điện thoại.
+                     * Vượt mục tiêu vẫn vẽ 100% và đánh dấu bằng đoạn ở cuối thanh —
+                     * thanh dài hơn 100% sẽ tràn khung và phá layout trên điện thoại.
                      */
                     progressWidth(id) {
-                        const value = Number(this.metricFor(id, 'progress_percent'));
+                        return this.percentOf(id, 'progress_percent');
+                    },
+
+                    /** Vị trí vạch đỏ = ngưỡng tối thiểu / mục tiêu, cũng kẹp [0, 100]. */
+                    minimumLeft(id) {
+                        return this.percentOf(id, 'minimum_percent');
+                    },
+
+                    /** Kẹp một tỷ lệ server-sent về [0, 100] cho việc đặt CSS. */
+                    percentOf(id, key) {
+                        const value = Number(this.metricFor(id, key));
 
                         if (!Number.isFinite(value)) return 0;
 
                         return Math.max(0, Math.min(100, value));
+                    },
+
+                    /** Đã vượt mục tiêu chi tiêu chưa? */
+                    isOverGoal(id) {
+                        return Number(this.metricFor(id, 'progress_percent')) > 100;
+                    },
+
+                    /**
+                     * Đã đạt mức tối thiểu để nhận hoàn tiền chưa?
+                     *
+                     * Server đã so sẵn bằng đúng điều kiện của engine
+                     * (`eligible_spend >= min_total_spend`); đây chỉ đọc kết quả.
+                     * Thẻ không có ngưỡng tối thiểu thì coi như đạt → màu xanh bình thường.
+                     */
+                    meetsMinimumFor(id) {
+                        return this.metricFor(id, 'meets_minimum') !== false;
                     },
 
                     openForm() {

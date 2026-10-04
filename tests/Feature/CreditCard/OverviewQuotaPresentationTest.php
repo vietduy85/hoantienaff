@@ -1,0 +1,1094 @@
+<?php
+
+namespace Tests\Feature\CreditCard;
+
+use App\Models\CreditCard\Category;
+use App\Models\CreditCard\CategoryCombo;
+use App\Models\CreditCard\CategoryComboItem;
+use App\Models\CreditCard\PolicyTier;
+use App\Models\CreditCard\PolicyTierCategory;
+use App\Models\CreditCard\StatementPeriod;
+use App\Models\CreditCard\Transaction;
+use App\Models\CreditCard\UserCard;
+use App\Models\User;
+use App\Services\CreditCard\CreditCardTransactionService;
+use App\Services\CreditCard\StatementPeriodService;
+use Carbon\CarbonImmutable;
+use PHPUnit\Framework\Attributes\Test;
+use Tests\Concerns\InteractsWithCreditCardDatabase;
+use Tests\TestCase;
+
+/**
+ * Trang Tổng quan — lớp TRÌNH BÀY (Phase 3).
+ *
+ * ---------------------------------------------------------------------------
+ * BA BẤT BIẾN ĐƯỢC KHOÁ Ở ĐÂY
+ * ---------------------------------------------------------------------------
+ *   1. Thanh tiến độ CHỈ dùng số server đã tính, và màu thanh phản ánh đúng cổng
+ *      của engine: engine chặn cashback bằng `eligible_spend < min_total_spend`
+ *      (`CashbackCalculator::calculate()`), nên Tổng quan so `eligible_spend` với
+ *      ngưỡng engine đã dùng. Nếu ở đây so TỔNG chi tiêu, thẻ có giao dịch không
+ *      đủ điều kiện sẽ hiện xanh trong khi engine thực tế trả 0đ — thanh tiến độ
+ *      nói dối ngay trên cùng màn hình với dòng cashback.
+ *   2. Quota ĐỌC NGUYÊN VẸN output của Phase 2 (`CashbackQuotaService`), kể cả
+ *      quy ước "không có trần riêng ⇒ bỏ phần `/ max` thay vì bịa số".
+ *   3. Blade/JavaScript KHÔNG có công thức quota nào: vị trí vạch đỏ và bề rộng
+ *      thanh đều lấy từ phần trăm server gửi xuống, không nhân/chia lại ở client.
+ *
+ * Các test ở đây kiểm tra HTML server-render. Việc bật/tắt ô "Hiển thị" là hành
+ * vi Alpine phía client (project không có JS test runner), nên phần đó được khoá
+ * bằng: mặc định bật đúng 3/3, và mỗi phần đúng một `x-show` trỏ tới khoá của
+ * nó — tức cơ chế quyết định ẩn/hiện chứ không chỉ vẻ đẹp.
+ */
+class OverviewQuotaPresentationTest extends TestCase
+{
+    use InteractsWithCreditCardDatabase;
+
+    private User $owner;
+
+    protected function setUp(): void
+    {
+        $this->setUpCreditCardTestCase();
+
+        $this->owner = User::factory()->create();
+    }
+
+    // =====================================================================
+    // §19.1–2 · Thanh tiến độ chỉ hiện khi có mục tiêu
+    // =====================================================================
+
+    #[Test]
+    public function a_card_with_a_desired_spend_renders_a_progress_bar(): void
+    {
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+
+        $html = $this->overviewHtml();
+
+        $this->assertStringContainsString('data-testid="card-progress-track"', $html);
+        $this->assertStringContainsString('data-testid="card-progress-bar"', $html);
+    }
+
+    #[Test]
+    public function a_card_without_a_desired_spend_renders_no_progress_bar_and_no_placeholder(): void
+    {
+        $this->makeUserCard($this->owner->id, ['desired_spend' => null]);
+
+        $html = $this->overviewHtml();
+
+        // KHÔNG suy diễn chiều dài thanh, và cũng không dựng ô "chưa đặt mục tiêu".
+        $this->assertStringNotContainsString('data-testid="card-progress-track"', $html);
+        $this->assertStringNotContainsString('data-testid="card-progress-bar"', $html);
+    }
+
+    // =====================================================================
+    // §19.3–4 · Vạch đỏ của mức chi tiêu tối thiểu
+    // =====================================================================
+
+    #[Test]
+    public function the_minimum_marker_appears_when_the_engine_used_a_minimum_threshold(): void
+    {
+        $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+        $this->makeOpenPeriod($this->firstCard(), [
+            'total_eligible_spend' => '8000000.00',
+            'calculation_meta' => ['min_total_spend' => 3000000.0],
+        ]);
+
+        $html = $this->overviewHtml();
+
+        $this->assertStringContainsString('data-testid="card-minimum-marker"', $html);
+        // Vạch đứng đúng tỉ lệ 3.000.000 / 15.000.000 = 20%.
+        $this->assertMatchesRegularExpression(
+            '/data-testid="card-minimum-marker"[^>]*style="left: 20%/',
+            $html
+        );
+    }
+
+    #[Test]
+    public function no_minimum_marker_when_the_policy_has_no_minimum_threshold(): void
+    {
+        $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+        $this->makeOpenPeriod($this->firstCard(), [
+            'total_eligible_spend' => '8000000.00',
+            'calculation_meta' => ['min_total_spend' => 0.0],
+        ]);
+
+        $html = $this->overviewHtml();
+
+        // Thanh vẫn có (có mục tiêu), nhưng không vẽ vạch đỏ.
+        $this->assertStringContainsString('data-testid="card-progress-track"', $html);
+        $this->assertStringNotContainsString('data-testid="card-minimum-marker"', $html);
+    }
+
+    #[Test]
+    public function no_minimum_marker_when_the_period_was_never_calculated(): void
+    {
+        $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+        $this->makeOpenPeriod($this->firstCard(), ['calculation_meta' => null]);
+
+        $this->assertStringNotContainsString('data-testid="card-minimum-marker"', $this->overviewHtml());
+    }
+
+    // =====================================================================
+    // §19.5–6 · Màu thanh theo đúng cổng của engine
+    // =====================================================================
+
+    #[Test]
+    public function the_bar_is_amber_when_eligible_spend_is_below_the_minimum(): void
+    {
+        $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+        $this->makeOpenPeriod($this->firstCard(), [
+            'total_eligible_spend' => '2000000.00',
+            'calculation_meta' => ['min_total_spend' => 3000000.0],
+        ]);
+
+        $html = $this->overviewHtml();
+        $metrics = $this->metricsOf($html)[(string) $this->firstCard()->id];
+
+        $this->assertFalse($metrics['meets_minimum']);
+        $this->assertStringContainsString("'bg-amber-500'", $html);
+    }
+
+    #[Test]
+    public function the_bar_is_green_once_eligible_spend_reaches_the_minimum(): void
+    {
+        $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+        $this->makeOpenPeriod($this->firstCard(), [
+            'total_eligible_spend' => '8000000.00',
+            'calculation_meta' => ['min_total_spend' => 3000000.0],
+        ]);
+
+        $html = $this->overviewHtml();
+        $metrics = $this->metricsOf($html)[(string) $this->firstCard()->id];
+
+        $this->assertTrue($metrics['meets_minimum']);
+        $this->assertStringContainsString("'bg-emerald-500'", $html);
+    }
+
+    #[Test]
+    public function total_spending_below_the_minimum_does_not_paint_the_bar_green(): void
+    {
+        // 9.000.000đ chi tiêu THÔT trên thanh, nhưng chỉ 2.000.000đ ĐỦ ĐIỀU KIỆN.
+        // Engine chặn ở 2.000.000 < 3.000.000 ⇒ thanh phải CAM. Nếu ở đây so tổng
+        // chi tiêu (9tr > 3tr) thì thanh sẽ XANH và nói dối.
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+        $category = $this->makeSystemCategory();
+
+        $this->spend($card, $category, '9000000');
+
+        // Ghi số liệu engine vào đúng kỳ đang mở (kỳ mà service vừa sinh ra),
+        // không phải một kỳ song song do test tự dựng.
+        $this->writeEngineSnapshot($card, [
+            'total_eligible_spend' => '2000000.00',
+            'calculation_meta' => ['min_total_spend' => 3000000.0],
+        ]);
+
+        $html = $this->overviewHtml();
+        $metrics = $this->metricsOf($html)[(string) $card->id];
+
+        $this->assertSame('9000000.00', $metrics['spent']);
+        $this->assertSame('2000000.00', $metrics['eligible_spend']);
+        $this->assertFalse($metrics['meets_minimum'], 'Tổng chi tiêu không được thay thế số engine dùng.');
+    }
+
+    // =====================================================================
+    // §19.7 · Vượt mục tiêu không được tràn ngang
+    // =====================================================================
+
+    #[Test]
+    public function overspending_never_widens_the_bar_past_the_track(): void
+    {
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '10000000']);
+        $category = $this->makeSystemCategory();
+
+        $this->spend($card, $category, '25000000');
+
+        $html = $this->overviewHtml();
+
+        // Vạch đạt 250% nhưng thanh kẹp 100% — không `width` nào vượt 100%.
+        $this->assertStringContainsString('data-testid="card-progress-overflow"', $html);
+
+        preg_match_all('/style="width: ([\d.]+)%"/', $html, $matches);
+        $this->assertNotEmpty($matches[1], 'Không tìm thấy style width của thanh tiến độ.');
+
+        $widths = array_map(static fn (string $w): float => (float) $w, $matches[1]);
+
+        foreach ($widths as $width) {
+            $this->assertLessThanOrEqual(100.0, $width, 'Thanh tiến độ bị kéo dài quá ô chứa.');
+        }
+
+        $this->assertContains(100.0, $widths, 'Vượt mục tiêu thì thanh phải đầy đúng 100%.');
+    }
+
+    #[Test]
+    public function overspending_says_so_in_words(): void
+    {
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '10000000']);
+        $this->spend($card, $this->makeSystemCategory(), '25000000');
+
+        $this->assertStringContainsString('Đã vượt mục tiêu', $this->overviewHtml());
+    }
+
+    // =====================================================================
+    // §19.8–11 · Ba ô "Hiển thị"
+    // =====================================================================
+
+    #[Test]
+    public function the_display_strip_offers_three_independent_options(): void
+    {
+        $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+
+        $html = $this->overviewHtml();
+
+        $this->assertStringContainsString('data-testid="overview-display-options"', $html);
+
+        foreach (['toggle-spend' => 'display.spend', 'toggle-cashback' => 'display.cashback', 'toggle-quota' => 'display.quota'] as $testId => $model) {
+            $this->assertMatchesRegularExpression(
+                '/data-testid="'.$testId.'"/',
+                $html,
+                'Thiếu ô hiển thị '.$testId
+            );
+            $this->assertStringContainsString('x-model="'.$model.'"', $html);
+        }
+    }
+
+    #[Test]
+    public function every_display_option_is_on_by_default(): void
+    {
+        $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+
+        $html = $this->overviewHtml();
+
+        foreach (['toggle-spend', 'toggle-cashback', 'toggle-quota'] as $testId) {
+            $this->assertMatchesRegularExpression(
+                '/data-testid="'.$testId.'"[^>]*\schecked/',
+                $html,
+                'Ô '.$testId.' phải mặc định BẬT'
+            );
+        }
+
+        // Và phần tương ứng thực sự có trong HTML (không bị ẩn sẵn ở server).
+        foreach (['card-spend-row', 'card-cashback-row'] as $testId) {
+            $this->assertStringContainsString('data-testid="'.$testId.'"', $html);
+        }
+    }
+
+    #[Test]
+    public function each_display_option_governs_exactly_its_own_section(): void
+    {
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+        $category = $this->makeSystemCategory();
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $category->id, 'percent' => '5.000', 'quota' => true]]
+        );
+
+        $html = $this->overviewHtml();
+
+        // Mỗi phần bị buộc bởi ĐÚNG khoá của nó — bỏ tick một ô không đụng phần
+        // khác, nên ba lựa chọn thực sự độc lập chứ không phải ba cái chung.
+        foreach (['spend' => 'card-spend-row', 'cashback' => 'card-cashback-row', 'quota' => 'card-quota-section'] as $key => $testId) {
+            $this->assertSame(
+                1,
+                preg_match('/<(\w+)[^>]*data-testid="'.$testId.'"/', $html, $tag),
+                'Thiếu phần '.$testId
+            );
+
+            $this->assertStringContainsString(
+                "x-show=\"showSection('".$key."')\"",
+                $tag[0],
+                'Phần '.$testId.' phải do khoá showSection(\''.$key.'\') điều khiển'
+            );
+        }
+
+        // Cả ba khoá đều là khoá độc lập trong `display`.
+        foreach (['spend', 'cashback', 'quota'] as $key) {
+            $this->assertStringContainsString($key.': ', $html);
+        }
+    }
+
+    #[Test]
+    public function the_display_choice_survives_a_page_change_via_local_storage(): void
+    {
+        $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+
+        $html = $this->overviewHtml();
+
+        // Không cần backend ⇒ không có cột DB, không có migration, không gọi API.
+        $this->assertStringContainsString("ccDisplayStorageKey = 'cc.overview.display'", $html);
+        $this->assertStringContainsString('window.localStorage.setItem(ccDisplayStorageKey', $html);
+        $this->assertStringContainsString('window.localStorage.getItem(ccDisplayStorageKey)', $html);
+        // Áp lại lựa chọn đã lưu khi component khởi tạo.
+        $this->assertStringContainsString('ccReadStoredDisplay()', $html);
+    }
+
+    // =====================================================================
+    // §19.12–13 · Bậc đích theo `desired_spend`
+    // =====================================================================
+
+    #[Test]
+    public function the_cashback_ceiling_comes_from_the_tier_picked_by_desired_spend(): void
+    {
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+        $category = $this->makeSystemCategory();
+
+        $this->makePolicyForCard(
+            $card,
+            [
+                ['name' => 'Bậc thấp', 'min' => 0, 'max' => 10000000, 'cap_period' => '100000.00'],
+                ['name' => 'Bậc cao', 'min' => 10000000, 'max' => null, 'cap_period' => '900000.00'],
+            ],
+            [['category_id' => $category->id, 'percent' => '5.000']]
+        );
+
+        // Chi tiêu thực rất nhỏ — nếu chọn bậc theo chi tiêu thì ra "Bậc thấp".
+        $period = $this->makeOpenPeriod($card, ['total_cashback' => '0.00']);
+        $this->createTransaction($card, $category, '500000', $period);
+
+        $html = $this->overviewHtml();
+
+        // Bậc đích = bậc của `desired_spend` 15.000.000 ⇒ trần 900.000.
+        $this->assertStringContainsString('900.000', $html);
+        $this->assertStringNotContainsString('/ 100.000', $html);
+    }
+
+    #[Test]
+    public function a_card_without_a_tier_ceiling_shows_no_denominator(): void
+    {
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+        $category = $this->makeSystemCategory();
+
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => null]],
+            [['category_id' => $category->id, 'percent' => '5.000']]
+        );
+
+        $html = $this->overviewHtml();
+        $metrics = $this->metricsOf($html)[(string) $card->id];
+
+        $this->assertFalse($metrics['quota']['has_tier_cashback_max']);
+        $this->assertNull($metrics['quota']['tier_cashback_max']);
+
+        // Bậc không đặt trần ⇒ dòng cashback chỉ còn số đã đạt, KHÔNG bịa mẫu số.
+        $this->assertStringContainsString('Cashback dự kiến :', $html);
+        $this->assertSame(
+            0,
+            preg_match('/Cashback dự kiến\s*:.*?<span class="text-gray-500 tabular-nums"/s', $html),
+            'Không được vẽ dấu "/" mẫu số khi bậc không có trần.'
+        );
+    }
+
+    // =====================================================================
+    // §19.14–15 · Chỉ rule đã tick quota
+    // =====================================================================
+
+    #[Test]
+    public function only_quota_categories_reach_the_overview(): void
+    {
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+        $shopee = $this->makeSystemCategory(['name' => 'Shopee']);
+        $food = $this->makeSystemCategory(['name' => 'Ăn uống']);
+
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [
+                ['category_id' => $shopee->id, 'percent' => '5.000', 'quota' => true],
+                // Danh mục thường — KHÔNG tick quota ⇒ không hiện.
+                ['category_id' => $food->id, 'percent' => '3.000', 'quota' => false],
+            ]
+        );
+
+        $html = $this->overviewHtml();
+
+        $this->assertStringContainsString('Shopee', $html);
+        $this->assertStringNotContainsString('Ăn uống', $html);
+        $this->assertSame(1, substr_count($html, 'data-testid="card-quota-row"'));
+    }
+
+    #[Test]
+    public function a_fallback_rule_never_reaches_the_overview(): void
+    {
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+        $shopee = $this->makeSystemCategory(['name' => 'Shopee']);
+
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            []
+        );
+
+        // Rule danh mục (tick quota) + rule fallback `scope_type = other`.
+        $this->addRule($card, 0, [
+            'scope_type' => PolicyTierCategory::SCOPE_CATEGORY,
+            'category_id' => $shopee->id,
+            'cashback_percent' => '5.000',
+            'is_quota_category' => true,
+        ]);
+        $this->addRule($card, 0, [
+            'scope_type' => PolicyTierCategory::SCOPE_OTHER,
+            'category_id' => null,
+            'cashback_percent' => '2.000',
+        ]);
+
+        $html = $this->overviewHtml();
+
+        // Rule fallback không có danh mục cụ thể: không được sinh dòng quota,
+        // cũng không hiện tỷ lệ 2% ở bất cứ đâu trên Tổng quan.
+        $this->assertStringNotContainsString('2,00', $html);
+        $this->assertSame(1, substr_count($html, 'data-testid="card-quota-row"'));
+    }
+
+    // =====================================================================
+    // §19.16–17 · Định dạng dòng quota
+    // =====================================================================
+
+    #[Test]
+    public function a_capped_quota_category_shows_used_over_max_and_the_spend_estimate(): void
+    {
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+        $shopee = $this->makeSystemCategory(['name' => 'Shopee']);
+
+        // Trần riêng 300.000đ nhỏ hơn trần chung 500.000đ ⇒ cái nhỏ hơn thắng.
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => '500000.00']],
+            [['category_id' => $shopee->id, 'percent' => '5.000', 'cap_cat' => '300000.00', 'quota' => true]]
+        );
+
+        $html = $this->overviewHtml();
+        $rule = $this->metricsOf($html)[(string) $card->id]['quota']['rules'][0];
+
+        $this->assertSame('0.00', $rule['cashback_used']);
+        $this->assertSame('300000.00', $rule['cashback_max']);
+        // 300.000đ hoàn / 5% ⇒ cần chi 6.000.000đ.
+        $this->assertSame('6000000.00', $rule['spend_remaining_estimate']);
+
+        $this->assertStringContainsString('Shopee', $html);
+        $this->assertStringContainsString('300.000', $html);
+        $this->assertStringContainsString('6.000.000', $html);
+    }
+
+    #[Test]
+    public function an_uncapped_quota_category_never_shows_a_missing_max_as_a_number(): void
+    {
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+        $shopee = $this->makeSystemCategory(['name' => 'Shopee']);
+
+        // Không có trần riêng, nhưng bậc vẫn có trần chung 500.000đ.
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => '500000.00']],
+            [['category_id' => $shopee->id, 'percent' => '5.000', 'cap_cat' => null, 'quota' => true]]
+        );
+
+        $html = $this->overviewHtml();
+        $metrics = $this->metricsOf($html)[(string) $card->id];
+        $rule = $metrics['quota']['rules'][0];
+        $row = $this->quotaRowOf($html);
+
+        $this->assertNull($rule['cashback_max']);
+        $this->assertFalse($rule['has_cashback_max']);
+
+        // Vì không có trần riêng nên ngân sách chung vẫn còn hiệu lực: số tiền
+        // chi thêm là CON SỐ chứ không phải null.
+        $this->assertSame('500000.00', $rule['cashback_available_for_rule']);
+        $this->assertSame('10000000.00', $rule['spend_remaining_estimate']);
+
+        // Ô trống phải sạch: không "???", không chữ "null", và KHÔNG được bịa
+        // trần riêng từ trần chung của bậc.
+        // (Chỉ quét riêng dòng quota — payload Alpine chứa null ở nhiều chỗ vốn vậy.)
+        $this->assertStringNotContainsString('???', $row);
+        $this->assertStringNotContainsString('null', $row);
+
+        // Trần chung KHÔNG BAO GIỜ được in theo kiểu trần riêng ("/ 500.000").
+        $this->assertDoesNotMatchRegularExpression('/\/\s*500\.000/', $row, 'Trần chung không được in thành trần riêng.');
+
+        // §4 — `cashback_available_for_rule` vẫn phải hiện được, vì đó là số tiền
+        // user còn hành động được. Tách bằng "· còn" để không trông như hạn mức.
+        $this->assertStringContainsString('· còn', $row);
+        $this->assertStringContainsString('500.000', $row);
+
+        // Và số tiền cần chi thêm vẫn là con số thật.
+        $this->assertStringContainsString('10.000.000', $row);
+    }
+
+    #[Test]
+    public function a_quota_line_says_in_words_how_much_more_to_spend(): void
+    {
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+        $shopee = $this->makeSystemCategory(['name' => 'Shopee']);
+
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => '500000.00']],
+            [['category_id' => $shopee->id, 'percent' => '5.000', 'cap_cat' => '300000.00', 'quota' => true]]
+        );
+
+        $row = $this->quotaRowOf($this->overviewHtml());
+
+        // "→ +2.000.000đ" là ký hiệu kỹ thuật, user không hiểu là phải chi bao
+        // nhiêu. Dòng phải nói thẳng "cần chi thêm khoảng bao nhiêu".
+        $this->assertStringContainsString('Có thể chi thêm', $row);
+        $this->assertStringContainsString('~', $row, 'Số tiền ước tính phải có dấu "~" vì nó là ƯỚC TÍNH, không phải số chắc chắn.');
+        $this->assertStringNotContainsString('→ +', $row);
+        $this->assertStringContainsString('6.000.000', $row);
+
+        // Dòng được phép xuống dòng trên màn 390px thay vì bị bóp nghẹt.
+        preg_match(
+            '/<li\b[^>]*data-testid="card-quota-row"/',
+            $this->overviewHtml(),
+            $liTag
+        );
+
+        $this->assertMatchesRegularExpression(
+            '/flex flex-wrap items-baseline/',
+            $liTag[0] ?? '',
+            'Dòng quota phải wrap được trên màn hình hẹp.'
+        );
+    }
+
+    #[Test]
+    public function the_quota_section_sits_beside_the_cashback_section_not_inside_it(): void
+    {
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+        $category = $this->makeSystemCategory();
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $category->id, 'percent' => '5.000', 'quota' => true]]
+        );
+
+        $html = $this->overviewHtml();
+
+        $cashbackAt = strpos($html, 'data-testid="card-cashback-row"');
+        $quotaAt = strpos($html, 'data-testid="card-quota-section"');
+
+        $this->assertIsInt($cashbackAt, 'Thiếu dòng cashback.');
+        $this->assertIsInt($quotaAt, 'Thiếu phần quota.');
+
+        // Thứ tự: tiền đã chi → cashback → quota.
+        $this->assertLessThan($cashbackAt, strpos($html, 'data-testid="card-spend-row"'));
+        $this->assertLessThan($quotaAt, $cashbackAt);
+
+        // Ô cashback phải ĐÃ đóng trước khi ô quota mở ra. Nếu quota nằm bên
+        // trong cashback thì bỏ tick "cashback" sẽ kéo mất quota ⇒ ba ô không
+        // còn độc lập với nhau.
+        $this->assertStringContainsString(
+            '</div>',
+            substr($html, $cashbackAt, $quotaAt - $cashbackAt),
+            'Phần quota phải là anh em cùng cấp với dòng cashback, không lồng vào bên trong nó.'
+        );
+    }
+
+    // =====================================================================
+    // §19.18–19 · Combo và nhiều rule
+    // =====================================================================
+
+    #[Test]
+    public function a_quota_combo_shows_the_combo_name(): void
+    {
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+        $food = $this->makeSystemCategory(['name' => 'Ăn uống']);
+        $travel = $this->makeSystemCategory(['name' => 'Du lịch']);
+
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => '1000000.00']],
+            []
+        );
+
+        $combo = CategoryCombo::create([
+            'scope' => 'system',
+            'name' => 'Ăn chơi tháng này',
+            'slug' => 'an-choi-thang-nay',
+            'is_active' => true,
+        ]);
+
+        CategoryComboItem::create(['combo_id' => $combo->id, 'category_id' => $food->id, 'sort_order' => 0]);
+        CategoryComboItem::create(['combo_id' => $combo->id, 'category_id' => $travel->id, 'sort_order' => 1]);
+
+        $this->addRule($card, 0, [
+            'scope_type' => PolicyTierCategory::SCOPE_CATEGORY,
+            'category_id' => null,
+            'combo_id' => $combo->id,
+            'cashback_percent' => '5.000',
+            'max_cashback_per_category_per_period' => '400000.00',
+            'is_quota_category' => true,
+        ]);
+
+        $html = $this->overviewHtml();
+
+        // Combo là MỘT đơn vị tính tiền ⇒ một dòng, tên combo, không phải tên
+        // từng danh mục thành viên.
+        $this->assertStringContainsString('Ăn chơi tháng này', $html);
+        $this->assertSame(1, substr_count($html, 'data-testid="card-quota-row"'));
+        $this->assertStringNotContainsString('>Du lịch<', $html);
+
+        $rule = $this->metricsOf($html)[(string) $card->id]['quota']['rules'][0];
+        $this->assertSame('Ăn chơi tháng này', $rule['combo_name']);
+        $this->assertSame([$food->id, $travel->id], $rule['scope_category_ids']);
+    }
+
+    #[Test]
+    public function several_quota_rules_each_get_one_compact_line(): void
+    {
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+        $shopee = $this->makeSystemCategory(['name' => 'Shopee']);
+        $food = $this->makeSystemCategory(['name' => 'Ăn uống']);
+        $travel = $this->makeSystemCategory(['name' => 'Du lịch']);
+
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => '1000000.00']],
+            [
+                ['category_id' => $shopee->id, 'percent' => '5.000', 'cap_cat' => '300000.00', 'quota' => true],
+                ['category_id' => $food->id, 'percent' => '3.000', 'cap_cat' => '500000.00', 'quota' => true],
+                ['category_id' => $travel->id, 'percent' => '2.000', 'cap_cat' => '200000.00', 'quota' => true],
+            ]
+        );
+
+        $html = $this->overviewHtml();
+
+        // Ba dòng, mỗi rule một dòng — không dựng ô vuông cho từng danh mục.
+        $this->assertSame(3, substr_count($html, 'data-testid="card-quota-row"'));
+        $this->assertSame(1, substr_count($html, 'data-testid="card-quota-section"'));
+    }
+
+    // =====================================================================
+    // §19.20 · Không có rule quota thì không hiện mục rỗng
+    // =====================================================================
+
+    #[Test]
+    public function a_card_with_no_quota_rule_shows_no_quota_heading_at_all(): void
+    {
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+        $category = $this->makeSystemCategory();
+
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $category->id, 'percent' => '5.000', 'quota' => false]]
+        );
+
+        $html = $this->overviewHtml();
+
+        $this->assertStringNotContainsString('data-testid="card-quota-section"', $html);
+        $this->assertStringNotContainsString('<p class="text-xs font-semibold text-gray-700 mb-0.5">Quota hoàn tiền</p>', $html);
+    }
+
+    #[Test]
+    public function quota_is_a_faithful_mirror_of_the_cards_own_current_policy(): void
+    {
+        // REGRESSION — sự cố thật đã gặp trên dữ liệu thật.
+        //
+        // Người dùng tick ô quota trong TRÌNH SOẠN POLICY HỆ THỐNG (mẫu), nhưng
+        // mỗi thẻ dùng bản SAO CHÉP riêng của nó. Bản sao được tạo ra ở một thời
+        // điểm nào đó và không tự đồng bộ với mẫu, nên nếu tick mẫu SAU khi sao
+        // chép thì bản sao vẫn còn 0 rule quota.
+        //
+        // Hai test này khoá lại CẢ HAI vế của hợp đồng:
+        //  - vế có dữ liệu thì phải hiện  (`only_quota_categories_reach_the_overview`)
+        //  - vế không có dữ liệu thì phải im, và KHÔNG được sinh tiêu đề rỗng.
+        //
+        // Nhờ vậy, lần sau gặp "quota không hiện" ta biết ngay tầng trình bày
+        // vẫn đúng và phải đi kiểm tra policy của chính thẻ, chứ không mất công
+        // sửa lại Blade.
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+        $category = $this->makeSystemCategory();
+
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $category->id, 'percent' => '5.000', 'quota' => false]]
+        );
+
+        $html = $this->overviewHtml();
+
+        // Policy ĐANG DÙNG của thẻ không có rule quota nào được tick.
+        $this->assertSame([], $this->metricsOf($html)[(string) $card->id]['quota']['rules']);
+        $this->assertStringNotContainsString('data-testid="card-quota-row"', $html);
+
+        // Ô hiển thị "Quota hoàn tiền" vẫn còn BẬT (mặc định) — nghĩa là việc
+        // không hiện KHÔNG phải do người dùng tắt, mà do đúng là không có dữ liệu.
+        $this->assertMatchesRegularExpression(
+            '/data-testid="toggle-quota"[^>]*\schecked/',
+            $html
+        );
+    }
+
+    // =====================================================================
+    // §19.21 · Mobile: không tràn ngang
+    // =====================================================================
+
+    #[Test]
+    public function the_card_row_cannot_push_the_page_sideways(): void
+    {
+        $card = $this->makeUserCard($this->owner->id, [
+            'name' => 'Một cái tên thẻ rất dài để kiểm tra việc cắt chữ trên điện thoại',
+            'desired_spend' => '15000000',
+        ]);
+
+        $html = $this->overviewHtml();
+
+        // Ô chứa tiền phải co lại được, và tên thẻ cắt bằng ellipsis.
+        $this->assertStringContainsString('class="min-w-0 truncate"', $html);
+        // Không có chiều rộng cố định nào có thể tràn khung ở 390px.
+        $this->assertDoesNotMatchRegularExpression('/\bw-\[\d+px\]/', $html);
+        $this->assertDoesNotMatchRegularExpression('/style="[^"]*\bwidth:\s*\d+px/', $html);
+        // Thanh tiến độ bị cắt phần vượt quá, nên kể cả vượt mục tiêu cũng không
+        // thò ra ngoài ô chứa.
+        $this->assertSame(
+            1,
+            preg_match('/data-testid="card-progress-track"/', $html),
+            'Thiếu ô chứa thanh tiến độ.'
+        );
+        $this->assertMatchesRegularExpression(
+            '/class="[^"]*overflow-hidden[^"]*"\s+data-testid="card-progress-track"/',
+            $html,
+            'Thanh tiến độ phải overflow-hidden để không tràn ngang.'
+        );
+        // Bảng số dùng `tabular-nums` để các dòng tiền không nhảy khi làm mới.
+        $this->assertStringContainsString('tabular-nums', $html);
+    }
+
+    #[Test]
+    public function the_card_name_is_truncated_rather_than_wrapped(): void
+    {
+        $this->makeUserCard($this->owner->id, [
+            'name' => 'Một cái tên thẻ rất dài để kiểm tra việc cắt chữ trên điện thoại',
+        ]);
+
+        // Cắt chữ, KHÔNG xuống dòng: cần đủ cả `truncate` và `min-w-0` (trong một
+        // flex, `min-w-0` mới cho phép phần tử co nhỏ lại được).
+        $this->assertMatchesRegularExpression(
+            '/data-testid="card-title"/',
+            $this->overviewHtml(),
+            'Thiếu ô tiêu đề thẻ.'
+        );
+
+        preg_match('/<p\b[^>]*data-testid="card-title"[^>]*>/', $this->overviewHtml(), $titleTag);
+
+        $this->assertMatchesRegularExpression(
+            '/\btruncate\b/',
+            $titleTag[0] ?? '',
+            'Tên thẻ phải cắt bằng ellipsis thay vì xuống dòng.'
+        );
+        $this->assertMatchesRegularExpression(
+            '/\bmin-w-0\b/',
+            $titleTag[0] ?? '',
+            'Tên thẻ phải có min-w-0 để co được trong flex.'
+        );
+    }
+
+    // =====================================================================
+    // §19.23 · Header: dải màu pastel full-width
+    // =====================================================================
+
+    #[Test]
+    public function each_card_header_is_a_flat_pastel_band_across_the_full_width(): void
+    {
+        $this->makeUserCard($this->owner->id, ['name' => 'Thẻ một']);
+
+        $html = $this->overviewHtml();
+
+        preg_match(
+            '/<div\b[^>]*data-testid="card-header"[^>]*>(.*?)<\/div>/s',
+            $html,
+            $band
+        );
+
+        $this->assertNotEmpty($band, 'Thiếu dải màu của header thẻ.');
+
+        // Thẻ mở đầu dải — lấy riêng thẻ mở để không tính nhầm class bên trong.
+        preg_match('/<div\b[^>]*data-testid="card-header"[^>]*>/', $html, $opening);
+
+        $tag = $opening[0] ?? '';
+
+        // Full-width: âm margin để dải tràn hết bề ngang thẻ, phục vụ `sm`.
+        $this->assertMatchesRegularExpression('/-mx-4\b/', $tag);
+        $this->assertMatchesRegularExpression('/sm:-mx-5\b/', $tag);
+        $this->assertMatchesRegularExpression('/-mt-4\b/', $tag, 'Dải phải áp sát mép trên, không hở padding.');
+
+        // Có nền pastel.
+        $this->assertMatchesRegularExpression(
+            '/\bbg-(?:blue|emerald|amber|purple|pink)-100\b/',
+            $tag,
+            'Header phải có nền pastel lấy từ bảng màu.'
+        );
+
+        // KHÔNG phải một ô bo góc có viền/đổ bóng ⇒ không phải card lồng trong card.
+        $this->assertDoesNotMatchRegularExpression('/\bborder\b/', $tag);
+        $this->assertDoesNotMatchRegularExpression('/\brounded\b/', $tag);
+        $this->assertDoesNotMatchRegularExpression('/\bshadow\b/', $tag);
+
+        // Tương phản: chữ xám RẤT ĐẬM trên nền pastel RẤT NHẠT.
+        preg_match('/<p\b[^>]*data-testid="card-title"[^>]*>/', $band[1] ?? '', $titleTag);
+
+        $this->assertMatchesRegularExpression(
+            '/\btext-gray-900\b/',
+            $titleTag[0] ?? '',
+            'Chữ trên nền pastel phải là xám rất đậm để đọc được ngoài trời.'
+        );
+    }
+
+    #[Test]
+    public function the_pastel_palette_repeats_and_neighbouring_cards_never_share_a_colour(): void
+    {
+        foreach (['A', 'B', 'C', 'D', 'E', 'F', 'G'] as $name) {
+            $this->makeUserCard($this->owner->id, ['name' => 'Thẻ '.$name]);
+        }
+
+        preg_match_all('/data-testid="card-header"/', $this->overviewHtml(), $bands);
+
+        $this->assertCount(7, $bands[0], 'Mỗi thẻ phải có đúng một dải màu.');
+
+        // Màu nằm trong `class`, thẻ `data-testid` đứng sau nên thứ tự phải đúng.
+        preg_match_all(
+            '/<div\b[^>]*\bbg-([a-z]+)-100\b[^>]*data-testid="card-header"/',
+            $this->overviewHtml(),
+            $colours
+        );
+
+        $this->assertCount(7, $colours[1], 'Mỗi dải phải mang một màu pastel.');
+        // 7 thẻ > 5 màu ⇒ bảng màu PHẢI lặp lại.
+        $this->assertSame($colours[1][0], $colours[1][5], 'Bảng màu phải lặp lại khi nhiều thẻ.');
+        // Và hai thẻ cạnh nhau không bao giờ trùng màu.
+        for ($i = 1, $n = count($colours[1]); $i < $n; $i++) {
+            $this->assertNotSame(
+                $colours[1][$i - 1],
+                $colours[1][$i],
+                'Hai thẻ liền nhau không được cùng màu.'
+            );
+        }
+    }
+
+    #[Test]
+    public function the_detail_button_stays_on_the_header_row_next_to_the_name(): void
+    {
+        $this->makeUserCard($this->owner->id, ['name' => 'Thẻ một']);
+
+        $html = $this->overviewHtml();
+
+        preg_match('/<div\b[^>]*data-testid="card-header"[^>]*>(.*?)<\/div>/s', $html, $band);
+
+        $this->assertNotEmpty($band, 'Thiếu dải màu của header thẻ.');
+
+        // Nút nằm TRONG dải màu, cạnh tên, và không bị co lại.
+        $this->assertStringContainsString('data-testid="card-title"', $band[1]);
+        $this->assertStringContainsString('data-testid="card-history-link"', $band[1]);
+
+        preg_match('/<a\b[^>]*data-testid="card-history-link"[^>]*>/', $band[1], $link);
+
+        $this->assertMatchesRegularExpression('/\bshrink-0\b/', $link[0] ?? '', 'Nút "Chi tiết" phải giữ nguyên kích thước.');
+        $this->assertMatchesRegularExpression('/\bwhitespace-nowrap\b/', $link[0] ?? '', 'Chữ nút không được xuống dòng.');
+    }
+
+    // =====================================================================
+    // §19.22 · Nút cũ vẫn chạy
+    // =====================================================================
+
+    #[Test]
+    public function the_card_row_keeps_its_detail_link_to_the_cards_own_page(): void
+    {
+        $card = $this->makeUserCard($this->owner->id, ['name' => 'Thẻ VCB chính']);
+
+        $html = $this->overviewHtml();
+
+        $this->assertStringContainsString('data-testid="card-history-link"', $html);
+        $this->assertStringContainsString(route('credit-cards.transactions', ['userCard' => $card->id]), $html);
+        $this->assertStringContainsString('Chi tiết', $html);
+    }
+
+    #[Test]
+    public function the_overview_still_keeps_its_four_metric_tiles(): void
+    {
+        $this->makeUserCard($this->owner->id);
+
+        $this->assertSame(4, substr_count($this->overviewHtml(), 'data-testid="stat-'));
+    }
+
+    // =====================================================================
+    // Không tính lại ở tầng trình bày
+    // =====================================================================
+
+    #[Test]
+    public function the_row_reprints_the_engine_numbers_and_recomputes_none_of_them(): void
+    {
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+        $category = $this->makeSystemCategory();
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => '500000.00']],
+            [['category_id' => $category->id, 'percent' => '5.000', 'quota' => true]]
+        );
+
+        $html = $this->overviewHtml();
+        $rule = $this->metricsOf($html)[(string) $card->id]['quota']['rules'][0];
+
+        // 500.000đ hoàn / 5% ⇒ 10.000.000đ chi thêm. Số này do Phase 2 tính;
+        // Blade chỉ in lại đúng nó, chứ không tự chia lần nữa.
+        $this->assertSame('10000000.00', $rule['spend_remaining_estimate']);
+        $this->assertSame('10.000.000', number_format((float) $rule['spend_remaining_estimate'], 0, ',', '.'));
+        $this->assertStringContainsString('10.000.000', $html);
+    }
+
+    // =====================================================================
+    // Helpers
+    // =====================================================================
+
+    private function overviewHtml(): string
+    {
+        return $this->actingAs($this->owner)->get('/thetindung')->assertOk()->getContent();
+    }
+
+    private function firstCard(): UserCard
+    {
+        return UserCard::query()->where('user_id', $this->owner->id)->orderBy('id')->firstOrFail();
+    }
+
+    /**
+     * Kỳ `open` chứa hôm nay, với các số engine đã ghi sẵn.
+     *
+     * `total_eligible_spend` + `calculation_meta.min_total_spend` là đúng hai số
+     * engine dùng để quyết định có hoàn tiền hay không — test đặt thẳng để kiểm tra
+     * lớp trình bày, không cần chạy lại engine.
+     */
+    private function makeOpenPeriod(UserCard $card, array $attributes = []): StatementPeriod
+    {
+        $today = CarbonImmutable::now();
+
+        return $this->makeStatementPeriod($card, array_merge([
+            'period_start' => $today->subDays(10)->toDateString(),
+            'period_end' => $today->addDays(10)->toDateString(),
+            'statement_date' => $today->addDays(10)->toDateString(),
+            'payment_due_date' => $today->addDays(20)->toDateString(),
+            'status' => StatementPeriod::STATUS_OPEN,
+        ], $attributes));
+    }
+
+    /**
+     * Ghi số liệu engine vào kỳ đang mở của thẻ.
+     *
+     * Engine thực sự lưu `total_eligible_spend` + `calculation_meta.min_total_spend`
+     * vào bản ghi `StatementPeriod`; Tổng quan chỉ đọc lại hai số đó. Test đặt
+     * thẳng để kiểm tra lớp trình bày mà không cần chạy lại engine.
+     */
+    private function writeEngineSnapshot(UserCard $card, array $attributes): StatementPeriod
+    {
+        $period = StatementPeriod::query()
+            ->where('user_card_id', $card->id)
+            ->orderByDesc('period_start')
+            ->firstOrFail();
+
+        $period->forceFill($attributes)->save();
+
+        return $period->refresh();
+    }
+
+    private function createTransaction(UserCard $card, Category $category, string $amount, StatementPeriod $period): void
+    {
+        $this->spend($card, $category, $amount);
+
+        // `spend()` để service tự sinh kỳ; test này cần kỳ có sẵn với số liệu
+        // engine ghi sẵn nên gắn giao dịch vào kỳ đó.
+        Transaction::query()
+            ->where('user_card_id', $card->id)
+            ->latest('id')
+            ->firstOrFail()
+            ->forceFill(['statement_period_id' => $period->id])
+            ->save();
+    }
+
+    /**
+     * Thêm rule thẳng vào một bậc.
+     *
+     * `makePolicyForCard()` chỉ nhận rule theo DANH MỤC (`category_id`), còn
+     * combo và rule fallback cần `combo_id` / `scope_type` nên phải tự tạo —
+     * đúng như trong `CashbackQuotaTest`.
+     */
+    private function addRule(UserCard $card, int $tierIndex, array $attributes): PolicyTierCategory
+    {
+        $tier = PolicyTier::query()
+            ->where('policy_id', $card->current_policy_id)
+            ->orderBy('sort_order')
+            ->skip($tierIndex)
+            ->firstOrFail();
+
+        return PolicyTierCategory::create(array_merge([
+            'tier_id' => $tier->id,
+            'scope_type' => PolicyTierCategory::SCOPE_CATEGORY,
+            'category_id' => null,
+            'cashback_percent' => '5.000',
+            'spend_from' => '0.00',
+            'spend_to' => null,
+            'is_enabled' => true,
+            'counts_toward_tier_cap' => true,
+            'is_quota_category' => false,
+        ], $attributes));
+    }
+
+    /**
+     * Giao dịch đi qua service thật để chắc chắn nó được gắn kỳ + snapshot chính
+     * sách — tạo bản ghi `Transaction` trần sẽ không có những thứ đó và số liệu
+     * Tổng quan sẽ lệch.
+     */
+    private function spend(UserCard $card, Category $category, string $amount): void
+    {
+        [$start] = app(StatementPeriodService::class)->currentBoundaries($card, CarbonImmutable::now());
+
+        $date = CarbonImmutable::now()->subDay();
+
+        if ($date->lessThan($start)) {
+            $date = $start;
+        }
+
+        app(CreditCardTransactionService::class)->create($card, [
+            'transaction_date' => $date->toDateString(),
+            'amount' => $amount,
+            'category_id' => $category->id,
+        ]);
+    }
+
+    /** Bóc đúng markup của dòng quota thứ `$index` để soi một dòng, không soi cả trang. */
+    private function quotaRowOf(string $html, int $index = 0): string
+    {
+        $position = false;
+        $offset = 0;
+
+        for ($i = 0; $i <= $index; $i++) {
+            $position = strpos($html, 'data-testid="card-quota-row"', $offset);
+            $this->assertNotFalse($position, 'Không tìm thấy dòng quota #'.$index.'.');
+            $offset = $position + 1;
+        }
+
+        $end = strpos($html, '</li>', (int) $position);
+        $this->assertNotFalse($end, 'Dòng quota không đóng.');
+
+        return substr($html, (int) $position, $end - (int) $position);
+    }
+
+    /**
+     * Bóc payload Alpine để đọc số liệu từng thẻ server đã gửi xuống.
+     *
+     * `@js()` escape hai lớp nên phải giải mã: string literal → JSON → mảng.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function metricsOf(string $html): array
+    {
+        $this->assertSame(
+            1,
+            preg_match("/x-data=\"creditCardOverview\(JSON\.parse\('(.*)'\)\)\"/", $html, $matches),
+            'Không tìm thấy payload Alpine của trang Tổng quan.'
+        );
+
+        $json = json_decode('"'.$matches[1].'"', true);
+        $decoded = json_decode($json, true);
+
+        $this->assertIsArray($decoded);
+
+        return $decoded['card_metrics'];
+    }
+}

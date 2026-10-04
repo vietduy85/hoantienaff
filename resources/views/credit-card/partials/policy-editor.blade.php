@@ -137,6 +137,18 @@
                 </select>
             </div>
             @endif
+            @if ($showPolicyMeta)
+            <div class="sm:col-span-2">
+                <label class="block text-sm font-medium text-gray-700" for="cc-sp-min">Chi tiêu tối thiểu để được hoàn tiền</label>
+                <div class="relative mt-1">
+                    <input id="cc-sp-min" type="number" min="0" step="0.01"
+                           x-model.number="{{ $p }}meta.min_total_spend" :disabled="{{ $p }}viewMode"
+                           class="block w-full rounded-xl border-gray-300 pr-10 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
+                    <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-gray-500">đ</span>
+                </div>
+                <p class="mt-1 text-xs text-gray-500">Chỉ dùng để đánh dấu vạch Min trên thanh chi tiêu.</p>
+            </div>
+            @endif
         </div>
     </div>
     @endif
@@ -483,6 +495,13 @@
                 description: initial.description ?? '',
                 effective_from: initial.effective_from ?? '',
                 status: initial.status ?? 'published',
+                // Vạch Min của VERSION (khác `tiers[].min_total_spend` là ngưỡng bậc).
+                // `null` = MÀN CHA KHÔNG QUẢN LÝ field này (form Thẻ gọi
+                // `policyEditorState()` mà không truyền key) ⇒ `versionConfig()` KHÔNG
+                // gửi khoá, nên form Thẻ giữ nguyên hành vi cũ. Màn có ô nhập (trang
+                // quản trị) luôn hydrate từ `initial.min_total_spend` nên không rơi
+                // vào nhánh này. Ô trống khi đã mở editor ⇒ `''` ⇒ `num()` ra null.
+                min_total_spend: initial.min_total_spend ?? null,
             },
             // Cấu trúc canonical `tiers[].rules` được giữ NGUYÊN từ presenter vet qua editor.
             // Giữ cả `id` của tier/rule để "Lưu lại" (PATCH) cập nhật in-place đúng dòng.
@@ -706,7 +725,7 @@
             // Cấu hình thuộc VERSION — thân của "Lưu lại" (PATCH versions.update) và
             // cũng là phần `tiers` mà form Thẻ gửi kèm. Một hàm, hai nơi dùng.
             versionConfig() {
-                return {
+                const config = {
                     effective_from: this.meta.effective_from,
                     tiers: this.tiers.map((tier, ti) => ({
                         id: tier.id ?? null,
@@ -754,6 +773,16 @@
                         }),
                     })),
                 };
+
+                // Vạch-Min-Spend đi kèm CẢ "Lưu lại" lẫn "Lưu phiên bản mới" vì cả hai
+                // đều lấy chung `versionConfig()`. Chỉ gửi khi màn cha thực sự có ô nhập
+                // (`meta.min_total_spend !== null`); form Thẻ không có ô này nên hành vi
+                // của form Thẻ giữ nguyên — không gửi khoá ⇒ không đụng dữ liệu.
+                if (this.meta.min_total_spend !== null) {
+                    config.min_total_spend = this.num(this.meta.min_total_spend);
+                }
+
+                return config;
             },
         };
     };
