@@ -529,6 +529,11 @@
                                 // "Tên chính sách"/"Ngày bắt đầu" do mẹ quyết định (tên hiện ở
                                 // tóm tắt, ngày lấy theo kỳ sao kê) ⇒ không cho gõ tay.
                                 'showPolicyMeta' => false,
+                                // Vạch Min-Spend thì NGƯỜI DÙNG được gõ: copy từ mẫu
+                                // rồi chỉnh riêng cho thẻ này. Ô này nằm ngoài
+                                // `$showPolicyMeta` nên bật riêng, không mở lại
+                                // "Tên chính sách"/"Ngày bắt đầu".
+                                'showMinSpend' => true,
                             ])
                         </div>
                     </template>
@@ -1129,6 +1134,12 @@
                                     || this.form.statement_period_start
                                     || localToday(),
                                 status: source?.status ?? 'published',
+                                // Vạch Min-Spend của chính policy/version nạp về:
+                                // chọn mẫu thì lấy mặc định của mẫu, sửa thẻ thì lấy
+                                // giá trị RIÊNG đang áp dụng cho thẻ (không rơi về
+                                // System Policy). Cả hai API (`mau-chinh-sach/{id}`
+                                // và `cards/{card}/{version}`) đã trả khoá này.
+                                min_total_spend: source?.min_total_spend ?? null,
                                 tiers: source?.tiers ?? [],
                             },
                             this.ruleCategories,

@@ -51,6 +51,10 @@ use InvalidArgumentException;
  * append-only của `PolicyCloneService`: bấm "Lưu thẻ" là chỉnh lại cấu hình của
  * chính mình, sinh version mới mỗi lần sẽ đầy lịch sử bản trùng nội dung. Xem
  * `PolicyService::updateCurrentVersionInPlace()` để biết chỗ nào vẫn bất biến.
+ *
+ * `$policy['min_total_spend']` (Vạch Min-Spend) đi theo CâNG version đó, nên:
+ * thẻ luôn có policy RIÊNG (clone từ mẫu) nên chỉnh Min trên thẻ KHÔNG đụng
+ * System Policy — thẻ khác chọn lại mẫu đó vẫn nhận giá trị mặc định của mẫu.
  */
 class CardPolicySaveService
 {
@@ -108,15 +112,28 @@ class CardPolicySaveService
         $tiers = $policy['tiers'] ?? null;
         $effectiveFrom = $this->effectiveFrom($policy['effective_from'] ?? null);
 
+        // Vạch Min-Spend của version (khác `tiers[].min_total_spend` là ngưỡng bậc).
+        // CHỈ đưa vào payload khi form gửi khoá: form đã có ô nhập thì gửi, còn
+        // payload không có khoá thì service con rơi về giá trị mẫu — đúng hành vi cũ,
+        // không bị ghi đè. Ô để trống ⇒ 0 (xoá vạch Min); cột `min_total_spend`
+        // NOT NULL nên chuẩn hoá ngay ở đây thay vì đẩy `null` xuống tầng dưới.
+        $minTotalSpend = array_key_exists('min_total_spend', $policy)
+            ? ['min_total_spend' => $policy['min_total_spend'] ?? 0]
+            : [];
+
         if ($templateId !== null) {
             // `cloneUserTemplate` tự phân nhánh system/own-user và từ chối
             // template của user khác — nhận luôn id client nhưng không tin nó.
+            // `$tiers === null` ⇒ chỉ chọn mẫu, KHÔNG đụng blueprint; có tiers ⇒
+            // clone rồi ghi đè cấu hình đã sửa, vẫn ra đúng MỘT version.
             $this->policies->cloneUserTemplate(
                 $card,
                 (int) $templateId,
                 $effectiveFrom,
                 $policy['name'] ?? null,
-                $tiers === null ? [] : ['tiers' => $tiers],
+                $tiers === null
+                    ? $minTotalSpend
+                    : ['tiers' => $tiers] + $minTotalSpend,
             );
 
             return;
@@ -132,7 +149,7 @@ class CardPolicySaveService
             $this->policies->createFromScratch($card, $effectiveFrom, [
                 'name' => $policy['name'] ?? 'Chính sách của tôi',
                 'tiers' => $tiers,
-            ]);
+            ] + $minTotalSpend);
 
             return;
         }
@@ -143,7 +160,7 @@ class CardPolicySaveService
             $this->policies->createFromScratch($card, $effectiveFrom, [
                 'name' => $policy['name'] ?? 'Chính sách của tôi',
                 'tiers' => $tiers,
-            ]);
+            ] + $minTotalSpend);
 
             return;
         }
@@ -156,7 +173,7 @@ class CardPolicySaveService
         $this->policies->updateCurrentVersionInPlace($card, [
             'name' => $policy['name'] ?? null,
             'tiers' => $tiers,
-        ]);
+        ] + $minTotalSpend);
     }
 
     /**

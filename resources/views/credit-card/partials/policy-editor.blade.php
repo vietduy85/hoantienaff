@@ -39,6 +39,11 @@
                               Màn chào mừng thẻ dùng policy nên hai ô này chỉ làm rối:
                               tên hiện ở tóm tắt, còn ngày bắt đầu lấy theo kỳ sao kê.
                               Giá trị vẫn nằm trong state nên payload không đổi.
+      $showMinSpend     ?bool  null ⇒ theo `$showPolicyMeta`. Form Thẻ truyền `true`:
+                              có ô "Chi tiêu tối thiểu để được hoàn tiền" (Vạch Min-Spend)
+                              để user chỉnh riêng cho thẻ, nhưng vẫn ẩn "Tên chính sách"/
+                              "Ngày bắt đầu". Cùng state `meta.min_total_spend` và cùng
+                              payload `versionConfig()` với màn quản trị.
       $redirectUrl     ?string URL quay về sau khi lưu (nút Hủy + fallback khi API trả 200).
 
     ---------------------------------------------------------------------------
@@ -75,6 +80,11 @@
     $hosted = $hosted ?? false;
     $showTemplateMeta = $showTemplateMeta ?? true;
     $showPolicyMeta = $showPolicyMeta ?? true;
+    // Ô "Chi tiêu tối thiểu để được hoàn tiền" (Vạch Min-Spend) tách khỏi
+    // `$showPolicyMeta` vì form Thẻ CẦN ô này nhưng KHÔNG cần "Tên chính sách"/
+    // "Ngày bắt đầu hiệu lực". Mặc định theo `$showPolicyMeta` ⇒ màn quản trị
+    // (cờ không truyền) giữ nguyên hành vi cũ, chỉ form Thẻ bật riêng ô Min.
+    $showMinSpend = $showMinSpend ?? $showPolicyMeta;
     $redirectUrl = $redirectUrl ?? null;
     $scopePrefix = $scopePrefix ?? ($hosted ? 'policyEditor.' : '');
     $p = $scopePrefix;
@@ -99,7 +109,7 @@
          role="alert" x-text="{{ $p }}error"></div>
 
     {{-- Metadata chính sách. Ẩn trọn khối khi màn cha không cần ô nào. --}}
-    @if ($showPolicyMeta || $showTemplateMeta)
+    @if ($showPolicyMeta || $showTemplateMeta || $showMinSpend)
     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-5 space-y-3">
         <h3 class="font-semibold text-gray-800 text-sm">Thông tin chính sách</h3>
 
@@ -137,16 +147,25 @@
                 </select>
             </div>
             @endif
-            @if ($showPolicyMeta)
+            @if ($showMinSpend)
             <div class="sm:col-span-2">
                 <label class="block text-sm font-medium text-gray-700" for="cc-sp-min">Chi tiêu tối thiểu để được hoàn tiền</label>
                 <div class="relative mt-1">
                     <input id="cc-sp-min" type="number" min="0" step="0.01"
                            x-model.number="{{ $p }}meta.min_total_spend" :disabled="{{ $p }}viewMode"
+                           data-testid="min-total-spend"
                            class="block w-full rounded-xl border-gray-300 pr-10 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
                     <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-gray-500">đ</span>
                 </div>
-                <p class="mt-1 text-xs text-gray-500">Chỉ dùng để đánh dấu vạch Min trên thanh chi tiêu.</p>
+                <p class="mt-1 text-xs text-gray-500">
+                    {{-- Form Thẻ (hosted) chỉnh riêng được nên câu gợi ý nói rõ điều đó;
+                         màn quản trị giữ nguyên câu cũ. --}}
+                    @if ($hosted)
+                        Vạch Min-Spend của thẻ. Bạn có thể điều chỉnh riêng cho thẻ này.
+                    @else
+                        Chỉ dùng để đánh dấu vạch Min trên thanh chi tiêu.
+                    @endif
+                </p>
             </div>
             @endif
         </div>

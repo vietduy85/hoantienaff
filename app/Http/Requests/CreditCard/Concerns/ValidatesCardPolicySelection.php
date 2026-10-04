@@ -53,6 +53,11 @@ trait ValidatesCardPolicySelection
                 Rule::exists(PolicyTemplate::class, 'id'),
             ],
             "{$prefix}policy.effective_from" => ['nullable', 'date_format:Y-m-d'],
+            // Vạch Min-Spend của VERSION (khác `tiers[].min_total_spend` là ngưỡng bậc).
+            // Ô nhập trong form Thẻ nên phải khai báo ở đây, nếu không khoá này lọt
+            // xuống tầng service ⇒ form gửi lên 5.000.000 nhưng lưu tạm 3.000.000
+            // (service rơi về giá trị mẫu).
+            "{$prefix}policy.min_total_spend" => ['sometimes', 'nullable', 'numeric', 'min:0'],
             "{$prefix}policy.name" => ['nullable', 'string', 'max:150'],
 
             "{$prefix}policy.tiers" => ['sometimes', 'nullable', 'array'],
@@ -113,6 +118,8 @@ trait ValidatesCardPolicySelection
             'policy.template_id.integer' => 'Mẫu chính sách không hợp lệ.',
             'policy.template_id.exists' => 'Mẫu chính sách không tồn tại.',
             'policy.effective_from.date_format' => 'Ngày hiệu lực của chính sách không hợp lệ.',
+            'policy.min_total_spend.min' => 'Chi tiêu tối thiểu không được âm.',
+            'policy.min_total_spend.numeric' => 'Chi tiêu tối thiểu phải là số.',
             'policy.name.max' => 'Tên chính sách không được vượt quá 150 ký tự.',
             'policy.tiers.*.rules.*.sort_order.integer' => 'Thứ tự quy tắc không hợp lệ.',
             'policy.tiers.*.rules.*.note.max' => 'Ghi chú của quy tắc quá dài.',
@@ -163,6 +170,12 @@ trait ValidatesCardPolicySelection
 
         if (isset($policy['name']) && is_string($policy['name']) && trim($policy['name']) !== '') {
             $selection['name'] = trim($policy['name']);
+        }
+
+        // Ô trống = "không có vạch Min" ⇒ `null`, KHÁC với không gửi khoá (form
+        // không quản lý ô này ⇒ giữ nguyên giá trị đang có).
+        if (array_key_exists('min_total_spend', $policy) && $policy['min_total_spend'] !== '') {
+            $selection['min_total_spend'] = $policy['min_total_spend'];
         }
 
         if (isset($policy['tiers']) && is_array($policy['tiers'])) {

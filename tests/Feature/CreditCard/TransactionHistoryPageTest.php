@@ -234,22 +234,29 @@ class TransactionHistoryPageTest extends TestCase
     }
 
     #[Test]
-    public function editing_a_date_outside_the_current_period_is_rejected(): void
+    public function editing_a_date_to_any_past_date_moves_it_to_that_statement_period(): void
     {
         $card = $this->cardWithTransactions();
         $category = $this->makeSystemCategory();
         $transaction = $this->createTransaction($card, $category, '45000', 'Cà phê');
 
-        $originalDate = $transaction->transaction_date->toDateString();
+        // Ngày ở kỳ đã qua vẫn sửa được — ngày giao dịch độc lập với kỳ hiện tại.
+        $past = CarbonImmutable::now()->subMonths(2)->startOfMonth();
 
         $this->actingAs($this->owner)
             ->patchJson(route('credit-cards.api.transactions.update', $transaction->id), [
-                'transaction_date' => CarbonImmutable::now()->subMonths(2)->startOfMonth()->toDateString(),
+                'transaction_date' => $past->toDateString(),
             ])
-            ->assertStatus(422)
-            ->assertJsonValidationErrors('transaction_date');
+            ->assertOk();
 
-        $this->assertSame($originalDate, $transaction->refresh()->transaction_date->toDateString());
+        $transaction->refresh();
+
+        $this->assertSame($past->toDateString(), $transaction->transaction_date->toDateString());
+
+        // Kỳ được suy ra lại từ ngày mới, không phải kỳ cũ.
+        $period = $transaction->statementPeriod;
+        $this->assertNotNull($period);
+        $this->assertTrue($period->contains($past));
     }
 
     #[Test]

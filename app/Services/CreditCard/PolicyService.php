@@ -215,7 +215,7 @@ class PolicyService
      * `effective_from` CỐ Ý KHÔNG đổi: version đã chạy từ ngày nào thì giữ nguyên,
      * nếu không giao dịch kỳ trước sẽ bị áp nhầm cấu hình mới.
      *
-     * @param  array<string, mixed>  $overrides  `name` (tuỳ chọn) + `tiers`
+     * @param  array<string, mixed>  $overrides  `name` (tuỳ chọn) + `tiers` + `min_total_spend` (tuỳ chọn)
      */
     public function updateCurrentVersionInPlace(UserCard $userCard, array $overrides = []): PolicyVersion
     {
@@ -244,6 +244,16 @@ class PolicyService
 
             if (array_key_exists('name', $overrides) && $overrides['name'] !== null) {
                 $version->forceFill(['name' => trim((string) $overrides['name'])])->save();
+            }
+
+            // Vạch Min-Spend của version: chỉnh riêng cho thẻ nên KHÔNG tạo version
+            // mới (giống tên/tier). Có khoá trong overrides ⇒ form Thẻ gửi ô này;
+            // không có ⇒ giữ nguyên giá trị đang chạy. Ô trống ⇒ 0 = xoá vạch Min
+            // (cột `min_total_spend` NOT NULL, nên `?? 0` chứ không đưa null xuống DB).
+            if (array_key_exists('min_total_spend', $overrides)) {
+                $version->forceFill([
+                    'min_total_spend' => $this->money($overrides['min_total_spend'] ?? 0),
+                ])->save();
             }
 
             $userCard->unsetRelation('currentPolicy');

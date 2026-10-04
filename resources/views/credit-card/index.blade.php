@@ -31,9 +31,8 @@
         // Dữ liệu cho Alpine. Tiền gửi dạng CHUỖI (xem CreditCardOverviewService)
         // để không mất chính xác khi đi qua JSON; chỉ định dạng khi hiển thị.
         //
-        // `cards` chỉ gồm thẻ CÒN NHẬN GIAO DỊCH (ô chọn của form) và mang kèm
-        // ranh giới kỳ hiện tại để ô ngày giới hạn min/max theo đúng thẻ đang
-        // chọn. Danh sách thẻ bên dưới dùng `cardRows` nên vẫn hiện thẻ đã đóng.
+        // `cards` chỉ gồm thẻ CÒN NHẬN GIAO DỊCH (ô chọn của form). Danh sách thẻ
+        // bên dưới dùng `cardRows` nên vẫn hiện thẻ đã đóng.
         $overviewState = [
             'summary' => [
                 'total_cards' => (int) $summary['total_cards'],
@@ -48,8 +47,8 @@
                 // CHỈ 4 số cuối. Module không lưu số thẻ đầy đủ ở đâu cả, và §15
                 // cấm hiển thị full card number.
                 'last4' => $card->card_number_last4,
-                // Ranh giới kỳ sao kê hiện tại — tính thuần từ `statement_day`,
-                // nên thẻ chưa có kỳ nào trong DB vẫn có min/max đúng.
+                // Ranh giới kỳ sao kê HIỆN TẠI. Gửi xuống để hiển thị, KHÔNG
+                // dùng để giới hạn ô ngày giao dịch — ngày giao dịch tự do.
                 'period_start' => $periodBounds[$card->id]['start'] ?? null,
                 'period_end' => $periodBounds[$card->id]['end'] ?? null,
             ])->values()->all(),
@@ -214,16 +213,18 @@
                 </div>
 
                 {{-- Ngày giao dịch: ĐẦU TIÊN vì mọi thứ còn lại (kỳ sao kế, bậc,
-                     quota) đều bám theo ngày này. Mặc định hôm nay, min/max theo
-                     kỳ hiện tại của thẻ đang chọn — server còn chặn lại một lần nữa
-                     ở `StoreTransactionRequest`. --}}
+                     quota) đều bám theo ngày này.
+                     KHÔNG giới hạn: không `min`/`max`, không khoá theo kỳ sao kê,
+                     không chặn ngày tương lai. Người dùng chọn BẤT KỲ ngày nào;
+                     `StatementPeriodService::resolvePeriodForDate()` tự suy ra
+                     kỳ chứa ngày đó (luồng import Excel vốn đã vậy). Mặc định
+                     hôm nay chỉ là TIỆN ÍCH, không phải ràng buộc. --}}
                 <div class="space-y-1.5">
                     <label for="tx-transaction-date" class="block text-sm font-semibold text-gray-700">Ngày giao dịch</label>
                     <input id="tx-transaction-date" type="date" required
-                           :min="periodStart()" :max="periodEnd()"
                            x-model="form.transaction_date"
                            class="w-full h-12 rounded-xl border-gray-300 text-base px-4 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
-                    <p class="text-xs text-gray-500" x-text="periodHint()"></p>
+                    <p class="text-xs text-gray-500">Kỳ sao kê được tự xác định theo ngày đã chọn.</p>
                     <p class="text-xs text-red-600" x-show="fieldErrors.transaction_date" x-cloak x-text="fieldErrors.transaction_date"></p>
                 </div>
 
@@ -236,11 +237,11 @@
                     <p class="text-xs text-red-600" x-show="fieldErrors.amount" x-cloak x-text="fieldErrors.amount"></p>
                 </div>
 
-                {{-- Thẻ: chỉ thẻ CÒN DÙNG ĐƯỢC của chính user. Đổi thẻ ⇒ đổi kỳ
-                     sao kê ⇒ ngày phải kiểm tra lại (`syncDateBounds`). --}}
+                {{-- Thẻ: chỉ thẻ CÒN DÙNG ĐƯỢC của chính user. Ngày giao dịch độc
+                     lập với thẻ nên đổi thẻ KHÔNG cần chỉnh lại ngày. --}}
                 <div class="space-y-1.5">
                     <label for="tx-card" class="block text-sm font-semibold text-gray-700">Thẻ tín dụng</label>
-                    <select id="tx-card" x-model="form.user_card_id" required @change="syncDateBounds()"
+                    <select id="tx-card" x-model="form.user_card_id" required
                             class="w-full h-12 rounded-xl border-gray-300 text-base px-4 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
                         <option value="">— Chọn thẻ —</option>
                         <template x-for="card in cards" :key="card.id">
@@ -431,29 +432,36 @@
                                 <div class="relative h-3 rounded-full bg-gray-100 border border-gray-200/80 overflow-hidden"
                                      data-testid="card-progress-track">
 
-                                    {{-- Màu theo đúng cổng của engine: CAM = chưa đạt mức
-                                         tối thiểu, XANH = đã đạt. So sánh bằng `eligible_spend`
-                                         (số engine dùng) chứ không phải tổng chi tiêu — nếu so
-                                         tổng chi tiêu, thẻ có giao dịch không đủ điều kiện sẽ
-                                         hiện xanh trong khi engine vẫn trả 0đ. --}}
+                                    {{-- Màu theo THỨ TỰ ƯU TIÊN:
+                                         1. VƯỢT mức chi tiêu mong muốn  → TÍM
+                                         2. CHƯA đạt Vạch-Min-Spend      → CAM
+                                         3. Đã đạt Min, chưa vượt      → XANH
+                                         Cả hai ngưỡng — Vạch-Min-Spend lẫn
+                                         mức chi tiêu — đều so trên đúng số
+                                         `spent` mà thanh này đang đo và dòng
+                                         "Chi tiêu" in ra, nên người dùng đối
+                                         chiếu được bằng mắt: thanh chưa tới
+                                         vạch đỏ thì đang CAM. --}}
                                     <div class="h-full rounded-full transition-[width] duration-300"
                                          data-testid="card-progress-bar"
                                          style="width: {{ $progressWidth }}%"
                                          :style="'width:' + progressWidth(@js($cardKey)) + '%'"
-                                         :class="meetsMinimumFor(@js($cardKey))
-                                             ? (isOverGoal(@js($cardKey)) ? 'bg-emerald-600' : 'bg-emerald-500')
-                                             : 'bg-amber-500'"></div>
+                                         :class="isOverGoal(@js($cardKey))
+                                             ? 'bg-purple-500'
+                                             : (meetsMinimumFor(@js($cardKey)) ? 'bg-emerald-500' : 'bg-amber-500')"></div>
 
-                                    {{-- Vượt mục tiêu: thanh kẹp 100% và đánh dấu bằng một
-                                         đoạn đặc biệt ở cuối, KHÔNG cho thanh dài hơn 100%
-                                         (sẽ tràn ngang trên điện thoại). --}}
-                                    <span class="absolute inset-y-0 right-0 w-1.5 bg-emerald-700"
+                                    {{-- Vượt mục tiêu: thanh kẹp 100% và màu TÍM — KHÔNG cho
+                                         thanh dài hơn 100% (sẽ tràn ngang trên điện thoại).
+                                         Đoạn cuối này luôn TÍM vì `x-show` chỉ mở khi đã
+                                         vượt; trạng thái "đã vượt" do dòng chữ bên dưới nói. --}}
+                                    <span class="absolute inset-y-0 right-0 w-1.5 bg-purple-500"
                                           data-testid="card-progress-overflow"
                                           x-show="isOverGoal(@js($cardKey))"
-                                          :class="meetsMinimumFor(@js($cardKey)) ? 'bg-emerald-700' : 'bg-amber-600'"
                                           aria-hidden="true"></span>
 
-                                    {{-- Vạch đỏ: vị trí ngưỡng tối thiểu trên thanh. --}}
+                                    {{-- Vạch đỏ: vị trí Vạch-Min-Spend lưu trong policy của thẻ đó. Chỉ vẽ
+                                         khi ngưỡng > 0; vị trí = ngưỡng / mục tiêu, kẹp
+                                         [0, 100] nên không tràn ra ngoài ô chứa. --}}
                                     @if ($hasMinimum)
                                         <span class="absolute inset-y-0 w-0.5 bg-red-500"
                                               data-testid="card-minimum-marker"
@@ -469,7 +477,7 @@
                                      ô "Cashback" sẽ nuốt mất thông báo này. `x-show` thay
                                      vì `@if` để nó còn đúng sau khi lưu giao dịch, khi
                                      server chưa render lại trang. --}}
-                                <span class="mt-0.5 block text-[11px] font-medium text-emerald-600"
+                                <span class="mt-0.5 block text-[11px] font-medium text-purple-600"
                                       data-testid="card-progress-goal-state"
                                       x-show="isOverGoal(@js($cardKey))">Đã vượt mục tiêu</span>
                             @endif
@@ -501,15 +509,18 @@
                             </div>
 
                             {{-- ═══ CASHBACK DỰ KIẾN ═══
-                                 Mẫu số là trần CHUNG của BẬC ĐÍCH — bậc chọn theo
-                                 `desired_spend` ở Phase 2, không phải theo chi tiêu thực. --}}
+                                 Cả tử số lẫn mẫu số đều theo BẬC ĐÍCH — bậc chọn
+                                 theo `desired_spend`, không phải theo chi tiêu thực tế.
+                                 Tử số là `expected_cashback` (server nhân CHI TIÊU
+                                 THỰC TẾ với rate của bậc đích, đã kẹp theo trần
+                                 bậc); mẫu số là trần chung của chính bậc đó. --}}
                             <div class="flex items-baseline justify-between gap-2 text-sm min-w-0"
                                  x-show="showSection('cashback')"
                                  data-testid="card-cashback-row">
                                 <span class="min-w-0 truncate">
                                     <span class="text-gray-500">Cashback dự kiến :</span>
                                     <span class="font-bold text-gray-900 tabular-nums"
-                                          x-text="ccMoney(metricFor(@js($cardKey), 'cashback')) + ' đ'"><x-credit-card.money :value="$metrics['cashback'] ?? '0.00'" /></span>
+                                          x-text="ccMoney(metricFor(@js($cardKey), 'expected_cashback')) + ' đ'"><x-credit-card.money :value="$metrics['expected_cashback'] ?? '0.00'" /></span>
                                     @if ($hasTierCashbackMax)
                                         <span class="text-gray-500 tabular-nums"
                                               x-text="' / ' + ccMoney(tierCashbackMax(@js($cardKey))) + ' đ'">/<x-credit-card.money :value="$tierCashbackMax" /></span>
@@ -740,56 +751,11 @@
                         return this.cards.find((card) => String(card.id) === String(this.form.user_card_id)) ?? null;
                     },
 
-                    /** Ranh giới kỳ sao kê hiện tại của thẻ đang chọn. Server tính
-                     *  sẵn nên hàm này không có công thức ngày nào. */
-                    periodStart() {
-                        return this.selectedCard()?.period_start ?? this.today;
-                    },
-
-                    periodEnd() {
-                        return this.selectedCard()?.period_end ?? this.today;
-                    },
-
-                    /** Dòng nhắc ngày dưới ô ngày — thay cho khối nhắc mốc chi tiêu
-                     *  đã bỏ: nói rõ kỳ đang ghi thay vì nhắc một mốc phụ. */
-                    periodHint() {
-                        const card = this.selectedCard();
-
-                        if (!card?.period_start || !card?.period_end) {
-                            return 'Chọn thẻ để xem kỳ sao kê hiện tại.';
-                        }
-
-                        return 'Kỳ ' + this.ccDay(card.period_start) + ' – ' + this.ccDay(card.period_end);
-                    },
-
-                    /** Định dạng ngày ngắn gọn cho nhãn; không cần thư viện ngoài. */
-                    ccDay(value) {
-                        if (!value) return '—';
-
-                        const parts = String(value).split('-');
-
-                        if (parts.length !== 3) return value;
-
-                        return parts[2] + '/' + parts[1];
-                    },
-
                     /**
-                     * Đổi thẻ ⇒ đổi kỳ sao kê ⇒ ngày đã chọn có thể nằm ngoài kỳ mới.
-                     * Đưa về hôm nay (luôn thuộc kỳ hiện tại) và báo lý do, thay vì
-                     * để người dùng bấm Lưu rồi mới nhận lỗi 422.
+                     * Ranh giới kỳ sao kê hiện tại (`period_start`/`period_end`) vẫn
+                     * được server gửi xuống nhưng CỐT ý KHÔNG dùng để chặn ngày:
+                     * ngày giao dịch là dữ liệu độc lập, mọi ngày đều hợp lệ.
                      */
-                    syncDateBounds() {
-                        const card = this.selectedCard();
-
-                        if (!card?.period_start || !card?.period_end) return;
-
-                        const date = this.form.transaction_date;
-
-                        if (date >= card.period_start && date <= card.period_end) return;
-
-                        this.form.transaction_date = this.today;
-                        this.notice = 'Ngày đã được đưa về hôm nay vì nằm ngoài kỳ sao kê của thẻ vừa chọn.';
-                    },
 
                     /** Số liệu từng thẻ từ server. Khoá JSON là chuỗi. */
                     metricFor(id, key) {
@@ -846,17 +812,24 @@
                         return Math.max(0, Math.min(100, value));
                     },
 
-                    /** Đã vượt mục tiêu chi tiêu chưa? */
+                    /**
+                     * Đã vượt mục tiêu chi tiêu chưa?
+                     *
+                     * Đọc giá trị CHƯA kẹp của server (`progress_percent`), vì thanh chỉ
+                     * kẹp ở `percentOf()`. Vượt ngưỡng này thì ưu tiên màu TÍM, bất kể
+                     * đã đạt vạch Min hay chưa.
+                     */
                     isOverGoal(id) {
                         return Number(this.metricFor(id, 'progress_percent')) > 100;
                     },
 
                     /**
-                     * Đã đạt mức tối thiểu để nhận hoàn tiền chưa?
+                     * Đã đạt Vạch-Min-Spend để sang màu xanh chưa?
                      *
-                     * Server đã so sẵn bằng đúng điều kiện của engine
-                     * (`eligible_spend >= min_total_spend`); đây chỉ đọc kết quả.
-                     * Thẻ không có ngưỡng tối thiểu thì coi như đạt → màu xanh bình thường.
+                     * Server đã so sẵn (`spent >= min_total_spend`, với
+                     * `min_total_spend` đọc từ policy riêng của thẻ); đây chỉ đọc
+                     * kết quả. Thẻ không có Vạch-Min-Spend (`has_minimum` = false)
+                     * thì `meets_minimum` luôn true → màu xanh bình thường.
                      */
                     meetsMinimumFor(id) {
                         return this.metricFor(id, 'meets_minimum') !== false;
@@ -873,10 +846,9 @@
                             this.form.user_card_id = this.cards[0].id;
                         }
 
-                        // Ngày luôn bắt đầu từ hôm nay rồi mới kiểm tra theo kỳ
-                        // của thẻ đang chọn.
+                        // Ngày mặc định là hôm nay — TIỆN ÍCH cho người dùng, không
+                        // phải ràng buộc: sau đó họ chọn ngày nào cũng được.
                         this.form.transaction_date = this.today;
-                        this.syncDateBounds();
                         this.formOpen = true;
                     },
 
@@ -895,6 +867,10 @@
                      * và thuộc luồng khác (import Excel) — form nhập tay không cho
                      * gõ, server cũng chặn (`gt:0` trong `StoreTransactionRequest`).
                      *
+                     * Ngày giao dịch CHỈ cần có mặt. KHÔNG so ngày với kỳ sao kê
+                     * và không so với hôm nay: người dùng được chọn bất kỳ ngày nào,
+                     * server tự suy ra kỳ chứa ngày đó.
+                     *
                      * Server vẫn validate lại — kiểm tra ở đây chỉ để báo lỗi nhanh,
                      * không phải để tin cậy.
                      */
@@ -908,8 +884,6 @@
 
                         if (!this.form.transaction_date) {
                             errors.transaction_date = 'Vui lòng chọn ngày giao dịch.';
-                        } else if (!this.isDateInSelectedPeriod(this.form.transaction_date)) {
-                            errors.transaction_date = 'Ngày phải nằm trong kỳ sao kê hiện tại của thẻ đã chọn.';
                         }
 
                         if (!this.form.category_id) {
@@ -923,15 +897,6 @@
                         this.fieldErrors = errors;
 
                         return Object.keys(errors).length === 0;
-                    },
-
-                    isDateInSelectedPeriod(date) {
-                        const card = this.selectedCard();
-
-                        // Chưa chọn thẻ thì để lỗi "chọn thẻ" lo, không bắt lỗi ngày.
-                        if (!card?.period_start || !card?.period_end) return true;
-
-                        return date >= card.period_start && date <= card.period_end;
                     },
 
                     async submit() {

@@ -2,10 +2,7 @@
 
 namespace App\Http\Requests\CreditCard;
 
-use App\Http\Requests\CreditCard\Concerns\ValidatesTransactionDateInCurrentPeriod;
 use App\Models\CreditCard\Category;
-use App\Models\CreditCard\Transaction;
-use App\Models\CreditCard\UserCard;
 use Closure;
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -15,17 +12,19 @@ use Illuminate\Foundation\Http\FormRequest;
  * KHÔNG cho đổi `user_card_id`: giao dịch không di chuyển giữa các thẻ.
  *
  * ---------------------------------------------------------------------------
- * NGÀY VẪN PHẢI THUỘC KỲ HIỆN TẠI
+ * NGÀY SỬA CŨNG TỰ DO — KHÔNG GIỚI HẠN THEO KỲ SAO KẾ
  * ---------------------------------------------------------------------------
- * Sửa cũng dùng chung rule với thêm mới (`ValidatesTransactionDateInCurrentPeriod`)
- * và lấy thẻ từ chính giao dịch, không từ payload — nên không có đường vừa sửa ngày
- * vừa đổi thẻ để lách rule. Lưu ý: nếu chỉ sửa SỐ TIỀN/DANH MỤC/GHI CHÚ mà
- * không gửi `transaction_date` thì rule không chạy, đúng như PATCH một phần.
+ * Sửa ngày cũng chỉ cần `required` + `date_format:Y-m-d`, không so với kỳ sao kê
+ * hiện tại (đã bỏ closure rule `ValidatesTransactionDateInCurrentPeriod`).
+ *
+ * `CreditCardTransactionService::update()` tự ép `statement_period_id = null` khi
+ * ngày đổi rồi gọi lại `CashbackRecordService::calculateTransaction()`, nên kỳ
+ * được suy ra lại từ ngày mới và kỳ cũ được tính lại. Nếu chỉ sửa SỐ TIỀN/DANH
+ * MỤC/GHI CHÚ mà không gửi `transaction_date` thì không có gì phải resolve lại,
+ * đúng như PATCH một phần.
  */
 class UpdateTransactionRequest extends FormRequest
 {
-    use ValidatesTransactionDateInCurrentPeriod;
-
     public function authorize(): bool
     {
         return $this->user() !== null;
@@ -58,7 +57,6 @@ class UpdateTransactionRequest extends FormRequest
                 'sometimes',
                 'required',
                 'date_format:Y-m-d',
-                $this->transactionDateWithinCurrentPeriod(),
             ],
             'posted_date' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
             // Sửa tay cũng là chi tiêu ⇒ số dương, khớp `StoreTransactionRequest`.
@@ -93,21 +91,5 @@ class UpdateTransactionRequest extends FormRequest
         }
 
         return $payload;
-    }
-
-    protected function cardForTransactionDateValidation(): ?UserCard
-    {
-        $transaction = $this->route('transaction');
-
-        if (! is_numeric($transaction)) {
-            return null;
-        }
-
-        // Chỉ cần thẻ để tính ranh giới kỳ — không nạp quan hệ, không kiểm tra quyền
-        // ở đây (Policy lo việc đó trước khi service chạy).
-        return Transaction::query()
-            ->select('id', 'user_card_id')
-            ->find((int) $transaction)
-            ?->userCard;
     }
 }

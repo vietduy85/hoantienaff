@@ -147,29 +147,132 @@ class CreditCardOverviewTest extends TestCase
     }
 
     #[Test]
-    public function expected_cashback_is_the_number_the_engine_wrote_for_the_current_period(): void
+    public function expected_cashback_applies_the_target_tier_rate_to_the_actual_spend(): void
+    {
+        $category = $this->makeSystemCategory();
+
+        // Mục tiêu 10.000.000 ⇒ BẬC ĐÍCH là "Bậc cao" (> 3.000.000, 10%).
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '10000000']);
+
+        $this->makePolicyForCard(
+            $card,
+            [
+                ['name' => 'Bậc thấp', 'min' => 0, 'max' => 3000000, 'cap_period' => null],
+                ['name' => 'Bậc cao', 'min' => 3000000, 'max' => null, 'cap_period' => null],
+            ],
+            [
+                ['category_id' => $category->id, 'percent' => '0.000', 'only_tier' => 0],
+                ['category_id' => $category->id, 'percent' => '10.000', 'only_tier' => 1],
+            ],
+        );
+
+        // Chi tiêu THỰC TẾ mới 2.000.000 ⇒ engine chạy ở "Bậc thấp" (0%) và
+        // snapshot `total_cashback` bằng 0. Số "dự kiến" KHÔNG được theo đó.
+        $current = $this->makeCurrentPeriod($card);
+        $current->forceFill([
+            'total_eligible_spend' => '2000000.00',
+            'total_cashback' => '0.00',
+        ])->save();
+
+        $this->createTransaction($card, $category, '2000000', $current->id, CarbonImmutable::now()->toDateString());
+
+        $payload = $this->actingAs($this->owner)
+            ->getJson(route('credit-cards.api.cards.index'))
+            ->assertOk()
+            ->json('meta');
+
+        $metrics = $payload['card_metrics'][(string) $card->id];
+
+        // Bậc đích vẫn do MỤC TIÊU chọn ("Bậc cao"), nhưng rate 10% của bậc đó được
+        // nhân với CHI TIÊU THỰC TẾ: 2.000.000 × 10% = 200.000 — không phải
+        // 10.000.000 × 10% = 1.000.000 như công thức cũ.
+        $this->assertSame('Bậc cao', $metrics['quota']['tier_name']);
+        $this->assertSame('2000000.00', $metrics['spent']);
+        $this->assertSame('200000.00', $metrics['expected_cashback']);
+
+        // `summary` cộng đúng các số dự kiến theo thẻ.
+        $this->assertSame('200000.00', $payload['summary']['expected_cashback']);
+
+        // Tiền THỰC TẾ vẫn nằm ở chỗ cũ, không bị đổi ý nghĩa.
+        $this->assertSame('0.00', $metrics['cashback']);
+    }
+
+    #[Test]
+    public function expected_cashback_grows_with_actual_spend_not_with_the_goal(): void
+    {
+        $category = $this->makeSystemCategory();
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '10000000']);
+
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc cao', 'min' => 0, 'max' => null]],
+            [['category_id' => $category->id, 'percent' => '10.000']],
+        );
+
+        $current = $this->makeCurrentPeriod($card);
+        $date = CarbonImmutable::now()->toDateString();
+
+        // Mục tiêu giữ nguyên 10.000.000 trong cả hai lần đo.
+        $this->createTransaction($card, $category, '1000000', $current->id, $date);
+
+        $before = $this->actingAs($this->owner)
+            ->getJson(route('credit-cards.api.cards.index'))
+            ->assertOk()
+            ->json('meta.card_metrics.'.(string) $card->id.'.expected_cashback');
+
+        $this->createTransaction($card, $category, '4000000', $current->id, $date);
+
+        $after = $this->actingAs($this->owner)
+            ->getJson(route('credit-cards.api.cards.index'))
+            ->assertOk()
+            ->json('meta.card_metrics.'.(string) $card->id.'.expected_cashback');
+
+        // Chi tiêu tăng 1.000.000 → 5.000.000 thì "dự kiến" phải TĂNG theo. Công
+        // thức cũ (nhân `desired_spend`) trả hai số bằng nhau vì mục tiêu đứng yên.
+        $this->assertSame('100000.00', $before);
+        $this->assertSame('500000.00', $after);
+    }
+
+    #[Test]
+    public function expected_cashback_is_capped_by_the_target_tier_ceiling(): void
+    {
+        $category = $this->makeSystemCategory();
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '20000000']);
+
+        // Rate 10% trên chi tiêu thực tế 15.000.000 ⇒ 1.500.000, nhưng trần bậc chỉ
+        // 1.000.000 ⇒ phải kẹp, không hiện "1.500.000 / 1.000.000".
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc cao', 'min' => 0, 'max' => null, 'cap_period' => '1000000.00']],
+            [['category_id' => $category->id, 'percent' => '10.000']],
+        );
+
+        $current = $this->makeCurrentPeriod($card);
+        $this->createTransaction($card, $category, '15000000', $current->id, CarbonImmutable::now()->toDateString());
+
+        $metrics = $this->actingAs($this->owner)
+            ->getJson(route('credit-cards.api.cards.index'))
+            ->assertOk()
+            ->json('meta.card_metrics.'.(string) $card->id);
+
+        $this->assertSame('1000000.00', $metrics['quota']['tier_cashback_max']);
+        $this->assertSame('1000000.00', $metrics['expected_cashback']);
+    }
+
+    #[Test]
+    public function a_card_without_a_goal_has_no_expected_cashback(): void
     {
         $card = $this->makeUserCard($this->owner->id);
-        $current = $this->makeCurrentPeriod($card);
+        $this->makeCurrentPeriod($card)->forceFill(['total_cashback' => 250000])->save();
 
-        // Kỳ đã đóng có cashback riêng — không được cộng vào.
-        $this->makeStatementPeriod($card, [
-            'period_start' => '2026-06-01',
-            'period_end' => '2026-06-30',
-            'statement_date' => '2026-06-30',
-            'payment_due_date' => '2026-07-10',
-            'status' => StatementPeriod::STATUS_FINALIZED,
-            'total_cashback' => 1234567,
-        ]);
-
-        $current->forceFill(['total_cashback' => 250000])->save();
-
+        // Không có `desired_spend` ⇒ không có bậc đích ⇒ không có "dự kiến".
+        // Snapshot engine vẫn là tiền thực tế và vẫn được giữ nguyên ở `cashback`.
         $summary = $this->actingAs($this->owner)
             ->getJson(route('credit-cards.api.cards.index'))
             ->assertOk()
             ->json('meta.summary');
 
-        $this->assertSame('250000.00', $summary['expected_cashback']);
+        $this->assertSame('0.00', $summary['expected_cashback']);
     }
 
     #[Test]
@@ -191,20 +294,39 @@ class CreditCardOverviewTest extends TestCase
     }
 
     #[Test]
-    public function current_period_totals_are_summed_across_all_of_the_users_cards(): void
+    public function expected_cashback_is_summed_across_all_of_the_users_cards(): void
     {
-        $first = $this->makeUserCard($this->owner->id);
-        $second = $this->makeUserCard($this->owner->id);
+        $category = $this->makeSystemCategory();
 
-        $this->makeCurrentPeriod($first)->forceFill(['total_cashback' => 10000])->save();
-        $this->makeCurrentPeriod($second)->forceFill(['total_cashback' => 20000])->save();
+        // Mỗi thẻ một mục tiêu ⇒ mỗi thẻ một bậc đích ⇒ cộng dồn số "dự kiến".
+        $first = $this->makeUserCard($this->owner->id, ['desired_spend' => '1000000']);
+        $second = $this->makeUserCard($this->owner->id, ['desired_spend' => '2000000']);
+
+        foreach ([$first, $second] as $card) {
+            $this->makePolicyForCard(
+                $card,
+                [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+                [['category_id' => $category->id, 'percent' => '10.000']]
+            );
+        }
+
+        $firstPeriod = $this->makeCurrentPeriod($first);
+        $secondPeriod = $this->makeCurrentPeriod($second);
+        $date = CarbonImmutable::now()->toDateString();
+
+        $this->createTransaction($first, $category, '400000', $firstPeriod->id, $date);
+        $this->createTransaction($second, $category, '1000000', $secondPeriod->id, $date);
+
+        $firstPeriod->forceFill(['total_cashback' => 10000])->save();
+        $secondPeriod->forceFill(['total_cashback' => 20000])->save();
 
         $summary = $this->actingAs($this->owner)
             ->getJson(route('credit-cards.api.cards.index'))
             ->assertOk()
             ->json('meta.summary');
 
-        $this->assertSame('30000.00', $summary['expected_cashback']);
+        // 400.000 × 10% + 1.000.000 × 10% = 40.000 + 100.000.
+        $this->assertSame('140000.00', $summary['expected_cashback']);
     }
 
     #[Test]
@@ -226,18 +348,24 @@ class CreditCardOverviewTest extends TestCase
     #[Test]
     public function the_overview_shows_the_current_period_statement_and_due_dates(): void
     {
-        $card = $this->makeUserCard($this->owner->id);
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '1000000']);
+        $category = $this->makeSystemCategory();
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $category->id, 'percent' => '5.000']]
+        );
         $this->makeCurrentPeriod($card, [
             'period_start' => '2026-09-16',
             'period_end' => '2026-10-15',
             'statement_date' => '2026-10-15',
             'payment_due_date' => '2026-10-25',
-            'total_cashback' => 250000,
         ]);
 
         $html = $this->actingAs($this->owner)->get('/thetindung')->assertOk()->getContent();
 
-        $this->assertStringContainsString('250.000', $html);
+        // Số dự kiến theo mục tiêu: 1.000.000 × 5% = 50.000.
+        $this->assertStringContainsString('50.000', $html);
         $this->assertStringContainsString('15/10', $html);
         $this->assertStringContainsString('25/10/2026', $html);
     }
@@ -282,10 +410,11 @@ class CreditCardOverviewTest extends TestCase
             'Ô ngày phải đứng trước ô số tiền',
         );
 
-        // Ô ngày là `type="date"` có min/max theo kỳ hiện tại của thẻ đang chọn.
+        // Ô ngày là `type="date"` và KHÔNG bị khoá: không `min`/`max` theo kỳ sao kê,
+        // không `min="today"` — người dùng chọn được BẤT KỲ ngày nào, kể cả PC.
         $this->assertMatchesRegularExpression('/id="tx-transaction-date"[^>]*type="date"/', $html);
-        $this->assertMatchesRegularExpression('/id="tx-transaction-date"[^>]*:min="periodStart\(\)"/', $html);
-        $this->assertMatchesRegularExpression('/id="tx-transaction-date"[^>]*:max="periodEnd\(\)"/', $html);
+        $this->assertDoesNotMatchRegularExpression('/id="tx-transaction-date"[^>]*\bmin=/', $html);
+        $this->assertDoesNotMatchRegularExpression('/id="tx-transaction-date"[^>]*\bmax=/', $html);
 
         // KHÔNG ô nào cho nhập cashback / chính sách / bậc / cap / chọn kỳ sao kê.
         foreach (['cashback', 'policy', 'tier', 'cap', 'statement-period'] as $forbidden) {
@@ -499,23 +628,30 @@ class CreditCardOverviewTest extends TestCase
     }
 
     #[Test]
-    public function a_transaction_outside_the_current_period_is_rejected(): void
+    public function a_transaction_from_any_past_date_is_accepted(): void
     {
         $card = $this->makeUserCard($this->owner->id, ['statement_day' => 10]);
         $category = $this->makeSystemCategory();
 
-        // Kỳ hiện tại của thẻ chốt hàng 10. Hai tháng trước nằm ở kỳ đã qua nên
-        // bị chặn, dù "gần" về mặt lịch.
-        $outside = CarbonImmutable::now()->subMonths(2)->startOfMonth();
+        // Kỳ hiện tại của thẻ chốt hàng 10. Ngày ở kỳ đã qua vẫn phải nhập được:
+        // `statement_period_id` do `StatementPeriodService` suy ra, không phải do
+        // người dùng chọn, nên form KHÔNG khoá ngày theo kỳ hiện tại.
+        $past = CarbonImmutable::now()->subMonths(2)->startOfMonth();
 
         $this->actingAs($this->owner)->postJson(route('credit-cards.api.transactions.store'), [
-            'transaction_date' => $outside->toDateString(),
+            'transaction_date' => $past->toDateString(),
             'user_card_id' => $card->id,
             'category_id' => $category->id,
             'amount' => '1200000',
-        ])->assertStatus(422)->assertJsonValidationErrors('transaction_date');
+        ])->assertCreated();
 
-        $this->assertSame(0, Transaction::query()->count());
+        $transaction = Transaction::query()->sole();
+        $this->assertSame($past->toDateString(), $transaction->transaction_date->toDateString());
+
+        // Ngày đã chọn tự rơi vào KỲ SAO KẾ chứa nó — đúng logic sẵn có.
+        $period = $transaction->statementPeriod;
+        $this->assertNotNull($period);
+        $this->assertTrue($period->contains($past));
     }
 
     #[Test]
@@ -565,7 +701,7 @@ class CreditCardOverviewTest extends TestCase
     #[Test]
     public function a_new_transaction_moves_the_overview_numbers(): void
     {
-        $card = $this->makeUserCard($this->owner->id);
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '1000000']);
         $category = $this->makeSystemCategory();
         $this->makePolicyForCard(
             $card,
@@ -582,14 +718,22 @@ class CreditCardOverviewTest extends TestCase
             ])
             ->assertCreated();
 
-        $summary = $this->actingAs($this->owner)
+        $meta = $this->actingAs($this->owner)
             ->getJson(route('credit-cards.api.cards.index'))
             ->assertOk()
-            ->json('meta.summary');
+            ->json('meta');
 
-        // Cashback do engine ghi, không phải test tự tính.
-        $this->assertSame('1000000.00', $summary['total_spend']);
-        $this->assertSame('50000.00', $summary['expected_cashback']);
+        // `total_spend` là CHI TIÊU THỰC TẾ nên nhảy theo giao dịch vừa lưu.
+        $this->assertSame('1000000.00', $meta['summary']['total_spend']);
+
+        // `expected_cashback` là con số THEO MỤC TIÊU: 1.000.000 × 5% = 50.000.
+        // Nó không đổi khi thêm/bớt giao dịch — đó là điểm của việc tách nó khỏi
+        // tiền thực tế.
+        $this->assertSame('50000.00', $meta['summary']['expected_cashback']);
+        $this->assertSame(
+            '50000.00',
+            $meta['card_metrics'][(string) $card->id]['expected_cashback'],
+        );
     }
 
     #[Test]

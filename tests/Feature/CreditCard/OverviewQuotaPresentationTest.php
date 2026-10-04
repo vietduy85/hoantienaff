@@ -5,6 +5,7 @@ namespace Tests\Feature\CreditCard;
 use App\Models\CreditCard\Category;
 use App\Models\CreditCard\CategoryCombo;
 use App\Models\CreditCard\CategoryComboItem;
+use App\Models\CreditCard\Policy;
 use App\Models\CreditCard\PolicyTier;
 use App\Models\CreditCard\PolicyTierCategory;
 use App\Models\CreditCard\StatementPeriod;
@@ -24,12 +25,11 @@ use Tests\TestCase;
  * ---------------------------------------------------------------------------
  * BA BẤT BIẾN ĐƯỢC KHOÁ Ở ĐÂY
  * ---------------------------------------------------------------------------
- *   1. Thanh tiến độ CHỈ dùng số server đã tính, và màu thanh phản ánh đúng cổng
- *      của engine: engine chặn cashback bằng `eligible_spend < min_total_spend`
- *      (`CashbackCalculator::calculate()`), nên Tổng quan so `eligible_spend` với
- *      ngưỡng engine đã dùng. Nếu ở đây so TỔNG chi tiêu, thẻ có giao dịch không
- *      đủ điều kiện sẽ hiện xanh trong khi engine thực tế trả 0đ — thanh tiến độ
- *      nói dối ngay trên cùng màn hình với dòng cashback.
+ *   1. Thanh tiến độ CHỈ dùng số server đã tính, và Vạch-Min-Spend đọc thẳng từ
+ *      policy RIÊNG của thẻ (`currentPolicy.min_total_spend`) chứ không đọc
+ *      `calculation_meta` của kỳ. Cả ngưỡng Min lẫn mức chi tiêu mong muốn đều
+ *      so trên `spent` — đúng số thanh đang đo và dòng "Chi tiêu" in ra — nên
+ *      người dùng đối chiếu được bằng mắt: thanh chưa tới vạch đỏ thì CAM.
  *   2. Quota ĐỌC NGUYÊN VẸN output của Phase 2 (`CashbackQuotaService`), kể cả
  *      quy ước "không có trần riêng ⇒ bỏ phần `/ max` thay vì bịa số".
  *   3. Blade/JavaScript KHÔNG có công thức quota nào: vị trí vạch đỏ và bề rộng
@@ -85,13 +85,12 @@ class OverviewQuotaPresentationTest extends TestCase
     // =====================================================================
 
     #[Test]
-    public function the_minimum_marker_appears_when_the_engine_used_a_minimum_threshold(): void
+    public function the_minimum_marker_comes_from_the_cards_own_policy(): void
     {
-        $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
-        $this->makeOpenPeriod($this->firstCard(), [
-            'total_eligible_spend' => '8000000.00',
-            'calculation_meta' => ['min_total_spend' => 3000000.0],
-        ]);
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+        $this->setCardMinimumSpend($card, '3000000');
+
+        $this->makeOpenPeriod($card, ['total_eligible_spend' => '8000000.00']);
 
         $html = $this->overviewHtml();
 
@@ -106,88 +105,114 @@ class OverviewQuotaPresentationTest extends TestCase
     #[Test]
     public function no_minimum_marker_when_the_policy_has_no_minimum_threshold(): void
     {
-        $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
-        $this->makeOpenPeriod($this->firstCard(), [
-            'total_eligible_spend' => '8000000.00',
-            'calculation_meta' => ['min_total_spend' => 0.0],
-        ]);
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+        $this->setCardMinimumSpend($card, '0');
+
+        $this->makeOpenPeriod($card, ['total_eligible_spend' => '8000000.00']);
 
         $html = $this->overviewHtml();
 
         // Thanh vẫn có (có mục tiêu), nhưng không vẽ vạch đỏ.
         $this->assertStringContainsString('data-testid="card-progress-track"', $html);
         $this->assertStringNotContainsString('data-testid="card-minimum-marker"', $html);
+
+        // Không có vạch Min ⇒ không dùng Min để đổi màu: thanh xanh bình thường.
+        $this->assertTrue($this->metricsOf($html)[(string) $card->id]['meets_minimum']);
     }
 
     #[Test]
-    public function no_minimum_marker_when_the_period_was_never_calculated(): void
+    public function the_minimum_marker_survives_a_period_that_was_never_calculated(): void
     {
-        $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
-        $this->makeOpenPeriod($this->firstCard(), ['calculation_meta' => null]);
+        // Vạch Min đọc policy của thẻ chứ không đọc `calculation_meta` của kỳ, nên
+        // kỳ CHƯA BAO GIỜ được engine tính thì vẫn phải hiện vạch — cũng đúng lúc đó
+        // `calculation_meta` còn rỗng, tức là mọi thứ Tổng quan đọc đều nằm trên thẻ.
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+        $this->setCardMinimumSpend($card, '3000000');
 
-        $this->assertStringNotContainsString('data-testid="card-minimum-marker"', $this->overviewHtml());
+        $this->makeOpenPeriod($card, ['calculation_meta' => null]);
+
+        $this->assertStringContainsString('data-testid="card-minimum-marker"', $this->overviewHtml());
     }
 
-    // =====================================================================
-    // §19.5–6 · Màu thanh theo đúng cổng của engine
-    // =====================================================================
-
     #[Test]
-    public function the_bar_is_amber_when_eligible_spend_is_below_the_minimum(): void
+    public function the_minimum_marker_never_borrows_the_engines_snapshot_threshold(): void
     {
-        $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
-        $this->makeOpenPeriod($this->firstCard(), [
-            'total_eligible_spend' => '2000000.00',
-            'calculation_meta' => ['min_total_spend' => 3000000.0],
+        // Snapshot của kỳ vẫn còn ghi 4.000.000, nhưng policy RIÊNG của thẻ đã bị
+        // sửa về 0. Tổng quan phải theo policy của thẻ (0 ⇒ không vạch, không đổi
+        // màu) chứ không vẽ vạch theo snapshot cũ.
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+        $this->setCardMinimumSpend($card, '0');
+
+        $this->makeOpenPeriod($card, [
+            'total_eligible_spend' => '8000000.00',
+            'calculation_meta' => ['min_total_spend' => 4000000.0],
         ]);
 
         $html = $this->overviewHtml();
-        $metrics = $this->metricsOf($html)[(string) $this->firstCard()->id];
+        $metrics = $this->metricsOf($html)[(string) $card->id];
 
+        $this->assertStringNotContainsString('data-testid="card-minimum-marker"', $html);
+        $this->assertFalse($metrics['has_minimum']);
+        $this->assertTrue($metrics['meets_minimum']);
+    }
+
+    // =====================================================================
+    // §19.5–6 · Màu thanh theo Vạch-Min-Spend lưu trong policy của thẻ
+    // =====================================================================
+
+    #[Test]
+    public function the_bar_is_amber_when_actual_spend_is_below_the_minimum(): void
+    {
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+        $category = $this->makeSystemCategory();
+
+        $this->setCardMinimumSpend($card, '3000000');
+        $this->spend($card, $category, '2000000');
+
+        $html = $this->overviewHtml();
+        $metrics = $this->metricsOf($html)[(string) $card->id];
+
+        $this->assertSame('2000000.00', $metrics['spent']);
         $this->assertFalse($metrics['meets_minimum']);
         $this->assertStringContainsString("'bg-amber-500'", $html);
     }
 
     #[Test]
-    public function the_bar_is_green_once_eligible_spend_reaches_the_minimum(): void
+    public function the_bar_is_green_once_actual_spend_reaches_the_minimum(): void
     {
-        $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
-        $this->makeOpenPeriod($this->firstCard(), [
-            'total_eligible_spend' => '8000000.00',
-            'calculation_meta' => ['min_total_spend' => 3000000.0],
-        ]);
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
+        $category = $this->makeSystemCategory();
+
+        $this->setCardMinimumSpend($card, '3000000');
+        $this->spend($card, $category, '8000000');
 
         $html = $this->overviewHtml();
-        $metrics = $this->metricsOf($html)[(string) $this->firstCard()->id];
+        $metrics = $this->metricsOf($html)[(string) $card->id];
 
         $this->assertTrue($metrics['meets_minimum']);
         $this->assertStringContainsString("'bg-emerald-500'", $html);
     }
 
     #[Test]
-    public function total_spending_below_the_minimum_does_not_paint_the_bar_green(): void
+    public function the_bar_colour_follows_the_spend_that_is_drawn_on_the_bar(): void
     {
-        // 9.000.000đ chi tiêu THÔT trên thanh, nhưng chỉ 2.000.000đ ĐỦ ĐIỀU KIỆN.
-        // Engine chặn ở 2.000.000 < 3.000.000 ⇒ thanh phải CAM. Nếu ở đây so tổng
-        // chi tiêu (9tr > 3tr) thì thanh sẽ XANH và nói dối.
+        // 2.000.000đ chi trên thanh, Vạch-Min-Spend 3.000.000 ⇒ thanh CAM. Màu
+        // phải đọc đúng số đang được vẽ, nếu đọ số khác (ví dụ số engine ghi) thì
+        // thanh vẫn tụt quá vạch đỏ mà lại đổi màu — người dùng không tin được.
         $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '15000000']);
         $category = $this->makeSystemCategory();
 
-        $this->spend($card, $category, '9000000');
-
-        // Ghi số liệu engine vào đúng kỳ đang mở (kỳ mà service vừa sinh ra),
-        // không phải một kỳ song song do test tự dựng.
-        $this->writeEngineSnapshot($card, [
-            'total_eligible_spend' => '2000000.00',
-            'calculation_meta' => ['min_total_spend' => 3000000.0],
-        ]);
+        $this->setCardMinimumSpend($card, '3000000');
+        $this->spend($card, $category, '2000000');
 
         $html = $this->overviewHtml();
         $metrics = $this->metricsOf($html)[(string) $card->id];
 
-        $this->assertSame('9000000.00', $metrics['spent']);
-        $this->assertSame('2000000.00', $metrics['eligible_spend']);
-        $this->assertFalse($metrics['meets_minimum'], 'Tổng chi tiêu không được thay thế số engine dùng.');
+        $this->assertSame('2000000.00', $metrics['spent']);
+        // 2.000.000 / 15.000.000 = 13.33% ⇒ thanh mới dừng ở đây, trước vạch đỏ.
+        $this->assertSame('13.33', $metrics['progress_percent']);
+        $this->assertSame('20.00', $metrics['minimum_percent']);
+        $this->assertFalse($metrics['meets_minimum']);
     }
 
     // =====================================================================
@@ -1027,6 +1052,40 @@ class OverviewQuotaPresentationTest extends TestCase
             'counts_toward_tier_cap' => true,
             'is_quota_category' => false,
         ], $attributes));
+    }
+
+    /**
+     * Gắn Vạch-Min-Spend vào policy RIÊNG của thẻ — đúng nơi Tổng quan phải đọc.
+     *
+     * Thẻ chưa có policy thì tạo một bản tối giản (chỉ cần `min_total_spend`);
+     * thẻ đã có thì sửa đúng bản đó. Cố tình KHÔNG ghi vào System Policy và cũng
+     * không ghi `calculation_meta` của kỳ: test phải chứng minh Tổng quan đọc nơi
+     * này chứ không đọc hai chỗ kia.
+     */
+    private function setCardMinimumSpend(UserCard $card, string $minimum): UserCard
+    {
+        $policy = Policy::query()->find($card->current_policy_id);
+
+        if ($policy === null) {
+            $policy = Policy::create([
+                'user_card_id' => $card->id,
+                'version_no' => 1,
+                'status' => Policy::STATUS_ACTIVE,
+                'name' => 'Policy '.$card->name,
+                'effective_from' => '2000-01-01',
+                'effective_to' => null,
+                'min_total_spend' => $minimum,
+                'rounding_mode' => 'floor',
+            ]);
+
+            $policy->forceFill(['root_policy_id' => $policy->id])->save();
+
+            $card->forceFill(['current_policy_id' => $policy->id])->save();
+        } else {
+            $policy->forceFill(['min_total_spend' => $minimum])->save();
+        }
+
+        return $card->refresh();
     }
 
     /**

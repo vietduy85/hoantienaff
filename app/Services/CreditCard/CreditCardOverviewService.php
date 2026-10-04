@@ -2,6 +2,7 @@
 
 namespace App\Services\CreditCard;
 
+use App\Models\CreditCard\PolicyTier;
 use App\Models\CreditCard\StatementPeriod;
 use App\Models\CreditCard\Transaction;
 use App\Models\CreditCard\UserCard;
@@ -63,6 +64,7 @@ class CreditCardOverviewService
 {
     public function __construct(
         private readonly CashbackQuotaService $quotas,
+        private readonly TierResolverService $tiers,
     ) {}
 
     /**
@@ -82,10 +84,16 @@ class CreditCardOverviewService
     {
         [$cards, $currentPeriods] = $this->scope($userId);
 
+        // Quota gom một lần rồi chia ra cho cả `summary` lẫn `cards`: "Cashback dự
+        // kiến" ở CẢ HAI chỗ đều dùng BẬC ĐÍCH mà quota đã resolve, nên gọi
+        // `forCards()` hai lần vừa tốn truy vấn vừa dễ lệch số giữa hai chỗ.
+        $quotas = $this->quotas->forCards($cards, $currentPeriods);
+        $perCard = $this->perCardFrom($cards, $currentPeriods, $quotas);
+
         return [
-            'summary' => $this->metrics($cards, $currentPeriods),
+            'summary' => $this->metrics($cards, $currentPeriods, $perCard),
             'current_periods' => $currentPeriods,
-            'cards' => $this->perCardFrom($cards, $currentPeriods),
+            'cards' => $perCard,
         ];
     }
 
@@ -100,7 +108,11 @@ class CreditCardOverviewService
      *                chỉ gom theo thẻ thay vì gộp tất cả).
      *   - `cashback`= `StatementPeriod.total_cashback` mà engine đã ghi. KHÔNG
      *                cộng lại từ giao dịch ở đây — đó là việc của
-     *                `CashbackRecordService`.
+     *                `CashbackRecordService`. Đây là tiền THỰC TẾ.
+     *   - `expected_cashback` = theo BẬC ĐÍCH (quyết định bởi `desired_spend`) nhưng
+     *                nhân với CHI TIÊU THỰC TẾ: `spent` → rate của bậc đích →
+     *                tiền, kẹp theo trần của bậc đích. Đây là con số "dự kiến"
+     *                mà Tổng quan hiển thị.
      *   - `quota`   = {@see CashbackQuotaService} (trần toàn kỳ của bậc theo
      *                `desired_spend`).
      *
@@ -126,7 +138,7 @@ class CreditCardOverviewService
      *     minimum_percent: string|null
      * }>
      */
-    private function perCardFrom(Collection $cards, Collection $currentPeriods): array
+    private function perCardFrom(Collection $cards, Collection $currentPeriods, array $quotas): array
     {
         if ($cards->isEmpty()) {
             return [];
@@ -140,7 +152,6 @@ class CreditCardOverviewService
         );
 
         $periodByCard = $currentPeriods->keyBy('user_card_id');
-        $quotas = $this->quotas->forCards($cards, $currentPeriods);
 
         $result = [];
 
@@ -154,34 +165,34 @@ class CreditCardOverviewService
             // -------------------------------------------------------------------------
             // MỨC CHI TIÊU TỐI THIỂU (chỉ để hiển thị — không quyết định nghiệp vụ)
             // -------------------------------------------------------------------------
-            // Cổng "chưa đạt mức tối thiểu thì không hoàn tiền" của engine là
-            // `totalEligibleSpend < minTotalSpend` (`CashbackCalculator::calculate()`),
-            // trong đó `minTotalSpend` lấy từ `PolicyVersion.min_total_spend`.
+            // "Vạch Min-Spend" đọc thẳng `PolicyVersion.min_total_spend` của policy
+            // ĐANG GẮN VỚI CHÍNH THẺ NÀY (`currentPolicy`).
             //
-            // Vì vậy:
-            //   - Ngưỡng đọc từ `StatementPeriod.calculation_meta.min_total_spend` —
-            //     đúng ngưỡng ENGINE ĐÃ DÙNG cho kỳ này. Đọc cột `min_total_spend`
-            //     của policy version sẽ là logic thứ hai dễ lệch với engine (sai khi
-            //     version đổi giữa kỳ), nên ở đây chỉ đọc, không resolve.
-            //   - Vế phải là `total_eligible_spend` (cột engine ghi), KHÔNG phải
-            //     `spent`. `spent` là TỔNG mọi giao dịch kể cả giao dịch không đủ
-            //     điều kiện; so `spent` với ngưỡng sẽ báo "đã đạt" (xanh) trong khi
-            //     engine thực tế trả 0đ với lý do `below_minimum_spend` — tức là
-            //     thanh tiến độ nói dối ngay trên cùng màn hình với dòng cashback.
+            // KHÔNG đọc `System Policy`: mỗi thẻ có một bản policy riêng, sửa được
+            // riêng (xem `CardPolicySaveService`), nên đọc bản System sẽ vẽ vạch
+            // theo ngưỡng của thẻ khác. Cũng KHÔNG suy ra ngưỡng từ `desired_spend`
+            // hay từ bậc — mốc bắt đầu bậc là ranh giới TIỀN TỶ LỆ, không phải
+            // Vạch-Min-Spend, và trộn hai khái niệm sẽ vẽ vạch ở 100% của mọi thẻ
+            // có mục tiêu trùng mốc bậc.
             //
-            // Cả hai số đều đã nằm sẵn trên bản ghi kỳ ⇒ KHÔNG thêm truy vấn nào.
+            // Vế phải là `spent` — đúng số mà dòng "Chi tiêu" in ra và đúng số đang
+            // đo bằng thanh tiến độ (`progress_percent = spent / desired_spend`).
+            // So ngưỡng với một số khác (ví dụ `total_eligible_spend`) sẽ tạo ra
+            // trạng thái mà mắt thường không đổi: thanh đã vượt vạch đỏ mà vẫn cam.
             $eligibleSpend = $period === null ? '0.00' : Decimal::money($period->total_eligible_spend);
-            $minimumSpend = $period === null ? null : $this->minimumSpendOf($period);
+            $minimumSpend = $this->minimumSpendOf($card);
 
             // Ngưỡng 0 (hoặc không có ngưỡng) = không có mốc để vẽ ⇒ màu xanh bình
             // thường, không vẽ vạch đỏ.
             $hasMinimum = $minimumSpend !== null && Decimal::isPositive($minimumSpend);
-            $meetsMinimum = ! $hasMinimum || Decimal::compare($eligibleSpend, $minimumSpend) >= 0;
+            $meetsMinimum = ! $hasMinimum || Decimal::compare($spent, $minimumSpend) >= 0;
 
             $result[$cardId] = [
                 'desired_spend' => $desiredSpend,
                 'spent' => $spent,
                 'cashback' => $period === null ? '0.00' : Decimal::money($period->total_cashback),
+                // "Cashback DỰ KIẾN": theo BẬC ĐÍCH nhưng nhân với chi tiêu thực tế.
+                'expected_cashback' => $this->expectedCashbackFor($card, $quotas[$cardId] ?? null, $spent),
                 'progress_percent' => Decimal::percent($spent, $desiredSpend),
                 // Mục tiêu bằng 0/NULL ⇒ thanh tiến độ không có ý nghĩa, hiển thị
                 // trạng thái chưa đặt mục tiêu thay vì vẽ thanh 0%.
@@ -217,9 +228,12 @@ class CreditCardOverviewService
         $today = CarbonImmutable::now()->toDateString();
 
         // Tập thẻ của user: mọi truy vấn bên dưới kẹp trong tập này.
+        // `with('currentPolicy')` chỉ để đọc `min_total_spend` của policy RIÊNG của
+        // từng thẻ (xem `minimumSpendOf()`) — eager sẵn để không N+1.
         $cards = UserCard::query()
             ->ownedBy($userId)
             ->orderBy('id')
+            ->with('currentPolicy')
             ->get(['id', 'desired_spend', 'current_policy_id']);
 
         if ($cards->isEmpty()) {
@@ -241,9 +255,10 @@ class CreditCardOverviewService
      * Bốn chỉ số, tất cả aggregate ở tầng DB.
      *
      * @param  Collection<int, UserCard>  $cards
+     * @param  array<int, array<string, mixed>>  $perCard
      * @return array{total_cards: int, total_credit_limit: string, total_spend: string, expected_cashback: string}
      */
-    private function metrics(Collection $cards, Collection $currentPeriods): array
+    private function metrics(Collection $cards, Collection $currentPeriods, array $perCard = []): array
     {
         $cardIds = $cards->pluck('id')->map(fn ($id): int => (int) $id)->all();
         $periodIds = $currentPeriods->pluck('id')->map(fn ($id): int => (int) $id)->all();
@@ -270,38 +285,143 @@ class CreditCardOverviewService
                         ->sum('amount')
                 ),
 
-            // Đọc thẳng snapshot engine đã ghi cho kỳ hiện tại.
-            'expected_cashback' => $periodIds === []
-                ? '0.00'
-                : Decimal::money(
-                    StatementPeriod::query()
-                        ->whereIn('id', $periodIds)
-                        ->sum('total_cashback')
-                ),
+            // "Cashback dự kiến" = TỔNG số dự kiến của từng thẻ, mỗi thẻ đã tính
+            // theo bậc đích (do `desired_spend` quyết định) nhưng nhân với chi
+            // tiêu thực tế (xem `expectedCashbackFor()`). KHÔNG
+            // đọc `SUM(total_cashback)` của kỳ nữa: đó là tiền thực tế và bậc của
+            // nó là bậc theo chi tiêu thực tế — sai nguồn cho một con số "dự kiến".
+            // Cộng bằng `Decimal::add()` chứ không `array_sum` trên float: cột tiền
+            // ở đây là chuỗi bcmath, float làm mất chữ số ở số lớn.
+            'expected_cashback' => $this->sumExpectedCashback($perCard),
         ];
     }
 
     /**
-     * Ngưỡng chi tiêu tối thiểu mà ENGINE ĐÃ DÙNG cho kỳ này.
+     * Cộng "Cashback dự kiến" của các thẻ — cộng DẤU chứ không phải `array_sum`.
      *
-     * `CashbackRecordService::writePeriodTotals()` ghi kèm
-     * `calculation_meta.min_total_spend` mỗi lần tính kỳ. Đọc thẳng giá trị đó
-     * thay vì tự resolve policy version là cố ý: ngưỡng hiển thị phải là ngưỡng
-     * đã áp dụng thật, và ngưỡng đổi theo version theo thời gian — tự resolve ở
-     * đây là một nguồn sự thật thứ hai dễ lệch với engine.
-     *
-     * Trả `null` khi kỳ chưa được tính, hoặc engine không áp cổng tối thiểu (chưa có
-     * policy version / không có bậc phủ) — đúng lúc đó KHÔNG có mốc để vẽ.
+     * @param  array<int, array<string, mixed>>  $perCard
      */
-    private function minimumSpendOf(StatementPeriod $period): ?string
+    private function sumExpectedCashback(array $perCard): string
     {
-        $meta = $period->calculation_meta;
+        $total = '0.00';
 
-        if (! is_array($meta) || ! array_key_exists('min_total_spend', $meta)) {
+        foreach ($perCard as $row) {
+            $total = Decimal::add($total, Decimal::money($row['expected_cashback'] ?? '0'));
+        }
+
+        return $total;
+    }
+
+    /**
+     * "Cashback dự kiến" của một thẻ — theo MỤC TIÊU, KHÔNG theo chi tiêu thực tế.
+     *
+     * ---------------------------------------------------------------------------
+     * CÔNG THỨC
+     * ---------------------------------------------------------------------------
+     *   desired_spend → bậc đích (quota đã resolve) → rate của bậc đích → tiền
+     *
+     * Rồi kẹp theo trần chung của bậc đích (`max_cashback_per_period`) để con số
+     * không bao giờ vượt mẫu số đứng sau dấu "/" ở dòng "Cashback dự kiến".
+     *
+     * ---------------------------------------------------------------------------
+     * VÌ SAO KHÔNG DÙNG `StatementPeriod.total_cashback`
+     * ---------------------------------------------------------------------------
+     * Snapshot engine là tiền THỰC TẾ, và bậc engine chọn theo TỔNG CHI TIÊU THỰC
+     * TẾ của kỳ (`CashbackRecordService` gọi `resolveTier($version, $totalEligibleSpend)`).
+     * Người mới đặt mục tiêu 10.000.000đ mới chi 2.000.000đ sẽ bị engine chọn bậc
+     * thấp và nhận 0đ — trong khi bậc ĐÍCH của họ là bậc cao. Đó đúng là loại nhầm
+     * lẫn mà số "dự kiến" phải tránh: nó đang trả lời "hết kỳ này tôi được bao
+     * nhiêu" thay vì "chạm mục tiêu thì tôi được bao nhiêu".
+     *
+     * ---------------------------------------------------------------------------
+     * RATE LẤY THẾ NÀO
+     * ---------------------------------------------------------------------------
+     * `cashback_percent` nằm ở TỪNG rule (`PolicyTierCategory`), mỗi rule gắn với
+     * một danh mục/combo — không có một cột rate duy nhất trên bậc. Rate dùng ở
+     * đây là của BẬC ĐÍCH (bậc theo `desired_spend`), không phải bậc engine đang
+     * chạy; xem {@see targetTierRate()}.
+     *
+     * Thẻ chưa đặt mục tiêu, hoặc mục tiêu chưa chạm bậc nào ⇒ `0.00`.
+     */
+    private function expectedCashbackFor(UserCard $card, ?array $quota, string $spent): string
+    {
+        $desiredSpend = Decimal::money($card->desired_spend);
+
+        if (! Decimal::isPositive($desiredSpend)) {
+            return '0.00';
+        }
+
+        $tierId = $quota['tier_id'] ?? null;
+
+        if ($tierId === null) {
+            return '0.00';
+        }
+
+        $tier = PolicyTier::query()->find((int) $tierId);
+
+        if ($tier === null) {
+            return '0.00';
+        }
+
+        $rate = $this->targetTierRate($tier);
+
+        if (! Decimal::isPositive($rate)) {
+            return '0.00';
+        }
+
+        // Nhân với CHI TIÊU THỰC TẾ của kỳ (`spent`), không nhân `desired_spend`:
+        // nhân mục tiêu biến con số thành "trả được bao nhiêu nếu chi đủ mục tiêu",
+        // đúng nhưng không phải "dự kiến" — và nó không giảm khi người dùng chi
+        // nhiều hơn, nên dòng này cũng chẳng phản ánh chuyện gì. Rate vẫn của bậc
+        // đích nên mục tiêu vẫn quyết định BẬC, chỉ không còn quyết định MẪU SỐ.
+        $expected = Decimal::cashbackForSpend($spent, $rate);
+        $ceiling = $quota['tier_cashback_max'] ?? null;
+
+        return $ceiling === null ? $expected : Decimal::min($expected, $ceiling);
+    }
+
+    /**
+     * Tỷ lệ hoàn tiền dùng để dự kiến, lấy từ BẬC ĐÍCH.
+     *
+     * Bậc không có một rate duy nhất: mỗi `PolicyTierCategory` mang rate riêng cho
+     * một danh mục/combo. Ở đây chọn rate CAO NHẤT trong các rule đang bật của bậc
+     * — tức "nếu phần chi tiêu thực tế rơi vào danh mục ưu đãi nhất của bậc đó".
+     * Không đọc nhầm rate của bậc engine đang chạy (bậc theo chi tiêu thực tế).
+     */
+    private function targetTierRate(PolicyTier $tier): string
+    {
+        $rate = '0.00';
+
+        foreach ($this->tiers->rulesForTier($tier) as $rule) {
+            $rate = Decimal::max($rate, Decimal::money($rule['cashback_percent'] ?? '0'));
+        }
+
+        return $rate;
+    }
+
+    /**
+     * Vạch Min-Spend đang lưu trong policy của CHÍNH thẻ này.
+     *
+     * Nguồn duy nhất: `UserCard.currentPolicy.min_total_spend` — bản policy riêng
+     * của thẻ (mỗi thẻ clone một bản từ System Policy rồi sửa được riêng, xem
+     * `CardPolicySaveService`). Thẻ chưa gắn policy, hoặc policy lưu NULL ⇒ không
+     * có Vạch-Min-Spend nào để vẽ ⇒ `null` (KHÔNG fallback sang System Policy:
+     * làm vậy là vẽ vạch của thẻ khác lên thẻ này).
+     *
+     * Cố tình KHÔNG đọc `StatementPeriod.calculation_meta.min_total_spend` nữa:
+     * đó là ảnh chụp ngưỡng tại thời điểm engine tính kỳ, nên nó đọng theo kỳ và
+     * không phản ánh ngưỡng đang lưu trên thẻ — người dùng sửa Vạch-Min-Spend xong
+     * thì vạch phải dịch ngay, không chờ kỳ được tính lại.
+     */
+    private function minimumSpendOf(UserCard $card): ?string
+    {
+        $policy = $card->currentPolicy;
+
+        if ($policy === null) {
             return null;
         }
 
-        $value = $meta['min_total_spend'];
+        $value = $policy->min_total_spend;
 
         return $value === null ? null : Decimal::money($value);
     }

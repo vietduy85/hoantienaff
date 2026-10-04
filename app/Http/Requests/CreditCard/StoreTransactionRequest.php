@@ -2,7 +2,6 @@
 
 namespace App\Http\Requests\CreditCard;
 
-use App\Http\Requests\CreditCard\Concerns\ValidatesTransactionDateInCurrentPeriod;
 use App\Models\CreditCard\Category;
 use App\Models\CreditCard\UserCard;
 use Closure;
@@ -17,21 +16,20 @@ use Illuminate\Validation\Rule;
  * `TransactionSheetReader`) — ở đây cũng vậy để không mở đường nhập tay.
  *
  * ---------------------------------------------------------------------------
- * NGÀY PHẢI THUỘC KỲ SAO KẾ HIỆN TẠI
+ * NGÀY GIAO DỊCH TỰ DO — KHÔNG GIỚI HẠN THEO KỲ SAO KẾ
  * ---------------------------------------------------------------------------
- * Người dùng CHỌN ngày (UI mặc định hôm nay) nhưng ngày đó không được nằm ngoài
- * kỳ sao kê đang mở của thẻ: nếu không, giao dịch rơi sang kỳ khác và "Tổng
- * quan" — vốn chỉ đọc kỳ hiện tại — nhảy số bất ngờ.
+ * Người dùng chọn BẤT KỲ ngày nào: quá khứ, hiện tại hay tương lai. Ở đây chỉ
+ * kiểm tra có mặt và đúng định dạng `Y-m-d`.
  *
- * Ranh giới do `StatementPeriodService::boundariesForDate()` tính từ
- * `statement_day`: CHỈ tính toán, không truy vấn, không tạo bản ghi. Nên thẻ chưa
- * có kỳ nào trong DB vẫn validate được và việc kiểm tra không sinh ra kỳ mới; kỳ
- * chỉ được tạo khi giao dịch thật sự lưu.
+ * Trước đây có thêm closure rule chặn ngày nằm ngoài kỳ sao kê hiện tại
+ * (`ValidatesTransactionDateInCurrentPeriod`). Bỏ đi vì `statement_period_id`
+ * KHÔNG phải thứ người dùng chọn: `StatementPeriodService::resolveForTransaction()`
+ * suy ra kỳ từ `statement_day` cho BẤT KỲ ngày nào. Luồng import Excel
+ * (`TransactionImportService`) vốn đã không có chặn này, nên thao tác nhập tay
+ * nay khớp với nó.
  */
 class StoreTransactionRequest extends FormRequest
 {
-    use ValidatesTransactionDateInCurrentPeriod;
-
     public function authorize(): bool
     {
         return $this->user() !== null;
@@ -73,7 +71,6 @@ class StoreTransactionRequest extends FormRequest
             'transaction_date' => [
                 'required',
                 'date_format:Y-m-d',
-                $this->transactionDateWithinCurrentPeriod(),
             ],
             'posted_date' => ['nullable', 'date_format:Y-m-d'],
             // Ô nhập tay ghi CHI TIÊU nên chỉ nhận số dương: `gt:0` chặn cả 0 lẫn
@@ -114,18 +111,5 @@ class StoreTransactionRequest extends FormRequest
             'merchant' => $this->input('merchant'),
             'note' => $this->input('note'),
         ];
-    }
-
-    protected function cardForTransactionDateValidation(): ?UserCard
-    {
-        $cardId = $this->input('user_card_id');
-
-        if (! is_numeric($cardId)) {
-            return null;
-        }
-
-        return UserCard::query()
-            ->ownedBy((int) $this->user()->id)
-            ->find((int) $cardId);
     }
 }

@@ -964,23 +964,42 @@ class CreditCardModuleTest extends TestCase
     public function index_shows_current_period_cashback_and_statement_date(): void
     {
         $user = User::factory()->create();
+        $category = $this->makeSystemCategory();
         $userCard = $this->makeUserCard($user->id, [
             'statement_day' => 15,
             'payment_due_day' => 25,
+            'desired_spend' => '5000000',
         ]);
+
+        // Bậc đích theo `desired_spend` 5.000.000, rate 5%. "Dự kiến" nhân với
+        // CHI TIÊU THỰC TẾ 4.000.000 ⇒ 200.000 (không phải 5.000.000 × 5%).
+        $this->makePolicyForCard(
+            $userCard,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $category->id, 'percent' => '5.000']]
+        );
 
         $period = $this->makeStatementPeriod($userCard, [
             'period_start' => '2026-09-16',
             'period_end' => '2026-10-15',
             'statement_date' => '2026-10-15',
             'payment_due_date' => '2026-10-25',
-            'total_cashback' => 250000,
+            'total_cashback' => 200000,
+        ]);
+
+        $period->transactions()->create([
+            'user_card_id' => $userCard->id,
+            'category_id' => $category->id,
+            'amount' => '4000000.00',
+            'transaction_date' => '2026-10-01',
+            'statement_period_id' => $period->id,
+            'is_eligible' => true,
         ]);
 
         $response = $this->actingAs($user)->get('/thetindung');
 
         $response->assertOk();
-        $response->assertSee('250.000');
+        $response->assertSee('200.000');
         $response->assertSee('15/10');
         $response->assertSee('25/10/2026');
 
