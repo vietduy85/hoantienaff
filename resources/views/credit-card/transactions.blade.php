@@ -132,15 +132,17 @@
                             <p class="text-xs text-gray-500 break-words">
                                 {{ $row['note'] !== null && $row['note'] !== '' ? $row['note'] : 'Không có ghi chú' }}
                             </p>
+                            {{-- Hoàn tiền: KHÔNG nối " đ" sau `x-credit-card.money` — hậu tố nằm sẵn
+                                 trong component. Nối thêm ra "365.500 đ đ". --}}
                             @if ($row['cashback_amount'] !== null)
                                 <p class="text-xs font-medium text-emerald-600">
-                                    Hoàn tiền <x-credit-card.money :value="$row['cashback_amount']" /> đ
+                                    Hoàn tiền <x-credit-card.money :value="$row['cashback_amount']" />
                                 </p>
                             @endif
                         </div>
                         <p class="shrink-0 font-bold text-gray-800 whitespace-nowrap"
                            data-testid="transaction-amount">
-                            <x-credit-card.money :value="$row['amount']" /> đ
+                            <x-credit-card.money :value="$row['amount']" />
                         </p>
                     </div>
 

@@ -77,17 +77,23 @@
     <div x-data="creditCardOverview(@js($overviewState))" class="space-y-4">
 
         {{-- ═══ 4 chỉ số ═══
-             `min-w-0` + `break-words` ở mọi ô để một con số dài không đẩy trang
-             sang cuộn ngang trên màn hình điện thoại (§31). Tiền format bằng
-             `ccMoney()` — cùng hàm với Quản lý thẻ.
+             Số tiền dùng `cc-stat-amount` (xem `resources/css/app.css`): cỡ chữ co
+             theo bề rộng thật của ô qua container query, `white-space: nowrap`
+             ⇒ một số tiền LUÔN nằm trên một dòng. Trước đây là
+             `text-2xl sm:text-3xl` + `break-words`, nên "800.000.000 đ" trên
+             iPhone bị gãy thành "800.000.000" / "00 đ" — đọc sai hậu tố. KHÔNG
+             dùng truncate/ellipsis/overflow-hidden để "giấu" phần thừa: số bị
+             cắt dở thì tệ hơn số nhỏ đi một chút.
+
+             Tiền format bằng `ccMoneyVnd()` — cùng hàm với Quản lý thẻ.
 
              Trạng thái rỗng dùng `text-gray-500` (tương phản 4.6:1 trên nền
              trắng) chứ không phải `text-gray-300` (~1.9:1) — số "0 đ" mờ như
              vô hình thì người dùng tưởng trang chưa tải xong. --}}
         <div class="grid grid-cols-2 gap-3 sm:gap-4" data-testid="overview-summary">
-            <div class="min-w-0 bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-1">
+            <div class="cc-stat-tile min-w-0 bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-1">
                 <p class="text-xs sm:text-sm text-gray-500">💳 Tổng số thẻ</p>
-                <p class="text-2xl sm:text-3xl font-bold tracking-tight break-words"
+                <p class="cc-stat-amount font-bold"
                    :class="summary.total_cards > 0 ? 'text-emerald-600' : 'text-gray-500'"
                    data-testid="stat-total-cards"
                    x-text="summary.total_cards">{{ (int) $summary['total_cards'] }}</p>
@@ -96,49 +102,45 @@
                 @endif
             </div>
 
-            <div class="min-w-0 bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-1">
+            <div class="cc-stat-tile min-w-0 bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-1">
                 <p class="text-xs sm:text-sm text-gray-500">🎯 Tổng hạn mức</p>
-                <p class="text-2xl sm:text-3xl font-bold tracking-tight break-words"
+                <p class="cc-stat-amount font-bold"
                    :class="ccNumber(summary.total_credit_limit) > 0 ? 'text-emerald-600' : 'text-gray-500'"
                    data-testid="stat-total-limit"
-                   x-text="ccMoney(summary.total_credit_limit) + ' đ'"><x-credit-card.money :value="$summary['total_credit_limit']" /></p>
+                   x-text="ccMoneyVnd(summary.total_credit_limit)"><x-credit-card.money :value="$summary['total_credit_limit']" /></p>
                 @if ((float) $summary['total_credit_limit'] === 0.0)
                     <p class="text-xs text-gray-400">Chưa khai hạn mức</p>
                 @endif
             </div>
 
-            <div class="min-w-0 bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-1">
+            {{-- TỔNG CHI TIÊU = SUM(actual spend của KỲ SAO KẾ HIỆN TẠI của TỪNG thẻ).
+                 Mỗi thẻ tự có kỳ riêng (statement_day khác nhau), và service cộng
+                 đúng các kỳ `open` đang chứa hôm nay — xem
+                 `CreditCardOverviewService::scope()`. KHÔNG phải tháng dương lịch,
+                 không phải một kỳ chung cho cả module.
+
+                 Vì vậy dưới đây KHÔNG in khoảng ngày nào: in một khoảng duy nhất
+                 sẽ là của thẻ đầu tiên và sai với các thẻ còn lại. --}}
+            <div class="cc-stat-tile min-w-0 bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-1">
                 <p class="text-xs sm:text-sm text-gray-500">💸 Tổng chi tiêu</p>
-                <p class="text-2xl sm:text-3xl font-bold tracking-tight break-words"
+                <p class="cc-stat-amount font-bold"
                    :class="ccNumber(summary.total_spend) > 0 ? 'text-emerald-600' : 'text-gray-500'"
                    data-testid="stat-total-spend"
-                   x-text="ccMoney(summary.total_spend) + ' đ'"><x-credit-card.money :value="$summary['total_spend']" /></p>
-                <p class="text-xs text-gray-400">
-                    @if ($currentPeriod !== null)
-                        Kỳ {{ $currentPeriod->period_start->format('d/m') }}–{{ $currentPeriod->period_end->format('d/m/Y') }}
-                    @else
-                        Kỳ sao kê hiện tại
-                    @endif
-                </p>
+                   x-text="ccMoneyVnd(summary.total_spend)"><x-credit-card.money :value="$summary['total_spend']" /></p>
+                <p class="text-xs text-gray-400">Theo kỳ sao kê hiện tại của từng thẻ</p>
             </div>
 
-            <div class="min-w-0 bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-1">
+            {{-- CASHBACK DỰ KIẾN = SUM(expected cashback hiện tại của từng thẻ).
+                 Mỗi thẻ giữ nguyên logic của nó (kỳ hiện tại × bậc đích theo
+                 `desired_spend` × rate của bậc đó, kẹp theo cap) — không tính
+                 `tổng chi tiêu × một rate chung`, vì rate thuộc về TỪNG thẻ. --}}
+            <div class="cc-stat-tile min-w-0 bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-1">
                 <p class="text-xs sm:text-sm text-gray-500">🎁 Cashback dự kiến</p>
-                <p class="text-2xl sm:text-3xl font-bold tracking-tight break-words"
+                <p class="cc-stat-amount font-bold"
                    :class="ccNumber(summary.expected_cashback) > 0 ? 'text-emerald-600' : 'text-gray-500'"
                    data-testid="stat-expected-cashback"
-                   x-text="ccMoney(summary.expected_cashback) + ' đ'"><x-credit-card.money :value="$summary['expected_cashback']" /></p>
-                {{-- Ngày chốt/đến hạn đọc thẳng từ kỳ mà engine đang ghi, không
-                     tự suy ra từ `statement_day` (ngày chốt có thể đã lùi vì
-                     kỳ trước đóng muộn). --}}
-                <p class="text-xs text-gray-400">
-                    @if ($currentPeriod !== null)
-                        Chốt {{ $currentPeriod->statement_date?->format('d/m') ?? '—' }}
-                        · Đến hạn {{ $currentPeriod->payment_due_date?->format('d/m/Y') ?? '—' }}
-                    @else
-                        Hệ thống tự tính từ chính sách
-                    @endif
-                </p>
+                   x-text="ccMoneyVnd(summary.expected_cashback)"><x-credit-card.money :value="$summary['expected_cashback']" /></p>
+                <p class="text-xs text-gray-400">Theo kỳ sao kê hiện tại của từng thẻ</p>
             </div>
         </div>
 
@@ -178,115 +180,178 @@
                 </div>
             @endif
 
-            {{-- ═══ Form nhập giao dịch ═══
-                 Mở ngay tại chỗ (không rời trang): người đang ở Tổng quan thì
-                 không phải sang trang khác để ghi một khoản chi.
+            {{-- Thông báo LƯU THÀNH CÔNG nằm NGOÀI màn hình nổi.
+                 `submit()` đóng overlay rồi mới gán `notice`; nếu để trong form thì
+                 thông báo bị giấu theo form và không bao giờ thấy. --}}
+            <div x-show="notice" x-cloak data-testid="transaction-notice"
+                 class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                <p class="text-sm text-emerald-700 break-words" x-text="notice"></p>
+            </div>
+        </section>
 
+        {{-- ═══ MÀN HÌNH NỔI TOÀN MÀN HÌNH: Nhập giao dịch ═══
+             Người dùng đang đứng ở Tổng quan bấm "+ Nhập giao dịch" ⇒ form bung ra
+             phủ KÍN viewport, không phải modal hộp giữa màn hình và không nối dài
+             bên dưới trang (cả hai cách đó đều làm mất ngữ cảnh hoặc nhét thêm
+             khối giữa danh sách thẻ).
+
+             Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn giữa +
+             thanh nút dính đáy dưới. `h-[100dvh]` thay vì `h-screen` vì 100vh trên
+             trình duyệt điện thoại CAO HƠN khung nhìn thật (thanh địa chỉ thu lại),
+             cắt mất nút Lưu; `dvh` bám theo khung nhìn thật. `inset-0` đã giới
+             hạn chiều cao rồi, `h-[100dvh]` chỉ để chắc.
+
+             `z-[9999]` vượt `z-50` của header dính và bottom-sheet trong
+             `layouts/navigation.blade.php` để trang sau không ló lên trên form.
+
+             Escape đóng, và trong lúc mở thì khoá cuộn trang phía sau.
+
+                 CHIẾM TOÀN BỘ VIEWPORT KHẢ DỤNG:
+                 - `inset-0` + `h-[100dvh]` + `max-h-[100dvh]`. `dvh` là viewport
+                   ĐỘNG nên bám theo thanh địa chỉ/thanh dưới của Safari đang co hay
+                   mở; `vh` (cao hơn khung nhìn thật trên iOS) chỉ để LÀM DỰ PHÒNG cho
+                   Safari cũ chưa biết `dvh` — khai báo sau nên `dvh` thắng.
+                 - `overscroll-contain`: chặn "scroll chaining", tức không để cuộn
+                   tới hết vùng form rồi tiếp tục cuộn trang phía sau.
+                 - `bg-white` đục: không nhìn xuyên được xuống trang dưới. --}}
+        <div x-show="formOpen" x-cloak
+             class="fixed inset-0 z-[9999] h-[100dvh] max-h-[100dvh] w-full bg-white flex flex-col overscroll-contain"
+             style="height: 100vh; height: 100dvh;"
+             role="dialog" aria-modal="true" aria-labelledby="tx-overlay-title"
+             @keydown.escape.window="if (formOpen) closeForm()">
+
+            {{-- Header: nút quay lại + tên màn hình. Tiêu đề ĐỊNH VỊ GIỮA khung nên nó
+                 luôn nằm giữa cả trên mobile lẫn desktop, bất kể nút "Quay lại" dài
+                 bao nhiêu — không cần ô trắng bù bề rộng (ô bù phải ghim px và sẽ
+                 tràn ở 390px).
+
+                 `shrink-0` giữ header KHỎI CUỘN: nó là sibling của vùng cuộn chứ
+                 không nằm trong đó. Cộng thêm `env(safe-area-inset-top)` để không
+                 bị dính vào vùng notch / thanh trạng thái trên iPhone. --}}
+            <div class="shrink-0 relative flex items-center px-3 sm:px-4 pb-2.5 bg-white border-b border-gray-100"
+                 style="padding-top: calc(0.625rem + env(safe-area-inset-top, 0px));">
+                <button type="button" @click="closeForm()"
+                        data-testid="close-transaction-overlay"
+                        class="relative z-10 shrink-0 inline-flex items-center justify-center gap-1 h-11 px-3 rounded-xl border border-gray-200 text-gray-700 text-sm font-semibold active:bg-gray-50 transition-colors">
+                    <span aria-hidden="true">←</span> Quay lại
+                </button>
+                <h2 id="tx-overlay-title"
+                    class="absolute left-1/2 -translate-x-1/2 max-w-[70%] text-center font-bold text-gray-800 text-base sm:text-lg leading-tight">
+                    Nhập giao dịch
+                </h2>
+            </div>
+
+            {{-- Form giữ NGUYÊN toàn bộ field + handler cũ; chỉ đổi vỏ bọc.
                  5 ô theo thứ tự đọc tự nhiên trên điện thoại: NGÀY → SỐ TIỀN →
                  THẺ → DANH MỤC → GHI CHÚ. KHÔNG có ô cashback, policy, tier, cap
                  hay chọn kỳ sao kê — những thứ đó hệ thống tự resolve.
 
                  Mobile: 1 cột, mọi input cao `h-12`, nút cao `h-14` để bấm được
                  bằng ngón cái; `<select>` native để hệ điều hành mở bảng chọn. --}}
-            <form x-show="formOpen" x-cloak @submit.prevent="submit()" class="space-y-4" novalidate
+            <form x-show="formOpen" x-cloak @submit.prevent="submit()"
+                  class="flex-1 min-h-0 flex flex-col" novalidate
                   data-testid="transaction-form">
-                <div class="space-y-1.5">
-                    <div class="flex items-center justify-between gap-2">
-                        <h4 class="font-bold text-gray-800">Nhập giao dịch</h4>
-                        <button type="button" @click="closeForm()" aria-label="Đóng"
-                                class="shrink-0 inline-flex items-center justify-center h-10 w-10 rounded-xl border border-gray-200 text-gray-500 text-lg leading-none">
-                            &times;
-                        </button>
-                    </div>
+                {{-- VÙNG DUY NHẤT CHỊU TRÁCH NHIỆM CUỘN. `flex-1 min-h-0` để nó co
+                     lại đúng phần còn lại giữa header và footer thay vì đẩy footer
+                     ra ngoài khung. `overscroll-y-contain` chặn cuộn lan sang trang
+                     phía sau khi đã cuộn tới đáy. --}}
+                <div class="flex-1 min-h-0 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] px-4 sm:px-6 pt-4 pb-8 space-y-4">
                     <p class="text-xs text-gray-500">
                         Kỳ sao kê, bậc và quy tắc hoàn tiền do hệ thống tự xử lý.
                     </p>
-                </div>
 
-                {{-- Lỗi chung (mạng/500). KHÔNG in exception/stack trace ra UI. --}}
-                <div x-show="error" x-cloak class="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
-                    <p class="text-sm text-red-700 break-words" x-text="error"></p>
-                </div>
+                    {{-- Lỗi chung (mạng/500). KHÔNG in exception/stack trace ra UI. --}}
+                    <div x-show="error" x-cloak class="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+                        <p class="text-sm text-red-700 break-words" x-text="error"></p>
+                    </div>
 
-                <div x-show="notice" x-cloak class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-                    <p class="text-sm text-emerald-700 break-words" x-text="notice"></p>
-                </div>
+                    {{-- Ngày giao dịch: ĐẦU TIÊN vì mọi thứ còn lại (kỳ sao kế, bậc,
+                         quota) đều bám theo ngày này.
+                         KHÔNG giới hạn: không `min`/`max`, không khoá theo kỳ sao kê,
+                         không chặn ngày tương lai. Người dùng chọn BẤT KỲ ngày nào;
+                         `StatementPeriodService::resolvePeriodForDate()` tự suy ra
+                         kỳ chứa ngày đó (luồng import Excel vốn đã vậy). Mặc định
+                         hôm nay chỉ là TIỆN ÍCH, không phải ràng buộc. --}}
+                    <div class="space-y-1.5">
+                        <label for="tx-transaction-date" class="block text-sm font-semibold text-gray-700">Ngày giao dịch</label>
+                        <input id="tx-transaction-date" type="date" required
+                               x-model="form.transaction_date"
+                               class="w-full h-12 rounded-xl border-gray-300 text-base px-4 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                        <p class="text-xs text-gray-500">Kỳ sao kê được tự xác định theo ngày đã chọn.</p>
+                        <p class="text-xs text-red-600" x-show="fieldErrors.transaction_date" x-cloak x-text="fieldErrors.transaction_date"></p>
+                    </div>
 
-                {{-- Ngày giao dịch: ĐẦU TIÊN vì mọi thứ còn lại (kỳ sao kế, bậc,
-                     quota) đều bám theo ngày này.
-                     KHÔNG giới hạn: không `min`/`max`, không khoá theo kỳ sao kê,
-                     không chặn ngày tương lai. Người dùng chọn BẤT KỲ ngày nào;
-                     `StatementPeriodService::resolvePeriodForDate()` tự suy ra
-                     kỳ chứa ngày đó (luồng import Excel vốn đã vậy). Mặc định
-                     hôm nay chỉ là TIỆN ÍCH, không phải ràng buộc. --}}
-                <div class="space-y-1.5">
-                    <label for="tx-transaction-date" class="block text-sm font-semibold text-gray-700">Ngày giao dịch</label>
-                    <input id="tx-transaction-date" type="date" required
-                           x-model="form.transaction_date"
-                           class="w-full h-12 rounded-xl border-gray-300 text-base px-4 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
-                    <p class="text-xs text-gray-500">Kỳ sao kê được tự xác định theo ngày đã chọn.</p>
-                    <p class="text-xs text-red-600" x-show="fieldErrors.transaction_date" x-cloak x-text="fieldErrors.transaction_date"></p>
-                </div>
+                    {{-- Số tiền --}}
+                    <div class="space-y-1.5">
+                        <label for="tx-amount" class="block text-sm font-semibold text-gray-700">Số tiền</label>
+                        <input id="tx-amount" type="number" inputmode="decimal" min="0" step="1000"
+                               x-model="form.amount" required placeholder="Ví dụ: 250000"
+                               class="w-full h-12 rounded-xl border-gray-300 text-base px-4 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                        <p class="text-xs text-red-600" x-show="fieldErrors.amount" x-cloak x-text="fieldErrors.amount"></p>
+                    </div>
 
-                {{-- Số tiền --}}
-                <div class="space-y-1.5">
-                    <label for="tx-amount" class="block text-sm font-semibold text-gray-700">Số tiền</label>
-                    <input id="tx-amount" type="number" inputmode="decimal" min="0" step="1000"
-                           x-model="form.amount" required placeholder="Ví dụ: 250000"
-                           class="w-full h-12 rounded-xl border-gray-300 text-base px-4 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
-                    <p class="text-xs text-red-600" x-show="fieldErrors.amount" x-cloak x-text="fieldErrors.amount"></p>
-                </div>
+                    {{-- Thẻ: chỉ thẻ CÒN DÙNG ĐƯỢC của chính user. Ngày giao dịch độc
+                         lập với thẻ nên đổi thẻ KHÔNG cần chỉnh lại ngày. --}}
+                    <div class="space-y-1.5">
+                        <label for="tx-card" class="block text-sm font-semibold text-gray-700">Thẻ tín dụng</label>
+                        <select id="tx-card" x-model="form.user_card_id" required
+                                class="w-full h-12 rounded-xl border-gray-300 text-base px-4 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                            <option value="">— Chọn thẻ —</option>
+                            <template x-for="card in cards" :key="card.id">
+                                <option :value="card.id"
+                                        x-text="cardLabel(card)"></option>
+                            </template>
+                        </select>
+                        <p class="text-xs text-red-600" x-show="fieldErrors.user_card_id" x-cloak x-text="fieldErrors.user_card_id"></p>
+                    </div>
 
-                {{-- Thẻ: chỉ thẻ CÒN DÙNG ĐƯỢC của chính user. Ngày giao dịch độc
-                     lập với thẻ nên đổi thẻ KHÔNG cần chỉnh lại ngày. --}}
-                <div class="space-y-1.5">
-                    <label for="tx-card" class="block text-sm font-semibold text-gray-700">Thẻ tín dụng</label>
-                    <select id="tx-card" x-model="form.user_card_id" required
-                            class="w-full h-12 rounded-xl border-gray-300 text-base px-4 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
-                        <option value="">— Chọn thẻ —</option>
-                        <template x-for="card in cards" :key="card.id">
-                            <option :value="card.id"
-                                    x-text="cardLabel(card)"></option>
-                        </template>
-                    </select>
-                    <p class="text-xs text-red-600" x-show="fieldErrors.user_card_id" x-cloak x-text="fieldErrors.user_card_id"></p>
-                </div>
+                    {{-- Danh mục: chỉ danh mục hệ thống + danh mục riêng của chính user
+                         (server đã lọc `selectableBy()`; form này chỉ hiển thị lại). --}}
+                    <div class="space-y-1.5">
+                        <label for="tx-category" class="block text-sm font-semibold text-gray-700">Danh mục</label>
+                        <select id="tx-category" x-model="form.category_id" required
+                                class="w-full h-12 rounded-xl border-gray-300 text-base px-4 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                            <option value="">— Chọn danh mục —</option>
+                            <template x-for="category in categories" :key="category.id">
+                                <option :value="category.id"
+                                        x-text="category.name + (category.scope === 'user' ? ' (của tôi)' : '')"></option>
+                            </template>
+                        </select>
+                        <p class="text-xs text-red-600" x-show="fieldErrors.category_id" x-cloak x-text="fieldErrors.category_id"></p>
+                    </div>
 
-                {{-- Danh mục: chỉ danh mục hệ thống + danh mục riêng của chính user
-                     (server đã lọc `selectableBy()`; form này chỉ hiển thị lại). --}}
-                <div class="space-y-1.5">
-                    <label for="tx-category" class="block text-sm font-semibold text-gray-700">Danh mục</label>
-                    <select id="tx-category" x-model="form.category_id" required
-                            class="w-full h-12 rounded-xl border-gray-300 text-base px-4 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
-                        <option value="">— Chọn danh mục —</option>
-                        <template x-for="category in categories" :key="category.id">
-                            <option :value="category.id"
-                                    x-text="category.name + (category.scope === 'user' ? ' (của tôi)' : '')"></option>
-                        </template>
-                    </select>
-                    <p class="text-xs text-red-600" x-show="fieldErrors.category_id" x-cloak x-text="fieldErrors.category_id"></p>
-                </div>
+                    {{-- Ghi chú: tuỳ chọn, CHỈ để ghi chú. Không dùng để xác định
+                         danh mục hay tính cashback. --}}
+                    <div class="space-y-1.5">
+                        <label for="tx-note" class="block text-sm font-semibold text-gray-700">
+                            Ghi chú <span class="font-normal text-gray-400">(không bắt buộc)</span>
+                        </label>
+                        <textarea id="tx-note" rows="2" maxlength="1000" x-model="form.note"
+                                  placeholder="Ví dụ: cà phê, xăng…"
+                                  class="w-full rounded-xl border-gray-300 text-base px-4 py-3 shadow-sm focus:border-emerald-500 focus:ring-emerald-500"></textarea>
+                    </div>
+                </div>{{-- /vùng cuộn --}}
 
-                {{-- Ghi chú: tuỳ chọn, CHỈ để ghi chú. Không dùng để xác định
-                     danh mục hay tính cashback. --}}
-                <div class="space-y-1.5">
-                    <label for="tx-note" class="block text-sm font-semibold text-gray-700">
-                        Ghi chú <span class="font-normal text-gray-400">(không bắt buộc)</span>
-                    </label>
-                    <textarea id="tx-note" rows="2" maxlength="1000" x-model="form.note"
-                              placeholder="Ví dụ: cà phê, xăng…"
-                              class="w-full rounded-xl border-gray-300 text-base px-4 py-3 shadow-sm focus:border-emerald-500 focus:ring-emerald-500"></textarea>
-                </div>
+                {{-- Thanh hành động dính đáy: nút to, chạm bằng ngón cái, luôn thấy
+                     dù form dài đến mấy.
 
-                <button type="submit"
-                        data-testid="save-transaction-button"
-                        :disabled="busy"
-                        class="w-full h-14 rounded-2xl bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 disabled:bg-emerald-300 disabled:cursor-not-allowed text-white text-base font-bold shadow-sm transition-colors">
-                    <span x-show="! busy">Lưu giao dịch</span>
-                    <span x-show="busy" x-cloak>Đang lưu…</span>
-                </button>
+                     `shrink-0` giữ footer KHỎI CUỘN (nó là sibling của vùng cuộn).
+                     Cộng `env(safe-area-inset-bottom)` để nút Lưu không bị thanh
+                     điều hướng dưới của Safari che — trên iPhone phần safe-area là
+                     khoảng trống hệ thống, đệm vào đó nút nằm cao hơn mép màn
+                     hình. `env(..., 0px)` để máy không có safe-area thì về 0. --}}
+                <div class="shrink-0 px-4 sm:px-6 pt-3 bg-white/95 backdrop-blur border-t border-gray-100"
+                     style="padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));">
+                    <button type="submit"
+                            data-testid="save-transaction-button"
+                            :disabled="busy"
+                            class="w-full h-14 rounded-2xl bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 disabled:bg-emerald-300 disabled:cursor-not-allowed text-white text-base font-bold shadow-sm transition-colors">
+                        <span x-show="! busy">Lưu giao dịch</span>
+                        <span x-show="busy" x-cloak>Đang lưu…</span>
+                    </button>
+                </div>
             </form>
-        </section>
+        </div>{{-- /màn hình nổi --}}
 
         {{-- Danh sách thẻ — MỘT bề mặt liền mạch.
              KHÔNG bọc mỗi thẻ trong một ô bo góc: giữa các thẻ chỉ có đường kẻ mảnh
@@ -491,10 +556,10 @@
                                 <span class="min-w-0 truncate">
                                     <span class="text-gray-500">Chi tiêu :</span>
                                     <span class="font-bold text-gray-900 tabular-nums"
-                                          x-text="ccMoney(metricFor(@js($cardKey), 'spent')) + ' đ'"><x-credit-card.money :value="$metrics['spent'] ?? '0.00'" /></span>
+                                          x-text="ccMoneyVnd(metricFor(@js($cardKey), 'spent'))"><x-credit-card.money :value="$metrics['spent'] ?? '0.00'" /></span>
                                     @if ($hasGoal)
                                         <span class="text-gray-500 tabular-nums"
-                                              x-text="' / ' + ccMoney(metricFor(@js($cardKey), 'desired_spend')) + ' đ'">/<x-credit-card.money :value="$metrics['desired_spend'] ?? '0.00'" /></span>
+                                              x-text="' / ' + ccMoneyVnd(metricFor(@js($cardKey), 'desired_spend'))">/<x-credit-card.money :value="$metrics['desired_spend'] ?? '0.00'" /></span>
                                     @endif
                                 </span>
 
@@ -503,7 +568,7 @@
                                 @if ($hasMinimum)
                                     <span class="shrink-0 text-[11px] font-medium text-red-600"
                                           data-testid="card-minimum-caption">
-                                        Tối thiểu <span x-text="ccMoney(metricFor(@js($cardKey), 'minimum_spend')) + ' đ'">{{ $metrics['minimum_spend'] }}</span>
+                                        Tối thiểu <span x-text="ccMoneyVnd(metricFor(@js($cardKey), 'minimum_spend'))">{{ $metrics['minimum_spend'] }}</span>
                                     </span>
                                 @endif
                             </div>
@@ -520,10 +585,10 @@
                                 <span class="min-w-0 truncate">
                                     <span class="text-gray-500">Cashback dự kiến :</span>
                                     <span class="font-bold text-gray-900 tabular-nums"
-                                          x-text="ccMoney(metricFor(@js($cardKey), 'expected_cashback')) + ' đ'"><x-credit-card.money :value="$metrics['expected_cashback'] ?? '0.00'" /></span>
+                                          x-text="ccMoneyVnd(metricFor(@js($cardKey), 'expected_cashback'))"><x-credit-card.money :value="$metrics['expected_cashback'] ?? '0.00'" /></span>
                                     @if ($hasTierCashbackMax)
                                         <span class="text-gray-500 tabular-nums"
-                                              x-text="' / ' + ccMoney(tierCashbackMax(@js($cardKey))) + ' đ'">/<x-credit-card.money :value="$tierCashbackMax" /></span>
+                                              x-text="' / ' + ccMoneyVnd(tierCashbackMax(@js($cardKey)))">/<x-credit-card.money :value="$tierCashbackMax" /></span>
                                     @endif
                                 </span>
                             </div>
@@ -557,16 +622,30 @@
                                                 <span class="text-gray-300">:</span>
 
                                                 <span class="min-w-0 text-gray-600 tabular-nums">
-                                                    {{-- ĐÃ DÙNG --}}
+                                                    {{-- ĐÃ DÙNG. In `cashback_used_display`, KHÔNG phải `cashback_used`:
+                                                         `cashback_used` là cashback engine đã trả cho
+                                                         giao dịch CŨ (bậc theo chi tiêu thực tế), có thể
+                                                         bằng 0 trong khi số tiền đã chi vẫn ăn vào trần
+                                                         của bậc đích. Số đứng trước "/ max" phải phản ánh
+                                                         cashback MÀ TIỀN ĐÃ CHI TẠO RA ở tỷ lệ bậc đích.
+                                                         `cashback_used` vẫn giữ nguyên nghĩa snapshot cho mọi
+                                                         phép tính. --}}
                                                     <span class="font-semibold text-gray-900"
-                                                          x-text="ccMoney(quotaRuleValue(@js($cardKey), {{ $ruleIndex }}, 'cashback_used')) + ' đ'"><x-credit-card.money :value="$quotaRule['cashback_used']" /></span>
+                                                          x-text="ccMoneyVnd(quotaRuleValue(@js($cardKey), {{ $ruleIndex }}, 'cashback_used_display'))"><x-credit-card.money :value="$quotaRule['cashback_used_display']" /></span>
 
                                                     {{-- TRẦN RIÊNG. NULL = rule này KHÔNG có trần
                                                          riêng (đã chốt ở Phase 2) ⇒ bỏ hẳn phần
-                                                         "/ max" thay vì bịa số hoặc hiện "???" (§11). --}}
+                                                         "/ max" thay vì bịa số hoặc hiện "???" (§11).
+
+                                                         Khoảng trắng quanh "/" phải có Ở PHÍA
+                                                         SERVER: `x-text` ghi `' / '` nên sau khi
+                                                         Alpine thay nội dung sẽ là " / 400.000 đ",
+                                                         còn nếu markup không có khoảng trắng thì lúc
+                                                         mới tải trang nó là "/400.000 đ" — dòng tiền
+                                                         nhảy khi Alpine chạy. --}}
                                                     @if ($quotaRule['has_cashback_max'])
                                                         <span class="text-gray-400"
-                                                              x-text="' / ' + ccMoney(quotaRuleValue(@js($cardKey), {{ $ruleIndex }}, 'cashback_max')) + ' đ'">/<x-credit-card.money :value="$quotaRule['cashback_max']" /></span>
+                                                              x-text="' / ' + ccMoneyVnd(quotaRuleValue(@js($cardKey), {{ $ruleIndex }}, 'cashback_max'))"> / <x-credit-card.money :value="$quotaRule['cashback_max']" /></span>
                                                     @else
                                                         {{-- KHÔNG có trần riêng: vẫn phải thấy được
                                                              `cashback_available_for_rule` — đây là ngân
@@ -576,18 +655,35 @@
                                                         @if ($quotaRule['cashback_available_for_rule'] !== null)
                                                             <span class="text-gray-500">
                                                                 · còn<span data-testid="card-quota-available"
-                                                                      x-text="' ' + ccMoney(quotaRuleValue(@js($cardKey), {{ $ruleIndex }}, 'cashback_available_for_rule')) + ' đ'"> <x-credit-card.money :value="$quotaRule['cashback_available_for_rule']" /></span>
+                                                                      x-text="' ' + ccMoneyVnd(quotaRuleValue(@js($cardKey), {{ $ruleIndex }}, 'cashback_available_for_rule'))"> <x-credit-card.money :value="$quotaRule['cashback_available_for_rule']" /></span>
                                                         @endif
                                                     @endif
 
                                                     {{-- SỐ TIỀN CHI THÊM — output Phase 2. Không hiện
-                                                         "+0đ" khi không có dải nào đạt được nữa, vì đó
+                                                         "+0 đ" khi không có dải nào đạt được nữa, vì đó
                                                          là số tiền đã bị giới hạn chứ không phải
-                                                         số tiền cần chi. --}}
-                                                    @if ($quotaRule['spend_remaining_estimate'] !== null)
+                                                         số tiền cần chi. Hết phòng hoàn tiền thì nói
+                                                         thẳng là HẾT QUOTA — báo "chi thêm ~0 đ" khiến
+                                                         user tưởng còn dư được 0 đ.
+
+                                                         KHÔNG nối " đ" sau `x-credit-card.money`: hậu tố
+                                                         nằm sẵn trong component. Nối thêm sẽ ra
+                                                         "345.000 đ đ".
+
+                                                         KHÔNG bọc `<span class="font-bold">` quanh số
+                                                         tiền. wrapper đó làm số đậm hơn nhãn ngay cạnh
+                                                         và tách số khỏi chữ "đ" của chính nó, nên
+                                                         "345.000 đ" lệch typography với "365.500 đ"
+                                                         ngay trên cùng dòng. Số tiền kế thừa
+                                                         `font-semibold` của cả cụm xanh — đã đủ nổi
+                                                         bằng màu, không cần thêm độ đậm. --}}
+                                                    @if ($quotaRule['is_exhausted'])
+                                                        <span class="font-semibold text-rose-600"
+                                                              data-testid="card-quota-exhausted">· HẾT QUOTA</span>
+                                                    @elseif ($quotaRule['spend_remaining_estimate'] !== null)
                                                         @if ($quotaRule['spend_estimate_is_reachable'])
                                                             <span class="font-semibold text-emerald-600"
-                                                                  data-testid="card-quota-estimate">→ Có thể chi thêm ~<span class="font-bold"><x-credit-card.money :value="$quotaRule['spend_remaining_estimate']" /> đ</span></span>
+                                                                  data-testid="card-quota-estimate">→ Có thể chi thêm ~<x-credit-card.money :value="$quotaRule['spend_remaining_estimate']" /></span>
                                                         @else
                                                             <span class="text-gray-400">· không đủ dải rate</span>
                                                         @endif
@@ -737,6 +833,11 @@
                     fieldErrors: {},
                     form: ccBlankTransactionForm(state.today),
 
+                    // Trạng thái khoá cuộn trang phía sau + vị trí cuộn đã lưu, để
+                    // đóng overlay lại trả nguyên trạng vị trí.
+                    scrollLocked: false,
+                    savedScrollY: 0,
+
                     /** Nhãn thẻ trong ô chọn: tên + ngân hàng + 4 số cuối. KHÔNG
                      *  bao giờ hiện số thẻ đầy đủ. Ngân hàng giữ ở ô CHỌN (cần để
                      *  phân biệt khi có nhiều thẻ), không lặp lại ở danh sách thẻ. */
@@ -835,6 +936,67 @@
                         return this.metricFor(id, 'meets_minimum') !== false;
                     },
 
+                    /**
+                     * Khoá cuộn trang PHÍA SAU — cách làm thật sự có tác dụng
+                     * trên iPhone Safari.
+                     *
+                     * Riêng `overflow: hidden` trên `<body>` KHÔNG đủ: Safari vẫn
+                     * cuộn trang từ vùng overlay, và khi thả tay còn "bật" (rubber
+                     * band) được. Nên mình GHIM body tại chỗ bằng `position: fixed`
+                     * và dịch nó lên đúng bằng `-scrollY`, nên:
+                     *   - không còn khả năng cuộn trang dưới,
+                     *   - và mở lại không làm trang nhảy vị trí cũ.
+                     *
+                     * `overflow: hidden` trên cả `<html>` và `<body>` để chặn nốt
+                     * vùng cuộn ở cấp gốc.
+                     */
+                    lockPageScroll() {
+                        if (this.scrollLocked) return;
+
+                        this.savedScrollY = window.scrollY || window.pageYOffset || 0;
+
+                        const html = document.documentElement;
+                        const body = document.body;
+                        this.savedHtmlOverflow = html.style.overflow;
+                        this.savedBodyOverflow = body.style.overflow;
+                        this.savedBodyPosition = body.style.position;
+                        this.savedBodyTop = body.style.top;
+
+                        html.style.overflow = 'hidden';
+                        body.style.overflow = 'hidden';
+                        body.style.position = 'fixed';
+                        body.style.top = `-${this.savedScrollY}px`;
+                        body.style.left = '0';
+                        body.style.right = '0';
+                        body.style.width = '100%';
+
+                        this.scrollLocked = true;
+                    },
+
+                    /** Mở khoá và TRẢ LẠI ĐÚNG vị trí cuộn trước khi khoá. */
+                    unlockPageScroll() {
+                        if (!this.scrollLocked) return;
+
+                        const html = document.documentElement;
+                        const body = document.body;
+                        html.style.overflow = this.savedHtmlOverflow || '';
+                        body.style.overflow = this.savedBodyOverflow || '';
+                        body.style.position = this.savedBodyPosition || '';
+                        body.style.top = this.savedBodyTop || '';
+                        body.style.left = '';
+                        body.style.right = '';
+                        body.style.width = '';
+
+                        this.scrollLocked = false;
+                        window.scrollTo(0, this.savedScrollY || 0);
+                    },
+
+                    /** Alpine gỡ component (điều hướng client-side) thì nhả khoá,
+                     *  không để trang bị "đóng băng" vĩnh viễn. */
+                    destroy() {
+                        this.unlockPageScroll();
+                    },
+
                     openForm() {
                         this.error = '';
                         this.notice = '';
@@ -850,6 +1012,9 @@
                         // phải ràng buộc: sau đó họ chọn ngày nào cũng được.
                         this.form.transaction_date = this.today;
                         this.formOpen = true;
+
+                        // Khoá cuộn trang phía sau (xem `lockPageScroll`).
+                        this.lockPageScroll();
                     },
 
                     closeForm() {
@@ -858,6 +1023,7 @@
                         this.fieldErrors = {};
                         this.error = '';
                         this.notice = '';
+                        this.unlockPageScroll();
                     },
 
                     /**

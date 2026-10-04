@@ -22,4 +22,18 @@
     function ccNumber(value) {
         return Number(value ?? 0).toLocaleString('vi-VN', { maximumFractionDigits: 2 });
     }
+
+    /**
+     * Số tiền có hậu tố "đ" — bản JS của `x-credit-card.money`.
+     *
+     * `x-text` ghi đè nội dung phần tử bằng `textContent`, nên bản render sẵn của
+     * `x-credit-card.money` bị thay mất. Nếu chỗ gọi tự nối `+ ' đ'` bằng SPACE
+     * THƯỜNG thì số và "đ" lại tách được — đúng lỗi "345.000" / "đ" trên mobile.
+     * Vì vậy hậu tố nối bằng `\u00A0` (nbsp) ở đây, khớp đúng partial phía server:
+     * hai bên dùng chung một quy tắc, không bên nào có thể lệch.
+     */
+    // eslint-disable-next-line no-unused-vars
+    function ccMoneyVnd(value) {
+        return `${ccMoney(value)}\u00A0đ`;
+    }
 </script>

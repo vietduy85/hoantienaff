@@ -58,6 +58,25 @@ use Illuminate\Support\Collection;
  * mỗi danh mục báo riêng khả năng của NÓ, dựa trên ngân sách chung còn lại.
  *
  * ---------------------------------------------------------------------------
+ * SỐ TIỀN ĐÃ CHI ĐÃ ĂN VÀO PHÒNG CHƯA
+ * ---------------------------------------------------------------------------
+ * "Có thể chi thêm" là câu hỏi "còn bao nhiêu TIỀN chi được trước khi HẾT
+ * phòng hoàn tiền", nên phải trừ cả cashback mà số tiền ĐÃ CHI tạo ra ở tỷ lệ
+ * của bậc đích — không chỉ cashback engine đã trả (`cashback_used`).
+ *
+ * Lý do: bậc đích theo `desired_spend`, còn engine chạy bậc theo CHI TIÊU THỰC
+ * TẾ. Người dùng mới đặt mục tiêu cao thì engine trả 0đ cho giao dịch đã có, và
+ * `cashback_used` = 0 dù tiền đã chi vẫn chiếm chỗ trong trần của bậc đích.
+ *
+ *   3.655.000 × 10% = 365.500đ đã ăn vào trần 400.000đ ⇒ còn 34.500đ hoàn
+ *   tiền ⇒ còn chi thêm 34.500/10% = 345.000đ (KHÔNG phải 400.000/10%).
+ *
+ * Phần bị trừ là `MAX(0, dự kiến − cashback_used)`: trừ vô hạn sẽ double-count
+ * cùng một khoản khi engine đã trả đúng bằng tỷ lệ của bậc đích — lúc đó
+ * `cashback_used` đã nằm trong `cashback_available_for_rule` và kết quả y hệt
+ * trước. Rate lấy của CHÍNH rule này trong bậc đích, không phải max rate của bậc.
+ *
+ * ---------------------------------------------------------------------------
  * `is_quota_category` — CỜ CẤU HÌNH, ENGINE KHÔNG ĐỌC
  * ---------------------------------------------------------------------------
  * `CashbackCalculator` không biết cột này. Cờ chỉ quyết định rule nào được TÍNH
@@ -284,9 +303,68 @@ class CashbackQuotaService
             default => Decimal::min($remaining, $tierRemaining),
         };
 
-        $walk = $available === null
+        // -----------------------------------------------------------------
+        // PHÒNG CÒN LẠI THẬT SỰ — trừ cashback của SỐ TIỀN ĐÃ CHI
+        // -----------------------------------------------------------------
+        // `cashback_used` chỉ ghi những giao dịch engine ĐÃ trả cashback. Nhưng
+        // quota trình bày theo BẬC ĐÍCH (`desired_spend`): người dùng mới đặt
+        // mục tiêu cao, engine vẫn chạy bậc thấp và trả 0đ cho các giao dịch đã
+        // có. Số tiền đó ĐÃ chi làm hao ngân sách của bậc đích, nhưng snapshot
+        // không thấy mặt nào.
+        //
+        // Ví dụ: chi 3.655.000, bậc đích 10% với trần 400.000. `used` = 0 nên
+        // `available` = 400.000, và nếu chia thẳng 400.000/10% ra 4.000.000 thì
+        // báo user còn chi được cả 4tr — trong khi 365.500 hoàn tiền đã ăn vào
+        // trần rồi. Phải còn 34.500 hoàn tiền ⇒ 345.000 chi thêm mới đúng.
+        //
+        // Rate lấy của CHÍNH rule này trong bậc đích (`cashback_percent`), không
+        // lấy max rate của bậc và không lấy rate của bậc engine đang chạy: mỗi
+        // quota rule một tỷ lệ riêng, nên phải so từng rule.
+        $rate = Decimal::money($rule->cashback_percent);
+
+        $expectedFromSpend = Decimal::isPositive($rate)
+            ? Decimal::cashbackForSpend($scopeSpend, $rate)
+            : '0.00';
+
+        // KHÔNG double-count: `available` đã trừ `used` rồi, nên chỉ trừ thêm
+        // phần cashback dự kiến mà snapshot CHƯA phản ánh. Khi `used` đã bằng
+        // (hoặc lớn hơn) dự kiến — tức engine đã trả đúng bằng tỷ lệ bậc đích —
+        // phần này là 0 và kết quả y hệt trước đây.
+        $unaccounted = Decimal::clampZero(Decimal::subtract($expectedFromSpend, $used));
+
+        $room = $available === null
+            ? null
+            : Decimal::clampZero(Decimal::subtract($available, $unaccounted));
+
+        // -----------------------------------------------------------------
+        // SỐ IN RA TRƯỚC DẤU "/" — CHỈ ĐỂ TRÌNH BÀY
+        // -----------------------------------------------------------------
+        // `cashback_used` giữ NGUYÊN nghĩa gốc: cashback thực tế đã phát sinh từ
+        // snapshot, và mọi phép tính quota/lịch sử vẫn dùng đúng con số đó. Sửa
+        // nó thành cashback dự kiến là bẻ lách cả hai nghĩa.
+        //
+        // Nhưng dòng "Quota hoàn tiền" trên Tổng quan đứng trước "/ max" thì phải
+        // là cashback MÀ SỐ TIỀN ĐÃ CHI TẠO RA Ở TỶ LỆ CỦA BẬC ĐÍCH. Engine chạy
+        // bậc theo CHI TIÊU THỰC TẾ nên có thể đã trả 0đ cho các giao dịch sẵn
+        // có; in "0 đ / 400.000 đ" trong khi 365.500đ cashback đã ăn vào trần là
+        // dòng quota nói dối người dùng.
+        //
+        // Kẹp theo ĐÚNG trần mà dòng đó đang in, để không bao giờ hiện
+        // "410.000 đ / 400.000 đ". Không suy ra mẫu số: dòng in `/ max` khi
+        // `has_cashback_max`, in "· còn" khi không có — lấy `min` của hai tầng
+        // trần vẫn là trần thật trong cả hai trường hợp.
+        $displayCap = match (true) {
+            $max !== null && $tierMax !== null => Decimal::min($max, $tierMax),
+            default => $max ?? $tierMax,
+        };
+
+        $usedForDisplay = $displayCap === null
+            ? $expectedFromSpend
+            : Decimal::min($expectedFromSpend, $displayCap);
+
+        $walk = $room === null
             ? ['spend' => null, 'reachable' => null]
-            : $this->walkBands($this->bandChain($siblingRules, $rule), $scopeSpend, $available);
+            : $this->walkBands($this->bandChain($siblingRules, $rule), $scopeSpend, $room);
 
         return [
             'rule_id' => (int) $rule->id,
@@ -300,7 +378,7 @@ class CashbackQuotaService
             'scope_category_ids' => $categoryIds,
 
             // Dải rate của chính rule này.
-            'cashback_percent' => Decimal::money($rule->cashback_percent),
+            'cashback_percent' => $rate,
             'spend_from' => Decimal::money($rule->spend_from),
             'spend_to' => $rule->spend_to === null ? null : Decimal::money($rule->spend_to),
 
@@ -319,7 +397,15 @@ class CashbackQuotaService
             // Tầng RIÊNG.
             'cashback_max' => $max,
             'has_cashback_max' => $max !== null,
+
+            // Cashback THỰC TẾ từ snapshot. KHÔNG dùng để in ở Tổng quan, xem
+            // `cashback_used_display` ngay dưới.
             'cashback_used' => $used,
+
+            // Số in ra trước "/ max": cashback của số tiền đã chi theo tỷ lệ bậc
+            // đích. Chỉ dùng để trình bày — KHÔNG đưa vào phép tính nào.
+            'cashback_used_display' => $usedForDisplay,
+
             'cashback_remaining' => $remaining,
 
             // Tầng CHUNG, lặp lại ở từng rule để không phải tra cứu chéo.
@@ -329,8 +415,16 @@ class CashbackQuotaService
 
             // MIN của hai tầng trên.
             'cashback_available_for_rule' => $available,
+
+            // Cashback mà số tiền ĐÃ CHI của phạm vi này ăn vào trần, tính bằng
+            // tỷ lệ của chính rule trong bậc đích — và phần snapshot chưa tính.
+            'cashback_expected_from_spend' => $expectedFromSpend,
+            'cashback_unaccounted_from_spend' => $unaccounted,
+            'cashback_room_remaining' => $room,
+
+            // Chia CHỈ phòng còn lại trên, chứ không chia cả trần.
             'spend_remaining_estimate' => $walk['spend'],
-            'is_exhausted' => $available !== null && Decimal::compare($available, '0.00') <= 0,
+            'is_exhausted' => $room !== null && Decimal::compare($room, '0.00') <= 0,
 
             // `false` khi đi hết dải mà vẫn chưa tạo đủ cashback: cấu hình có dải
             // đóng kín nên không thể chi thêm để đạt max — con số ước lượng khi

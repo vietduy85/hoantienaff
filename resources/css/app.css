@@ -3,3 +3,70 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ===========================================================================
+   SỐ TIỀN Ở 4 Ô TỔNG QUAN (Module Thẻ tín dụng)
+   ===========================================================================
+   Vấn đề: một số dài như "1.000.000.000 đ" không vừa một ô nửa màn hình, mà
+   `break-words` lại cho phép nó xuống dòng — trên iPhone ra "800.000.000" /
+   "00 đ". Số bị cắt dở thì đọc sai hậu tố, tệ hơn cả khi hơi nhỏ đi.
+
+   Nguyên tắc: số tiền là MỘT ĐƠN VỊ, không bao giờ gãy. Ở đây ta KHÔNG cắt
+   (không truncate, không ellipsis, không overflow-hidden) và cũng KHÔNG ép một
+   cỡ chữ cố định — ta cho cỡ chữ co theo BỀ RỘNG THẬT của chính ô.
+
+   VÌ SAO `cqw` CHỨ KHÔNG PHẢI `vw`
+   ---------------------------------------------------------------------------
+   Ô nằm trong `grid-cols-2` có padding cố định (page 16px + ô 16px mỗi bên).
+   Bề rộng chứa số = viewport/2 − 54px, KHÔNG phải viewport/2. Nên cỡ chữ theo
+   `vw` sẽ dư sức ở 430px nhưng lại tràn ở 320px — đúng cái lỗi ta đang sửa.
+   `cqw` đo bề rộng content-box của chính ô nên luôn khớp, kể cả khi padding,
+   sidebar, số cột hay breakpoint có đổi.
+
+   CON SỐ 7.9941 LẤY TỪ ĐÂU
+   ---------------------------------------------------------------------------
+   Đo bằng advance width THẬT của Inter Bold (unitsPerEm 2048), cộng
+   letter-spacing `tracking-tight` = −0.025em sau mỗi ký tự:
+
+       "1.000.000.000 đ"  10 chữ số × 0.6743em
+                        +  3 dấu chấm × 0.3340em
+                        +  &nbsp;      × 0.2368em   (U+00A0 = U+0020 trong Inter)
+                        +  đ           × 0.6304em
+                        −  15 ký tự × 0.025em
+                        =  7.9941em
+
+   Đây là chuỗi DÀI NHẤT mà formatter của module có thể in ra (9 chữ số + 3
+   dấu chấm), nên dù nó làm chuẩn thì mọi số ngắn hơn đều vừa.
+
+   `100cqw − 3px` thay vì `100cqw`: chừa 3px cho sai số làm tròn sub-pixel của
+   trình duyệt. KHÔNG dùng hệ số phần trăm "cho chắc" vì phải đoán.
+
+   clamp(12px, …, 30px):
+     • 12px  — sàn: ở 320px ô rộng 106px ⇒ 106/7.9941 ≈ 13.3px là vừa khít.
+     • 30px  — trần: desktop (≥640px) dư chỗ nhiều, giữ số nổi bật như trước.
+   Kết quả: 320px→12.9px · 390px→17.3px · 430px→19.8px · ≥640px→30px.
+   ======================================================================== */
+@layer components {
+    /* Ô chứa số = query container, để `cqw` trong ô đo đúng bề rộng này. */
+    .cc-stat-tile {
+        container-type: inline-size;
+    }
+
+    .cc-stat-amount {
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.025em;
+        line-height: 1.15;
+        white-space: nowrap;
+
+        /* Nền cho trình duyệt chưa có container query (Safari < 16, 2022).
+           Vẫn co theo viewport nên chỉ hơi chật ở ~320px, thay vì đứng yên
+           20px rồi tràn. */
+        font-size: clamp(12px, 4.4vw, 30px);
+    }
+
+    @supports (container-type: inline-size) {
+        .cc-stat-amount {
+            font-size: clamp(12px, calc((100cqw - 3px) / 7.9941), 30px);
+        }
+    }
+}

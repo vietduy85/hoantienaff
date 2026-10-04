@@ -85,7 +85,13 @@ class CreditCardController extends Controller
                 ])
                 ->values()
                 ->all(),
-            'currentPeriod' => $overview['current_periods']->first(),
+            // KHÔNG truyền `currentPeriod` xuống view nữa. Nó từng là
+            // `current_periods->first()` — tức kỳ của THẺ ĐẦU TIÊN — và ô "Tổng
+            // chi tiêu" in khoảng ngày của nó, khiến người dùng tưởng cả tổng
+            // theo kỳ đó. Mỗi thẻ một `statement_day` nên mỗi thẻ một kỳ; ô tổng
+            // giờ ghi rõ "Theo kỳ sao kê hiện tại của từng thẻ" thay vì bịa một
+            // khoảng ngày chung. Số liệu tổng vẫn cộng đúng kỳ hiện tại của từng
+            // thẻ, xem `CreditCardOverviewService`.
             // Ranh giới kỳ hiện tại cho Ô NGÀY: chặn chọn ngoài kỳ ngay trên máy,
             // server còn chặn lại ở `StoreTransactionRequest`.
             'periodBounds' => $this->periodBounds($userCreditCards, $today),

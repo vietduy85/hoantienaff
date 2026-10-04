@@ -1395,6 +1395,166 @@ class CardManagementUxTest extends TestCase
     }
 
     #[Test]
+    public function the_add_card_form_opens_as_a_full_screen_overlay(): void
+    {
+        $html = $this->actingAs($this->owner)
+            ->get(route('credit-cards.manage'))
+            ->assertOk()
+            ->getContent();
+
+        $dom = new DOMDocument;
+        @$dom->loadHTML($html);
+        $xpath = new DOMXPath($dom);
+
+        // Màn hình nổi phải PHỦ KÍN viewport, không phải modal hộp giữa màn hình:
+        // `fixed inset-0` + nền đục + cao theo khung nhìn thật của điện thoại.
+        $overlays = $xpath->query("//div[@x-show='form.open' and @role='dialog']");
+        $this->assertSame(1, $overlays->length, 'Form thẻ phải nằm trong đúng một màn hình nổi.');
+
+        $overlay = $overlays->item(0);
+        $this->assertSame('true', $overlay->getAttribute('aria-modal'));
+
+        $classes = $overlay->getAttribute('class');
+        foreach (['fixed', 'inset-0', 'w-full', 'h-[100dvh]', 'bg-white'] as $needle) {
+            $this->assertStringContainsString($needle, $classes, "Overlay thiếu lớp {$needle}.");
+        }
+
+        // KHÔNG được giới hạn bề rộng ở desktop thành hộp nổi giữa màn hình.
+        $this->assertStringNotContainsString('sm:max-w', $classes);
+        $this->assertStringNotContainsString('sm:mx-auto', $classes);
+
+        // z-index phải vượt header dính và bottom-sheet (z-50) của bố cục chung.
+        preg_match('/z-\[(\d+)\]/', $classes, $z);
+        $this->assertNotEmpty($z, 'Overlay phải có z-index tường minh.');
+        $this->assertGreaterThan(50, (int) $z[1], 'Overlay phải nằm trên header dính z-50.');
+
+        // Form nằm TRỰC TIẾP trong overlay, và bên trong nó có vùng cuộn riêng.
+        $form = $xpath->query("//form[@x-show='form.open']")->item(0);
+        $this->assertNotNull($form);
+        $this->assertSame($overlay, $form->parentNode, 'Form phải là con trực tiếp của overlay.');
+
+        $scroller = $form->firstElementChild;
+        $this->assertStringContainsString('overflow-y-auto', $scroller->getAttribute('class'));
+
+        // BỎ vỏ bo góc bọc quanh form: overlay đã là nền trắng phủ kín, thêm khối
+        // bo góc bên trong chỉ tạo ra card lồng trong card.
+        $this->assertStringNotContainsString(
+            'bg-white rounded-2xl',
+            $scroller->getAttribute('class'),
+            'Vùng cuộn không được là một khối bo góc lồng trong overlay.'
+        );
+
+        // Khối chính sách (dài nhất trang) phải nằm TRONG vùng cuộn. Một `</div>`
+        // thừa sẽ đẩy nó ra ngoài form và làm người dùng phải cuộn cả trang.
+        $policyBlock = $xpath->query("//section[.//*[@data-testid='policy-summary']]")->item(0);
+        $this->assertNotNull($policyBlock, 'Thiếu khối chính sách hoàn tiền.');
+        $this->assertSame(
+            $scroller,
+            $xpath->query("ancestor::div[contains(@class,'overflow-y-auto')]", $policyBlock)->item(0),
+            'Khối chính sách phải nằm trong vùng cuộn của overlay.'
+        );
+
+        // Nút quay lại ở header: `type="button"` để bấm không phát sinh request.
+        $back = $xpath->query("//*[@data-testid='close-card-overlay']");
+        $this->assertSame(1, $back->length, 'Overlay phải có nút quay lại.');
+
+        $backButton = $back->item(0);
+        $this->assertSame('button', $backButton->getAttribute('type'));
+        $this->assertStringContainsString('Quay lại', $backButton->textContent);
+
+        // `@click` không đọc được qua DOM: libxml bỏ attribute bắt đầu bằng `@`.
+        $this->assertStringContainsString('@click="closeForm()"', $html);
+
+        // Escape đóng được overlay.
+        $this->assertStringContainsString('@keydown.escape.window="if (form.open) closeForm()"', $html);
+
+        // ---- Ràng buộc iPhone Safari ----
+
+        // `dvh` là viewport động, `max-h` chặn tràn; `overscroll-contain` chặn
+        // cuộn lan (scroll chaining) sang trang phía sau.
+        $this->assertStringContainsString('max-h-[100dvh]', $classes);
+        $this->assertStringContainsString('overscroll-contain', $classes);
+        $this->assertStringContainsString('overscroll-y-contain', $scroller->getAttribute('class'));
+
+        // `100vh` chỉ được làm DỰ PHÒNG cho Safari cũ chưa biết `dvh`; nguồn
+        // chính phải là `100dvh` (khai báo sau, nên thắng).
+        $style = $overlay->getAttribute('style');
+        $this->assertMatchesRegularExpression('/height:\s*100vh;\s*height:\s*100dvh;/', $style);
+
+        // Header nằm NGOÀI vùng cuộn ⇒ không bao giờ bị cuộn đi.
+        $header = $xpath->query("//*[@data-testid='close-card-overlay']/ancestor::div[1]")->item(0);
+        $this->assertNotNull($header);
+        $this->assertSame(
+            0,
+            $xpath->query("ancestor::div[contains(@class,'overflow-y-auto')]", $header)->length,
+            'Header không được nằm trong vùng cuộn.'
+        );
+
+        // Footer nằm NGOÀI vùng cuộn và có đệm safe-area để Safari không che nút Lưu.
+        $save = $xpath->query("//form//button[@type='submit']")->item(0);
+        $this->assertNotNull($save);
+        $this->assertSame(
+            1,
+            $xpath->query("ancestor::div[contains(@style,'safe-area-inset-bottom')]", $save)->length,
+            'Thanh nút phải đệm safe-area-inset-bottom cho iPhone.'
+        );
+        $this->assertSame(
+            0,
+            $xpath->query("ancestor::div[contains(@class,'overflow-y-auto')]", $save)->length,
+            'Nút lưu không được nằm trong vùng cuộn để luôn thấy.'
+        );
+
+        // Khoá cuộn phía sau: `overflow: hidden` đơn thuần KHÔNG đủ trên iOS
+        // Safari, phải ghim body bằng `position: fixed` và nhớ vị trí cuộn.
+        $this->assertMatchesRegularExpression(
+            '/lockPageScroll\(\)\s*\{.*?savedScrollY = window\.scrollY.*?position = \'fixed\';/s',
+            $html,
+            'Khoá cuộn phải ghim body bằng position:fixed, không chỉ overflow:hidden.'
+        );
+        $this->assertMatchesRegularExpression(
+            '/unlockPageScroll\(\)\s*\{.*?window\.scrollTo\(0, this\.savedScrollY/s',
+            $html,
+            'Mở khoá phải trả lại đúng vị trí cuộn trước khi khoá.'
+        );
+    }
+
+    #[Test]
+    public function saving_a_new_card_closes_the_overlay_and_refreshes_the_list(): void
+    {
+        $html = $this->actingAs($this->owner)
+            ->get(route('credit-cards.manage'))
+            ->assertOk()
+            ->getContent();
+
+        // Lưu thẻ xong phải đóng màn hình nổi, còn danh sách được cập nhật tại chỗ
+        // (`upsertCard`) để không phải reload trang.
+        $this->assertMatchesRegularExpression(
+            '/this\.upsertCard\(saved\);.*?if\s*\(creating\)\s*\{.*?this\.closeForm\(\);.*?return;/s',
+            $html,
+            'Nhánh thêm thẻ phải cập nhật danh sách rồi đóng form.'
+        );
+
+        // `closeForm()` phải mở khoá cuộn trang, nếu không trang phía sau bị kẹt.
+        $this->assertMatchesRegularExpression(
+            '/closeForm\(\)\s*\{.*?unlockPageScroll\(\);/s',
+            $html
+        );
+        $this->assertMatchesRegularExpression('/openCreate\(\)\s*\{.*?lockPageScroll\(\);/s', $html);
+        $this->assertMatchesRegularExpression('/openEdit\(id\)\s*\{.*?lockPageScroll\(\);/s', $html);
+
+        // Thông báo lưu thành công phải còn thấy được sau khi overlay đã đóng,
+        // nên nó nằm ở tầng trang chứ không nằm trong form.
+        $this->assertStringContainsString('data-testid="card-notice"', $html);
+        $this->assertStringContainsString('notice && ! form.open', $html);
+
+        // Sửa thẻ thì GIỮ NGUYÊN hành vi cũ: form vẫn mở ở chế độ chỉ đọc.
+        $this->assertMatchesRegularExpression(
+            '/await this\.loadPolicy\(saved\);\s*this\.notice = \'Đã lưu thẻ/s',
+            $html
+        );
+    }
+
+    #[Test]
     public function the_policy_summary_and_editor_never_open_a_second_horizontal_scroll(): void
     {
         $html = $this->actingAs($this->owner)

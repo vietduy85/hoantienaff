@@ -378,9 +378,59 @@ class TransactionHistoryPageTest extends TestCase
         $this->assertStringNotContainsString('policy_tier', $html);
     }
 
+    #[Test]
+    public function a_row_prints_each_amount_with_exactly_one_currency_suffix(): void
+    {
+        // Truyền CHÍNH danh mục mà policy gắn rule: giao dịch trên danh mục khác
+        // sẽ không eligible, cashback = 0 và dòng "Hoàn tiền" không render — test
+        // sẽ pass nhầm vì chỉ kiểm tra số tiền giao dịch.
+        $category = $this->makeSystemCategory();
+        $card = $this->cardWithTransactions($category);
+
+        // 7.310.000 × 5% = 365.500 ⇒ có cashback để dòng "Hoàn tiền" hiện ra.
+        $this->createTransaction($card, $category, '7310000', 'Ăn mừng');
+
+        $html = $this->actingAs($this->owner)
+            ->get(route('credit-cards.transactions', ['userCard' => $card->id]))
+            ->assertOk()
+            ->getContent();
+
+        $text = $this->visibleTextOf($html);
+
+        $this->assertStringContainsString('Hoàn tiền 365.500 đ', $text);
+        $this->assertStringContainsString('7.310.000 đ', $text);
+
+        // `x-credit-card.money` đã tự render hậu tố. Nối thêm " đ" ở chỗ gọi sẽ ra
+        // "365.500 đ đ" — assert trên HTML thô không bắt được vì "đ đ" là text node
+        // nằm xen giữa các thẻ <span>, nên phải bóc thẻ rồi mới thấy.
+        $this->assertStringNotContainsString('đ đ', $text);
+
+        // Và không chỗ nào trong view được tự nối hậu tố ngoài component nữa.
+        $this->assertStringNotContainsString(
+            '/> đ',
+            $html,
+            'Chỗ gọi `x-credit-card.money` không được nối thêm " đ" — component đã có sẵn.',
+        );
+    }
+
     // =====================================================================
     // Helper
     // =====================================================================
+
+    /**
+     * CHỮ NGƯỜI DÙNG THẬT SỰ THẤY trong HTML: bóc thẻ, giải thực thể rồi gộp
+     * khoảng trắng.
+     *
+     * `&nbsp;` đổi về space thường để kỳ vọng viết được như người đọc — hành vi
+     * "không đứt dòng" của nó do component lo, không thuộc test này.
+     */
+    private function visibleTextOf(string $html): string
+    {
+        $text = html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = str_replace("\u{00A0}", ' ', $text);
+
+        return trim((string) preg_replace('/\s+/u', ' ', $text));
+    }
 
     /**
      * Thẻ đã có policy 5% và MỘT kỳ hiện tại đã gắn version (tạo qua pipeline

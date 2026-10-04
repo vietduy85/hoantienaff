@@ -960,6 +960,303 @@ class OverviewQuotaPresentationTest extends TestCase
     }
 
     // =====================================================================
+    // Số tiền đã chi phải được trừ khỏi phòng hoàn tiền của bậc đích
+    // =====================================================================
+
+    #[Test]
+    public function the_row_reports_the_room_left_after_the_cashback_the_spend_already_took(): void
+    {
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '4000000']);
+        $shopee = $this->makeSystemCategory(['name' => 'Shopee']);
+
+        // Bậc 1 là bậc engine chạy với 3.655.000đ (0% ⇒ snapshot 0); bậc 2 là bậc
+        // ĐÍCH theo mục tiêu 4.000.000đ: 10%, trần riêng 400.000đ.
+        $this->makePolicyForCard(
+            $card,
+            [
+                ['name' => 'Bậc 1', 'min' => 0, 'max' => 3999999, 'cap_period' => '1000000.00'],
+                ['name' => 'Bậc 2', 'min' => 4000000, 'max' => null, 'cap_period' => '1000000.00'],
+            ],
+            [
+                ['category_id' => $shopee->id, 'percent' => '0.000', 'only_tier' => 0],
+                ['category_id' => $shopee->id, 'percent' => '10.000', 'cap_cat' => '400000.00', 'quota' => true, 'only_tier' => 1],
+            ]
+        );
+
+        $this->spend($card, $shopee, '3655000');
+
+        $html = $this->overviewHtml();
+        $rule = $this->metricsOf($html)[(string) $card->id]['quota']['rules'][0];
+
+        // `cashback_used` GIỮ NGUYÊN nghĩa snapshot: engine chạy bậc 1 @0% nên
+        // chưa trả đồng nào. Số IN RA là cashback của số tiền đã chi ở tỷ lệ bậc
+        // đích: 3.655.000 × 10% = 365.500đ.
+        $this->assertSame('0.00', $rule['cashback_used']);
+        $this->assertSame('365500.00', $rule['cashback_used_display']);
+        $this->assertSame('365500.00', $rule['cashback_expected_from_spend']);
+        $this->assertSame('400000.00', $rule['cashback_max']);
+        $this->assertSame('34500.00', $rule['cashback_room_remaining']);
+
+        // 34.500/10% = 345.000đ — KHÔNG phải 400.000/10% = 4.000.000đ.
+        $this->assertSame('345000.00', $rule['spend_remaining_estimate']);
+
+        $row = $this->visibleTextOf($this->quotaRowOf($html));
+
+        $this->assertStringContainsString('365.500 đ / 400.000 đ', $row);
+        $this->assertStringContainsString('Có thể chi thêm ~345.000 đ', $row);
+
+        // KHÔNG in 0đ (cashback engine đã trả) và KHÔNG có "đ" thừa: đúng 3 mốc
+        // tiền trên dòng (đã dùng, trần, chi thêm) ⇒ đúng 3 chữ "đ".
+        $this->assertDoesNotMatchRegularExpression('/:\s*0 đ\s*\//', $row, 'Dòng quota không được mở đầu bằng 0 đ.');
+        $this->assertStringNotContainsString('4.000.000', $row);
+        $this->assertStringNotContainsString('345.000đ', $row);
+        $this->assertStringNotContainsString('345.000 đ đ', $row);
+        $this->assertStringNotContainsString('Có thể chi thêm ~345.000đ', $row);
+        $this->assertSame(3, substr_count($row, 'đ'), 'Dòng quota phải có đúng 3 hậu tố "đ".');
+    }
+
+    #[Test]
+    public function a_rule_with_no_cashback_room_left_says_the_quota_is_exhausted(): void
+    {
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '4000000']);
+        $shopee = $this->makeSystemCategory(['name' => 'Shopee']);
+
+        $this->makePolicyForCard(
+            $card,
+            [
+                ['name' => 'Bậc 1', 'min' => 0, 'max' => 3999999, 'cap_period' => '1000000.00'],
+                ['name' => 'Bậc 2', 'min' => 4000000, 'max' => null, 'cap_period' => '1000000.00'],
+            ],
+            [
+                ['category_id' => $shopee->id, 'percent' => '0.000', 'only_tier' => 0],
+                ['category_id' => $shopee->id, 'percent' => '10.000', 'cap_cat' => '400000.00', 'quota' => true, 'only_tier' => 1],
+            ]
+        );
+
+        // 4.100.000 × 10% = 410.000đ > trần 400.000đ ⇒ không còn phòng.
+        $this->spend($card, $shopee, '4100000');
+
+        $html = $this->overviewHtml();
+        $rule = $this->metricsOf($html)[(string) $card->id]['quota']['rules'][0];
+
+        $this->assertSame('0.00', $rule['cashback_room_remaining']);
+        $this->assertSame('0.00', $rule['spend_remaining_estimate']);
+        $this->assertTrue($rule['is_exhausted']);
+
+        // Số in ra kẹp theo trần: không bao giờ "410.000 đ / 400.000 đ".
+        $this->assertSame('400000.00', $rule['cashback_used_display']);
+
+        $row = $this->visibleTextOf($this->quotaRowOf($html));
+
+        $this->assertStringContainsString('400.000 đ / 400.000 đ', $row);
+        $this->assertStringContainsString('HẾT QUOTA', $row);
+        $this->assertStringNotContainsString('Có thể chi thêm', $row);
+        $this->assertStringNotContainsString('410.000', $row);
+    }
+
+    #[Test]
+    public function every_quota_line_shows_its_own_target_tier_rate_in_the_number_before_the_max(): void
+    {
+        $shopee = $this->makeSystemCategory(['name' => 'Shopee']);
+        $food = $this->makeSystemCategory(['name' => 'Ăn uống']);
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '4000000']);
+
+        // Bậc đích: Shopee 10%, Ăn uống 2% — KHÔNG dùng một rate chung cho cả bậc.
+        $this->makePolicyForCard(
+            $card,
+            [
+                ['name' => 'Bậc 1', 'min' => 0, 'max' => 3999999, 'cap_period' => '1000000.00'],
+                ['name' => 'Bậc 2', 'min' => 4000000, 'max' => null, 'cap_period' => '1000000.00'],
+            ],
+            [
+                ['category_id' => $shopee->id, 'percent' => '0.000', 'only_tier' => 0],
+                ['category_id' => $food->id, 'percent' => '0.000', 'only_tier' => 0],
+                ['category_id' => $shopee->id, 'percent' => '10.000', 'cap_cat' => '400000.00', 'quota' => true, 'only_tier' => 1],
+                ['category_id' => $food->id, 'percent' => '2.000', 'cap_cat' => '400000.00', 'quota' => true, 'only_tier' => 1],
+            ]
+        );
+
+        $this->spend($card, $shopee, '3655000');
+        $this->spend($card, $food, '1000000');
+
+        $html = $this->overviewHtml();
+        $rules = collect($this->metricsOf($html)[(string) $card->id]['quota']['rules'])
+            ->keyBy('category_id');
+
+        // Shopee 3.655.000 × 10% = 365.500; Ăn uống 1.000.000 × 2% = 20.000.
+        $this->assertSame('365500.00', $rules[(int) $shopee->id]['cashback_used_display']);
+        $this->assertSame('20000.00', $rules[(int) $food->id]['cashback_used_display']);
+
+        $shopeeRow = $this->visibleTextOf($this->quotaRowByLabel($html, 'Shopee'));
+        $foodRow = $this->visibleTextOf($this->quotaRowByLabel($html, 'Ăn uống'));
+
+        $this->assertStringContainsString('365.500 đ / 400.000 đ', $shopeeRow);
+        $this->assertStringContainsString('20.000 đ / 400.000 đ', $foodRow);
+
+        // Mỗi dòng một rate riêng: 345.000 = 34.500/10%, 19.000.000 = 380.000/2%.
+        $this->assertStringContainsString('Có thể chi thêm ~345.000 đ', $shopeeRow);
+        $this->assertStringContainsString('Có thể chi thêm ~19.000.000 đ', $foodRow);
+    }
+
+    // =====================================================================
+    // Typography của dòng "Có thể chi thêm" trên mobile
+    // =====================================================================
+
+    #[Test]
+    public function the_estimate_keeps_its_amount_typography_identical_to_the_other_amounts(): void
+    {
+        $fixture = $this->overviewHtmlForTwoTierQuota(3655000.0);
+
+        $row = $this->quotaRowByLabel($fixture, 'Shopee');
+        $estimate = $this->markupOfTestId($row, 'card-quota-estimate');
+
+        // Số tiền phảI nằm trực tiếp trong span xanh, không có wrapper nào ép thêm
+        // font-size/weight — chính wrapper đó làm "345.000" đậm hơn "đ" của nó.
+        $this->assertStringContainsString('class="font-semibold text-emerald-600"', $estimate);
+        $this->assertStringNotContainsString('font-bold', $estimate);
+
+        $inner = substr($estimate, (int) strpos($estimate, '>') + 1);
+        $this->assertStringNotContainsString(
+            'class="',
+            $inner,
+            'Số tiền không được bọc trong span mang class riêng — nó phải kế thừa cả của cụm xanh.',
+        );
+
+        // Hậu tố "đ" kế thừa, không tự mang class cỡ chữ/độ đậm nào. Đây là nơi
+        // duy nhất của module được phép thêm style cho hậu tố — và nay là không.
+        foreach ($this->moneySuffixSpansOf($row) as $suffix) {
+            $this->assertSame('', trim($suffix), 'Hậu tố "đ" không được mang class riêng.');
+        }
+
+        // Cả ba mốc tiền trên dòng cùng cỡ chữ và cùng độ đậm: số tiền của dòng
+        // quota là 12px/600 (`font-semibold` trên `<li>` và span xanh), nên "đ"
+        // bám theo số chứ không nhảy lên 16px.
+        $this->assertSame(1, preg_match('/class="font-semibold text-emerald-600"[^>]*>/', $estimate));
+    }
+
+    #[Test]
+    public function no_money_amount_on_a_quota_line_can_break_before_its_currency_suffix(): void
+    {
+        $fixture = $this->overviewHtmlForTwoTierQuota(3655000.0);
+        $row = $this->quotaRowByLabel($fixture, 'Shopee');
+
+        // "345.000 đ" là đơn vị duy nhất được phép xuống dòng, không bao giờ
+        // tách ra "345.000" / "đ" — space thường là chỗ ngắt dòng duy nhất.
+        $this->moneyAmountNeverBreaks($row, ['365.500', '400.000', '345.000']);
+    }
+
+    #[Test]
+    public function a_long_estimate_still_keeps_its_amount_on_one_line(): void
+    {
+        // 3.000.000 × 10% = 300.000 ⇒ còn 100.000 hoàn tiền ⇒ 1.000.000đ.
+        // Các số dài hơn ("2.666.667", "5.333.333") chỉ khác độ dài chuỗi, cùng
+        // cơ chế: `&nbsp;` nối "đ" vào số nên cả cụm phải xuống dòng cùng nhau.
+        $fixture = $this->overviewHtmlForTwoTierQuota(3000000.0);
+        $row = $this->quotaRowByLabel($fixture, 'Shopee');
+
+        $this->assertStringContainsString('Có thể chi thêm ~1.000.000 đ', $this->visibleTextOf($row));
+        $this->moneyAmountNeverBreaks($row, ['1.000.000']);
+    }
+
+    #[Test]
+    public function the_client_side_amounts_use_the_same_non_breaking_suffix(): void
+    {
+        $fixture = $this->overviewHtmlForTwoTierQuota(3655000.0);
+
+        // `x-text` ghi đè nội dung phần tử, nên `&nbsp;` của bản render sẵn biến
+        // mất sau khi Alpine chạy. Bản JS phải nối hậu tố bằng chính U+00A0 thì
+        // "345.000" và "đ" mới không tách được ở cả hai thời điểm.
+        $this->assertMatchesRegularExpression(
+            '/function ccMoneyVnd\(value\)\s*\{\s*return `\$\{ccMoney\(value\)\}\\\\u00A0đ`;/',
+            $fixture,
+        );
+
+        // Và không chỗ nào được tự nối hậu tố bằng space thường nữa — đó là chỗ
+        // ngắt dòng duy nhất, và nó nằm ở markup chứ không phải ở CSS.
+        preg_match_all('/x-text="([^"]*)"/', $fixture, $matches);
+
+        $this->assertNotEmpty($matches[1], 'Overview phải còn dùng x-text để cập nhật số liệu.');
+
+        foreach ($matches[1] as $expression) {
+            if (! str_contains($expression, 'ccMoney')) {
+                continue;
+            }
+
+            $this->assertStringContainsString(
+                'ccMoneyVnd(',
+                $expression,
+                "x-text=\"{$expression}\" phải dùng ccMoneyVnd để hậu tố không bị ngắt dòng.",
+            );
+            $this->assertStringNotContainsString(
+                "' đ'",
+                $expression,
+                "x-text=\"{$expression}\" tự nối hậu tố bằng space thường — số và đ sẽ tách dòng.",
+            );
+        }
+    }
+
+    /**
+     * Bóc markup đúng một phần tử có `data-testid`, kể cả khi thuộc tính nằm
+     * trên dòng riêng.
+     */
+    private function markupOfTestId(string $html, string $testId): string
+    {
+        $position = strpos($html, 'data-testid="'.$testId.'"');
+
+        $this->assertNotFalse($position, "Không tìm thấy data-testid={$testId}.");
+
+        $open = strrpos(substr($html, 0, (int) $position), '<');
+        $this->assertNotFalse($open);
+
+        $close = strpos($html, '</span>', $position);
+        $this->assertNotFalse($close);
+
+        return substr($html, (int) $open, $close - (int) $open);
+    }
+
+    /**
+     * Mọi thẻ `<span>` đang BỌC hậu tố "đ" trong một đoạn HTML.
+     *
+     * @return array<int, string> Thuộc tính `class` của từng thẻ, rỗng nếu không có.
+     */
+    private function moneySuffixSpansOf(string $html): array
+    {
+        preg_match_all('/<span([^>]*)>\s*đ\s*<\/span>/u', $html, $matches);
+
+        return array_map(
+            fn (string $attributes): string => preg_match('/class="([^"]*)"/', $attributes, $class) === 1 ? $class[1] : '',
+            $matches[1] ?? [],
+        );
+    }
+
+    /**
+     * Fixture Card #8 cho các test trình bày: mục tiêu 4.000.000 ⇒ bậc đích bậc 2
+     *
+     * @10% với trần 400.000; engine chạy bậc 1 @0% nên snapshot bằng 0.
+     */
+    private function overviewHtmlForTwoTierQuota(float $spend): string
+    {
+        $shopee = $this->makeSystemCategory(['name' => 'Shopee']);
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '4000000']);
+
+        $this->makePolicyForCard(
+            $card,
+            [
+                ['name' => 'Bậc 1', 'min' => 0, 'max' => 3999999, 'cap_period' => '1000000.00'],
+                ['name' => 'Bậc 2', 'min' => 4000000, 'max' => null, 'cap_period' => '1000000.00'],
+            ],
+            [
+                ['category_id' => $shopee->id, 'percent' => '0.000', 'only_tier' => 0],
+                ['category_id' => $shopee->id, 'percent' => '10.000', 'cap_cat' => '400000.00', 'quota' => true, 'only_tier' => 1],
+            ]
+        );
+
+        $this->spend($card, $shopee, (string) (int) $spend);
+
+        return $this->overviewHtml();
+    }
+
+    // =====================================================================
     // Helpers
     // =====================================================================
 
@@ -1108,6 +1405,73 @@ class OverviewQuotaPresentationTest extends TestCase
             'amount' => $amount,
             'category_id' => $category->id,
         ]);
+    }
+
+    /**
+     * Bóc dòng quota mang NHÃN này.
+     *
+     * Thứ tự dòng trong HTML là thứ tự rule, nên test nhiều rule không được đoán
+     * "dòng đầu là Shopee" — tìm theo nhãn mới đúng.
+     */
+    private function quotaRowByLabel(string $html, string $label): string
+    {
+        $offset = 0;
+
+        while (true) {
+            $position = strpos($html, 'data-testid="card-quota-row"', $offset);
+
+            if ($position === false) {
+                $this->fail("Không tìm thấy dòng quota nào mang nhãn {$label}.");
+            }
+
+            $end = strpos($html, '</li>', $position);
+            $this->assertNotFalse($end, 'Dòng quota không đóng.');
+
+            $row = substr($html, (int) $position, $end - (int) $position);
+            $offset = $position + 1;
+
+            if (str_contains($this->visibleTextOf($row), $label)) {
+                return $row;
+            }
+        }
+    }
+
+    /**
+     * CHỮ NGƯỜI DÙNG THẬT SỰ THẤY trong một đoạn HTML.
+     *
+     * Assert trên HTML thô sẽ bỏ sót đúng lỗi cần bắt: "345.000 đ đ" hay
+     * "0 đ / 400.000 đ" đều là text node nằm xen giữa các thẻ `<span>`, nên
+     * `assertStringContainsString` trên markup không bao giờ thấy chúng. Bóc thẻ
+     * rồi gộp khoảng trắng lại là cách duy nhất kiểm tra được phần người đọc.
+     *
+     * `&nbsp;` bị đổi về space thường để kỳ vọng viết được như người đọc; hành vi
+     * "không đứt dòng" của nó kiểm tra riêng bằng {@see moneyAmountNeverBreaks()}.
+     */
+    private function visibleTextOf(string $html): string
+    {
+        $text = html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = str_replace("\u{00A0}", ' ', $text);
+
+        return trim((string) preg_replace('/\s+/u', ' ', $text));
+    }
+
+    /**
+     * Mọi mốc tiền phải là MỘT đơn vị: số và hậu tố "đ" nối bằng `&nbsp;`.
+     *
+     * Đây là thứ giữ "đ" không rơi xuống dòng riêng trên mobile. Chỉ kiểm tra text
+     * đã bóc sẽ không bắt được: bóc xong space thường và `&nbsp;` giống nhau.
+     *
+     * @param  array<int, string>  $expectedAmounts  Chuỗi đã format, ví dụ `345.000`.
+     */
+    private function moneyAmountNeverBreaks(string $html, array $expectedAmounts): void
+    {
+        foreach ($expectedAmounts as $amount) {
+            $this->assertStringContainsString(
+                $amount.'&nbsp;',
+                $html,
+                "Số tiền {$amount} phải nối hậu tố bằng &nbsp; để không đứt dòng.",
+            );
+        }
     }
 
     /** Bóc đúng markup của dòng quota thứ `$index` để soi một dòng, không soi cả trang. */

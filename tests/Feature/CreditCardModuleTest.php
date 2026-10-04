@@ -958,7 +958,12 @@ class CreditCardModuleTest extends TestCase
     }
 
     /**
-     * TEST 17c: Kỳ đã tồn tại thì trang tổng quan hiện cashback + ngày chốt kỳ.
+     * TEST 17c: Kỳ đã tồn tại thì trang tổng quan hiện cashback dự kiến theo
+     * kỳ hiện tại của thẻ.
+     *
+     * Không còn kỳ vọng ngày chốt/đến hạn: ô tổng KHÔNG in một khoảng ngày
+     * nữa, vì mỗi thẻ một `statement_day` nên mỗi thẻ một kỳ — một khoảng duy
+     * nhất chỉ đúng với thẻ đầu tiên và sai với các thẻ còn lại.
      */
     #[Test]
     public function index_shows_current_period_cashback_and_statement_date(): void
@@ -1000,8 +1005,14 @@ class CreditCardModuleTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('200.000');
-        $response->assertSee('15/10');
-        $response->assertSee('25/10/2026');
+
+        // Cả hai ô tổng nói đúng nguyên tắc, không bịa khoảng ngày chung.
+        $this->assertSame(
+            2,
+            substr_count($response->getContent(), 'Theo kỳ sao kê hiện tại của từng thẻ')
+        );
+        $response->assertDontSee('15/10');
+        $response->assertDontSee('25/10/2026');
 
         // Chỉ hiện kỳ đang mở của chính user này.
         $this->assertSame(1, StatementPeriod::query()->where('user_card_id', $userCard->id)->count());

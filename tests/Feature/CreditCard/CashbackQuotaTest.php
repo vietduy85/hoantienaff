@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\CreditCard;
 
+use App\Models\CreditCard\Category;
 use App\Models\CreditCard\CategoryCombo;
 use App\Models\CreditCard\CategoryComboItem;
 use App\Models\CreditCard\Policy;
@@ -809,6 +810,162 @@ class CashbackQuotaTest extends TestCase
 
         $this->assertTrue($rules[0]->refresh()->is_quota_category);
         $this->assertFalse($rules[1]->refresh()->is_quota_category);
+    }
+
+    // =====================================================================
+    // 11. Số tiền đã chi đã ăn vào phòng hoàn tiền của bậc đích
+    // =====================================================================
+
+    /**
+     * Thẻ có MỤC TIÊU ở bậc 2 nhưng CHI TIÊU THỰC TẾ mới chưa chạm bậc 2, nên
+     * engine trả 0đ cho các giao dịch đã có. Quota phải biết số tiền đó vẫn
+     * chiếm phòng của bậc đích.
+     *
+     * @return array{card: UserCard, shopee: Category, food: Category}
+     */
+    private function cardSpendingBelowItsGoalTier(float $shopeeSpend, float $foodSpend = 0.0): array
+    {
+        $shopee = $this->makeSystemCategory(['name' => 'Shopee']);
+        $food = $this->makeSystemCategory(['name' => 'Ăn uống']);
+
+        $card = $this->cardWithTiersAndRules('4000000', [
+            ['name' => 'Bậc 1', 'min' => 0, 'max' => 3999999, 'cap_period' => '1000000.00'],
+            ['name' => 'Bậc 2', 'min' => 4000000, 'max' => null, 'cap_period' => '1000000.00'],
+        ], [
+            // Bậc 1 (bậc engine đang chạy): 0% ⇒ snapshot luôn 0.
+            $this->categoryRule($shopee, onlyTier: 0, percent: '0.000'),
+            $this->categoryRule($food, onlyTier: 0, percent: '0.000'),
+
+            // Bậc 2 (bậc ĐÍCH theo `desired_spend`): mỗi rule một tỷ lệ riêng.
+            $this->categoryRule($shopee, onlyTier: 1, percent: '10.000', capCategory: '400000.00', quota: true),
+            $this->categoryRule($food, onlyTier: 1, percent: '2.000', capCategory: '400000.00', quota: true),
+        ]);
+
+        if ($shopeeSpend > 0) {
+            $this->spend($card, $shopee, (string) (int) $shopeeSpend);
+        }
+
+        if ($foodSpend > 0) {
+            $this->spend($card, $food, (string) (int) $foodSpend);
+        }
+
+        return ['card' => $card->refresh(), 'shopee' => $shopee, 'food' => $food];
+    }
+
+    #[Test]
+    public function the_spend_estimate_leaves_out_the_cashback_the_current_spend_already_took(): void
+    {
+        // Card #8: chi 3.655.000, mục tiêu 4.000.000 ⇒ bậc đích là bậc 2 @10%,
+        // trần 400.000. Cashback dự kiến 3.655.000 × 10% = 365.500.
+        $fixture = $this->cardSpendingBelowItsGoalTier(3655000.0);
+
+        $rule = $this->ruleFor(
+            $this->quotaOf($fixture['card']),
+            'category_id',
+            (int) $fixture['shopee']->id,
+        );
+
+        $this->assertSame('3655000.00', $rule['scope_spend']);
+
+        // Engine chạy bậc 1 @0% ⇒ chưa trả đồng nào, snapshot = 0.
+        $this->assertSame('0.00', $rule['cashback_used']);
+
+        // Số IN RA trên Tổng quan là cashback của số tiền đã chi ở tỷ lệ bậc
+        // đích, kẹp theo trần 400.000.
+        $this->assertSame('365500.00', $rule['cashback_used_display']);
+        $this->assertSame('400000.00', $rule['cashback_available_for_rule']);
+
+        // Phòng còn lại = 400.000 − 365.500 = 34.500, và CHỈ chia phần đó.
+        $this->assertSame('365500.00', $rule['cashback_expected_from_spend']);
+        $this->assertSame('34500.00', $rule['cashback_room_remaining']);
+        $this->assertSame('345000.00', $rule['spend_remaining_estimate']);
+        $this->assertFalse($rule['is_exhausted']);
+
+        // 400.000/10% = 4.000.000 là con số SAI: 365.500 hoàn tiền đã ăn vào trần.
+        $this->assertNotSame('4000000.00', $rule['spend_remaining_estimate']);
+    }
+
+    #[Test]
+    public function a_snapshot_that_already_paid_the_target_rate_is_not_counted_twice(): void
+    {
+        $shopee = $this->makeSystemCategory();
+        $card = $this->singleTierCard($shopee, '10.000');
+
+        // Engine trả đúng 10% ⇒ `cashback_used` = 365.500, đã trừ trong
+        // `cashback_available_for_rule` rồi. Không được trừ lần thứ hai.
+        $this->spend($card, $shopee, '3655000');
+
+        $rule = $this->ruleFor($this->quotaOf($card), 'category_id', (int) $shopee->id);
+
+        $this->assertSame('365500.00', $rule['cashback_used']);
+        $this->assertSame('365500.00', $rule['cashback_expected_from_spend']);
+        $this->assertSame('0.00', $rule['cashback_unaccounted_from_spend']);
+        $this->assertSame('634500.00', $rule['cashback_room_remaining']);
+        $this->assertSame('6345000.00', $rule['spend_remaining_estimate']);
+    }
+
+    #[Test]
+    public function each_quota_rule_uses_its_own_rate_of_the_target_tier(): void
+    {
+        $fixture = $this->cardSpendingBelowItsGoalTier(3655000.0, 1000000.0);
+        $quota = $this->quotaOf($fixture['card']);
+
+        $shopee = $this->ruleFor($quota, 'category_id', (int) $fixture['shopee']->id);
+        $food = $this->ruleFor($quota, 'category_id', (int) $fixture['food']->id);
+
+        // Shopee: 400.000 − 3.655.000×10% = 34.500 ⇒ 34.500/10% = 345.000.
+        $this->assertSame('365500.00', $shopee['cashback_expected_from_spend']);
+        $this->assertSame('345000.00', $shopee['spend_remaining_estimate']);
+
+        // Ăn uống: 400.000 − 1.000.000×2% = 380.000 ⇒ 380.000/2% = 19.000.000.
+        // Không được dùng 10% của Shopee và cũng không dùng max rate của bậc.
+        $this->assertSame('20000.00', $food['cashback_expected_from_spend']);
+        $this->assertSame('380000.00', $food['cashback_room_remaining']);
+        $this->assertSame('19000000.00', $food['spend_remaining_estimate']);
+    }
+
+    #[Test]
+    public function spending_past_the_target_tier_cashback_cap_leaves_no_room_to_spend(): void
+    {
+        // 4.100.000 × 10% = 410.000 > trần 400.000 ⇒ hết phòng.
+        $fixture = $this->cardSpendingBelowItsGoalTier(4100000.0);
+
+        $rule = $this->ruleFor(
+            $this->quotaOf($fixture['card']),
+            'category_id',
+            (int) $fixture['shopee']->id,
+        );
+
+        $this->assertSame('410000.00', $rule['cashback_expected_from_spend']);
+        $this->assertSame('0.00', $rule['cashback_room_remaining']);
+        $this->assertSame('0.00', $rule['spend_remaining_estimate']);
+        $this->assertTrue($rule['is_exhausted']);
+
+        // Số in ra kẹp theo trần ⇒ không bao giờ "410.000 đ / 400.000 đ".
+        $this->assertSame('400000.00', $rule['cashback_used_display']);
+    }
+
+    #[Test]
+    public function the_displayed_cashback_is_capped_at_the_cap_the_line_prints(): void
+    {
+        $shopee = $this->makeSystemCategory();
+        $card = $this->cardWithTiersAndRules('1000000', [[
+            'name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => '1000000.00',
+        ]], [
+            // Trần riêng 100.000 nhỏ hơn trần chung 1.000.000 ⇒ trần in ra là 100.000.
+            $this->categoryRule($shopee, percent: '10.000', capCategory: '100000.00', quota: true),
+        ]);
+
+        // 5.000.000 × 10% = 500.000, vượt trần 100.000.
+        $this->spend($card, $shopee, '5000000');
+
+        $rule = $this->ruleFor($this->quotaOf($card), 'category_id', (int) $shopee->id);
+
+        $this->assertSame('500000.00', $rule['cashback_expected_from_spend']);
+        $this->assertSame('100000.00', $rule['cashback_max']);
+
+        // Dòng in "X / 100.000 đ" nên X không được vượt 100.000.
+        $this->assertSame('100000.00', $rule['cashback_used_display']);
     }
 
     // =====================================================================
