@@ -10,6 +10,8 @@ use App\Services\CreditCard\CreditCardOverviewService;
 use App\Support\CreditCard\Decimal;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
+use DOMDocument;
+use DOMXPath;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Concerns\InteractsWithCreditCardDatabase;
@@ -266,17 +268,22 @@ class OverviewSummaryTest extends TestCase
 
         $html = $this->overviewHtml();
 
+        // Khoá đúng VÙNG hai ô tổng. Quét cả trang sẽ bắt nhầm chữ ở nơi khác trên
+        // trang — ví dụ option "Đến hạn thanh toán sớm nhất" của ô Sắp xếp thẻ,
+        // không liên quan gì tới kỳ nào dưới ô tổng.
+        $tiles = $this->overviewSummaryTiles($html);
+
         $this->assertSame(
             2,
-            substr_count($html, 'Theo kỳ sao kê hiện tại của từng thẻ'),
+            substr_count($tiles, 'Theo kỳ sao kê hiện tại của từng thẻ'),
             'Cả "Tổng chi tiêu" và "Cashback dự kiến" phải mang cùng một dòng mô tả.'
         );
 
         // KHÔNG còn khoảng ngày đơn lẻ nào dưới hai ô tổng: một khoảng duy nhất
         // chỉ đúng với thẻ đầu tiên nên sẽ sai với các thẻ còn lại.
-        $this->assertStringNotContainsString('Kỳ 06/09', $html);
-        $this->assertStringNotContainsString('Chốt 05/10', $html);
-        $this->assertStringNotContainsString('Đến hạn', $html);
+        $this->assertStringNotContainsString('Kỳ 06/09', $tiles);
+        $this->assertStringNotContainsString('Chốt 05/10', $tiles);
+        $this->assertStringNotContainsString('Đến hạn', $tiles);
 
         // Tiêu đề giữ nguyên, không đổi thành "Tổng chi tiêu hiện tại".
         $this->assertStringContainsString('💸 Tổng chi tiêu', $html);
@@ -577,7 +584,28 @@ class OverviewSummaryTest extends TestCase
         return substr($html, (int) $open, $close - (int) $open + 1);
     }
 
-    private function atDate(string $when): void
+    /**
+ * Markup bên trong vùng ô tổng (`data-testid="overview-summary"`).
+ *
+ * Tách riêng để các kiểm tra "dưới ô tổng không được in khoảng ngày của riêng
+ * một thẻ" chỉ soi đúng chỗ đó, thay vì quét cả trang rồi bắt nhầm chữ ở menu,
+ * bộ lọc hay danh sách thẻ.
+ */
+private function overviewSummaryTiles(string $html): string
+{
+    $dom = new DOMDocument;
+    @$dom->loadHTML($html);
+    $xpath = new DOMXPath($dom);
+
+    $node = $xpath->query("//*[@data-testid='overview-summary']")->item(0);
+    $this->assertNotNull($node, 'Không tìm thấy vùng ô tổng trên trang Tổng quan.');
+
+    // `saveHTML($node)` chứ không nối `.//*`: nối từng phần tử con sẽ in lại phần
+    // chữ bên trong, làm mọi phép đếm chuỗi nhân đôi.
+    return (string) $dom->saveHTML($node);
+}
+
+private function atDate(string $when): void
     {
         Carbon::setTestNow($when);
         CarbonImmutable::setTestNow($when);

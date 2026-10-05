@@ -9,9 +9,11 @@ use App\Models\CreditCard\PolicyTemplate;
 use App\Models\CreditCard\UserCard;
 use App\Services\CreditCard\BankService;
 use App\Services\CreditCard\CategoryService;
+use App\Services\CreditCard\CreditCardCardSortService;
 use App\Services\CreditCard\CreditCardOverviewService;
 use App\Services\CreditCard\StatementPeriodService;
 use Carbon\CarbonImmutable;
+use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\View\View;
 
@@ -32,6 +34,7 @@ class CreditCardController extends Controller
         private readonly BankService $banks,
         private readonly CreditCardOverviewService $overview,
         private readonly CategoryService $categories,
+        private readonly CreditCardCardSortService $sort,
     ) {}
 
     /**
@@ -50,12 +53,12 @@ class CreditCardController extends Controller
      * chỉ để nhở, còn kỳ sao kê do `statement_day` quyết định — hiện nó gây hiểu nhầm
      * là một mốc hạn chức năng. Ô ngày + ranh giới kỳ đã thay thế vai trò nhắc ngày.
      */
-    public function index(): View
+    public function index(Request $request): View
     {
         $userId = (int) auth()->id();
         $today = CarbonImmutable::now();
 
-        $userCreditCards = UserCard::query()
+        $cards = UserCard::query()
             ->ownedBy($userId)
             // Phase 1B: `bank` là FK trực tiếp trên `credit_card_user_cards`.
             // Trước đây là `product.bank` (đi qua catalog sản phẩm thẻ).
@@ -66,8 +69,18 @@ class CreditCardController extends Controller
         // Một lượt đọc cho cả 4 chỉ số lẫn số liệu từng thẻ.
         $overview = $this->overview->forPage($userId);
 
+        // Thứ tự do `CreditCardCardSortService` quyết định (service DUY NHẤT, dùng
+        // chung cho cả ba màn) — nhưng các chỉ số vẫn khoá theo `user_card_id`, nên
+        // đổi thứ tự KHÔNG ghép số của thẻ này vào thẻ khác.
+        $sortMode = $this->sort->normalizeMode($request->query('sort'));
+        $userCreditCards = $this->sort->sort($sortMode, $cards, $today);
+
         return view('credit-card.index', [
             'userCreditCards' => $userCreditCards,
+            'sortMode' => $sortMode,
+            'sortModes' => CreditCardCardSortService::modes(),
+            'sortAction' => route('credit-cards.index'),
+            'sortStorageKey' => 'credit-card-overview-sort',
             'summary' => $overview['summary'],
             // Số liệu từng thẻ: chi tiêu kỳ hiện tại, tiến độ theo `desired_spend`,
             // cashback engine đã ghi và quota hoàn tiền còn lại. Khoá theo id thẻ.
@@ -141,16 +154,30 @@ class CreditCardController extends Controller
      * đi qua `scopeSelectableBy()` — lọc ở tầng truy vấn, không bao giờ lộ danh mục
      * hay combo riêng của user khác. Editor này KHÔNG gọi API danh mục.
      */
-    public function manage(): View
+    public function manage(Request $request): View
     {
         $userId = (int) auth()->id();
 
-        return view('credit-card.manage', [
-            'userCreditCards' => UserCard::query()
+        // Trang này là nơi DUY NHẤT cho kéo-thả đổi thứ tự, nên `manual` ở đây
+        // còn là hành động ghi; ba chế độ còn lại chỉ xem trước.
+        $sortMode = $this->sort->normalizeMode($request->query('sort'));
+
+        $cards = $this->sort->sort(
+            $sortMode,
+            UserCard::query()
                 ->ownedBy($userId)
                 ->with(['bank', 'currentPolicy'])
                 ->ordered()
                 ->get(),
+        );
+
+        return view('credit-card.manage', [
+            'userCreditCards' => $cards,
+            'sortMode' => $sortMode,
+            'sortModes' => CreditCardCardSortService::modes(),
+            'sortAction' => route('credit-cards.manage'),
+            'sortStorageKey' => 'credit-card-management-sort',
+            'reorderUrl' => route('credit-cards.api.cards.reorder'),
             'ruleCategories' => Category::query()
                 ->selectableBy($userId)
                 ->orderBy('sort_order')

@@ -353,6 +353,17 @@
             </form>
         </div>{{-- /màn hình nổi --}}
 
+        {{-- ═══ SẮP XẾP THẺ ═══
+         Ô chọn 4 chế độ, dùng CHUNG partial với Quản lý thẻ và Sao kê để ba màn không
+         lệch nhau. Lựa chọn được nhớ trong `localStorage`; chế độ tự động KHÔNG ghi
+         `sort_order` nên xem thử không làm mất thứ tự user đã sắp ở Quản lý thẻ. --}}
+        @include('credit-card.partials.sort-picker', [
+            'sortModes' => $sortModes,
+            'sortMode' => $sortMode,
+            'sortAction' => $sortAction,
+            'sortStorageKey' => $sortStorageKey,
+        ])
+
         {{-- Danh sách thẻ — MỘT bề mặt liền mạch.
              KHÔNG bọc mỗi thẻ trong một ô bo góc: giữa các thẻ chỉ có đường kẻ mảnh
              (`divide-y`) để trang thoáng và dễ quét (§3, §20). Các dòng số liệu

@@ -176,6 +176,17 @@ class UserCard extends CreditCardModel
         return $this->hasMany(StatementPeriod::class, 'user_card_id');
     }
 
+    /**
+     * Sao kê THỰC TẾ của thẻ (con số user đọc trên bảng sao kê ngân hàng).
+     *
+     * Khác `statementPeriods()`: kỳ là dữ liệu suy ra, còn dòng sao kê là thứ
+     * user nhập — mỗi cặp (thẻ, kỳ) có tối đa MỘT dòng (UNIQUE ở migration).
+     */
+    public function statements(): HasMany
+    {
+        return $this->hasMany(CreditCardStatement::class, 'user_card_id');
+    }
+
     public function transactions(): HasMany
     {
         return $this->hasMany(Transaction::class, 'user_card_id');

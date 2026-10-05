@@ -22,6 +22,7 @@ use App\Http\Controllers\CreditCard\CategoryRuleController;
 use App\Http\Controllers\CreditCard\CreditCardController;
 use App\Http\Controllers\CreditCard\PolicyController;
 use App\Http\Controllers\CreditCard\PolicyTemplateController;
+use App\Http\Controllers\CreditCard\StatementController;
 use App\Http\Controllers\CreditCard\TierController;
 use App\Http\Controllers\CreditCard\TransactionController;
 use App\Http\Controllers\CreditCard\TransactionHistoryController;
@@ -121,6 +122,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/so-sanh', [CreditCardController::class, 'compare'])->name('compare');
         Route::get('/cai-dat', [CreditCardController::class, 'settings'])->name('settings');
         Route::get('/chinh-sach', [CreditCardController::class, 'policies'])->name('policies');
+        Route::get('/sao-ke', [StatementController::class, 'index'])->name('statements');
 
         // Lịch sử giao dịch của MỘT thẻ (trang HTML, đọc + sửa nhanh).
         // Thêm giao dịch nằm ở Tổng quan để không phải rời trang tổng quan.
@@ -161,6 +163,14 @@ Route::middleware('auth')->group(function () {
             Route::post('/giao-dich', [TransactionController::class, 'store'])->name('transactions.store');
             Route::patch('/giao-dich/{transaction}', [TransactionController::class, 'update'])->name('transactions.update');
             Route::delete('/giao-dich/{transaction}', [TransactionController::class, 'destroy'])->name('transactions.destroy');
+
+            // Sao kê THỰC TẾ (số đọc trên bảng kê ngân hàng) — KHÁC lịch sử
+            // giao dịch ở trên. Trang HTML `/thetindung/sao-ke` và API đọc
+            // dưới đây cùng gọi một hàm dựng dữ liệu nên không thể lệch nhau.
+            Route::get('/sao-ke', [StatementController::class, 'apiIndex'])->name('statements.index');
+            Route::post('/the/{userCard}/sao-ke', [StatementController::class, 'store'])->name('statements.store');
+            Route::patch('/sao-ke/{statement}', [StatementController::class, 'update'])->name('statements.update');
+            Route::delete('/sao-ke/{statement}', [StatementController::class, 'destroy'])->name('statements.destroy');
 
             // === Phase 1C: cấu hình policy cashback ===
             //

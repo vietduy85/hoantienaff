@@ -109,6 +109,7 @@ class CreditCardModuleTest extends TestCase
             'credit-cards.compare',
             'credit-cards.settings',
             'credit-cards.policies',
+            'credit-cards.statements',
             // Trang lịch sử giao dịch của một thẻ (đọc + sửa nhanh). Thêm giao
             // dịch nằm ở Tổng quan nên không có route trang cho việc đó.
             'credit-cards.transactions',
@@ -128,6 +129,11 @@ class CreditCardModuleTest extends TestCase
             'credit-cards.api.transactions.store',
             'credit-cards.api.transactions.update',
             'credit-cards.api.transactions.destroy',
+            // API sao kê thực tế (statements)
+            'credit-cards.api.statements.index',
+            'credit-cards.api.statements.store',
+            'credit-cards.api.statements.update',
+            'credit-cards.api.statements.destroy',
             // API cấu hình policy (Phase 1C)
             'credit-cards.api.policies.index',
             'credit-cards.api.policies.store',

@@ -1414,7 +1414,15 @@ class CardManagementUxTest extends TestCase
 
         // Cả form chỉ có MỘT nút submit. Mọi nút khác phải là `type="button"` để
         // bấm nhầm không phát sinh request.
-        $submits = $xpath->query("//form//button[@type='submit']");
+        //
+        // Dò trong `form[data-testid=card-form]`, KHÔNG dò cả trang: trang nay có
+        // thêm form GET của ô "Sắp xếp thẻ", và nút áp dụng của nó không thuộc
+        // form thẻ. Bất biến cần giữ là "form thẻ chỉ có một nút lưu", nên phải
+        // khoá đúng form thẻ — nếu không, thêm bất kỳ form lọc nào trên trang là
+        // test đỏ vì lý do không liên quan tới nghiệp vụ.
+        $submits = $xpath->query(
+            "//form[@data-testid='card-form']//button[@type='submit']"
+        );
         $this->assertSame(1, $submits->length, 'Form thẻ chỉ được có đúng một nút lưu.');
 
         $save = $submits->item(0);
@@ -1524,7 +1532,11 @@ class CardManagementUxTest extends TestCase
         );
 
         // Footer nằm NGOÀI vùng cuộn và có đệm safe-area để Safari không che nút Lưu.
-        $save = $xpath->query("//form//button[@type='submit']")->item(0);
+        // Dò trong form thẻ: trang có thêm form GET của ô "Sắp xếp thẻ" cũng chứa
+        // nút submit, và `//form//button[@type='submit']` sẽ trả về nút sai.
+        $save = $xpath->query(
+            "//form[@data-testid='card-form']//button[@type='submit']"
+        )->item(0);
         $this->assertNotNull($save);
         $this->assertSame(
             1,

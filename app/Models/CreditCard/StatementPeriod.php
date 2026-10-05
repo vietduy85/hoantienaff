@@ -6,6 +6,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * StatementPeriod — một kỳ sao kê.
@@ -84,6 +85,16 @@ class StatementPeriod extends CreditCardModel
     public function transactions(): HasMany
     {
         return $this->hasMany(Transaction::class, 'statement_period_id');
+    }
+
+    /**
+     * Sao kê thực tế của kỳ này, hoặc null nếu user chưa nhập.
+     *
+     * UNIQUE (user_card_id, statement_period_id) ⇒ mỗi kỳ có nhiều nhất một dòng.
+     */
+    public function statement(): HasOne
+    {
+        return $this->hasOne(CreditCardStatement::class, 'statement_period_id');
     }
 
     public function isOpen(): bool

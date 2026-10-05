@@ -87,10 +87,24 @@
             // danh sách chỉ có một nguồn — không thể lệch với những gì server validate.
             'ruleCategories' => $ruleCategories,
             'ruleCombos' => $ruleCombos,
+            // Chế độ sắp xếp đang xem và endpoint đổi thứ tự. Chỉ `manual` mới cho
+            // kéo/di chuyển — ba chế độ kia là XEM TRƯỚC, xem xong thứ tự lưu không
+            // bị đụng tới.
+            'sort_mode' => $sortMode,
+            'reorder_url' => $reorderUrl,
         ];
     @endphp
 
     <div x-data="creditCardManager(@js($initialState))" class="space-y-4">
+
+        {{-- ═══ SẮP XẾP THẺ ═══
+             Cùng partial với Tổng quan và Sao kê để ba màn không lệch nhau. --}}
+        @include('credit-card.partials.sort-picker', [
+            'sortModes' => $sortModes,
+            'sortMode' => $sortMode,
+            'sortAction' => $sortAction,
+            'sortStorageKey' => $sortStorageKey,
+        ])
 
         {{-- ═══ Danh sách thẻ ═══ --}}
         <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-5 space-y-4">
@@ -152,6 +166,44 @@
                                     Sửa
                                 </button>
                             </div>
+
+                            {{-- ═══ ĐỔI THỨ TỰ (chỉ ở chế độ `manual`) ═══
+                                 Hai nút lên/xuống thay cho kéo-thả: chạm được trên
+                                 điện thoại, dùng được bằng bàn phím và không cần thư
+                                 viện kéo. Ba chế độ còn lại là XEM TRƯỚC nên ẩn hẳn,
+                                 không chỉ làm mờ — bấm được mà không đổi được thì
+                                 chỉ là bẫy. --}}
+                            @if ($sortMode === 'manual')
+                                <div class="flex items-center gap-2 border-t border-gray-100 pt-3">
+                                    <span class="text-xs text-gray-500">Thứ tự</span>
+
+                                    <button type="button"
+                                            data-testid="card-move-up-{{ $card->id }}"
+                                            @click="moveCard({{ $card->id }}, -1)"
+                                            :disabled="reordering || isFirst({{ $card->id }})"
+                                            aria-label="Đưa {{ $card->name ?: 'thẻ' }} lên trên"
+                                            class="h-9 px-3 rounded-xl bg-gray-50 hover:bg-gray-100 text-gray-700
+                                                   text-xs font-semibold disabled:opacity-40">
+                                        Lên
+                                    </button>
+
+                                    <button type="button"
+                                            data-testid="card-move-down-{{ $card->id }}"
+                                            @click="moveCard({{ $card->id }}, 1)"
+                                            :disabled="reordering || isLast({{ $card->id }})"
+                                            aria-label="Đưa {{ $card->name ?: 'thẻ' }} xuống dưới"
+                                            class="h-9 px-3 rounded-xl bg-gray-50 hover:bg-gray-100 text-gray-700
+                                                   text-xs font-semibold disabled:opacity-40">
+                                        Xuống
+                                    </button>
+
+                                    {{-- `reordering` là state của Alpine nên phải
+                                         đọc bằng `x-show`, không phải `@if`. --}}
+                                    <span class="text-xs text-gray-400" x-show="reordering" x-cloak>
+                                        Đang lưu…
+                                    </span>
+                                </div>
+                            @endif
 
                             {{-- Số liệu chính: bọc w-full để không đẩy ngang --}}
                             <dl class="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
@@ -246,7 +298,7 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                     x-text="form.id ? 'Sửa thẻ' : 'Thêm thẻ'"></h3>
             </div>
 
-            <form x-show="form.open" x-cloak @submit.prevent="save()"
+            <form x-show="form.open" x-cloak @submit.prevent="save()" data-testid="card-form"
                   class="flex-1 min-h-0 flex flex-col" novalidate>
                 {{-- VÙNG DUY NHẤT CHỊU TRÁCH NHIỆM CUỘN. `flex-1 min-h-0` để nó co
                      lại đúng phần còn lại giữa header và footer thay vì đẩy footer
@@ -759,9 +811,62 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                     ruleCategories: state.ruleCategories ?? [],
                     ruleCombos: state.ruleCombos ?? [],
 
+                    // Chỉ `manual` mới ghi `sort_order`; xem `CreditCardCardSortService`.
+                    sortMode: state.sort_mode ?? 'manual',
+                    reorderUrl: state.reorder_url ?? '',
+                    reordering: false,
+
                     busy: false,
                     error: '',
                     notice: '',
+
+                    isFirst(cardId) {
+                        return this.cardsIndex(cardId) === 0;
+                    },
+
+                    isLast(cardId) {
+                        return this.cardsIndex(cardId) === this.cards.length - 1;
+                    },
+
+                    cardsIndex(cardId) {
+                        return this.cards.findIndex((card) => card.id === Number(cardId));
+                    },
+
+                    /**
+                     * Đổi thứ tự một thẻ rồi ghi lại cả danh sách id.
+                     *
+                     * Gửi THỨ TỰ ĐẦY ĐỦ chứ không gửi "thẻ này lên 1 bậc": server
+                     * đánh số lại từ 1, nên gửi cả danh sách mới không sinh ra khoảng
+                     * trống. Xong thì tải lại trang để danh sách hiện đúng thứ tự
+                     * server vừa lưu, thay vì giữ một bản sắp xếp riêng ở trình duyệt.
+                     */
+                    async moveCard(cardId, direction) {
+                        if (this.sortMode !== 'manual' || this.reordering) return;
+
+                        const from = this.cardsIndex(cardId);
+                        const to = from + direction;
+
+                        if (from < 0 || to < 0 || to >= this.cards.length) return;
+
+                        const order = this.cards.map((card) => card.id);
+
+                        order.splice(to, 0, ...order.splice(from, 1));
+
+                        this.reordering = true;
+                        this.error = '';
+                        this.notice = '';
+
+                        const response = await this.request(this.reorderUrl, {
+                            method: 'PATCH',
+                            body: JSON.stringify({ order }),
+                        });
+
+                        this.reordering = false;
+
+                        if (! response) return;
+
+                        window.location.reload();
+                    },
 
                     // Trạng thái khoá cuộn trang phía sau + vị trí cuộn đã lưu, để
                     // đóng form lại trả nguyên trạng vị trí.
