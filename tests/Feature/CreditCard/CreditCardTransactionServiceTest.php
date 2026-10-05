@@ -46,7 +46,8 @@ class CreditCardTransactionServiceTest extends TestCase
         $this->cards = app(UserCardService::class);
 
         $this->user = User::factory()->create();
-        // statement_day = 31 ⇒ tháng 9/2026 clamp về 30, kỳ = [01/09 .. 30/09].
+        // Anchor = 31: kỳ mở 30/09 kết thúc 29/10 (tháng 9 chỉ có 30 ngày nên
+        // clamp), kỳ kế tiếp mở 31/10 kết thúc 29/11.
         $this->card = $this->makeUserCard($this->user->id, ['statement_day' => 31]);
         $this->category = $this->makeSystemCategory();
 
@@ -199,13 +200,17 @@ class CreditCardTransactionServiceTest extends TestCase
         $septemberPeriodId = (int) $transaction->statement_period_id;
 
         $moved = $this->service->update($this->user->id, $transaction->id, [
-            'transaction_date' => '2026-10-05',
+            // 15/10 >= anchor 31/10? Không. Dùng 01/11 để chắc chắn sang kỳ mới.
+            'transaction_date' => '2026-11-01',
         ]);
 
         $october = $moved->statementPeriod;
 
         $this->assertNotSame($septemberPeriodId, (int) $moved->statement_period_id, 'Phải sang kỳ khác.');
-        $this->assertSame('2026-10-01', $october->period_start->toDateString());
+
+        // Anchor 31: 01/11 < 30/11 nên thuộc kỳ mở 31/10, kết thúc 29/11.
+        $this->assertSame('2026-10-31', $october->period_start->toDateString());
+        $this->assertSame('2026-11-29', $october->period_end->toDateString());
 
         // Kỳ cũ không còn giao dịch này ⇒ tổng phải về 0.
         $september = StatementPeriod::find($septemberPeriodId);

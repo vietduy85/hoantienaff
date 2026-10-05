@@ -382,7 +382,7 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                         <legend class="text-sm font-semibold text-gray-700">Kỳ sao kê</legend>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div class="space-y-1.5">
-                                <label for="cc-period-start" class="block text-xs text-gray-500">Ngày bắt đầu</label>
+                                <label for="cc-period-start" class="block text-xs text-gray-500">Ngày mở chu kỳ</label>
                                 <input id="cc-period-start" type="date" x-model="form.statement_period_start" @change="onPeriodStartChange()"
                                        class="w-full h-12 rounded-xl border-gray-300 text-base px-4 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
                             </div>
@@ -394,7 +394,7 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                             </div>
                         </div>
                         <p class="text-xs text-gray-500">
-                            Kỳ sao kê dài đúng một tháng tính từ ngày bắt đầu.
+                            Chu kỳ lặp lại hằng tháng theo ngày mở này. Ví dụ mở ngày 7 ⇒ kỳ 07/09 → 06/10, 07/10 → 06/11.
                         </p>
                     </fieldset>
 

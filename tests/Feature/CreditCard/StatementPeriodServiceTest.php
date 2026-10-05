@@ -85,7 +85,7 @@ class StatementPeriodServiceTest extends TestCase
             $year = 2025 + intdiv($step, 12);
             $month = ($step % 12) + 1;
 
-            [$start, $end] = $this->service->periodEndingAt($card, $year, $month);
+            [$start, $end] = $this->service->periodStartingAt($card, $year, $month);
 
             if ($previous !== null) {
                 $this->assertSame(
@@ -132,7 +132,7 @@ class StatementPeriodServiceTest extends TestCase
             $year = 2025 + intdiv($step, 12);
             $month = ($step % 12) + 1;
 
-            [$start, $end] = $this->service->periodEndingAt($card, $year, $month);
+            [$start, $end] = $this->service->periodStartingAt($card, $year, $month);
 
             $periods[] = [$start, $end];
         }
@@ -166,26 +166,48 @@ class StatementPeriodServiceTest extends TestCase
     // =====================================================================
 
     #[Test]
-    public function it_assigns_a_date_to_the_period_ending_in_the_same_month(): void
+    public function it_assigns_a_date_after_the_anchor_to_the_current_period(): void
     {
-        // statement_day = 15 ⇒ kỳ [16/08 .. 15/09]
+        // Anchor = 15: 10/09 >= 15/08 nên thuộc kỳ mở 15/08, kết thúc 14/09.
         $card = $this->makeUserCard($this->makeUser()->id, ['statement_day' => 15]);
 
         $period = $this->service->resolvePeriodForDate($card, CarbonImmutable::parse('2026-09-10'));
 
-        $this->assertSame('2026-08-16', $period->period_start->toDateString());
-        $this->assertSame('2026-09-15', $period->period_end->toDateString());
+        $this->assertSame('2026-08-15', $period->period_start->toDateString());
+        $this->assertSame('2026-09-14', $period->period_end->toDateString());
     }
 
     #[Test]
-    public function it_assigns_a_date_after_the_statement_day_to_the_next_period(): void
+    public function it_opens_a_new_period_on_the_anchor_day(): void
+    {
+        $card = $this->makeUserCard($this->makeUser()->id, ['statement_day' => 15]);
+
+        $period = $this->service->resolvePeriodForDate($card, CarbonImmutable::parse('2026-09-15'));
+
+        $this->assertSame('2026-09-15', $period->period_start->toDateString());
+        $this->assertSame('2026-10-14', $period->period_end->toDateString());
+    }
+
+    #[Test]
+    public function a_date_before_the_anchor_stays_in_the_period_opened_last_month(): void
+    {
+        $card = $this->makeUserCard($this->makeUser()->id, ['statement_day' => 15]);
+
+        $period = $this->service->resolvePeriodForDate($card, CarbonImmutable::parse('2026-09-14'));
+
+        $this->assertSame('2026-08-15', $period->period_start->toDateString());
+        $this->assertSame('2026-09-14', $period->period_end->toDateString());
+    }
+
+    #[Test]
+    public function it_assigns_a_date_after_the_anchor_day_to_the_next_period(): void
     {
         $card = $this->makeUserCard($this->makeUser()->id, ['statement_day' => 15]);
 
         $period = $this->service->resolvePeriodForDate($card, CarbonImmutable::parse('2026-09-16'));
 
-        $this->assertSame('2026-09-16', $period->period_start->toDateString());
-        $this->assertSame('2026-10-15', $period->period_end->toDateString());
+        $this->assertSame('2026-09-15', $period->period_start->toDateString());
+        $this->assertSame('2026-10-14', $period->period_end->toDateString());
     }
 
     #[Test]
@@ -205,13 +227,132 @@ class StatementPeriodServiceTest extends TestCase
     {
         $card = $this->makeUserCard($this->makeUser()->id, ['statement_day' => 31]);
 
-        // Năm thường: 28/02 là ngày chốt kỳ (clamp 31 → 28)
+        // Anchor 31 clamp theo tháng: tháng 2 năm thường mở kỳ ở 28/02.
+        // `period_end` lấy từ anchor của THÁNG KẾ nên tháng 3 vẫn là 31/03 − 1.
         $normal = $this->service->resolvePeriodForDate($card, CarbonImmutable::parse('2026-02-28'));
-        $this->assertSame('2026-02-28', $normal->period_end->toDateString());
+        $this->assertSame('2026-02-28', $normal->period_start->toDateString());
+        $this->assertSame('2026-03-30', $normal->period_end->toDateString());
 
-        // Năm nhuận: 29/02 là ngày chốt kỳ
+        // Năm nhuận: mở kỳ ở 29/02 — không có ngày 30/02 hay 31/02.
         $leap = $this->service->resolvePeriodForDate($card, CarbonImmutable::parse('2024-02-29'));
-        $this->assertSame('2024-02-29', $leap->period_end->toDateString());
+        $this->assertSame('2024-02-29', $leap->period_start->toDateString());
+        $this->assertSame('2024-03-30', $leap->period_end->toDateString());
+
+        // 30/02 và 31/02 không tồn tại: ngày 01/03 thuộc kỳ đã mở từ tháng 2.
+        $after = $this->service->resolvePeriodForDate($card, CarbonImmutable::parse('2026-03-01'));
+        $this->assertSame('2026-02-28', $after->period_start->toDateString());
+        $this->assertSame('2026-03-30', $after->period_end->toDateString());
+    }
+
+    #[Test]
+    #[DataProvider('anchorDayCases')]
+    public function it_builds_a_full_cycle_from_a_single_anchor_day(int $anchorDay, array $expected): void
+    {
+        $card = $this->makeUserCard($this->makeUser()->id, ['statement_day' => $anchorDay]);
+
+        foreach ($expected as $month => [$start, $end]) {
+            [$s, $e] = $this->service->periodStartingAt($card, 2026, $month);
+
+            $this->assertSame($start, $s->toDateString(), "anchor={$anchorDay}, kỳ mở tháng {$month}");
+            $this->assertSame($end, $e->toDateString(), "anchor={$anchorDay}, kỳ mở tháng {$month}");
+        }
+    }
+
+    /**
+     * @return array<string, array{0: int, 1: array<int, array{0: string, 1: string}>}>
+     */
+    public static function anchorDayCases(): array
+    {
+        return [
+            'statement_day = 1' => [1, [
+                8 => ['2026-08-01', '2026-08-31'],
+                9 => ['2026-09-01', '2026-09-30'],
+            ]],
+            'statement_day = 5' => [5, [
+                8 => ['2026-08-05', '2026-09-04'],
+                9 => ['2026-09-05', '2026-10-04'],
+                10 => ['2026-10-05', '2026-11-04'],
+            ]],
+            'statement_day = 7' => [7, [
+                8 => ['2026-08-07', '2026-09-06'],
+                9 => ['2026-09-07', '2026-10-06'],
+                10 => ['2026-10-07', '2026-11-06'],
+                11 => ['2026-11-07', '2026-12-06'],
+            ]],
+            'statement_day = 8' => [8, [
+                9 => ['2026-09-08', '2026-10-07'],
+                10 => ['2026-10-08', '2026-11-07'],
+            ]],
+            'statement_day = 20' => [20, [
+                9 => ['2026-09-20', '2026-10-19'],
+                10 => ['2026-10-20', '2026-11-19'],
+            ]],
+            'statement_day = 25' => [25, [
+                9 => ['2026-09-25', '2026-10-24'],
+                10 => ['2026-10-25', '2026-11-24'],
+            ]],
+            'statement_day = 31' => [31, [
+                // clamp theo tháng: tháng 2 không có ngày 31 nên anchor xuống 28.
+                // ⇒ kỳ tháng 1 dừng ở 27/02, kỳ tháng 2 mở 28/02 kết thúc 30/03.
+                1 => ['2026-01-31', '2026-02-27'],
+                2 => ['2026-02-28', '2026-03-30'],
+                3 => ['2026-03-31', '2026-04-29'],
+            ]],
+            'statement_day = 30' => [30, [
+                2 => ['2026-02-28', '2026-03-29'],
+                3 => ['2026-03-30', '2026-04-29'],
+            ]],
+            'statement_day = 29' => [29, [
+                1 => ['2026-01-29', '2026-02-27'],
+                2 => ['2026-02-28', '2026-03-28'],
+                3 => ['2026-03-29', '2026-04-28'],
+            ]],
+        ];
+    }
+
+    #[Test]
+    public function the_period_start_wins_over_the_legacy_statement_day(): void
+    {
+        // `statement_period_start` là nguồn chuẩn (form "Ngày bắt đầu").
+        // `statement_day` = 1 là giá trị default cũ và phải bị bỏ qua.
+        $card = $this->makeUserCard($this->makeUser()->id, [
+            'statement_day' => 1,
+            'statement_period_start' => '2026-09-07',
+        ]);
+
+        $this->assertSame(7, $this->service->anchorDay($card));
+
+        [$start, $end] = $this->service->currentBoundaries($card, CarbonImmutable::parse('2026-10-05'));
+
+        $this->assertSame('2026-09-07', $start->toDateString());
+        $this->assertSame('2026-10-06', $end->toDateString());
+    }
+
+    #[Test]
+    public function mb_both_transactions_fall_into_the_same_current_period(): void
+    {
+        // Anchor 7, hôm nay 05/10/2026 ⇒ kỳ hiện tại 07/09 → 06/10.
+        $card = $this->makeUserCard($this->makeUser()->id, [
+            'statement_day' => 1,
+            'statement_period_start' => '2026-09-07',
+        ]);
+
+        [$start, $end] = $this->service->currentBoundaries($card, CarbonImmutable::parse('2026-10-05'));
+
+        $this->assertSame('2026-09-07', $start->toDateString());
+        $this->assertSame('2026-10-06', $end->toDateString());
+
+        $september = $this->service->resolvePeriodForDate($card, CarbonImmutable::parse('2026-09-16'));
+        $october = $this->service->resolvePeriodForDate($card, CarbonImmutable::parse('2026-10-04'));
+
+        $this->assertSame($september->id, $october->id);
+        $this->assertSame('2026-09-07', $september->period_start->toDateString());
+        $this->assertSame('2026-10-06', $september->period_end->toDateString());
+
+        // Kỳ kế tiếp mở đúng ngày 07/10.
+        $next = $this->service->resolvePeriodForDate($card, CarbonImmutable::parse('2026-10-07'));
+        $this->assertNotSame($september->id, $next->id);
+        $this->assertSame('2026-10-07', $next->period_start->toDateString());
     }
 
     // =====================================================================
@@ -234,7 +375,9 @@ class StatementPeriodServiceTest extends TestCase
     #[Test]
     public function payment_due_date_is_clamped_when_the_next_month_is_short(): void
     {
-        // Kỳ chốt 31/01 ⇒ payment_due_day = 31 rơi vào tháng 2 (28 ngày)
+        // Anchor 31: kỳ mở 31/01 kết thúc 27/02 (clamp theo tháng 2 chỉ 28 ngày).
+        // payment_due_day = 31 rơi vào tháng 3 — không có 31/02 nên không sinh
+        // ngày không tồn tại.
         $card = $this->makeUserCard($this->makeUser()->id, [
             'statement_day' => 31,
             'payment_due_day' => 31,
@@ -242,8 +385,19 @@ class StatementPeriodServiceTest extends TestCase
 
         $period = $this->service->resolvePeriodForDate($card, CarbonImmutable::parse('2026-01-31'));
 
-        $this->assertSame('2026-01-31', $period->period_end->toDateString());
-        $this->assertSame('2026-02-28', $period->payment_due_date->toDateString());
+        $this->assertSame('2026-01-31', $period->period_start->toDateString());
+        $this->assertSame('2026-02-27', $period->period_end->toDateString());
+        $this->assertSame('2026-03-31', $period->payment_due_date->toDateString());
+
+        // payment_due_day = 30 clamp về 28/02 khi kỳ kết thúc trong tháng 2.
+        $clamped = $this->makeUserCard($this->makeUser()->id, [
+            'statement_day' => 31,
+            'payment_due_day' => 30,
+        ]);
+
+        $short = $this->service->resolvePeriodForDate($clamped, CarbonImmutable::parse('2026-02-28'));
+        $this->assertSame('2026-02-28', $short->period_start->toDateString());
+        $this->assertSame('2026-03-30', $short->period_end->toDateString());
     }
 
     // =====================================================================
@@ -420,14 +574,15 @@ class StatementPeriodServiceTest extends TestCase
             'statement_date_basis' => UserCard::BASIS_POSTED_DATE,
         ]);
 
-        // Mua 14/09 (rơi vào kỳ 16/08-15/09) nhưng ngân hàng ghi nhận 20/09
-        // (rơi vào kỳ 16/09-15/10) ⇒ kỳ theo posted_date là kỳ thứ hai.
+        // Mua 14/09 (anchor 15 ⇒ thuộc kỳ 15/08-14/09) nhưng ngân hàng ghi nhận
+        // 20/09 (thuộc kỳ 15/09-14/10) ⇒ kỳ theo posted_date là kỳ thứ hai.
         $period = $this->service->resolveForTransaction(
             $card,
             $this->makeTransaction($card, null, '2026-09-14', ['posted_date' => '2026-09-20'])
         );
 
-        $this->assertSame('2026-09-16', $period->period_start->toDateString());
+        $this->assertSame('2026-09-15', $period->period_start->toDateString());
+        $this->assertSame('2026-10-14', $period->period_end->toDateString());
     }
 
     #[Test]
@@ -439,12 +594,14 @@ class StatementPeriodServiceTest extends TestCase
         ]);
 
         // Chưa có posted_date ⇒ suy luận theo transaction_date.
+        // 10/09 < anchor 15 nên thuộc kỳ đã mở từ 15/08.
         $period = $this->service->resolveForTransaction(
             $card,
             $this->makeTransaction($card, null, '2026-09-10')
         );
 
-        $this->assertSame('2026-08-16', $period->period_start->toDateString());
+        $this->assertSame('2026-08-15', $period->period_start->toDateString());
+        $this->assertSame('2026-09-14', $period->period_end->toDateString());
     }
 
     // =====================================================================

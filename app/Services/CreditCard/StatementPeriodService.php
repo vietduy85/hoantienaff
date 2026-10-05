@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\DB;
  * StatementPeriodService — xác định và quản lý kỳ sao kê.
  *
  * Trách nhiệm DUY NHẤT:
- *   - clamp `statement_day` về ngày cuối tháng (29/30/31)
+ *   - clamp anchor về ngày hợp lệ trong tháng (29/30/31)
  *   - suy ra [period_start, period_end] từ một ngày bất kỳ
  *   - tìm hoặc tạo StatementPeriod
  *   - gắn / gỡ giao dịch khỏi kỳ (hỗ trợ chỉnh tay khi sao kê thực tế khác)
@@ -22,10 +22,28 @@ use Illuminate\Support\Facades\DB;
  * `spending_deadline_day` chỉ là metadata nhắc nhở cho user — xem
  * `UserCard::spendingDeadlineWarning()`.
  *
- * Quy tắc ranh giới (statement_day = S):
- *   kỳ kết thúc tại tháng M  →  [ clamp(S, M-1) + 1 ngày , clamp(S, M) ]
- * Nhờ đó period_start(M) = period_end(M-1) + 1 ngày ⇒ không trùng, không hở,
- * kể cả khi S = 29/30/31 và tháng không đủ ngày.
+ * ANCHOR — ngày MỞ kỳ (không phải ngày chốt)
+ * --------------------------------------------------
+ * Mỗi thẻ có một "anchor day" là ngày MỞ chu kỳ sao kê:
+ *   1. `statement_period_start` — ngày user nhập ở form ("Ngày bắt đầu").
+ *      Đây là nguồn chuẩn; `statement_period_end` do server tính từ nó.
+ *   2. fallback `statement_day` khi thẻ chưa có `statement_period_start`.
+ *
+ * Với anchor A, kỳ MỞ tại tháng M là:
+ *   period_start(M) = clamp(A, M)
+ *   period_end(M)   = clamp(A, M+1) − 1 ngày
+ *
+ * Do `period_start(M+1) = clamp(A, M+1) = period_end(M) + 1` nên các kỳ luôn
+ * liền nhau: không trùng, không hở — kể cả A = 29/30/31 và tháng không đủ ngày.
+ *
+ * Ví dụ A = 7 (chu kỳ 07 → 06):
+ *   mở 07/08 → 06/09 | mở 07/09 → 06/10 | mở 07/10 → 06/11
+ *
+ * LƯU Ý LỊCH SỬ: trước đây `statement_day` được hiểu là ngày CUỐI kỳ
+ * (`period = [clamp(S, M−1)+1, clamp(S, M)]`) và `StatementPeriodService` chỉ
+ * đọc cột đó. Form thì luôn ghi `statement_period_start/end`, nên cột đó bị
+ * bỏ không ⇒ mọi thẻ rơi về `statement_day` mặc định (1) và dùng chung một kỳ
+ * `02/10 → 01/11`. Bản sửa này dùng anchor, khớp đúng công thức mà form đã áp.
  */
 class StatementPeriodService
 {
@@ -48,64 +66,80 @@ class StatementPeriodService
     }
 
     /**
-     * Ngày chốt kỳ của tháng (year, month).
+     * Ngày MỞ chu kỳ (day-of-month).
+     *
+     * Nguồn chuẩn là `statement_period_start` — cùng ngày user nhập ở form
+     * "Kỳ sao kê → Ngày bắt đầu", và cùng ngày mà `UserCardService` dùng để
+     * tính `statement_period_end`. `statement_day` chỉ là fallback cho thẻ
+     * chưa cấu hình.
      */
-    public function statementDateFor(UserCard $userCard, int $year, int $month): CarbonImmutable
+    public function anchorDay(UserCard $userCard): int
+    {
+        $start = $userCard->statement_period_start;
+
+        return (int) ($start !== null ? $start->day : $userCard->statement_day);
+    }
+
+    /**
+     * Ngày mở chu kỳ tại tháng (year, month).
+     */
+    public function cycleDateFor(UserCard $userCard, int $year, int $month): CarbonImmutable
     {
         return CarbonImmutable::create($year, $month, 1)
-            ->day($this->clampDay((int) $userCard->statement_day, $year, $month))
+            ->day($this->clampDay($this->anchorDay($userCard), $year, $month))
             ->startOfDay();
     }
 
     /**
-     * Ranh giới kỳ kết thúc tại tháng (year, month).
+     * Ranh giới của kỳ MỞ tại tháng (year, month).
      *
      * @return array{0: CarbonImmutable, 1: CarbonImmutable} [start, end]
      */
-    public function periodEndingAt(UserCard $userCard, int $year, int $month): array
+    public function periodStartingAt(UserCard $userCard, int $year, int $month): array
     {
-        $end = $this->statementDateFor($userCard, $year, $month);
+        $start = $this->cycleDateFor($userCard, $year, $month);
+        $nextStart = $this->cycleDateFor($userCard, ...$this->nextMonth($year, $month));
 
-        $previousEnd = $this->statementDateFor($userCard, ...$this->previousMonth($year, $month));
-
-        return [$previousEnd->addDay(), $end];
+        return [$start, $nextStart->subDay()];
     }
 
     /**
-     * Tháng kết thúc của kỳ chứa ngày `$date`.
+     * Kỳ chứa ngày `$date`, tạo mới nếu chưa có.
      *
-     * Dùng duy nhất `statement_day`. `spending_deadline_day` không tham gia.
+     * Chỉ dùng anchor. `spending_deadline_day` không tham gia.
      */
     public function resolvePeriodForDate(UserCard $userCard, CarbonInterface $date): StatementPeriod
     {
-        [$year, $month] = $this->endMonthFor($userCard, $date);
+        [$year, $month] = $this->startMonthFor($userCard, $date);
 
         return $this->findOrCreate($userCard, $year, $month);
     }
 
     /**
-     * Tháng chốt kỳ chứa `$date`.
+     * Tháng MỞ kỳ của kỳ chứa ngày `$date`.
      *
-     * Ngày nằm trong tháng chốt kỳ ⇒ kỳ đó kết thúc ngay trong tháng này.
-     * Dùng duy nhất `statement_day`; `spending_deadline_day` không tham gia.
+     * Ngày >= anchor ⇒ kỳ đó mở ngay trong tháng này. Ngày < anchor ⇒ kỳ đã mở
+     * từ tháng trước. Chỉ dùng anchor; `spending_deadline_day` không tham gia.
      *
      * @return array{0: int, 1: int}
      */
-    private function endMonthFor(UserCard $userCard, CarbonInterface $date): array
+    private function startMonthFor(UserCard $userCard, CarbonInterface $date): array
     {
-        $statementDayOfMonth = $this->clampDay((int) $userCard->statement_day, $date->year, $date->month);
+        $anchor = $this->clampDay($this->anchorDay($userCard), $date->year, $date->month);
 
-        return $date->day <= $statementDayOfMonth
+        return $date->day >= $anchor
             ? [$date->year, $date->month]
-            : $this->nextMonth($date->year, $date->month);
+            : $this->previousMonth($date->year, $date->month);
     }
 
     /**
      * Tìm kỳ theo ranh giới, tạo mới nếu chưa có.
+     *
+     * `$year`/`$month` là tháng MỞ kỳ.
      */
     public function findOrCreate(UserCard $userCard, int $year, int $month): StatementPeriod
     {
-        [$start, $end] = $this->periodEndingAt($userCard, $year, $month);
+        [$start, $end] = $this->periodStartingAt($userCard, $year, $month);
 
         $period = StatementPeriod::query()
             ->where('user_card_id', $userCard->id)
@@ -149,9 +183,9 @@ class StatementPeriodService
      */
     public function boundariesForDate(UserCard $userCard, CarbonInterface $date): array
     {
-        [$year, $month] = $this->endMonthFor($userCard, $date);
+        [$year, $month] = $this->startMonthFor($userCard, $date);
 
-        return $this->periodEndingAt($userCard, $year, $month);
+        return $this->periodStartingAt($userCard, $year, $month);
     }
 
     /**
@@ -178,10 +212,10 @@ class StatementPeriodService
      * ---------------------------------------------------------------------------
      * Giao dịch nhập tay chỉ được ghi vào kỳ đang mở: nếu cho nhận ngày ngoài kỳ,
      * giao dịch rơi sang kỳ khác và "Tổng quan" (chỉ đọc kỳ hiện tại) nhảy số bất
-     * ngờ. Ranh giới suy ra từ `statement_day` nên thẻ chưa có bản ghi kỳ nào vẫn
+     * ngờ. Ranh giới suy ra từ anchor nên thẻ chưa có bản ghi kỳ nào vẫn
      * trả lời được, và hàm này KHÔNG tạo kỳ.
      *
-     * Hai ngày cùng kỳ ⇔ cùng tháng chốt ⇔ `boundariesForDate()` trùng nhau.
+     * Hai ngày cùng kỳ ⇔ cùng tháng mở kỳ ⇔ `boundariesForDate()` trùng nhau.
      * So sánh chuỗi ngày chứ không so sánh object để không phụ thuộc timezone.
      */
     public function isInCurrentPeriod(UserCard $userCard, CarbonInterface $date, ?CarbonInterface $today = null): bool
@@ -266,7 +300,7 @@ class StatementPeriodService
     }
 
     /**
-     * Kỳ đang mở gần nhất (kỳ mà giao dịch mới sẽ rơi vào theo statement_day).
+     * Kỳ đang mở gần nhất (kỳ mà giao dịch mới sẽ rơi vào theo anchor).
      */
     public function currentPeriod(UserCard $userCard, ?CarbonInterface $today = null): StatementPeriod
     {

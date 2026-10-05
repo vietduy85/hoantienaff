@@ -10,6 +10,7 @@ use App\Models\CreditCard\PolicyTierCategory;
 use App\Models\CreditCard\PolicyVersion;
 use App\Models\CreditCard\UserCard;
 use App\Models\User;
+use App\Services\CreditCard\StatementPeriodService;
 use App\Services\CreditCard\UserCardService;
 use Carbon\CarbonImmutable;
 use DOMDocument;
@@ -224,11 +225,14 @@ class CardManagementUxTest extends TestCase
     }
 
     // =====================================================================
-    // Kỳ sao kê: chọn ngày bắt đầu ⇒ tự tính ngày kết thúc
+    // Kỳ sao kê: chọn ngày MỞ chu kỳ ⇒ tự tính ngày kết thúc
     // =====================================================================
 
     /**
      * Công thức: end = start + 1 tháng − 1 ngày.
+     *
+     * "Ngày bắt đầu" của form là ANCHOR của chu kỳ — ngày MỞ kỳ. Nhờ vậy
+     * `StatementPeriodService` và form luôn dùng cùng một phép tính.
      */
     #[Test]
     #[DataProvider('statementPeriodCases')]
@@ -254,11 +258,40 @@ class CardManagementUxTest extends TestCase
             // Giữa tháng ⇒ cộng đúng một tháng.
             'giữa tháng' => ['2026-10-15', '2026-11-14'],
             'ngày 5' => ['2026-03-05', '2026-04-04'],
+            // Chu kỳ MB: mở ngày 7.
+            'chu kỳ 7 sang 6' => ['2026-09-07', '2026-10-06'],
+            'chu kỳ 7 sang 6 kỳ kế' => ['2026-10-07', '2026-11-06'],
 
             // Ngày cuối tháng gặp tháng ngắn hơn: kỳ phủ HẾT tháng sau.
             'ngày 31 sang tháng ngắn' => ['2026-01-31', '2026-02-27'],
             'ngày 30 sang tháng ngắn' => ['2026-01-30', '2026-02-27'],
         ];
+    }
+
+    /**
+     * Ngày mở của form là anchor, nên `statement_day` phải được đồng bộ theo —
+     * không phải giữ số 1 mặc định của cột.
+     */
+    #[Test]
+    public function saving_the_period_start_syncs_statement_day_to_that_anchor(): void
+    {
+        $response = $this->actingAs($this->owner)->postJson(route('credit-cards.api.cards.store'), [
+            'bank_id' => $this->makeBank()->id,
+            'name' => 'Thẻ chu kỳ 7',
+            'statement_period_start' => '2026-09-07',
+        ]);
+
+        $response->assertCreated();
+        $response->assertJsonPath('data.statement_period_start', '2026-09-07');
+        $response->assertJsonPath('data.statement_period_end', '2026-10-06');
+        $this->assertSame(7, $response->json('data.statement_day'));
+
+        // Engine phải dùng đúng anchor đó.
+        [$start, $end] = app(StatementPeriodService::class)
+            ->currentBoundaries(UserCard::findOrFail($response->json('data.id')), CarbonImmutable::parse('2026-10-05'));
+
+        $this->assertSame('2026-09-07', $start->toDateString());
+        $this->assertSame('2026-10-06', $end->toDateString());
     }
 
     #[Test]

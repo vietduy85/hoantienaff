@@ -109,7 +109,9 @@ class UserCardService
                 'card_number_last4' => $this->normalizeLast4($attributes['card_number_last4'] ?? null),
                 'credit_limit' => $this->normalizeMoney($attributes['credit_limit'] ?? null),
                 'desired_spend' => $this->normalizeMoney($attributes['desired_spend'] ?? null),
-                'statement_day' => $this->normalizeDay($attributes['statement_day'] ?? 1, 'statement_day'),
+                // `statement_day` là cột DERIVED của anchor, không phải input:
+                // xem `StatementPeriodService::anchorDay()`.
+                'statement_day' => $this->resolveStatementDay($periodStart, $attributes['statement_day'] ?? null),
                 'payment_due_day' => $this->normalizeDay($attributes['payment_due_day'] ?? 25, 'payment_due_day'),
                 'spending_deadline_day' => isset($attributes['spending_deadline_day'])
                     ? $this->normalizeDay($attributes['spending_deadline_day'], 'spending_deadline_day')
@@ -195,6 +197,7 @@ class UserCardService
 
                 $card->statement_period_start = $periodStart;
                 $card->statement_period_end = $periodEnd;
+                $card->statement_day = $this->resolveStatementDay($periodStart, $card->statement_day);
             }
 
             if (array_key_exists('sort_order', $attributes)) {
@@ -469,5 +472,21 @@ class UserCardService
         $start = $this->normalizeDate($start);
 
         return [$start, $this->statementPeriodEnd($start)];
+    }
+
+    /**
+     * `statement_day` là ngày MỞ chu kỳ, luôn lấy từ "Ngày bắt đầu" của form.
+     *
+     * Cột này được giữ cho tương thích và để hiển thị, nhưng nguồn sự thật là
+     * `statement_period_start` — xem `StatementPeriodService::anchorDay()`. Chỉ
+     * khi thẻ chưa có ngày bắt đầu thì mới dùng giá trị truyền vào (hoặc 1).
+     */
+    private function resolveStatementDay(?string $periodStart, mixed $fallback): int
+    {
+        if ($periodStart !== null) {
+            return (int) CarbonImmutable::parse($periodStart)->day;
+        }
+
+        return $this->normalizeDay($fallback ?? 1, 'statement_day');
     }
 }

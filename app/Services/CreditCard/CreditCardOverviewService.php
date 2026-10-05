@@ -65,6 +65,7 @@ class CreditCardOverviewService
     public function __construct(
         private readonly CashbackQuotaService $quotas,
         private readonly TierResolverService $tiers,
+        private readonly CashbackCalculator $calculator,
     ) {}
 
     /**
@@ -151,6 +152,13 @@ class CreditCardOverviewService
             $currentPeriods->pluck('id')->map(fn ($id): int => (int) $id)->all(),
         );
 
+        // Giao dịch TẤT CẢ kỳ hiện tại, gom theo thẻ. "Cashback dự kiến" cần
+        // TỪNG giao dịch để áp rule/cap của đúng danh mục của nó — chỉ có tổng
+        // `spent` thì không tính được.
+        $linesByCard = $this->transactionLinesByCard(
+            $currentPeriods->pluck('id')->map(fn ($id): int => (int) $id)->all(),
+        );
+
         $periodByCard = $currentPeriods->keyBy('user_card_id');
 
         $result = [];
@@ -191,8 +199,13 @@ class CreditCardOverviewService
                 'desired_spend' => $desiredSpend,
                 'spent' => $spent,
                 'cashback' => $period === null ? '0.00' : Decimal::money($period->total_cashback),
-                // "Cashback DỰ KIẾN": theo BẬC ĐÍCH nhưng nhân với chi tiêu thực tế.
-                'expected_cashback' => $this->expectedCashbackFor($card, $quotas[$cardId] ?? null, $spent),
+                // "Cashback DỰ KIẾN": bậc ĐÍCH (theo `desired_spend`) nhưng áp rate
+                // và cap CỦA TỪNG RULE trên từng giao dịch thật của kỳ hiện tại.
+                'expected_cashback' => $this->expectedCashbackFor(
+                    $card,
+                    $quotas[$cardId] ?? null,
+                    $period === null ? [] : ($linesByCard[$cardId] ?? []),
+                ),
                 'progress_percent' => Decimal::percent($spent, $desiredSpend),
                 // Mục tiêu bằng 0/NULL ⇒ thanh tiến độ không có ý nghĩa, hiển thị
                 // trạng thái chưa đặt mục tiêu thay vì vẽ thanh 0%.
@@ -318,10 +331,20 @@ class CreditCardOverviewService
      * ---------------------------------------------------------------------------
      * CÔNG THỨC
      * ---------------------------------------------------------------------------
-     *   desired_spend → bậc đích (quota đã resolve) → rate của bậc đích → tiền
+     *   desired_spend → bậc đích (quota đã resolve)
+     *   → từng giao dịch trong kỳ hiện tại → rule của danh mục/combo của nó
+     *   → rate của rule đó trong BẬC ĐÍCH → tiền
+     *   → cap mỗi giao dịch → cap mỗi danh mục mỗi kỳ → cap tổng của bậc
+     *   → cộng lại
      *
-     * Rồi kẹp theo trần chung của bậc đích (`max_cashback_per_period`) để con số
-     * không bao giờ vượt mẫu số đứng sau dấu "/" ở dòng "Cashback dự kiến".
+     * Nhân với CHI TIÊU THỰC TẾ của kỳ (từng giao dịch), không nhân
+     * `desired_spend`: nhân mục tiêu biến con số thành "trả được bao nhiêu nếu
+     * chi đủ mục tiêu", đúng nhưng không phải "dự kiến" — và nó không giảm khi
+     * người dùng chi nhiều hơn. Rate vẫn của bậc đích nên mục tiêu vẫn quyết định
+     * BẬC, chỉ không còn quyết định MẪU SỐ.
+     *
+     * KHÔNG được rút gọn thành `tổng chi tiêu × một rate` rồi kẹp cap chung: mỗi
+     * rule có rate RIÊNG và trần RIÊNG, xem ví dụ MB trong {@see expectedCashbackFor()}.
      *
      * ---------------------------------------------------------------------------
      * VÌ SAO KHÔNG DÙNG `StatementPeriod.total_cashback`
@@ -339,15 +362,20 @@ class CreditCardOverviewService
      * `cashback_percent` nằm ở TỪNG rule (`PolicyTierCategory`), mỗi rule gắn với
      * một danh mục/combo — không có một cột rate duy nhất trên bậc. Rate dùng ở
      * đây là của BẬC ĐÍCH (bậc theo `desired_spend`), không phải bậc engine đang
-     * chạy; xem {@see targetTierRate()}.
+     * chạy; và mỗi giao dịch lấy rate của rule KHỚP CHÍNH MÌNH nó — xem
+     * {@see expectedCashbackFor()}.
      *
      * Thẻ chưa đặt mục tiêu, hoặc mục tiêu chưa chạm bậc nào ⇒ `0.00`.
      */
-    private function expectedCashbackFor(UserCard $card, ?array $quota, string $spent): string
+    private function expectedCashbackFor(UserCard $card, ?array $quota, array $lines): string
     {
         $desiredSpend = Decimal::money($card->desired_spend);
 
         if (! Decimal::isPositive($desiredSpend)) {
+            return '0.00';
+        }
+
+        if ($lines === []) {
             return '0.00';
         }
 
@@ -363,40 +391,55 @@ class CreditCardOverviewService
             return '0.00';
         }
 
-        $rate = $this->targetTierRate($tier);
+        // -------------------------------------------------------------------------
+        // TÍNH LẠI TỪNG GIAO DỊCH, theo ĐÚNG rule của danh mục/combo của nó.
+        // -------------------------------------------------------------------------
+        // Công thức cũ là `spent × rate_CAO_NHẤT_của_bậc`, rồi kẹp trần CHUNG của
+        // bậc. Công thức đó SAI ở hai chỗ, cả hai đều ra số lớn hơn thực:
+        //
+        //   1. Một thẻ có nhiều danh mục với rate VÀ TRẦN riêng. Nhân cả tổng chi
+        //      tiêu với một rate duy nhất là gán tiền chi của danh mục rate thấp
+        //      sang rate cao.
+        //   2. Nó bỏ qua `max_cashback_per_category_per_period` của từng rule — chỉ
+        //      kẹp trần chung của bậc.
+        //
+        // Ví dụ thật (thẻ MB Ultimate JCB, kỳ hiện tại): một giao dịch 9.000.000đ
+        // ở danh mục Bảo hiểm, rule 10% nhưng trần danh mục 400.000đ.
+        //   Công thức cũ: 9.000.000 × 10% = 900.000 → kẹp trần bậc 800.000 ⇒ 800.000đ.
+        //   Đúng: 900.000 → kẹp TRẦN DANH MỤC 400.000 ⇒ 400.000đ; trần bậc 800.000
+        //   không đụng tới nên giữ 400.000đ.
+        //
+        // Nên gọi lại đúng hàm của engine (`CashbackCalculator::calculate`) thay vì
+        // tự nhân: hàm đó đã có sẵn thứ tự ưu tiên Category > Combo > Fallback và
+        // đúng thang cap 1/2/3 (mỗi giao dịch → mỗi danh mục mỗi kỳ → tổng kỳ), và
+        // đây chính là nơi duy nhất định nghĩa "một rule" — viết lại ở Tổng quan sẽ
+        // tạo ra một bản tính lệch với engine.
+        //
+        // Khác engine ở ĐÚNG MỘT CHỖ: dùng BẬC ĐÍCH (quota đã resolve từ
+        // `desired_spend`) thay vì bậc engine chọn theo chi tiêu thực tế. Xem
+        // {@see forPage()} và ghi chú "VÌ SAO KHÔNG DÙNG total_cashback" ở trên.
+        //
+        // `minTotalSpend: 0.0` — cố ý KHÔNG chặn ở Vạch-Min-Spend. "Dự kiến" trả
+        // lời câu hỏi "với bậc mà tôi đã chọn, khoản chi đã làm thì được bao nhiêu";
+        // việc có đủ điều kiện nhận cashback hay không là quyết định của engine lúc
+        // chốt kỳ, và nó đã hiện riêng ở vạch Min-Spend trên thanh tiến độ.
+        $results = $this->calculator->calculate(
+            rules: $this->tiers->rulesForTier($tier),
+            transactions: $lines,
+            minTotalSpend: 0.0,
+            maxCashbackPerPeriod: $tier->max_cashback_per_period === null
+                ? null
+                : (float) $tier->max_cashback_per_period,
+            transactionCaps: $this->tiers->transactionCapsForTier($tier),
+        );
 
-        if (! Decimal::isPositive($rate)) {
-            return '0.00';
+        $total = 0.0;
+
+        foreach ($results as $result) {
+            $total += $result->cashbackAmountAsFloat();
         }
 
-        // Nhân với CHI TIÊU THỰC TẾ của kỳ (`spent`), không nhân `desired_spend`:
-        // nhân mục tiêu biến con số thành "trả được bao nhiêu nếu chi đủ mục tiêu",
-        // đúng nhưng không phải "dự kiến" — và nó không giảm khi người dùng chi
-        // nhiều hơn, nên dòng này cũng chẳng phản ánh chuyện gì. Rate vẫn của bậc
-        // đích nên mục tiêu vẫn quyết định BẬC, chỉ không còn quyết định MẪU SỐ.
-        $expected = Decimal::cashbackForSpend($spent, $rate);
-        $ceiling = $quota['tier_cashback_max'] ?? null;
-
-        return $ceiling === null ? $expected : Decimal::min($expected, $ceiling);
-    }
-
-    /**
-     * Tỷ lệ hoàn tiền dùng để dự kiến, lấy từ BẬC ĐÍCH.
-     *
-     * Bậc không có một rate duy nhất: mỗi `PolicyTierCategory` mang rate riêng cho
-     * một danh mục/combo. Ở đây chọn rate CAO NHẤT trong các rule đang bật của bậc
-     * — tức "nếu phần chi tiêu thực tế rơi vào danh mục ưu đãi nhất của bậc đó".
-     * Không đọc nhầm rate của bậc engine đang chạy (bậc theo chi tiêu thực tế).
-     */
-    private function targetTierRate(PolicyTier $tier): string
-    {
-        $rate = '0.00';
-
-        foreach ($this->tiers->rulesForTier($tier) as $rule) {
-            $rate = Decimal::max($rate, Decimal::money($rule['cashback_percent'] ?? '0'));
-        }
-
-        return $rate;
+        return Decimal::money($total);
     }
 
     /**
@@ -456,5 +499,48 @@ class CreditCardOverviewService
         }
 
         return $spent;
+    }
+
+    /**
+     * Giao dịch của các kỳ hiện tại, dựng sẵn thành `TransactionLine` và gom theo
+     * thẻ, để `expectedCashbackFor()` chạy lại đúng hàm của engine.
+     *
+     * Dùng CHUNG danh sách `periodIds` với `spentByCard()` — cùng một tập kỳ
+     * hiện tại, nên "Chi tiêu" và "Cashback dự kiến" không thể lệch nhau vì một
+     * trong hai lọc theo tiêu chí khác.
+     *
+     * @param  array<int, int>  $periodIds
+     * @return array<int, array<int, TransactionLine>> khóa = `user_card_id`
+     */
+    private function transactionLinesByCard(array $periodIds): array
+    {
+        if ($periodIds === []) {
+            return [];
+        }
+
+        $transactions = (new Transaction)->getTable();
+
+        // `chronological()` giữ đúng thứ tự mà engine dùng, nên khi cap mỗi
+        // danh mục có nhiều giao dịch thì khoản nào bị "hết chỗ" là nhất quán
+        // với những gì engine sẽ ghi vào snapshot.
+        $rows = Transaction::query()
+            ->whereIn($transactions.'.statement_period_id', $periodIds)
+            ->chronological()
+            ->get(['id', 'user_card_id', 'category_id', 'amount', 'transaction_date']);
+
+        $lines = [];
+
+        foreach ($rows as $row) {
+            $cardId = (int) $row->user_card_id;
+
+            $lines[$cardId][] = new TransactionLine(
+                id: (int) $row->id,
+                transactionDate: $row->transaction_date->toDateString(),
+                categoryId: $row->category_id === null ? null : (int) $row->category_id,
+                amount: (string) $row->amount,
+            );
+        }
+
+        return $lines;
     }
 }
