@@ -6,11 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\CreditCard\StoreStatementRequest;
 use App\Http\Requests\CreditCard\UpdateStatementRequest;
 use App\Models\CreditCard\CreditCardStatement;
-use App\Models\CreditCard\StatementPeriod;
 use App\Models\CreditCard\UserCard;
 use App\Services\CreditCard\CreditCardCardSortService;
 use App\Services\CreditCard\CreditCardStatementService;
-use App\Services\CreditCard\StatementPeriodService;
 use App\Services\CreditCard\UserCardService;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -31,10 +29,17 @@ use Illuminate\View\View;
  * controller này không gọi engine, không sửa giao dịch, không sửa kỳ.
  *
  * ---------------------------------------------------------------------------
+ * KỲ NÀO, AI QUYẾT
+ * ---------------------------------------------------------------------------
+ * Controller KHÔNG suy luận kỳ. Nó nhận `period[<card id>]` từ query string rồi hỏi
+ * `CreditCardStatementService`; người dùng không chọn thì dùng kỳ đã kết thúc gần
+ * nhất. Mọi công thức chu kỳ nằm trong `StatementPeriodService`.
+ *
+ * ---------------------------------------------------------------------------
  * MỞ TRANG KHÔNG ĐƯỢC GHI
  * ---------------------------------------------------------------------------
- * Cả `index()` (HTML) lẫn `apiIndex()` (JSON) đều dùng `findForDate()` qua
- * `CreditCardStatementService::currentPeriodFor()` — chỉ đọc, KHÔNG tạo kỳ. Cùng
+ * Cả `index()` (HTML) lẫn `apiIndex()` (JSON) đều đi qua các đường đọc
+ * (`bundleForPeriodStart()`, `selectablePeriods()`) — chỉ đọc, KHÔNG tạo kỳ. Cùng
  * nguyên tắc đã áp cho trang Tổng quan.
  */
 class StatementController extends Controller
@@ -42,7 +47,6 @@ class StatementController extends Controller
     use AuthorizesRequests;
 
     public function __construct(
-        private readonly StatementPeriodService $periods,
         private readonly CreditCardStatementService $statements,
         private readonly CreditCardCardSortService $sort,
         private readonly UserCardService $cards,
@@ -65,7 +69,7 @@ class StatementController extends Controller
 
         $rows = $this->sort
             ->sort($sortMode, $cards, $today)
-            ->map(fn (UserCard $card): array => $this->presentCard($card, $today))
+            ->map(fn (UserCard $card): array => $this->presentCard($card, $today, $request))
             ->all();
 
         return view('credit-card.statements', [
@@ -100,7 +104,7 @@ class StatementController extends Controller
 
         $data = $this->sort
             ->sort($sortMode, $this->ownedCards($userId), $today)
-            ->map(fn (UserCard $card): array => $this->presentCard($card, $today))
+            ->map(fn (UserCard $card): array => $this->presentCard($card, $today, $request))
             ->all();
 
         return response()->json([
@@ -111,11 +115,12 @@ class StatementController extends Controller
     }
 
     /**
-     * Nhập / sửa sao kê của kỳ hiện tại.
+     * Nhập / sửa sao kê của KỲ NGƯỜI DÙNG CHỌN.
      *
-     * Ghi vào kỳ HIỆN TẠI nên dùng `currentPeriod()` (tạo kỳ nếu chưa có) — khác
-     * các đường đọc ở trên. `user_id` không bao giờ lấy từ request: thẻ phải
-     * thuộc đúng user đang đăng nhập, kiểm ở `findOwned()` rồi tới policy.
+     * Ghi vào kỳ đã chọn nên dùng `upsertForPeriodStart()` (tạo bản ghi kỳ đó
+     * nếu chưa có) — khác các đường đọc ở trên. `user_id` không bao giờ lấy từ
+     * request: thẻ phải thuộc đúng user đang đăng nhập, kiểm ở `findOwned()` rồi
+     * tới policy.
      */
     public function store(StoreStatementRequest $request, string $userCard): JsonResponse
     {
@@ -124,8 +129,15 @@ class StatementController extends Controller
 
         $this->authorize('create', [CreditCardStatement::class, $card]);
 
-        $period = $this->periods->currentPeriod($card);
-        $statement = $this->statements->upsert($card, $period, $request->payload());
+        // Không gửi `period_start` ⇒ kỳ mặc định (kỳ đã kết thúc gần nhất). Gửi
+        // ngày không thuộc chu kỳ thẻ ⇒ service ném exception, bên dưới trả 422.
+        $periodStart = $request->periodStart() ?? $this->statements->defaultPeriodStart($card);
+
+        try {
+            $statement = $this->statements->upsertForPeriodStart($card, $periodStart, $request->payload());
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
 
         // `store` là cả nhập lẫn sửa: nhập mới ⇒ 201, sửa dòng đã có ⇒ 200. Phân
         // biệt bằng `wasRecentlyCreated` thay vì truy vấn lại lần nữa.
@@ -190,7 +202,7 @@ class StatementController extends Controller
     }
 
     /**
-     * Một hàng của màn Sao kê: thẻ + kỳ hiện tại + dòng sao kê + ranh giới kỳ.
+     * Một hàng của màn Sao kê: thẻ + KỲ ĐANG CHỌN + dòng sao kê + ranh giới kỳ.
      *
      * `period_start`/`period_end` gửi cả khi CHƯA có bản ghi kỳ: người dùng cần
      * biết kỳ đang nhập là kỳ nào, kể cả lần đầu tiên (lúc đó hệ thống chưa tạo
@@ -198,10 +210,15 @@ class StatementController extends Controller
      *
      * @return array<string, mixed>
      */
-    private function presentCard(UserCard $card, CarbonImmutable $today): array
+    private function presentCard(UserCard $card, CarbonImmutable $today, Request $request): array
     {
-        [$start, $end] = $this->periods->currentBoundaries($card, $today);
-        [$period, $statement] = $this->statements->currentBundleFor($card, $today);
+        $selection = $this->selectedPeriodStart($card, $request);
+
+        $bundle = $this->statements->bundleForPeriodStart($card, $selection, $today);
+        $period = $bundle['period'];
+        $statement = $bundle['statement'];
+        [$start, $end] = [$bundle['start'], $bundle['end']];
+        $dueDate = $bundle['due_date'];
 
         $finalized = $period !== null && $period->isFinalized();
 
@@ -214,19 +231,23 @@ class StatementController extends Controller
             // Thẻ chưa có sao kê vẫn sửa được (đó là lúc cần nhập); có sao kê
             // trong kỳ đã chốt thì không. View chỉ đọc cờ này.
             'editable' => ! $finalized,
-            'period' => $period === null ? null : [
-                'id' => (int) $period->id,
-                'start' => $period->period_start->toDateString(),
-                'end' => $period->period_end->toDateString(),
-                'due_date' => $period->payment_due_date?->toDateString(),
-                'status' => $period->status,
-                'finalized' => $period->isFinalized(),
+            // Kỳ đang xem — nguồn sự thật cho mọi con số dưới đây. `due_date`
+            // lấy từ KỲ ĐANG CHỌN, không phải kỳ hiện tại: người dùng xem kỳ
+            // nào thì thấy hạn của kỳ đó.
+            'period' => [
+                'period_start' => $selection,
+                'start' => $start->toDateString(),
+                'end' => $end->toDateString(),
+                'id' => $period === null ? null : (int) $period->id,
+                'due_date' => $dueDate?->toDateString(),
+                'status' => $period?->status,
+                'finalized' => $finalized,
                 // Tính ở server để view chỉ tô màu, không tự đếm ngày — và để
                 // test kiểm được trạng thái quá hạn mà không phụ thuộc múi giờ JS.
-                'due_state' => $this->dueState($period->payment_due_date, $today),
-                'days_to_due' => $period->payment_due_date === null
+                'due_state' => $this->dueState($dueDate, $today),
+                'days_to_due' => $dueDate === null
                     ? null
-                    : (int) $today->startOfDay()->diffInDays($period->payment_due_date->startOfDay(), false),
+                    : (int) $today->startOfDay()->diffInDays($dueDate->startOfDay(), false),
             ],
             'period_bounds' => [
                 'start' => $start->toDateString(),
@@ -236,8 +257,36 @@ class StatementController extends Controller
                 'start_label' => $start->format('d/m/Y'),
                 'end_label' => $end->format('d/m/Y'),
             ],
+            // Danh sách kỳ cho dropdown — mới nhất trước.
+            'periods' => $this->statements->selectablePeriods($card, $today),
             'statement' => $statement === null ? null : $this->presentStatement($statement),
         ];
+    }
+
+    /**
+     * Kỳ đang chọn của MỘT thẻ.
+     *
+     * Mỗi thẻ một lựa chọn riêng (`period[<card id>]` trên query string): thẻ có
+     * chu kỳ khác nhau nên một lựa chọn dùng chung sẽ không có nghĩa.
+     *
+     * Lựa chọn không hợp lệ (ngày bận, ngoài danh sách kỳ của thẻ) bị bỏ qua và
+     * rơi về kỳ mặc định — không báo lỗi: đây là bộ lọc xem, chứ không phải thao tác
+     * ghi tiền, và kỳ mặc định vẫn cho người dùng một màn hình hợp lệ.
+     */
+    private function selectedPeriodStart(UserCard $card, Request $request): string
+    {
+        $requested = $request->query('period');
+
+        if (is_array($requested)) {
+            $value = $requested[(string) $card->id] ?? $requested[$card->id] ?? null;
+
+            if (is_string($value) && $value !== ''
+                && $this->statements->isSelectablePeriodStart($card, $value)) {
+                return $value;
+            }
+        }
+
+        return $this->statements->defaultPeriodStart($card);
     }
 
     /**

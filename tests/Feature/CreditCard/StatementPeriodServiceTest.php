@@ -605,6 +605,181 @@ class StatementPeriodServiceTest extends TestCase
     }
 
     // =====================================================================
+    // Kỳ đã kết thúc / danh sách kỳ chọn được
+    // =====================================================================
+
+    #[Test]
+    public function the_completed_period_is_the_one_ending_before_today(): void
+    {
+        $card = $this->makeUserCard($this->makeUser()->id, ['statement_day' => 15]);
+
+        $today = CarbonImmutable::parse('2026-10-20');
+        [$start, $end] = $this->service->completedBoundaries($card, $today);
+
+        // Kỳ hiện tại (chứa 20/10) là [15/10, 14/11] ⇒ kỳ đã kết thúc gần nhất
+        // là kỳ liền trước, và `period_end` < hôm nay.
+        $this->assertSame('2026-09-15', $start->toDateString());
+        $this->assertSame('2026-10-14', $end->toDateString());
+        $this->assertTrue($end->lt($today));
+    }
+
+    #[Test]
+    public function the_completed_period_never_collapses_onto_the_current_period(): void
+    {
+        $card = $this->makeUserCard($this->makeUser()->id, ['statement_day' => 15]);
+
+        // Trải qua cả ngày mở kỳ lẫn ngày ngay trước đó: ngày mở kỳ thuộc KỲ
+        // MỚI, nên kỳ đã kết thúc vẫn là kỳ trước nữa.
+        foreach (['2026-10-15', '2026-10-14', '2026-10-16', '2026-10-31'] as $day) {
+            [$completedStart, $completedEnd] = $this->service->completedBoundaries(
+                $card,
+                CarbonImmutable::parse($day),
+            );
+
+            [$currentStart] = $this->service->currentBoundaries($card, CarbonImmutable::parse($day));
+
+            $this->assertNotSame(
+                $completedStart->toDateString(),
+                $currentStart->toDateString(),
+                "Ngày {$day} không được để kỳ đã kết thúc trùng kỳ hiện tại.",
+            );
+        }
+    }
+
+    #[Test]
+    public function selectable_boundaries_start_at_the_current_period_and_go_backwards(): void
+    {
+        $card = $this->makeUserCard($this->makeUser()->id, ['statement_day' => 15]);
+
+        $today = CarbonImmutable::parse('2026-10-20');
+        $bounds = $this->service->selectableBoundaries($card, $today);
+
+        [$currentStart, $currentEnd] = $this->service->currentBoundaries($card, $today);
+
+        $this->assertSame($currentStart->toDateString(), $bounds[0][0]->toDateString());
+        $this->assertSame($currentEnd->toDateString(), $bounds[0][1]->toDateString());
+
+        // Mới nhất trước, liền kề nhau, không trùng: vì danh sách đi NGƯỢC thời gian,
+        // kỳ cũ hơn kết thúc đúng một ngày trước khi kỳ mới hơn mở.
+        foreach ($bounds as $i => [$start, $end]) {
+            $this->assertTrue($end->lt($start->addMonth()), 'Kỳ không được dài hơn một chu kỳ.');
+
+            if ($i === 0) {
+                continue;
+            }
+
+            $this->assertSame(
+                $bounds[$i][1]->addDay()->toDateString(),
+                $bounds[$i - 1][0]->toDateString(),
+                'Các kỳ phải liền nhau, không hở và không trùng.',
+            );
+        }
+    }
+
+    #[Test]
+    public function selectable_boundaries_never_create_a_period(): void
+    {
+        $card = $this->makeUserCard($this->makeUser()->id, ['statement_day' => 15]);
+
+        $this->assertSame(0, StatementPeriod::query()->count());
+
+        $this->service->selectableBoundaries($card, CarbonImmutable::parse('2026-10-20'));
+        $this->service->completedBoundaries($card, CarbonImmutable::parse('2026-10-20'));
+
+        $this->assertSame(
+            0,
+            StatementPeriod::query()->count(),
+            'Tính danh sách kỳ không được sinh bản ghi.',
+        );
+    }
+
+    #[Test]
+    public function the_selectable_list_has_a_fixed_limit_and_honours_a_smaller_one(): void
+    {
+        $card = $this->makeUserCard($this->makeUser()->id, ['statement_day' => 15]);
+
+        $today = CarbonImmutable::parse('2026-10-20');
+
+        $this->assertCount(
+            StatementPeriodService::SELECTABLE_LIMIT,
+            $this->service->selectableBoundaries($card, $today),
+        );
+
+        $this->assertCount(6, $this->service->selectableBoundaries($card, $today, 6));
+
+        // Không có giới hạn này, mỗi lần mở trang sau vài năm sẽ phải dựng
+        // hàng trăm `<option>`.
+        $this->assertLessThanOrEqual(24, StatementPeriodService::SELECTABLE_LIMIT);
+    }
+
+    #[Test]
+    public function a_period_start_maps_back_to_its_own_period(): void
+    {
+        $card = $this->makeUserCard($this->makeUser()->id, ['statement_day' => 15]);
+
+        foreach ($this->service->selectableBoundaries($card, CarbonImmutable::parse('2026-10-20')) as [$start, $end]) {
+            [$resolvedStart, $resolvedEnd] = $this->service->boundariesForPeriodStart(
+                $card,
+                CarbonImmutable::parse($start->toDateString()),
+            );
+
+            $this->assertSame($start->toDateString(), $resolvedStart->toDateString());
+            $this->assertSame($end->toDateString(), $resolvedEnd->toDateString());
+        }
+    }
+
+    #[Test]
+    public function resolving_a_period_start_creates_the_period_once(): void
+    {
+        $card = $this->makeUserCard($this->makeUser()->id, ['statement_day' => 15]);
+
+        $periodStart = $this->service->completedBoundaries($card, CarbonImmutable::parse('2026-10-20'))[0];
+
+        $first = $this->service->resolvePeriodStart($card, $periodStart);
+        $second = $this->service->resolvePeriodStart($card, $periodStart);
+
+        $this->assertSame($first->id, $second->id);
+        $this->assertSame(1, StatementPeriod::query()->count());
+        $this->assertSame('2026-09-15', $first->period_start->toDateString());
+        $this->assertSame('2026-10-14', $first->period_end->toDateString());
+    }
+
+    #[Test]
+    public function a_period_start_that_is_not_the_opening_day_is_rejected(): void
+    {
+        $card = $this->makeUserCard($this->makeUser()->id, ['statement_day' => 15]);
+
+        // 16/09 nằm trong tháng nhưng không phải ngày mở kỳ. Nếu service âm
+        // thầm ghi vào kỳ gần nhất, người dùng sẽ nhập tiền sai kỳ mà không
+        // hề có dấu hiệu nào báo lỗi.
+        $this->expectException(\InvalidArgumentException::class);
+
+        try {
+            $this->service->resolvePeriodStart($card, CarbonImmutable::parse('2026-09-16'));
+        } finally {
+            $this->assertSame(0, StatementPeriod::query()->count());
+        }
+    }
+
+    #[Test]
+    public function find_by_boundaries_reads_without_creating(): void
+    {
+        $card = $this->makeUserCard($this->makeUser()->id, ['statement_day' => 15]);
+
+        [$start, $end] = $this->service->completedBoundaries($card, CarbonImmutable::parse('2026-10-20'));
+
+        $this->assertNull($this->service->findByBoundaries($card, $start, $end));
+
+        $created = $this->service->create($card, $start, $end);
+
+        $found = $this->service->findByBoundaries($card, $start, $end);
+
+        $this->assertNotNull($found);
+        $this->assertSame($created->id, $found->id);
+        $this->assertSame(1, StatementPeriod::query()->count());
+    }
+
+    // =====================================================================
     // Helpers
     // =====================================================================
 

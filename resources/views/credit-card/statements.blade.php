@@ -71,18 +71,79 @@
                     @endif
                 </div>
 
-                {{-- ═══ KỲ SAO KÊ ═══
-                     In từ `period_bounds` (kỳ server suy ra ra), không phải `period`:
-                     lần đầu mở trang chưa có bản ghi kỳ nào, nhưng người dùng vẫn
-                     cần biết đang nhập vào kỳ nào. --}}
-                <p class="text-xs text-gray-500 tabular-nums">
+                {{-- ═══ CHỌN KỲ ═══
+                     Mỗi thẻ MỘT dropdown riêng: hai thẻ có thể lệch chu kỳ, nên
+                     một lựa chọn dùng chung sẽ không có nghĩa.
+
+                     Đổi kỳ = ĐỔI TRANG, không gọi API: cả danh sách kỳ lẫn dòng
+                     sao kê đều do server dựng, và server chỉ tin `period[<id>]`
+                     trên query string. Nhờ vậy chọn kỳ vẫn dùng được khi không
+                     bật JavaScript, và URL có thể chia sẻ/bookmark.
+
+                     Hidden field giữ lại lựa chọn của CÁC THẺ KHÁC và sort mode:
+                     một form GET nằm trong mỗi dòng, nên phải mang theo toàn bộ
+                     trạng thái trang, không chỉ thẻ đang đổi. --}}
+                <form method="GET" action="{{ route('credit-cards.statements') }}"
+                      data-testid="statement-period-form-{{ $row['id'] }}">
+                    {{-- `sort` luôn được mang theo, kể cả `manual`: `normalizeMode()`
+                         tự đưa nó về `manual`, nên không có nhánh nào phải biết
+                         giá trị hợp lệ của sort mode là gì. --}}
+                    <input type="hidden" name="sort" value="{{ $sortMode }}">
+
+                    @foreach ($rows as $other)
+                        @if ((int) $other['id'] !== (int) $row['id'])
+                            <input type="hidden" name="period[{{ $other['id'] }}]"
+                                   value="{{ $other['period']['period_start'] }}">
+                        @endif
+                    @endforeach
+
+                    <div class="flex flex-wrap items-end gap-2 min-w-0">
+                        <div class="min-w-0 flex-1">
+                            <label for="statement-period-{{ $row['id'] }}"
+                                   class="block text-xs font-medium text-gray-700">
+                                Kỳ sao kê
+                            </label>
+                            <select id="statement-period-{{ $row['id'] }}"
+                                    name="period[{{ $row['id'] }}]"
+                                    data-testid="statement-period-select-{{ $row['id'] }}"
+                                    onchange="this.form.submit()"
+                                    class="mt-1 w-full h-11 px-3 rounded-xl border-gray-200 text-sm
+                                           focus:border-emerald-500 focus:ring-emerald-500">
+                                @foreach ($row['periods'] as $option)
+                                    <option value="{{ $option['period_start'] }}"
+                                            @selected($option['period_start'] === $row['period']['period_start'])>
+                                        {{ $option['start_label'] }} &ndash; {{ $option['end_label'] }}@if ($option['is_current']) (kỳ hiện tại)@endif
+                                    </option>
+                                @endforeach
+                            </select>
+                        </div>
+
+                        {{-- Nút tải lại: `onchange` chỉ chạy khi có JS, nút này
+                             giúp trang dùng được không JS. --}}
+                        <button type="submit"
+                                data-testid="statement-period-apply-{{ $row['id'] }}"
+                                class="h-11 px-4 rounded-xl bg-gray-50 hover:bg-gray-100 text-gray-700
+                                       text-sm font-semibold transition-colors">
+                            Xem
+                        </button>
+                    </div>
+                </form>
+
+                {{-- ═══ KỲ ĐANG XEM ═══
+                     In từ `period_bounds` (kỳ server suy ra ra), không phải
+                     `period`: kỳ chưa có bản ghi nào vẫn cần biết đang xem kỳ
+                     nào. --}}
+                <p class="text-xs text-gray-500 tabular-nums"
+                   data-testid="statement-period-label-{{ $row['id'] }}">
                     Kỳ {{ $row['period_bounds']['start_label'] }}
                     &ndash; {{ $row['period_bounds']['end_label'] }}
                 </p>
 
                 {{-- ═══ HẠN THANH TOÁN ═══
-                     Màu và chữ "quá hạn/còn N ngày" đến từ `due_state` của SERVER, view
-                     không tự so sánh ngày — nơi đếm ngày lệch nhau là nơi sinh cảnh báo sai. --}}
+                     Của KỲ ĐANG CHỌN, do server tính và gửi kèm. Màu và chữ
+                     "quá hạn/còn N ngày" đến từ `due_state` của SERVER, view
+                     không tự so sánh ngày — nơi đếm ngày lệch nhau là nơi sinh
+                     cảnh báo sai. --}}
                 <p class="text-xs">
                     @if ($dueState === 'none')
                         <span class="text-gray-400">Chưa có hạn thanh toán</span>
@@ -186,6 +247,13 @@
                          đúng ô. --}}
                     <div x-show="openId === {{ $row['id'] }}" x-cloak class="border-t border-gray-100 pt-3 space-y-3">
                         <form @submit.prevent="save({{ $row['id'] }})" novalidate class="space-y-3">
+                            {{-- KỲ NÀO — theo NGÀY MỞ KỲ, không theo tháng. Hidden
+                                 vì người dùng chọn kỳ ở dropdown phía trên, form
+                                 chỉ việc mang theo: đổi kỳ mà quên đổi form thì
+                                 tiền rơi nhầm kỳ. --}}
+                            <input type="hidden" name="period_start"
+                                   value="{{ $row['period']['period_start'] }}">
+
                             <div>
                                 <label for="statement-spend-{{ $row['id'] }}"
                                        class="block text-sm font-medium text-gray-700">
@@ -303,6 +371,8 @@
                     return {
                         actual_spend: root.querySelector('[name="actual_spend"]')?.value ?? '',
                         actual_reward: root.querySelector('[name="actual_reward"]')?.value ?? '',
+                        // Kỳ do dropdown quyết định, form chỉ mang theo.
+                        period_start: root.querySelector('[name="period_start"]')?.value ?? '',
                     };
                 },
 

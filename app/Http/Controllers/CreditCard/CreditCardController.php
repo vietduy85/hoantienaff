@@ -11,6 +11,7 @@ use App\Services\CreditCard\BankService;
 use App\Services\CreditCard\CategoryService;
 use App\Services\CreditCard\CreditCardCardSortService;
 use App\Services\CreditCard\CreditCardOverviewService;
+use App\Services\CreditCard\CreditCardStatementService;
 use App\Services\CreditCard\StatementPeriodService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -35,6 +36,7 @@ class CreditCardController extends Controller
         private readonly CreditCardOverviewService $overview,
         private readonly CategoryService $categories,
         private readonly CreditCardCardSortService $sort,
+        private readonly CreditCardStatementService $statements,
     ) {}
 
     /**
@@ -108,8 +110,50 @@ class CreditCardController extends Controller
             // Ranh giới kỳ hiện tại cho Ô NGÀY: chặn chọn ngoài kỳ ngay trên máy,
             // server còn chặn lại ở `StoreTransactionRequest`.
             'periodBounds' => $this->periodBounds($userCreditCards, $today),
+            // Sao kê KỲ ĐÃ KẾT THÚC GẦN NHẤT của từng thẻ, khoá theo
+            // `user_card_id`. CHỈ ĐỌC: không cộng vào `summary`/`cardMetrics`, nên
+            // bỏ khối "Sao kê" ở view thì các chỉ số trên không đổi.
+            'latestStatements' => $this->latestStatements($userCreditCards, $today),
             'today' => $today->toDateString(),
         ]);
+    }
+
+    /**
+     * Sao kê kỳ đã kết thúc gần nhất của từng thẻ, đã định dạng sẵn cho view.
+     *
+     * Dùng `latestCompletedBundleFor()` — chỉ đọc, KHÔNG tạo bản ghi kỳ, nên
+     * thẻ chưa có kỳ nào vẫn ra khối "chưa nhập" thay vì làm sinh thêm dữ liệu
+     * chỉ vì người dùng mở trang Tổng quan.
+     *
+     * @param  Collection<int, UserCard>  $cards
+     * @return array<int, array<string, mixed>>
+     */
+    private function latestStatements(Collection $cards, CarbonImmutable $today): array
+    {
+        $out = [];
+
+        foreach ($cards as $card) {
+            $bundle = $this->statements->latestCompletedBundleFor($card, $today);
+
+            $statement = $bundle['statement'];
+
+            $out[(int) $card->id] = [
+                // Kỳ vẫn in được dù chưa có sao kê, để người dùng biết "kỳ vừa
+                // kết thúc" là kỳ nào.
+                'start_label' => $bundle['start']->format('d/m/Y'),
+                'end_label' => $bundle['end']->format('d/m/Y'),
+                'due_date' => $bundle['due_date']?->toDateString(),
+                'due_label' => $bundle['due_date']?->format('d/m/Y'),
+                'actual_spend' => $statement === null ? null : $statement->actual_spend,
+                'actual_reward' => $statement === null ? null : $statement->actual_reward,
+                // Đọc bằng công thức của model, không đọc thẳng cột — đây là số
+                // server sẽ ghi, không thể lệch với DB.
+                'closing_balance' => $statement === null ? null : $statement->closingBalance(),
+                'has_statement' => $statement !== null,
+            ];
+        }
+
+        return $out;
     }
 
     /**

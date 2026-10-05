@@ -52,6 +52,16 @@ class StatementPeriodService
     public const MAX_DAY = 31;
 
     /**
+     * Số kỳ (kể cả kỳ hiện tại) mà dropdown Sao kê được phép liệt kê.
+     *
+     * Giới hạn cứng để dropdown không dài vô hạn theo thời gian: mỗi kỳ là một
+     * chu kỳ sao kê, người dùng thực tế chỉ cần vài kỳ gần nhất để nhập bảng kê
+     * chậm. Không có giới hạn này, mỗi lần mở trang sau vài năm sẽ phải dựng
+     * hàng trăm `<option>`.
+     */
+    public const SELECTABLE_LIMIT = 12;
+
+    /**
      * Clamp ngày trong tháng về ngày hợp lệ.
      *
      * statement_day = 31 ở tháng 2 (28 ngày) ⇒ 28/02.
@@ -141,17 +151,119 @@ class StatementPeriodService
     {
         [$start, $end] = $this->periodStartingAt($userCard, $year, $month);
 
-        $period = StatementPeriod::query()
+        return $this->findByBoundaries($userCard, $start, $end)
+            ?? $this->create($userCard, $start, $end);
+    }
+
+    /**
+     * Tìm kỳ theo ranh giới ĐÃ BIẾT, không tạo mới.
+     *
+     * Tách riêng khỏi `findOrCreate()` để các đường chỉ đọc không phải lặp lại
+     * câu truy vấn, và để "tìm" với "tạo" là hai ý định khác nhau khi đọc code.
+     */
+    public function findByBoundaries(UserCard $userCard, CarbonInterface $start, CarbonInterface $end): ?StatementPeriod
+    {
+        return StatementPeriod::query()
             ->where('user_card_id', $userCard->id)
             ->whereDate('period_start', $start->toDateString())
             ->whereDate('period_end', $end->toDateString())
             ->first();
+    }
 
-        if ($period !== null) {
-            return $period;
+    /**
+     * Ranh giới kỳ MỞ tại tháng MỞ kỳ của `period_start`.
+     *
+     * ---------------------------------------------------------------------------
+     * VÌ SAO THÁNG MỞ KỲ LẤY THẲNG TỪ `period_start`
+     * ---------------------------------------------------------------------------
+     * `cycleDateFor()` luôn trả về một ngày NẰM TRONG CHÍNH tháng truyền vào
+     * (ngày 1 của tháng, rồi đặt `day = clamp(anchor)`), nên `period_start`
+     * thuộc đúng tháng mở kỳ của nó. Không cần dò ngược để tìm tháng mở kỳ, và
+     * cũng không có chuyện "tháng trước/tháng sau" phụ thuộc dữ liệu.
+     *
+     * Hàm này là cổng cho MỌI `period_start` do người dùng gửi lên: một ngày
+     * bất kỳ trong tháng đó đều dẫn tới một kỳ hợp lệ, nên việc kiểm tra thật sự
+     * nằm ở chỗ ngày gửi lên có trùng `period_start` mà service suy ra hay không
+     * (`resolvePeriodStart()`).
+     *
+     * @return array{0: CarbonImmutable, 1: CarbonImmutable} [start, end]
+     */
+    public function boundariesForPeriodStart(UserCard $userCard, CarbonInterface $periodStart): array
+    {
+        return $this->periodStartingAt($userCard, $periodStart->year, $periodStart->month);
+    }
+
+    /**
+     * Kỳ ứng với `period_start` người dùng gửi lên — TẠO nếu chưa có.
+     *
+     * Đây là đường GHI: chỉ dùng khi thực sự lưu sao kê. `period_start` sai
+     * (không phải ngày mở kỳ hợp lệ của thẻ) bị từ chối thay vì âm thầm ghi vào
+     * một kỳ khác — nếu không, người dùng chọn nhầm tháng mà không hề hay biết.
+     *
+     * @throws \InvalidArgumentException khi `period_start` không khớp kỳ suy ra
+     */
+    public function resolvePeriodStart(UserCard $userCard, CarbonInterface $periodStart): StatementPeriod
+    {
+        [$start, $end] = $this->boundariesForPeriodStart($userCard, $periodStart);
+
+        if ($start->toDateString() !== $periodStart->toDateString()) {
+            throw new \InvalidArgumentException('Kỳ sao kê không hợp lệ với chu kỳ của thẻ này.');
         }
 
-        return $this->create($userCard, $start, $end);
+        return $this->findByBoundaries($userCard, $start, $end)
+            ?? $this->create($userCard, $start, $end);
+    }
+
+    /**
+     * Kỳ ĐÃ KẾT THÚC gần nhất — kỳ có `period_end` < hôm nay, mới nhất trở đi.
+     *
+     * ---------------------------------------------------------------------------
+     * VÌ SAO LÙI MỘT KỲ TỪ KỲ HIỆN TẠI
+     * ---------------------------------------------------------------------------
+     * Kỳ hiện tại luôn `period_end >= hôm nay` (theo định nghĩa kỳ chứa ngày
+     * hôm nay), nên kỳ kết thúc gần nhất LUÔN là kỳ liền trước nó. Nhờ vậy
+     * hàm luôn trả về một kỳ — không bao giờ null — và không cần quét DB.
+     *
+     * Chỉ tính toán, không tạo bản ghi: dùng cho dropdown và cho Tổng quan.
+     *
+     * @return array{0: CarbonImmutable, 1: CarbonImmutable} [start, end]
+     */
+    public function completedBoundaries(UserCard $userCard, ?CarbonInterface $today = null): array
+    {
+        [$start] = $this->currentBoundaries($userCard, $today);
+
+        [$year, $month] = $this->previousMonth($start->year, $start->month);
+
+        return $this->periodStartingAt($userCard, $year, $month);
+    }
+
+    /**
+     * Danh sách kỳ để hiển thị, MỚI NHẤT TRƯỚC.
+     *
+     * Lùi từ kỳ hiện tại về tối đa `$limit` kỳ bằng chính công thức tháng MỞ kỳ,
+     * nên không phụ thuộc bảng `statement_periods`: thẻ chưa có bản ghi kỳ nào
+     * vẫn ra đủ danh sách, và mở trang KHÔNG sinh bản ghi.
+     *
+     * @return list<array{0: CarbonImmutable, 1: CarbonImmutable}> [ [start, end], ... ]
+     */
+    public function selectableBoundaries(
+        UserCard $userCard,
+        ?CarbonInterface $today = null,
+        int $limit = self::SELECTABLE_LIMIT,
+    ): array {
+        [$start] = $this->currentBoundaries($userCard, $today);
+
+        $limit = max(1, $limit);
+        $list = [];
+
+        [$year, $month] = [$start->year, $start->month];
+
+        for ($i = 0; $i < $limit; $i++) {
+            $list[] = $this->periodStartingAt($userCard, $year, $month);
+            [$year, $month] = $this->previousMonth($year, $month);
+        }
+
+        return $list;
     }
 
     /**
@@ -237,11 +349,7 @@ class StatementPeriodService
     {
         [$start, $end] = $this->boundariesForDate($userCard, $date);
 
-        return StatementPeriod::query()
-            ->where('user_card_id', $userCard->id)
-            ->whereDate('period_start', $start->toDateString())
-            ->whereDate('period_end', $end->toDateString())
-            ->first();
+        return $this->findByBoundaries($userCard, $start, $end);
     }
 
     /**

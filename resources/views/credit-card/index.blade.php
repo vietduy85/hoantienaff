@@ -71,6 +71,11 @@
             'card' => $card,
             'metrics' => $cardMetrics[$card->id] ?? null,
             'history_url' => route('credit-cards.transactions', ['userCard' => $card->id]),
+            // Sao kê của KỲ ĐÃ KẾT THÚC GẦN NHẤT — chỉ để hiển thị. Lấy từ
+            // controller (`$latestStatements`), KHÔNG tự suy ra ở view: ranh giới
+            // kỳ là việc của `StatementPeriodService`.
+            'statement' => $latestStatements[$card->id] ?? null,
+            'statements_url' => route('credit-cards.statements'),
         ]);
     @endphp
 
@@ -381,7 +386,7 @@
                 @endif
             </div>
 
-            {{-- ═══ "Hiển thị" — 3 tùy chọn ĐỘC LẬP ═══
+            {{-- ═══ "Hiển thị" — 4 tùy chọn ĐỘC LẬP ═══
                  Một DẢI mảnh có đường kẻ, KHÔNG phải card lồng trong card. Chỉ ẩn/hiện
                  phần hiển thị phía dưới trên MỌI thẻ; dữ liệu và nghiệp vụ không đổi,
                  không reload trang (Alpine), và lựa chọn được nhớ trong localStorage
@@ -409,6 +414,13 @@
                            data-testid="toggle-quota" checked
                            class="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500">
                     <span>Quota hoàn tiền còn lại</span>
+                </label>
+
+                <label class="inline-flex items-center gap-1.5 text-xs sm:text-sm text-gray-700 cursor-pointer select-none">
+                    <input type="checkbox" x-model="display.statement" @change="persistDisplay()"
+                           data-testid="toggle-statement" checked
+                           class="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500">
+                    <span>Sao kê kỳ vừa kết thúc</span>
                 </label>
             </div>
 
@@ -705,6 +717,74 @@
                                     </ul>
                                 </div>
                             @endif
+
+                            {{-- ═══ SAO KÊ KỲ VỪA KẾT THÚC ═══
+                                 CHỈ ĐỌC. Sao kê là số tiền thực tế trên bảng
+                                 kê của ngân hàng, nên nó KHÔNG được cộng vào
+                                 `spent`, `expected_cashback`, quota hay thanh tiến
+                                 độ ở trên — bỏ ô này đi, các số đó không đổi
+                                 một đồng nào.
+
+                                 Chỉ hiện khi kỳ đã kết thúc gần nhất của thẻ
+                                 ĐÃ CÓ dòng sao kê. Kỳ chưa có gì để đọc thì
+                                 in dòng "chưa nhập" thay vì im lặng: người
+                                 dùng cần biết là chưa có số, không phải là
+                                 trang chưa tải xong. --}}
+                            <div class="pt-0.5 min-w-0"
+                                 x-show="showSection('statement')"
+                                 data-testid="card-statement-section">
+                                <p class="text-xs font-semibold text-gray-700 mb-0.5">Sao kê kỳ vừa kết thúc</p>
+
+                                @if ($row['statement']['has_statement'] === false)
+                                    <p class="text-[11px] text-gray-500 tabular-nums"
+                                       data-testid="card-statement-period">
+                                        Kỳ {{ $row['statement']['start_label'] }} &ndash; {{ $row['statement']['end_label'] }}
+                                    </p>
+
+                                    {{-- Vẫn nói rõ KỲ nào đang thiếu số. "Chưa nhập"
+                                         trần trụi thì người dùng không biết mình
+                                         đang thiếu bảng kê của kỳ nào. --}}
+                                    <p class="text-xs text-gray-500" data-testid="card-statement-empty">
+                                        Chưa nhập sao kê cho kỳ này.
+                                        <a href="{{ $row['statements_url'] }}" class="underline">Nhập tại trang Sao kê</a>
+                                    </p>
+                                @else
+                                    <p class="text-[11px] text-gray-500 tabular-nums"
+                                       data-testid="card-statement-period">
+                                        Kỳ {{ $row['statement']['start_label'] }} &ndash; {{ $row['statement']['end_label'] }}
+                                    </p>
+
+                                    <dl class="space-y-0.5" data-testid="card-statement-values">
+                                        <div class="flex flex-wrap items-baseline gap-x-1.5 text-xs min-w-0">
+                                            <dt class="shrink-0 text-gray-500">Chi tiêu thực tế</dt>
+                                            <dd class="min-w-0 text-gray-800 tabular-nums">
+                                                <x-credit-card.money :value="$row['statement']['actual_spend']" />
+                                            </dd>
+                                        </div>
+                                        <div class="flex flex-wrap items-baseline gap-x-1.5 text-xs min-w-0">
+                                            <dt class="shrink-0 text-gray-500">Hoàn/thưởng thực tế</dt>
+                                            <dd class="min-w-0 text-gray-800 tabular-nums">
+                                                <x-credit-card.money :value="$row['statement']['actual_reward']" />
+                                            </dd>
+                                        </div>
+                                        <div class="flex flex-wrap items-baseline gap-x-1.5 text-xs min-w-0">
+                                            <dt class="shrink-0 text-gray-500">Còn phải trả</dt>
+                                            <dd class="min-w-0 font-semibold text-gray-900 tabular-nums"
+                                                data-testid="card-statement-closing-balance">
+                                                <x-credit-card.money :value="$row['statement']['closing_balance']" />
+                                            </dd>
+                                        </div>
+                                    </dl>
+
+                                    <p class="text-[11px] text-gray-500 mt-0.5" data-testid="card-statement-due">
+                                        @if ($row['statement']['due_date'] === null)
+                                            Chưa có hạn thanh toán
+                                        @else
+                                            Đến hạn {{ $row['statement']['due_label'] }}
+                                        @endif
+                                    </p>
+                                @endif
+                            </div>
                         </li>
                     @endforeach
                 </ul>
@@ -747,18 +827,23 @@
             const ccDisplayStorageKey = 'cc.overview.display';
 
             /**
-             * 3 tùy chọn độc lập; MẶC ĐỊNH bật hết.
+             * 4 tùy chọn độc lập; MẶC ĐỊNH bật hết.
              *
              * Danh sách khoá đóng ở đây để khi đọc từ `localStorage` không tin
              * bừa thuộc tính lạ trong JSON — nếu không, một giá trị rác sẽ tạo ra
              * tên thuộc tính mà markup không dùng đến.
+             *
+             * Thêm khoá mới chỉ cần thêm ở đây và thêm một checkbox + một khối
+             * `x-show="showSection(...)"`: markup cũ đã lưu không có khoá mới thì
+             * `ccReadStoredDisplay()` bỏ qua nó, và khoá mới giữ nguyên mặc định
+             * bật — không phá vỡ lựa chọn của người dùng đang dùng trang.
              */
             function ccDefaultDisplay() {
-                return { spend: true, cashback: true, quota: true };
+                return { spend: true, cashback: true, quota: true, statement: true };
             }
 
             /**
-             * Đọc lựa chọn đã lưu, chỉ nhận đúng 3 khoá boolean ở trên.
+             * Đọc lựa chọn đã lưu, chỉ nhận đúng 4 khoá boolean ở trên.
              *
              * Trả `null` khi chưa lưu, JSON hỏng, hoặc không còn khoá nào hợp lệ —
              * khi đó dùng mặc định bật hết. Mọi lỗi bị nuốt: `localStorage` có thể

@@ -137,11 +137,11 @@ class StatementPageTest extends TestCase
     }
 
     #[Test]
-    public function every_card_gets_a_row_with_its_current_period_even_without_a_statement(): void
+    public function every_card_gets_a_row_with_its_default_period_even_without_a_statement(): void
     {
         $card = $this->makeUserCard($this->owner->id, ['name' => 'Thẻ chưa nhập']);
 
-        [$start, $end] = app(StatementPeriodService::class)->currentBoundaries(
+        [$completedStart, $completedEnd] = app(StatementPeriodService::class)->completedBoundaries(
             $card,
             CarbonImmutable::now(),
         );
@@ -150,11 +150,148 @@ class StatementPageTest extends TestCase
             ->getJson(route('credit-cards.api.statements.index'))
             ->assertOk()
             ->assertJsonCount(1, 'data')
-            // Chưa có bản ghi kỳ, nhưng vẫn phải nói rõ kỳ đang ở trong kỳ nào.
-            ->assertJsonPath('data.0.period', null)
+            // Chưa có bản ghi kỳ, nhưng vẫn phải nói rõ đang ở trong kỳ nào.
+            ->assertJsonPath('data.0.period.id', null)
                 ->assertJsonPath('data.0.statement', null)
-                ->assertJsonPath('data.0.period_bounds.start', $start->toDateString())
-                ->assertJsonPath('data.0.period_bounds.end', $end->toDateString());
+                // Mặc định là KỲ ĐÃ KẾT THÚC GẦN NHẤT, không phải kỳ hiện tại:
+                // người dùng mở trang để nhập bảng kê ngân hàng đã phát hành.
+                ->assertJsonPath('data.0.period.period_start', $completedStart->toDateString())
+                ->assertJsonPath('data.0.period_bounds.start', $completedStart->toDateString())
+                ->assertJsonPath('data.0.period_bounds.end', $completedEnd->toDateString());
+    }
+
+    #[Test]
+    public function the_default_period_is_the_latest_completed_one_not_the_current_one(): void
+    {
+        $card = $this->makeUserCard($this->owner->id);
+
+        $completed = $this->completedPeriodStart($card);
+        $current = $this->currentPeriodStart($card);
+
+        // Hai kỳ khác nhau — không có cách nào "trùng khéo" để test này xanh
+        // nhầm khi ai đó đổi mặc định về kỳ hiện tại.
+        $this->assertNotSame($completed, $current);
+
+        $this->actingAs($this->owner)
+            ->getJson(route('credit-cards.api.statements.index'))
+            ->assertOk()
+            ->assertJsonPath('data.0.period.period_start', $completed);
+    }
+
+    #[Test]
+    public function the_period_selector_offers_the_current_and_historical_periods(): void
+    {
+        $card = $this->makeUserCard($this->owner->id);
+
+        $data = $this->actingAs($this->owner)
+            ->getJson(route('credit-cards.api.statements.index'))
+            ->assertOk()
+            ->json('data.0.periods');
+
+        $this->assertNotEmpty($data, 'Dropdown phải có ít nhất kỳ hiện tại.');
+
+        // Mới nhất trước: phần tử đầu là kỳ hiện tại.
+        $this->assertTrue($data[0]['is_current'], 'Kỳ mới nhất trong dropdown phải là kỳ hiện tại.');
+        $this->assertSame($this->currentPeriodStart($card), $data[0]['period_start']);
+
+        // Mọi kỳ trong dropdown đều là kỳ hợp lệ của chính thẻ này — suy ra
+        // từ chu kỳ của thẻ, không phải lấy từ bảng kỳ (dropdown phải đầy kể cả
+        // khi thẻ chưa có bản ghi kỳ nào).
+        foreach ($data as $option) {
+            $this->assertTrue(
+                app(CreditCardStatementService::class)->isSelectablePeriodStart($card, $option['period_start']),
+                'Mọi kỳ trong dropdown phải là kỳ hợp lệ của thẻ.',
+            );
+        }
+    }
+
+    #[Test]
+    public function opening_the_page_never_creates_a_period_even_with_a_selector(): void
+    {
+        $card = $this->makeUserCard($this->owner->id);
+
+        $current = $this->currentPeriodStart($card);
+
+        $this->assertSame(0, StatementPeriod::query()->count());
+
+        // Chọn một kỳ CHƯA có bản ghi: vẫn không được sinh bản ghi kỳ.
+        $this->actingAs($this->owner)
+            ->get(route('credit-cards.statements', ['period' => [$card->id => $current]]))
+            ->assertOk();
+
+        $this->assertSame(
+            0,
+            StatementPeriod::query()->count(),
+            'Xem một kỳ chưa có bản ghi thì không được tạo bản ghi kỳ đó.',
+        );
+    }
+
+    #[Test]
+    public function selecting_a_period_switches_the_row_and_keeps_each_card_separate(): void
+    {
+        $cardA = $this->makeUserCard($this->owner->id, ['name' => 'Thẻ A']);
+        $cardB = $this->makeUserCard($this->owner->id, ['name' => 'Thẻ B']);
+
+        // Mỗi thẻ một chu kỳ khác nhau để chọn nhầm là thấy ngay.
+        $cardA->forceFill([
+            'statement_period_start' => '2026-01-05',
+            'statement_day' => 5,
+        ])->save();
+        $cardB->forceFill([
+            'statement_period_start' => '2026-01-20',
+            'statement_day' => 20,
+        ])->save();
+
+        $completedA = $this->completedPeriodStart($cardA->refresh());
+        $currentA = $this->currentPeriodStart($cardA->refresh());
+
+        $this->actingAs($this->owner)
+            ->getJson(route('credit-cards.api.statements.index', [
+                'period' => [$cardA->id => $currentA],
+            ]))
+            ->assertOk()
+            // Chọn kỳ riêng cho thẻ A ⇒ dòng của A đổi kỳ, dòng của B giữ mặc
+            // định. Không có một lựa chọn dùng chung cho cả hai.
+            ->assertJsonPath('data.0.id', $cardA->id)
+            ->assertJsonPath('data.0.period.period_start', $currentA)
+            ->assertJsonPath('data.1.id', $cardB->id)
+            ->assertJsonPath('data.1.period.period_start', $this->completedPeriodStart($cardB->refresh()));
+
+        // Một `period_start` không thuộc chu kỳ của thẻ thì bị bỏ qua và rơi về
+        // kỳ mặc định — không phải kỳ lân cận nhất của ngày đó.
+        $this->actingAs($this->owner)
+            ->getJson(route('credit-cards.api.statements.index', [
+                'period' => [$cardA->id => '2026-01-06'],
+            ]))
+            ->assertOk()
+            ->assertJsonPath('data.0.period.period_start', $completedA);
+    }
+
+    #[Test]
+    public function a_period_of_another_card_cannot_be_written_through_its_own_period_start(): void
+    {
+        $cardA = $this->makeUserCard($this->owner->id, ['name' => 'Thẻ A']);
+        $cardB = $this->makeUserCard($this->owner->id, ['name' => 'Thẻ B']);
+
+        // `period_start` là NGÀY MỞ KỲ, không phải id bản ghi kỳ — nên gửi kỳ
+        // của thẻ khác chỉ có thể được từ chối, không thể ghi nhầm tiền sang thẻ
+        // đó. Ở đây hai thẻ cùng chu kỳ nên ngày là hợp lệ với thẻ nhận.
+        $periodStart = $this->completedPeriodStart($cardA);
+
+        $this->actingAs($this->owner)
+            ->postJson(route('credit-cards.api.statements.store', $cardA->id), [
+                'period_start' => $periodStart,
+                'actual_spend' => '1000000',
+                'actual_reward' => '0',
+            ])
+            ->assertCreated();
+
+        // Dòng chỉ nằm ở thẻ đã POST, không "nhảy" sang thẻ khác.
+        $this->assertSame(1, CreditCardStatement::query()->count());
+        $this->assertSame(
+            (int) $cardA->id,
+            (int) CreditCardStatement::query()->firstOrFail()->user_card_id,
+        );
     }
 
     // =====================================================================
@@ -162,7 +299,7 @@ class StatementPageTest extends TestCase
     // =====================================================================
 
     #[Test]
-    public function it_stores_the_current_period_and_computes_the_closing_balance(): void
+    public function it_stores_the_default_period_and_computes_the_closing_balance(): void
     {
         $card = $this->makeUserCard($this->owner->id);
 
@@ -177,15 +314,123 @@ class StatementPageTest extends TestCase
             // 5.000.000 − 250.000
             ->assertJsonPath('data.closing_balance', '4750000.00');
 
-        // Ghi vào KỲ HIỆN TẠI, và chỉ một dòng cho cặp (thẻ, kỳ).
+        // Không gửi `period_start` ⇒ ghi vào KỲ MẶC ĐỊNH (đã kết thúc gần nhất),
+        // và chỉ một dòng cho cặp (thẻ, kỳ).
         $period = StatementPeriod::query()->where('user_card_id', $card->id)->firstOrFail();
 
+        $this->assertSame($this->completedPeriodStart($card), $period->period_start->toDateString());
         $this->assertSame(1, CreditCardStatement::query()->count());
         $this->assertSame(
             '4750000.00',
             (string) CreditCardStatement::query()->firstOrFail()->closing_balance,
         );
         $this->assertSame($period->id, CreditCardStatement::query()->firstOrFail()->statement_period_id);
+    }
+
+    #[Test]
+    public function it_stores_the_chosen_period_including_a_historical_one(): void
+    {
+        $card = $this->makeUserCard($this->owner->id);
+
+        // Kỳ cách xa hơn kỳ mặc định: chọn được kỳ đã qua, không chỉ kỳ vừa
+        // kết thúc hay kỳ hiện tại.
+        $historical = app(StatementPeriodService::class)
+            ->selectableBoundaries($card, CarbonImmutable::now(), 6)[3][0]
+            ->toDateString();
+
+        $this->assertNotSame($this->completedPeriodStart($card), $historical);
+        $this->assertNotSame($this->currentPeriodStart($card), $historical);
+
+        $this->actingAs($this->owner)
+            ->postJson(route('credit-cards.api.statements.store', $card->id), [
+                'period_start' => $historical,
+                'actual_spend' => '3000000',
+                'actual_reward' => '100000',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.closing_balance', '2900000.00');
+
+        $this->assertSame(
+            $historical,
+            StatementPeriod::query()->where('user_card_id', $card->id)->firstOrFail()->period_start->toDateString(),
+            'Sao kê phải nằm ở đúng kỳ người dùng chọn.',
+        );
+    }
+
+    #[Test]
+    public function each_period_holds_exactly_one_statement_row(): void
+    {
+        $card = $this->makeUserCard($this->owner->id);
+
+        $historical = app(StatementPeriodService::class)
+            ->selectableBoundaries($card, CarbonImmutable::now(), 6)[2][0]
+            ->toDateString();
+
+        // Cùng thẻ, hai kỳ khác nhau ⇒ hai dòng riêng, không dùng chung.
+        $this->actingAs($this->owner)
+            ->postJson(route('credit-cards.api.statements.store', $card->id), [
+                'period_start' => $historical,
+                'actual_spend' => '1000000',
+                'actual_reward' => '0',
+            ])
+            ->assertCreated();
+
+        $this->actingAs($this->owner)
+            ->postJson(route('credit-cards.api.statements.store', $card->id), [
+                'period_start' => $this->completedPeriodStart($card),
+                'actual_spend' => '2000000',
+                'actual_reward' => '0',
+            ])
+            ->assertCreated();
+
+        $this->assertSame(2, CreditCardStatement::query()->count());
+
+        // Nhập lại đúng một kỳ đã có ⇒ SỬA dòng đó, không thêm dòng thứ ba.
+        $this->actingAs($this->owner)
+            ->postJson(route('credit-cards.api.statements.store', $card->id), [
+                'period_start' => $historical,
+                'actual_spend' => '1500000',
+                'actual_reward' => '0',
+            ])
+            ->assertOk();
+
+        $this->assertSame(2, CreditCardStatement::query()->count());
+    }
+
+    #[Test]
+    public function a_period_start_outside_the_card_cycle_is_rejected(): void
+    {
+        $card = $this->makeUserCard($this->owner->id);
+
+        // Ngày nằm trong tháng nhưng KHÔNG phải ngày mở kỳ của thẻ: nhận nhầm
+        // kỳ sẽ ghi tiền vào kỳ lân cận mà người dùng không hề thấy.
+        $this->actingAs($this->owner)
+            ->postJson(route('credit-cards.api.statements.store', $card->id), [
+                'period_start' => '2026-01-06',
+                'actual_spend' => '1000000',
+                'actual_reward' => '0',
+            ])
+            ->assertStatus(422);
+
+        $this->assertSame(0, CreditCardStatement::query()->count());
+        $this->assertSame(0, StatementPeriod::query()->count());
+    }
+
+    #[Test]
+    public function a_malformed_period_start_is_rejected_by_validation(): void
+    {
+        $card = $this->makeUserCard($this->owner->id);
+
+        $this->actingAs($this->owner)
+            ->postJson(route('credit-cards.api.statements.store', $card->id), [
+                'period_start' => '01/02/2026',
+                'actual_spend' => '1000000',
+                'actual_reward' => '0',
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('period_start');
+
+        $this->assertSame(0, CreditCardStatement::query()->count());
     }
 
     #[Test]
@@ -580,6 +825,47 @@ class StatementPageTest extends TestCase
     }
 
     // =====================================================================
+    // Menu module
+    // =====================================================================
+
+    #[Test]
+    public function the_menu_places_statements_right_after_card_management(): void
+    {
+        $html = $this->actingAs($this->owner)
+            ->get(route('credit-cards.statements'))
+            ->assertOk()
+            ->getContent();
+
+        $manage = strpos($html, 'href="'.route('credit-cards.manage').'"');
+        $statements = strpos($html, 'href="'.route('credit-cards.statements').'"');
+        $policies = strpos($html, 'href="'.route('credit-cards.policies').'"');
+
+        $this->assertNotFalse($manage);
+        $this->assertNotFalse($statements);
+        $this->assertNotFalse($policies);
+
+        // "Sao kê" nằm NGAY sau "Quản lý thẻ", trước "Chính sách hoàn tiền":
+        // cả ba là việc làm với thẻ, nên nhóm lại thay vì rải khắp menu.
+        $this->assertLessThan($statements, $manage, 'Sao kê phải nằm sau Quản lý thẻ.');
+        $this->assertLessThan($policies, $statements, 'Sao kê phải nằm trước Chính sách hoàn tiền.');
+    }
+
+    #[Test]
+    public function the_menu_marks_statements_as_active(): void
+    {
+        $html = $this->actingAs($this->owner)
+            ->get(route('credit-cards.statements'))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertMatchesRegularExpression(
+            '/<a(?=[^>]*aria-current="page")(?=[^>]*href="'.preg_quote(route('credit-cards.statements'), '/').'")[^>]*>/',
+            $html,
+            'Trang Sao kê phải được đánh active trong menu.',
+        );
+    }
+
+    // =====================================================================
     // Helper
     // =====================================================================
 
@@ -628,15 +914,33 @@ class StatementPageTest extends TestCase
     }
 
     /**
-     * Ghi một dòng sao kê cho kỳ hiện tại qua service (đúng đường đi của app).
+     * Ghi một dòng sao kê qua service (đúng đường đi của app).
+     *
+     * Mặc định ghi vào KỲ ĐÃ KẾT THÚC GẦN NHẤT — cũng là kỳ mà trang mở ra mặc
+     * định — nên test không phải nhắc lại kỳ mỗi lần chỉ muốn "có sao kê để
+     * hiển thị". Truyền `period_start` để chọn kỳ khác.
      */
-    private function createStatement(UserCard $card, string $spend, string $reward): CreditCardStatement
+    private function createStatement(UserCard $card, string $spend, string $reward, ?string $periodStart = null): CreditCardStatement
     {
-        $period = app(StatementPeriodService::class)->currentPeriod($card);
+        $periodStart ??= $this->completedPeriodStart($card);
 
-        return app(CreditCardStatementService::class)->upsert($card, $period, [
+        return app(CreditCardStatementService::class)->upsertForPeriodStart($card, $periodStart, [
             'actual_spend' => $spend,
             'actual_reward' => $reward,
         ]);
+    }
+
+    /** `period_start` của KỲ ĐÃ KẾT THÚC GẦN NHẤT — kỳ mặc định của trang. */
+    private function completedPeriodStart(UserCard $card): string
+    {
+        return app(CreditCardStatementService::class)->defaultPeriodStart($card);
+    }
+
+    /** `period_start` của KỲ HIỆN TẠI. */
+    private function currentPeriodStart(UserCard $card): string
+    {
+        [$start] = app(StatementPeriodService::class)->currentBoundaries($card, CarbonImmutable::now());
+
+        return $start->toDateString();
     }
 }
