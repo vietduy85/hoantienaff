@@ -725,65 +725,119 @@
                                  độ ở trên — bỏ ô này đi, các số đó không đổi
                                  một đồng nào.
 
-                                 Chỉ hiện khi kỳ đã kết thúc gần nhất của thẻ
-                                 ĐÃ CÓ dòng sao kê. Kỳ chưa có gì để đọc thì
-                                 in dòng "chưa nhập" thay vì im lặng: người
-                                 dùng cần biết là chưa có số, không phải là
-                                 trang chưa tải xong. --}}
+                                 Chỉ hiện khi kỳ đã kết thúc gần nhất của thẻ.
+                                 Kỳ chưa có dòng sao kê VẪN hiện đủ: số tiền
+                                 0/0/0, hạn trả và trạng thái thanh toán. Ẩn
+                                 cả khối chỉ vì chưa nhập số là nói dối — "0 đ" ở
+                                 đây là trạng thái mặc định đúng của kỳ, và
+                                 chính trạng thái thanh toán mới là thứ người
+                                 dùng cần thấy. --}}
+                            @php
+                                // MỘT nguồn cho cả dòng hạn lẫn cảnh báo:
+                                // `paymentState()` đã quét `paid` TRƯỚC và trả
+                                // `due_line` không kèm "quá hạn N ngày" khi kỳ đã
+                                // trả. Tổng quan và màn Sao kê in ra cùng một
+                                // payload nên không thể lệch nhau.
+                                $payment = $row['statement']['payment'];
+                                $alert = $payment['alert'];
+                            @endphp
+
                             <div class="pt-0.5 min-w-0"
                                  x-show="showSection('statement')"
                                  data-testid="card-statement-section">
                                 <p class="text-xs font-semibold text-gray-700 mb-0.5">Sao kê kỳ vừa kết thúc</p>
 
-                                @if ($row['statement']['has_statement'] === false)
-                                    <p class="text-[11px] text-gray-500 tabular-nums"
-                                       data-testid="card-statement-period">
-                                        Kỳ {{ $row['statement']['start_label'] }} &ndash; {{ $row['statement']['end_label'] }}
-                                    </p>
+                                <p class="text-[11px] text-gray-500 tabular-nums"
+                                   data-testid="card-statement-period">
+                                    Kỳ {{ $row['statement']['start_label'] }} &ndash; {{ $row['statement']['end_label'] }}
+                                </p>
 
-                                    {{-- Vẫn nói rõ KỲ nào đang thiếu số. "Chưa nhập"
-                                         trần trụi thì người dùng không biết mình
-                                         đang thiếu bảng kê của kỳ nào. --}}
-                                    <p class="text-xs text-gray-500" data-testid="card-statement-empty">
-                                        Chưa nhập sao kê cho kỳ này.
-                                        <a href="{{ $row['statements_url'] }}" class="underline">Nhập tại trang Sao kê</a>
-                                    </p>
-                                @else
-                                    <p class="text-[11px] text-gray-500 tabular-nums"
-                                       data-testid="card-statement-period">
-                                        Kỳ {{ $row['statement']['start_label'] }} &ndash; {{ $row['statement']['end_label'] }}
-                                    </p>
+                                {{-- Số tiền đọc từ `payment` — kỳ ảo trả về 0/0/0, cùng
+                                     nguồn với màn Sao kê. KHÔNG dùng
+                                     `$row['statement']['actual_spend']`: bản đó null
+                                     khi chưa có dòng và sẽ khoét đúng cái khối số
+                                     mà người dùng cần để biết mình còn nợ bao nhiêu. --}}
+                                <dl class="space-y-0.5" data-testid="card-statement-values">
+                                    <div class="flex flex-wrap items-baseline gap-x-1.5 text-xs min-w-0">
+                                        <dt class="shrink-0 text-gray-500">Chi tiêu thực tế</dt>
+                                        <dd class="min-w-0 text-gray-800 tabular-nums">
+                                            <x-credit-card.money :value="$payment['actual_spend']" />
+                                        </dd>
+                                    </div>
+                                    <div class="flex flex-wrap items-baseline gap-x-1.5 text-xs min-w-0">
+                                        <dt class="shrink-0 text-gray-500">Hoàn/thưởng thực tế</dt>
+                                        <dd class="min-w-0 text-gray-800 tabular-nums">
+                                            <x-credit-card.money :value="$payment['actual_reward']" />
+                                        </dd>
+                                    </div>
+                                    <div class="flex flex-wrap items-baseline gap-x-1.5 text-xs min-w-0">
+                                        <dt class="shrink-0 text-gray-500">Còn phải trả</dt>
+                                        <dd class="min-w-0 font-semibold text-gray-900 tabular-nums"
+                                            data-testid="card-statement-closing-balance">
+                                            <x-credit-card.money :value="$payment['closing_balance']" />
+                                        </dd>
+                                    </div>
+                                </dl>
 
-                                    <dl class="space-y-0.5" data-testid="card-statement-values">
-                                        <div class="flex flex-wrap items-baseline gap-x-1.5 text-xs min-w-0">
-                                            <dt class="shrink-0 text-gray-500">Chi tiêu thực tế</dt>
-                                            <dd class="min-w-0 text-gray-800 tabular-nums">
-                                                <x-credit-card.money :value="$row['statement']['actual_spend']" />
-                                            </dd>
-                                        </div>
-                                        <div class="flex flex-wrap items-baseline gap-x-1.5 text-xs min-w-0">
-                                            <dt class="shrink-0 text-gray-500">Hoàn/thưởng thực tế</dt>
-                                            <dd class="min-w-0 text-gray-800 tabular-nums">
-                                                <x-credit-card.money :value="$row['statement']['actual_reward']" />
-                                            </dd>
-                                        </div>
-                                        <div class="flex flex-wrap items-baseline gap-x-1.5 text-xs min-w-0">
-                                            <dt class="shrink-0 text-gray-500">Còn phải trả</dt>
-                                            <dd class="min-w-0 font-semibold text-gray-900 tabular-nums"
-                                                data-testid="card-statement-closing-balance">
-                                                <x-credit-card.money :value="$row['statement']['closing_balance']" />
-                                            </dd>
-                                        </div>
-                                    </dl>
+                                {{-- Nhắc nhẹ: phân biệt "0 vì chưa nhập" với "0 vì đã
+                                     nhập". Cờ do server tính, không suy từ số 0 ở
+                                     view. --}}
+                                <p @class(['text-[11px] mt-0.5 min-w-0', 'hidden' => $payment['statement_data_entered']])
+                                   data-testid="card-statement-empty">
+                                    Chưa nhập sao kê cho kỳ này.
+                                    <a href="{{ $row['statements_url'] }}" class="underline">Nhập tại trang Sao kê</a>
+                                </p>
 
-                                    <p class="text-[11px] text-gray-500 mt-0.5" data-testid="card-statement-due">
-                                        @if ($row['statement']['due_date'] === null)
-                                            Chưa có hạn thanh toán
-                                        @else
-                                            Đến hạn {{ $row['statement']['due_label'] }}
-                                        @endif
-                                    </p>
-                                @endif
+                                <p class="text-[11px] mt-0.5 min-w-0"
+                                   data-testid="card-statement-due">
+                                    @if ($payment['due_line'] === null)
+                                        <span class="text-gray-400">Chưa có hạn thanh toán</span>
+                                    @else
+                                        <span @class([
+                                                'font-semibold',
+                                                'text-red-700' => $payment['due_tone'] === 'danger',
+                                                'text-amber-700' => $payment['due_tone'] === 'warning',
+                                                'text-emerald-700' => $payment['due_tone'] === 'settled',
+                                                'text-gray-600' => $payment['due_tone'] === 'neutral',
+                                            ])>{{ $payment['due_line'] }}</span>
+                                    @endif
+                                </p>
+
+                                {{-- ═══ TRẠNG THÁI + CẢNH BÁO THANH TOÁN ═══
+                                     Cả hai đều thuộc KỲ ĐÃ KẾT THÚC GẦN NHẤT
+                                     của thẻ (đúng khối này), và do
+                                     `CreditCardStatementService::paymentState()`
+                                     đã resolve từ hạn trả của chính kỳ đó với
+                                     số ngày nhắc CHUNG của user — Blade chỉ in ra.
+
+                                     Cố ý KHÔNG in số ngày nhắc ở từng thẻ: đó là
+                                     một con số chung cho cả tài khoản, in lặp ở
+                                     mỗi thẻ chỉ làm rối mà không thêm thông tin.
+
+                                     Luôn render + `hidden` để khối này không phụ
+                                     thuộc JavaScript; test kiểm qua lớp `hidden`. --}}
+                                <div @class([
+                                        'rounded-lg border px-2 py-1.5 mt-1 min-w-0',
+                                        'hidden' => $alert === null,
+                                        'border-red-300 bg-red-50' => $alert !== null && $alert['tone'] === 'danger',
+                                        'border-amber-300 bg-amber-50' => $alert !== null && $alert['tone'] !== 'danger',
+                                    ])
+                                     data-testid="card-statement-alert"
+                                     data-statement-alert>
+                                    <p class="text-xs font-bold leading-snug break-words"
+                                       data-statement-alert-title>{{ $alert['title'] ?? '' }}</p>
+                                    <p @class(['text-[11px] mt-0.5 opacity-90 break-words tabular-nums', 'hidden' => ($alert['detail'] ?? null) === null])
+                                       data-statement-alert-detail>{{ $alert['detail'] ?? '' }}</p>
+                                </div>
+
+                                <p class="text-[11px] mt-1 min-w-0"
+                                   data-testid="card-statement-payment-status">
+                                    @if ($payment['is_paid'])
+                                        <span class="font-semibold text-emerald-700">&#10003; ĐÃ THANH TOÁN</span>
+                                    @else
+                                        <span class="text-gray-600">{{ $payment['status_label'] }}</span>
+                                    @endif
+                                </p>
                             </div>
                         </li>
                     @endforeach

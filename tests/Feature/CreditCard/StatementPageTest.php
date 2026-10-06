@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Services\CreditCard\CreditCardStatementService;
 use App\Services\CreditCard\StatementPeriodService;
 use Carbon\CarbonImmutable;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Concerns\InteractsWithCreditCardDatabase;
 use Tests\TestCase;
@@ -513,6 +514,134 @@ class StatementPageTest extends TestCase
     }
 
     // =====================================================================
+    // `actual_reward = 0` LÀ GIÁ TRỊ HỢP LỆ, KHÔNG PHẢI "CHƯA NHẬP"
+    // =====================================================================
+    //
+    // 0 rất dễ bị nhầm là "trống": PHP/JS đều coi falsy, và rule kiểu `gt:0` sẽ
+    // loại nó. Dưới đây khoá lại đúng ranh giới này ở CẢ HAI đầu (POST và
+    // PATCH), vì đây là tiền thật: số 0 phải ghi được, còn ô rỗng thì phải bị
+    // chặn — hai thứ đó là khác nhau, dù nhìn có thể giống nhau.
+
+    /**
+     * @return array<string, array{0: mixed, 1: bool}>
+     */
+    public static function rewardBoundaries(): array
+    {
+        return [
+            // 0 ở mọi hình dạng mà trình duyệt có thể gửi: chuỗi "0", chuỗi
+            // "0.00", số 0, số thực 0.0, và chuỗi có khoảng trắng quanh.
+            // Trước đây có code đọc bằng phép ép kiểu lỏng (`(float) $v ?: ''`)
+            // khiến 0 thành rỗng; các hình dạng này chặn đúng đường đó.
+            'chuỗi "0"' => ['0', true],
+            'chuỗi "0.00"' => ['0.00', true],
+            'số nguyên 0' => [0, true],
+            'số thực 0.0' => [0.0, true],
+            'chuỗi " 0 "' => [' 0 ', true],
+
+            // Rỗng = chưa nhập ⇒ phải chặn, và phải nói đúng lý do.
+            'chuỗi rỗng' => ['', false],
+            'null' => [null, false],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('rewardBoundaries')]
+    public function zero_reward_is_a_valid_value_and_empty_is_not(mixed $reward, bool $shouldPass): void
+    {
+        $card = $this->makeUserCard($this->owner->id);
+
+        $response = $this->actingAs($this->owner)
+            ->postJson(route('credit-cards.api.statements.store', $card->id), [
+                'actual_spend' => '10000000',
+                'actual_reward' => $reward,
+            ]);
+
+        if (! $shouldPass) {
+            $response->assertStatus(422)->assertJsonValidationErrors('actual_reward');
+
+            $this->assertSame(0, CreditCardStatement::query()->count());
+
+            return;
+        }
+
+        $response->assertSuccessful();
+
+        // 0 là số 0 thật: không phải null, không phải rỗng.
+        $this->assertSame('0.00', $response->json('data.actual_reward'));
+        $this->assertSame('10000000.00', $response->json('data.closing_balance'));
+    }
+
+    #[Test]
+    public function zero_reward_can_also_be_saved_when_editing(): void
+    {
+        // Đường PATCH dùng `sometimes` + `withValidator()` thay vì `lte:` nên
+        // phải kiểm riêng: sửa một dòng vốn đã có hoàn/thưởng xuống 0 là chuyện
+        // rất thường (người dùng nhập nhầm rồi ghi đè), và nó phải được phép.
+        $card = $this->makeUserCard($this->owner->id);
+        $statement = $this->createStatement($card, '10000000', '500000');
+
+        $this->actingAs($this->owner)
+            ->patchJson(route('credit-cards.api.statements.update', $statement->id), [
+                'actual_reward' => '0',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.actual_reward', '0.00')
+            ->assertJsonPath('data.closing_balance', '10000000.00');
+
+        $this->assertSame('0.00', (string) $statement->refresh()->actual_reward);
+    }
+
+    #[Test]
+    public function a_zero_spend_with_a_zero_reward_is_accepted(): void
+    {
+        // 0/0 là việc hợp lệ: kỳ không chi và không có hoàn. Chỉ khi nào
+        // actual_reward > actual_spend mới bị chặn, nên 0 không vượt 0.
+        $card = $this->makeUserCard($this->owner->id);
+
+        $this->actingAs($this->owner)
+            ->postJson(route('credit-cards.api.statements.store', $card->id), [
+                'actual_spend' => '0',
+                'actual_reward' => '0',
+            ])
+            ->assertSuccessful()
+            ->assertJsonPath('data.actual_spend', '0.00')
+            ->assertJsonPath('data.actual_reward', '0.00')
+            ->assertJsonPath('data.closing_balance', '0.00');
+    }
+
+    #[Test]
+    public function a_negative_reward_is_rejected_even_though_zero_is_accepted(): void
+    {
+        // Đổi dấu `min:0` thành `gt:0` (hoặc kẹp sai ở JS) sẽ làm test này đỏ —
+        // đó là chốt chặn cho đúng lỗi mà báo cáo nêu.
+        $card = $this->makeUserCard($this->owner->id);
+
+        $this->actingAs($this->owner)
+            ->postJson(route('credit-cards.api.statements.store', $card->id), [
+                'actual_spend' => '10000000',
+                'actual_reward' => '-1',
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('actual_reward');
+
+        $this->assertSame(0, CreditCardStatement::query()->count());
+    }
+
+    #[Test]
+    public function a_reward_above_a_zero_spend_is_rejected(): void
+    {
+        $card = $this->makeUserCard($this->owner->id);
+
+        $this->actingAs($this->owner)
+            ->postJson(route('credit-cards.api.statements.store', $card->id), [
+                'actual_spend' => '0',
+                'actual_reward' => '1',
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('actual_reward');
+    }
+
+    // =====================================================================
     // Sửa
     // =====================================================================
 
@@ -688,6 +817,54 @@ class StatementPageTest extends TestCase
     }
 
     #[Test]
+    public function the_reward_box_does_not_look_like_it_already_holds_a_zero(): void
+    {
+        $card = $this->makeUserCard($this->owner->id);
+
+        $html = $this->actingAs($this->owner)
+            ->get(route('credit-cards.statements'))
+            ->assertOk()
+            ->getContent();
+
+        // `placeholder="0"` trông y hệt một số 0 đã nhập, nhưng nó không phải giá
+        // trị: người dùng thấy "0" trong ô rồi bấm lưu thì server nhận chuỗi rỗng
+        // và trả lời "Vui lòng nhập số tiền hoàn/thưởng thực tế trong kỳ." — tức
+        // báo nhầm rằng 0 là không hợp lệ. Ô phải nói rõ 0 là một lựa chọn hợp lệ.
+        $this->assertStringNotContainsString(
+            'placeholder="0"',
+            $html,
+            'Placeholder dạng số trần dễ bị đọc nhầm thành giá trị đã nhập.',
+        );
+
+        $rewardInput = $this->tagWithName($html, 'actual_reward');
+
+        $this->assertStringContainsString(
+            'placeholder="Nhập 0 nếu không có hoàn"',
+            $rewardInput,
+            'Ô hoàn/thưởng phải nói rõ số 0 là giá trị hợp lệ.',
+        );
+    }
+
+    /**
+     * Thẻ mở `<input name="...">` — cắt từ `<input` gần nhất tới `>` kế tiếp.
+     */
+    private function tagWithName(string $html, string $name): string
+    {
+        $needle = "name=\"{$name}\"";
+        $position = strpos($html, $needle);
+
+        $this->assertNotFalse($position, "Không tìm thấy {$needle}");
+
+        $open = strrpos(substr($html, 0, $position), '<input');
+        $close = strpos($html, '>', $position);
+
+        $this->assertNotFalse($open);
+        $this->assertNotFalse($close);
+
+        return substr($html, (int) $open, (int) $close - (int) $open + 1);
+    }
+
+    #[Test]
     public function a_row_records_the_statement_id_the_server_just_created(): void
     {
         $card = $this->makeUserCard($this->owner->id);
@@ -741,11 +918,14 @@ class StatementPageTest extends TestCase
             $script,
             'Nhãn nút phải trở lại "Nhập sao kê".',
         );
-        // Regex cố tình không khoá cách viết dấu nháy bên trong selector.
+        // Nút "Xoá" được ẨN chứ không gỡ khỏi DOM: nó luôn render sẵn để khi
+        // người dùng đánh dấu "đã trả" ở kỳ chưa có dòng thì nút xuất hiện ngay
+        // trong phiên đó. Node dựng tay bằng `document.createElement` sẽ không qua
+        // `Alpine.initTree()` nên mất luôn `@click` — đó là lý do dùng `hidden`.
         $this->assertMatchesRegularExpression(
-            '/statement-delete-[\s\S]*?\?\.remove\(\)/',
+            '/statement-delete-[\s\S]*?classList\.toggle\(\'hidden\'/',
             $script,
-            'Nút "Xoá" phải biến mất khi dòng không còn sao kê.',
+            'Nút "Xoá" phải được ẩn khi dòng không còn sao kê.',
         );
     }
 

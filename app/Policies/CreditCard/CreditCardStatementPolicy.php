@@ -63,6 +63,48 @@ class CreditCardStatementPolicy
     }
 
     /**
+     * Đổi trạng thái thanh toán / nhắc — CHỈ kiểm sở hữu, KHÔNG chặn kỳ đã chốt.
+     *
+     * ---------------------------------------------------------------------------
+     * VÌ SAO CỐ Ý KHÁC `update`
+     * ---------------------------------------------------------------------------
+     * `update` (sửa tiền) chặn kỳ đã chốt vì số tiền của kỳ đó là bản ghi lịch sử.
+     * Trạng thái thanh toán thì NGƯỢC LẠI: trả hóa đơn xảy ra *sau* khi kỳ đã
+     * đóng. Nếu chặn luôn ở đây thì đúng những kỳ cần nhắc nhất — kỳ đã chốt, đang
+     * chờ trả — lại không đánh dấu "đã trả" và không tắt được cảnh báo. Người dùng
+     * sẽ bị báo "đến hạn" mãi cho một hóa đơn đã trả.
+     *
+     * Vì vậy action này tách riêng thay vì dùng lại `update`: quyền khác nhau thì
+     * phải là hai method khác nhau, đừng nhồi vào một chỗ rồi lạm dụng.
+     */
+    public function updatePayment(User $user, CreditCardStatement $statement): bool
+    {
+        return $this->ownsStatement($user, $statement);
+    }
+
+    /**
+     * Đổi trạng thái thanh toán theo KỲ, kể cả khi kỳ chưa có dòng sao kê.
+     *
+     * ---------------------------------------------------------------------------
+     * TẠI SAO CẦN MỘT ACTION RIÊNG
+     * ---------------------------------------------------------------------------
+     * `updatePayment()` nhận dòng sao kê, nên gọi nó lúc kỳ CHƯA có dòng là không
+     * gọi được — và đó chính là tình huống duy nhất mà người dùng cần đánh dấu:
+     * kỳ vừa chốt, chưa kịp nhập số liệu. Action này nhận (user, thẻ) nên chạy
+     * được cho cả hai trường hợp, và quyền thì GIỐNG HỆT: chỉ sở hữu thẻ, không
+     * chặn kỳ đã chốt — vẫn lý do ở `updatePayment()`.
+     *
+     * Chuyện có tạo dòng `0/0/0` hay không KHÔNG thuộc policy: đó là quy tắc nghiệp
+     * vụ, và nó nằm ở `CreditCardStatementService::setPaymentStatusForPeriod()`.
+     *
+     * @param  UserCard  $card  thẻ có kỳ cần đánh dấu trạng thái
+     */
+    public function updatePaymentForPeriod(User $user, UserCard $card): bool
+    {
+        return $this->ownsCard($user, $card);
+    }
+
+    /**
      * Sao kê của kỳ đã chốt là bản ghi lịch sử ⇒ không sửa/xoá được.
      *
      * Chặn ở POLICY (403) chứ không đợi service báo lỗi (422): "kỳ đã chốt" là

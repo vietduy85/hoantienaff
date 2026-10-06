@@ -20,6 +20,7 @@ use App\Http\Controllers\CreditCard\CategoryComboController;
 use App\Http\Controllers\CreditCard\CategoryController;
 use App\Http\Controllers\CreditCard\CategoryRuleController;
 use App\Http\Controllers\CreditCard\CreditCardController;
+use App\Http\Controllers\CreditCard\CreditCardSettingController;
 use App\Http\Controllers\CreditCard\PolicyController;
 use App\Http\Controllers\CreditCard\PolicyTemplateController;
 use App\Http\Controllers\CreditCard\StatementController;
@@ -170,7 +171,23 @@ Route::middleware('auth')->group(function () {
             Route::get('/sao-ke', [StatementController::class, 'apiIndex'])->name('statements.index');
             Route::post('/the/{userCard}/sao-ke', [StatementController::class, 'store'])->name('statements.store');
             Route::patch('/sao-ke/{statement}', [StatementController::class, 'update'])->name('statements.update');
+// Trạng thái thanh toán: action RIÊNG, không nhét vào `statements.update`.
+            // Sửa tiền chặn kỳ đã chốt còn đánh dấu "đã trả" thì không (xem
+            // `CreditCardStatementPolicy::updatePayment()`) — dùng chung endpoint sẽ
+            // phải nới lỏng luôn quyền sửa tiền.
+            Route::patch('/sao-ke/{statement}/thanh-toan', [StatementController::class, 'updatePayment'])->name('statements.payment.update');
+            // Cùng việc, nhưng theo KỲ: kỳ chưa có dòng sao kê thì chưa có `{statement}`
+            // để đưa vào URL. Đây là đường để đánh dấu "đã trả" TRƯỚC khi nhập số liệu
+            // — service tự tạo dòng 0/0/0. Cùng bộ quy tắc, cùng service, chỉ khác cách
+            // chỉ định mục tiêu (kỳ thay vì dòng).
+            Route::patch('/the/{userCard}/sao-ke/thanh-toan', [StatementController::class, 'updatePaymentForPeriod'])->name('statements.payment.update-period');
             Route::delete('/sao-ke/{statement}', [StatementController::class, 'destroy'])->name('statements.destroy');
+
+            // Thiết lập CHUNG của user (nhắc thanh toán trước mấy ngày). Route phẳng
+            // không có `{id}`: dòng thiết lập luôn thuộc `auth()->id()`, không bao
+            // giờ chỉ định theo id trên URL nên không có policy và không có đường nào
+            // chạm vào thiết lập của người khác.
+            Route::patch('/cai-dat/nhac-thanh-toan', [CreditCardSettingController::class, 'update'])->name('settings.payment-reminder.update');
 
             // === Phase 1C: cấu hình policy cashback ===
             //

@@ -305,8 +305,221 @@ class OverviewStatementTest extends TestCase
     }
 
     // =====================================================================
+    // Trạng thái thanh toán + nhắc trên Tổng quan
+    // =====================================================================
+
+    #[Test]
+    public function an_unpaid_statement_reads_as_unpaid_on_the_overview(): void
+    {
+        $card = $this->cardWithDueDate('2026-10-22');
+        $this->writeStatement($card, '5000000', '250000', $this->completedPeriodStart($card));
+
+        $html = $this->actingAs($this->owner)->get('/thetindung')->assertOk()->getContent();
+
+        $this->assertStringContainsString('data-testid="card-statement-payment-status"', $html);
+        $this->assertStringContainsString('Chưa thanh toán', $html);
+        $this->assertStringNotContainsString('ĐÃ THANH TOÁN', $html);
+    }
+
+    #[Test]
+    public function a_paid_statement_reads_as_paid_on_the_overview(): void
+    {
+        $card = $this->cardWithDueDate('2026-10-22');
+        $statement = $this->writeStatement($card, '5000000', '250000', $this->completedPeriodStart($card));
+
+        $this->markPaid($statement);
+
+        $html = $this->actingAs($this->owner)->get('/thetindung')->assertOk()->getContent();
+
+        $this->assertStringContainsString('ĐÃ THANH TOÁN', $html);
+        $this->assertStringNotContainsString('Chưa thanh toán', $html);
+    }
+
+    #[Test]
+    public function an_active_reminder_warns_on_the_overview(): void
+    {
+        // Hạn 22/10, nhắc trước 5 ngày ⇒ ngưỡng 17/10.
+        $card = $this->cardWithDueDate('2026-10-22');
+        $this->at('2026-10-17');
+
+        $statement = $this->writeStatement($card, '5000000', '250000', $this->completedPeriodStart($card));
+        $this->setReminder(5);
+
+        $html = $this->actingAs($this->owner)->get('/thetindung')->assertOk()->getContent();
+
+        $this->assertAlertVisible($html);
+        $this->assertStringContainsString('SẮP ĐẾN HẠN THANH TOÁN', $html);
+        $this->assertStringContainsString('Còn 5 ngày', $html);
+    }
+
+    #[Test]
+    public function a_paid_statement_never_warns_on_the_overview(): void
+    {
+        $card = $this->cardWithDueDate('2026-10-22');
+        $this->at('2026-10-17');
+
+        $statement = $this->writeStatement($card, '5000000', '250000', $this->completedPeriodStart($card));
+        $this->setReminder(5);
+        $this->markPaid($statement);
+
+        $html = $this->actingAs($this->owner)->get('/thetindung')->assertOk()->getContent();
+
+        $this->assertAlertHidden($html);
+        $this->assertStringNotContainsString('SẮP ĐẾN HẠN THANH TOÁN', $html);
+    }
+
+    #[Test]
+    public function an_overdue_statement_warns_as_overdue_on_the_overview(): void
+    {
+        $card = $this->cardWithDueDate('2026-10-22');
+        $this->at('2026-10-25');
+
+        $this->writeStatement($card, '5000000', '250000', $this->completedPeriodStart($card));
+
+        $html = $this->actingAs($this->owner)->get('/thetindung')->assertOk()->getContent();
+
+        $this->assertAlertVisible($html);
+        $this->assertStringContainsString('ĐÃ QUÁ HẠN THANH TOÁN', $html);
+        $this->assertStringContainsString('Quá hạn 3 ngày', $html);
+    }
+
+    #[Test]
+    public function the_overview_warns_about_the_completed_period_not_the_current_one(): void
+    {
+        // Chốt ngày 1, hạn ngày 22: kỳ 01/09–30/09 có hạn 22/10. Kỳ hiện tại
+        // (tháng 10) có hạn 22/11 — nếu controller lỡ lấy kỳ hiện tại thì hôm
+        // 17/10 sẽ không có cảnh báo nào, và test này bắt đúng lỗi đó.
+        $card = $this->cardWithDueDate('2026-10-22');
+        $this->at('2026-10-17');
+
+        $this->writeStatement($card, '5000000', '250000', $this->completedPeriodStart($card));
+        $this->setReminder(5);
+
+        $html = $this->actingAs($this->owner)->get('/thetindung')->assertOk()->getContent();
+
+        $this->assertAlertVisible($html);
+        $this->assertStringContainsString('Hạn thanh toán: 22/10/2026', $html);
+    }
+
+    #[Test]
+    public function marking_paid_does_not_move_the_overview_totals(): void
+    {
+        $card = $this->makeUserCard($this->owner->id, ['credit_limit' => '10000000']);
+        $this->writeStatement($card, '5000000', '250000', $this->completedPeriodStart($card));
+
+        $before = $this->summaryOf('/thetindung');
+
+        $this->markPaid($this->statementOf($card));
+
+        $this->assertSame(
+            $before,
+            $this->summaryOf('/thetindung'),
+            'Đánh dấu đã trả là thao tác trạng thái, không được đụng chỉ số.',
+        );
+    }
+
+    // =====================================================================
     // Helper
     // =====================================================================
+
+    /**
+     * Thẻ chốt ngày 1, hạn trả ngày 22 — kỳ 01/09–30/09 có hạn 22/10/2026.
+     */
+    private function cardWithDueDate(string $expectedDue): \App\Models\CreditCard\UserCard
+    {
+        $card = $this->makeUserCard($this->owner->id, [
+            'statement_period_start' => '2026-01-01',
+            'statement_day' => 1,
+            'payment_due_day' => 22,
+        ]);
+
+        // Khoá giả định của fixture: nếu `StatementPeriodService` đổi cách suy ra
+        // hạn thì các test này phải đỏ, chứ không âm thầm kiểm tra nhầm ngày khác.
+        $this->at('2026-10-17');
+        $this->writeStatement($card, '1', '0', $this->completedPeriodStart($card));
+
+        $period = StatementPeriod::query()
+            ->where('user_card_id', $card->id)
+            ->whereDate('period_start', $this->completedPeriodStart($card))
+            ->firstOrFail();
+
+        $this->assertSame($expectedDue, $period->payment_due_date?->toDateString());
+
+        return $card;
+    }
+
+    private function at(string $today): void
+    {
+        $this->travelTo(CarbonImmutable::parse($today.' 09:00:00'));
+    }
+
+    private function statementOf($card, ?string $periodStart = null): CreditCardStatement
+    {
+        return CreditCardStatement::query()
+            ->where('user_card_id', $card->id)
+            ->whereHas('statementPeriod', fn ($query) => $query->whereDate(
+                'period_start',
+                $periodStart ?? $this->completedPeriodStart($card),
+            ))
+            ->firstOrFail();
+    }
+
+    private function markPaid(CreditCardStatement $statement): void
+    {
+        $this->actingAs($this->owner)->patchJson(
+            route('credit-cards.api.statements.payment.update', ['statement' => $statement->fresh()->id]),
+            ['payment_status' => 'paid'],
+        )->assertOk();
+    }
+
+    /**
+     * Số ngày nhắc thuộc USER nên đổi qua endpoint thiết lập chung, không gửi kèm
+     * lúc đánh dấu kỳ đã trả — nếu không thì màn Tổng quan sẽ cảnh báo theo một
+     * con số mà màn Sao kê không lưu.
+     */
+    private function setReminder(int $days): void
+    {
+        $this->actingAs($this->owner)->patchJson(
+            route('credit-cards.api.settings.payment-reminder.update'),
+            ['payment_reminder_days' => $days],
+        )->assertOk();
+    }
+
+    /**
+     * Khối cảnh báo luôn được render rồi ẩn bằng lớp `hidden` (xem Blade), nên
+     * phải kiểm LỚP chứ không kiểm sự có mặt.
+     */
+    private function assertAlertVisible(string $html): void
+    {
+        $this->assertStringNotContainsString(
+            'hidden',
+            $this->tagOfTestId($html, 'card-statement-alert'),
+            'Khối cảnh báo phải hiện.',
+        );
+    }
+
+    private function assertAlertHidden(string $html): void
+    {
+        $this->assertStringContainsString(
+            'hidden',
+            $this->tagOfTestId($html, 'card-statement-alert'),
+            'Khối cảnh báo phải ẩn.',
+        );
+    }
+
+    private function tagOfTestId(string $html, string $testId): string
+    {
+        $needle = "data-testid=\"{$testId}\"";
+
+        $position = strpos($html, $needle);
+
+        $this->assertNotFalse($position, "Không tìm thấy {$needle}");
+
+        $tagStart = strrpos(substr($html, 0, $position), '<');
+        $tagEnd = strpos($html, '>', $position);
+
+        return substr($html, (int) $tagStart, (int) $tagEnd - (int) $tagStart + 1);
+    }
 
     /**
      * @return array{0: CarbonImmutable, 1: CarbonImmutable}

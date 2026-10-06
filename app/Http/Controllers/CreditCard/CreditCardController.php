@@ -12,6 +12,7 @@ use App\Services\CreditCard\CategoryService;
 use App\Services\CreditCard\CreditCardCardSortService;
 use App\Services\CreditCard\CreditCardOverviewService;
 use App\Services\CreditCard\CreditCardStatementService;
+use App\Services\CreditCard\CreditCardUserSettingService;
 use App\Services\CreditCard\StatementPeriodService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -37,6 +38,7 @@ class CreditCardController extends Controller
         private readonly CategoryService $categories,
         private readonly CreditCardCardSortService $sort,
         private readonly CreditCardStatementService $statements,
+        private readonly CreditCardUserSettingService $settings,
     ) {}
 
     /**
@@ -77,6 +79,11 @@ class CreditCardController extends Controller
         $sortMode = $this->sort->normalizeMode($request->query('sort'));
         $userCreditCards = $this->sort->sort($sortMode, $cards, $today);
 
+        // Số ngày nhắc là thiết lập CHUNG của user — đọc MỘT LẦN rồi truyền vào
+        // từng thẻ. Đọc trong vòng lặp sẽ thành N+1 truy vấn ở trang có nhiều thẻ,
+        // và Tổng quan/Sao kê sẽ dễ rơi vào hai con số khác nhau.
+        $reminderDays = $this->settings->reminderDaysFor($userId);
+
         return view('credit-card.index', [
             'userCreditCards' => $userCreditCards,
             'sortMode' => $sortMode,
@@ -113,7 +120,7 @@ class CreditCardController extends Controller
             // Sao kê KỲ ĐÃ KẾT THÚC GẦN NHẤT của từng thẻ, khoá theo
             // `user_card_id`. CHỈ ĐỌC: không cộng vào `summary`/`cardMetrics`, nên
             // bỏ khối "Sao kê" ở view thì các chỉ số trên không đổi.
-            'latestStatements' => $this->latestStatements($userCreditCards, $today),
+            'latestStatements' => $this->latestStatements($userCreditCards, $today, $reminderDays),
             'today' => $today->toDateString(),
         ]);
     }
@@ -128,12 +135,12 @@ class CreditCardController extends Controller
      * @param  Collection<int, UserCard>  $cards
      * @return array<int, array<string, mixed>>
      */
-    private function latestStatements(Collection $cards, CarbonImmutable $today): array
+    private function latestStatements(Collection $cards, CarbonImmutable $today, int $reminderDays): array
     {
         $out = [];
 
         foreach ($cards as $card) {
-            $bundle = $this->statements->latestCompletedBundleFor($card, $today);
+            $bundle = $this->statements->latestCompletedBundleFor($card, $today, $reminderDays);
 
             $statement = $bundle['statement'];
 
@@ -144,12 +151,21 @@ class CreditCardController extends Controller
                 'end_label' => $bundle['end']->format('d/m/Y'),
                 'due_date' => $bundle['due_date']?->toDateString(),
                 'due_label' => $bundle['due_date']?->format('d/m/Y'),
-                'actual_spend' => $statement === null ? null : $statement->actual_spend,
-                'actual_reward' => $statement === null ? null : $statement->actual_reward,
-                // Đọc bằng công thức của model, không đọc thẳng cột — đây là số
-                // server sẽ ghi, không thể lệch với DB.
-                'closing_balance' => $statement === null ? null : $statement->closingBalance(),
+                // Số tiền KHÔNG còn ở đây: `payment` bên dưới đã mang cả ba số và
+                // vẫn đúng cho kỳ chưa có dòng (0/0/0). Trước đây các khoá này trả
+                // `null` khi chưa nhập, và view phải ẩn cả khối sao kê — tức mất
+                // luôn hạn trả và trạng thái thanh toán, đúng hai thứ người dùng cần
+                // nhất lúc đó.
                 'has_statement' => $statement !== null,
+                // Trạng thái thanh toán + nhắc, resolve bằng ĐÚNG bộ của màn Sao kê
+                // (`CreditCardStatementService::paymentState()`). Tổng quan không
+                // tự so sánh ngày — nếu tự tính thì sẽ có hai nơi quyết "đến hạn"
+                // và chúng sẽ trôi khỏi nhau.
+                //
+                // Lấy hạn của kỳ ĐÃ KẾT THÚC GẦN NHẤT (`$bundle['due_date']`),
+                // không phải kỳ hiện tại: cảnh báo phải nói về hóa đơn người dùng
+                // đang thấy ở khối này.
+                'payment' => $bundle['payment'],
             ];
         }
 

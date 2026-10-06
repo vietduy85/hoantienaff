@@ -377,8 +377,24 @@ class CreditCardOverviewTest extends TestCase
         $this->assertStringContainsString('50.000', $html);
 
         $this->assertSame(2, substr_count($html, 'Theo kỳ sao kê hiện tại của từng thẻ'));
-        $this->assertStringNotContainsString('15/10', $html);
-        $this->assertStringNotContainsString('25/10/2026', $html);
+
+        // Chỉ kiểm VÙNG GIẢI THÍCH, không kiểm cả trang: khối "Sao kê kỳ vừa
+        // kết thúc" giờ hiện cả khi thẻ CHƯA có dòng sao kê, nên hạn thanh toán
+        // của kỳ đó (25/10/2026 ở thẻ này) xuất hiện trên trang — đúng yêu cầu, vì
+        // đó là ngày lấy từ dữ liệu chứ không phải khoảng ngày gõ cứng trong câu
+        // giải thích. Nếu không khoá vùng, assert này sẽ chết oan vì một thứ hoàn
+        // toàn không liên quan.
+        $first = strpos($html, 'Theo kỳ sao kê hiện tại của từng thẻ');
+        $second = strpos($html, 'Theo kỳ sao kê hiện tại của từng thẻ', $first + 1);
+
+        $explanation = substr($html, $first, $second - $first);
+
+        $this->assertDoesNotMatchRegularExpression(
+            '/\d{2}\/\d{2}/',
+            $explanation,
+            'Câu giải thích phải nói theo kỳ của từng thẻ, không gõ cứng khoảng ngày.',
+        );
+        $this->assertStringNotContainsString('15/10', $explanation);
     }
 
     // =====================================================================

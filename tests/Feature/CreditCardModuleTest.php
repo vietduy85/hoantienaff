@@ -134,6 +134,13 @@ class CreditCardModuleTest extends TestCase
             'credit-cards.api.statements.store',
             'credit-cards.api.statements.update',
             'credit-cards.api.statements.destroy',
+            // API trạng thái thanh toán (mỗi statement)
+            'credit-cards.api.statements.payment.update',
+            // API trạng thái thanh toán theo KỲ — dành cho kỳ chưa có statement:
+            // đánh dấu "đã trả" phải tạo được dòng 0/0/0 thay vì bắt nhập trước.
+            'credit-cards.api.statements.payment.update-period',
+            // API thiết lập chung của user (nhắc thanh toán trước mấy ngày)
+            'credit-cards.api.settings.payment-reminder.update',
             // API cấu hình policy (Phase 1C)
             'credit-cards.api.policies.index',
             'credit-cards.api.policies.store',
@@ -1013,12 +1020,27 @@ class CreditCardModuleTest extends TestCase
         $response->assertSee('200.000');
 
         // Cả hai ô tổng nói đúng nguyên tắc, không bịa khoảng ngày chung.
+        $html = $response->getContent();
+
         $this->assertSame(
             2,
-            substr_count($response->getContent(), 'Theo kỳ sao kê hiện tại của từng thẻ')
+            substr_count($html, 'Theo kỳ sao kê hiện tại của từng thẻ')
         );
-        $response->assertDontSee('15/10');
-        $response->assertDontSee('25/10/2026');
+
+        // Chỉ khoá VÙNG GIẢI THÍCH chứ không phải cả trang: khối "Sao kê kỳ vừa
+        // kết thúc" giờ hiện cả khi thẻ chưa có dòng sao kê, nên hạn 25/10/2026
+        // của kỳ đó xuất hiện — đúng yêu cầu, và là ngày đọc từ dữ liệu chứ không
+        // phải khoảng ngày gõ cứng trong câu giải thích.
+        $first = strpos($html, 'Theo kỳ sao kê hiện tại của từng thẻ');
+        $second = strpos($html, 'Theo kỳ sao kê hiện tại của từng thẻ', $first + 1);
+
+        $explanation = substr($html, $first, $second - $first);
+
+        $this->assertDoesNotMatchRegularExpression(
+            '/\d{2}\/\d{2}/',
+            $explanation,
+            'Câu giải thích phải nói theo kỳ của từng thẻ, không gõ cứng khoảng ngày.',
+        );
 
         // Chỉ hiện kỳ đang mở của chính user này.
         $this->assertSame(1, StatementPeriod::query()->where('user_card_id', $userCard->id)->count());
