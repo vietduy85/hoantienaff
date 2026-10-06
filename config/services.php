@@ -60,6 +60,20 @@ return [
         'cookie' => env('SHOPEEFOOD_COOKIE'),
     ],
 
+    /*
+     * AddLiveTag — Sàn Cam Product Data API.
+     *
+     * Từ 2026-10-01 mọi request bắt buộc kèm API key qua header `X-API-Key`
+     * (hoặc `&key=` trong URL). Key lấy ở addlivetag.com → API Key → Tạo Key.
+     *
+     * `base_url` không kèm path — endpoint cụ thể do service quyết định
+     * (vd: /product-data/product-data.php). Không lưu key trong repo.
+     */
+    'addlivetag' => [
+        'base_url' => env('ADDLIVETAG_BASE_URL', 'https://data.addlivetag.com'),
+        'api_key' => env('ADDLIVETAG_API_KEY'),
+    ],
+
     'lazada' => [
         'base_url' => env('LAZADA_BASE_URL', 'https://api.lazada.vn/rest'),
         'app_key' => env('LAZADA_APP_KEY'),

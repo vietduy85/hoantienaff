@@ -7,19 +7,17 @@ use Illuminate\Support\Facades\Log;
 
 class ProductDataService
 {
-    private const API_URL = 'https://data.addlivetag.com/product-data/product-data.php';
+    /**
+     * Endpoint path only — the host comes from `services.addlivetag.base_url`
+     * (env `ADDLIVETAG_BASE_URL`) so it is deployment-configurable.
+     */
+    private const API_PATH = '/product-data/product-data.php';
 
     private const RETRY_TIMES = 2;
 
     private const TIMEOUT = 10;
 
     private const CONNECT_TIMEOUT = 5;
-
-    /*
-     * TODO: Add local cache layer for frequently accessed products.
-     * TODO: Implement Redis cache with 24h TTL (matching AddLiveTag's cache duration).
-     * TODO: Replace direct HTTP calls with a Product Repository abstraction.
-     */
 
     public function getByUrl(string $url): array
     {
@@ -85,17 +83,29 @@ class ProductDataService
 
     private function getByItemId(int $itemId, ?int $shopId = null): array
     {
-        try {
-            $response = Http::retry(self::RETRY_TIMES, 500, function (\Throwable $e) use ($itemId) {
-                Log::warning('ProductDataService: retrying after exception', [
-                    'item_id' => $itemId,
-                    'message' => $e->getMessage(),
-                ]);
+        $apiKey = (string) config('services.addlivetag.api_key', '');
 
-                return true;
-            })
+        if ($apiKey === '') {
+            Log::warning('ProductDataService: missing API key', [
+                'item_id' => $itemId,
+                'provider' => 'addlivetag',
+            ]);
+
+            return ['success' => false, 'reason' => 'missing_api_key'];
+        }
+
+        try {
+            $response = Http::withHeaders(['X-API-Key' => $apiKey])
+                ->retry(self::RETRY_TIMES, 500, function (\Throwable $e) use ($itemId) {
+                    Log::warning('ProductDataService: retrying after exception', [
+                        'item_id' => $itemId,
+                        'message' => $e->getMessage(),
+                    ]);
+
+                    return true;
+                })
                 ->timeout(self::TIMEOUT)
-                ->get(self::API_URL, ['item_id' => $itemId]);
+                ->get(self::apiUrl(), ['item_id' => $itemId]);
 
             if ($response->failed()) {
                 Log::warning('ProductDataService: HTTP error', [
@@ -135,6 +145,16 @@ class ProductDataService
 
             return ['success' => false];
         }
+    }
+
+    /**
+     * Host comes from config (env ADDLIVETAG_BASE_URL); path is fixed.
+     */
+    private function apiUrl(): string
+    {
+        $base = rtrim((string) config('services.addlivetag.base_url', 'https://data.addlivetag.com'), '/');
+
+        return $base . self::API_PATH;
     }
 
     private function mapResponse(array $json): array
