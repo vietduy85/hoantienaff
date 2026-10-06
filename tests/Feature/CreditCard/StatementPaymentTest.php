@@ -836,6 +836,178 @@ $this->assertSame('overdue', $this->stateIn($html, $card->id)['state']);
     }
 
 // =====================================================================
+    // KỲ ĐÃ TRẢ NHƯNG ĐÃ QUÁ HẠN — regression
+    //
+    // Bug thật: dòng hạn được render HAI node (`data-payment-due-line`) và
+    // `applyPayment()` chỉ dựng lại node đầu bằng `querySelector`. Đánh dấu "đã
+    // trả" xong thì node thứ hai vẫn giữ chuỗi server render lúc đầu là "Đến
+    // hạn 04/10/2026 · quá hạn 2 ngày" — đúng triệu chứng: đã có ✓ ĐÃ THANH TOÁN
+    // mà vẫn còn dòng đỏ.
+    // =====================================================================
+
+    /**
+     * TEST BẮT BUỘC — `paid_overdue_statement_does_not_render_overdue_due_line`.
+     *
+     * today = 06/10, hạn = 04/10 ⇒ trễ 2 ngày. Kỳ đã trả thì KHÔNG được mang
+     * bất kỳ dòng nào có nghĩa đến hạn/quá hạn, chỉ còn "Hạn thanh toán kỳ này".
+     */
+    #[Test]
+    public function paid_overdue_statement_does_not_render_overdue_due_line(): void
+    {
+        $card = $this->makeCard('2026-01-01', 4);
+        $this->at('2026-10-06');
+
+        $statement = $this->writeStatement($card, $this->completedPeriodStart($card, 1));
+
+        // Hạn 04/10/2026, hôm nay 06/10 ⇒ quá hạn 2 ngày.
+        $this->assertSame('2026-10-04', $this->dueDateFor($card));
+
+        $this->setStatus($statement, CreditCardStatement::PAYMENT_STATUS_PAID);
+
+        $html = $this->statementsPage($card);
+
+        $this->assertStringContainsString('ĐÃ THANH TOÁN', $html);
+        $this->assertStringContainsString('Hạn thanh toán kỳ này: 04/10/2026', $html);
+
+        $this->assertStringNotContainsString('quá hạn 2 ngày', $html);
+        $this->assertStringNotContainsString('Đến hạn 04/10/2026', $html);
+        $this->assertStringNotContainsString('ĐÃ QUÁ HẠN THANH TOÁN', $html);
+        $this->assertStringNotContainsString('SẮP ĐẾN HẠN THANH TOÁN', $html);
+
+        // SOI MỌI NODE dòng hạn, không chỉ node đầu — đây mới là chỗ bug lọt.
+        $dueLines = $this->allDueLinesOf($html);
+
+        // Dòng hạn là thông tin của KỲ nên chỉ có MỘT chỗ hiện. Trước đây có hai
+        // (`data-payment-due-line` dưới tiêu đề thẻ và một cái nữa trong khối ô
+        // chọn trạng thái), và `applyPayment()` chỉ dựng lại cái đầu. Khóa luôn
+        // số lượng node để bản sao thứ hai không thể lặng lẽ quay lại.
+        $this->assertCount(1, $dueLines, 'Dòng hạn phải xuất hiện đúng một lần trên trang.');
+
+        foreach ($dueLines as $line) {
+            $this->assertSame(
+                'Hạn thanh toán kỳ này: 04/10/2026',
+                $line,
+                'Còn sót dòng hạn cũ ở một node khác: '.$line,
+            );
+        }
+
+        // Không có màu đỏ/amber trên dòng hạn của kỳ đã trả.
+        $this->assertStringNotContainsString('text-red-700', $this->dueLineTag($html));
+        $this->assertStringNotContainsString('text-amber-700', $this->dueLineTag($html));
+    }
+
+    /**
+     * TEST BẮT BUỘC (client) — `paid_payment_response_clears_previous_warning_state`.
+     *
+     * Payload server trả về khi đánh dấu "đã trả" phải tự nó dính đủ để client dựng
+     * lại được: `due_line` mới, `tone = settled`, không còn `alert`, và không còn
+     * dấu vết quá hạn trong bất kỳ trường nào. Không có cách nào để client phải
+     * giữ lại chuỗi cũ — nếu payload còn sót "quá hạn" thì `applyPayment()` dù có
+     * dựng lại mọi node vẫn in ra dòng đỏ.
+     */
+    #[Test]
+    public function paid_payment_response_clears_previous_warning_state(): void
+    {
+        $card = $this->makeCard('2026-01-01', 4);
+        $this->at('2026-10-06');
+
+        // Trước khi trả: trang phải thật sự cảnh báo, nếu không test này pass vì
+        // lý do sai (chẳng có gì để xoá).
+        $before = $this->stateIn($this->statementsPage($card), $card->id);
+
+        $this->assertSame('overdue', $before['state']);
+        $this->assertSame('danger', $before['due_tone']);
+        $this->assertSame(-2, $before['days_to_due']);
+        $this->assertNotNull($before['alert']);
+        $this->assertStringContainsString('quá hạn 2 ngày', $before['due_line']);
+        $this->assertStringContainsString('ĐÃ QUÁ HẠN THANH TOÁN', $before['alert']['title']);
+
+        // Chọn "Đã trả" trên kỳ chưa có dòng: hành động này tự tạo dòng, nên tới
+        // đây mới có id để gọi endpoint mà `applyPayment()` gọi.
+        $this->markPeriodPaid($card, $this->completedPeriodStart($card, 1));
+
+        $response = $this->actingAs($this->owner)->patchJson(
+            $this->paymentUrl(CreditCardStatement::query()->firstOrFail()),
+            ['payment_status' => CreditCardStatement::PAYMENT_STATUS_PAID],
+        )->assertOk();
+
+        $payment = $response->json('payment');
+
+        // Mọi trường cảnh báo phải được DỰNG LẠI, không phải chỉ thêm `is_paid`.
+        $this->assertSame('paid', $payment['state']);
+        $this->assertSame('settled', $payment['due_tone']);
+        $this->assertSame('Hạn thanh toán kỳ này: 04/10/2026', $payment['due_line']);
+        $this->assertNull($payment['alert']);
+        $this->assertNull($payment['days_to_due'], 'Kỳ đã trả không có số đếm ngược nào.');
+        $this->assertNull($payment['reminder_start_date'], 'Kỳ đã trả không có cửa sổ nhắc.');
+        $this->assertNull($payment['reminder_start_label']);
+
+        // Ngày hạn vẫn phải còn — người dùng cần biết hạn của kỳ là khi nào.
+        $this->assertSame('2026-10-04', $payment['payment_due_date']);
+        $this->assertSame('04/10/2026', $payment['due_label']);
+
+        // Toàn bộ payload không được sót lại chữ "quá hạn" ở bất kỳ đâu.
+        $encoded = json_encode($payment, JSON_UNESCAPED_UNICODE);
+
+        $this->assertStringNotContainsString('quá hạn', mb_strtolower((string) $encoded));
+        $this->assertStringNotContainsString('Đến hạn', (string) $encoded);
+    }
+
+    // =====================================================================
+    // PHÍA CLIENT KHÔNG ĐƯỢC ĐỂ LỌT CHỖ NÀY LẦN NỮA
+    //
+    // Không có hạ tầng test trình duyệt trong dự án, nên test đọc mã. Đây là bài
+    // học rút ra từ chính bug này: server đã đúng từ đầu, lỗi nằm ở client chỉ
+    // dựng lại node hạn ĐẦU TIÊN. Test server xanh mà trình duyệt vẫn đỏ là bình
+    // thường — nên phải có cái neo cho phía client.
+    // =====================================================================
+
+    /**
+     * TEST BẮT BUỘC (client) — `client_payment_update_rebuilds_every_due_line_node`.
+     *
+     * `applyPayment()` phải dựng lại MỌI node dòng hạn, không phải node đầu tiên.
+     * Dùng `querySelector` một lần nữa là bug quay lại y nguyên.
+     */
+    #[Test]
+    public function client_payment_update_rebuilds_every_due_line_node(): void
+    {
+        $card = $this->makeCard('2026-01-01', 4);
+        $this->at('2026-10-06');
+
+        $statement = $this->writeStatement($card, $this->completedPeriodStart($card, 1));
+
+        $this->setStatus($statement, CreditCardStatement::PAYMENT_STATUS_UNPAID);
+
+        $html = $this->statementsPage($card);
+
+        $apply = $this->stripJsComments($this->bodyOfFunction($html, 'applyPayment'));
+
+        // `querySelectorAll` + `forEach`: mọi node đều được dựng lại.
+        $this->assertStringContainsString("querySelectorAll('[data-payment-due-line]')", $apply);
+        $this->assertStringContainsString('forEach', $apply);
+
+        // Dạng một-node đã từng gây bug. Chặn rõ ràng.
+        $this->assertStringNotContainsString(
+            "querySelector('[data-payment-due-line]')",
+            $apply,
+            '`querySelector` chỉ dựng lại node đầu — node thứ hai giữ chuỗi quá hạn cũ.',
+        );
+
+        // Dựng lại node hạn phải gán cả CHỮ lẫn MÀU theo tone của payload; chỉ
+        // gán chữ thì kỳ đã trả vẫn còn chữ đỏ của "quá hạn".
+        $this->assertStringContainsString('dueLine.textContent = payment.due_line', $apply);
+        $this->assertStringContainsString('dueLine.classList.toggle', $apply);
+
+        foreach (['danger', 'warning', 'settled', 'neutral'] as $tone) {
+            $this->assertStringContainsString(
+                "payment.due_tone === '{$tone}'",
+                $apply,
+                "Thiếu tone {$tone} khi dựng lại dòng hạn.",
+            );
+        }
+    }
+
+    // =====================================================================
     // KỲ CHƯA NHẬP SAO KÊ VẪN CÓ TRẠNG THÁI THANH TOÁN
     //
     // Trạng thái thanh toán là sự thật về KỲ, không phụ thuộc đã nhập số liệu hay
@@ -1289,7 +1461,7 @@ $this->assertSame('overdue', $this->stateIn($html, $card->id)['state']);
     }
 
 /**
-     * Nội dung DÒNG HẠN (dòng chữ đã trả về), giải entity HTML.
+     * DÒNG HẠN (dòng chữ đã trả về), giải entity HTML.
      *
      * Đây chính là dòng từng hiện sai kiểu "Đến hạn … · quá hạn N ngày" bên cạnh
      * dấu ✓ ĐÃ THANH TOÁN, nên nó phải có test riêng chứ không được ngầm phụ thuộc.
@@ -1310,6 +1482,120 @@ $this->assertSame('overdue', $this->stateIn($html, $card->id)['state']);
             substr($html, $open + 1, $close - $open - 1),
             ENT_QUOTES | ENT_HTML5,
         ));
+    }
+
+    /**
+     * Thân một hàm/method JS trong HTML, cắt theo cặp ngoặc đầu tiên sau nó.
+     *
+     * Nhận cả dạng `function foo()` (hàm rời) lẫn dạng `foo() {` (method trong
+     * Alpine component — dạng này không có từ khoá `function`).
+     */
+    private function bodyOfFunction(string $html, string $function): string
+    {
+        // Nhận cả dạng `function foo() {` (hàm rời) lẫn `foo() {` (method Alpine —
+        // không có từ khoá `function`). Neo `^` + `m` để không dính nhầm vào lời
+        // gọi hàm nào đó nằm giữa dòng, và bỏ qua khác biệt thụt lề/xuống dòng.
+        $matched = preg_match(
+            '/^[ \t]*(?:function[ \t]+)?'.preg_quote($function, '/').'[ \t]*\(/m',
+            $html,
+            $match,
+            PREG_OFFSET_CAPTURE,
+        );
+
+        $this->assertSame(1, $matched, "Không tìm thấy định nghĩa hàm JS {$function}.");
+
+        $start = $match[0][1];
+
+        $open = strpos($html, '{', $start);
+
+        $this->assertNotFalse($open);
+
+        $depth = 0;
+
+        for ($i = $open; $i < strlen($html); $i++) {
+            if ($html[$i] === '{') {
+                $depth++;
+            } elseif ($html[$i] === '}') {
+                $depth--;
+
+                if ($depth === 0) {
+                    return substr($html, $start, $i - $start + 1);
+                }
+            }
+        }
+
+        $this->fail("Hàm JS {$function} không cân bằng ngoặc.");
+    }
+
+    /**
+     * Bỏ chú thích JS trước khi khẳng định về mã.
+     *
+     * Bình luận trong mã PHẢI nhắc tên chính thứ của thứ từng bị bỏ — đó là cách
+     * ngăn người sau vô tình thêm lại. Quét cả bình luận thì khẳng định "không
+     * được dùng nữa" luôn đỏ, đúng cái giá của việc viết tốt.
+     */
+    private function stripJsComments(string $code): string
+    {
+        return (string) preg_replace('#(?<!:)//[^\n]*#', '', (string) preg_replace('#/\*.*?\*/#s', '', $code));
+    }
+
+    /** Ngày hạn trả `Y-m-d` mà server dùng cho kỳ đã kết thúc gần nhất. */
+    private function dueDateFor($card): string
+    {
+        [, $end] = app(StatementPeriodService::class)->completedBoundaries($card, CarbonImmutable::now());
+
+        return app(CreditCardStatementService::class)->dueDateFor($card, null, $end)->toDateString();
+    }
+
+    /** Thẻ mở đang chứa mọi node dòng hạn. */
+    private function dueLineTag(string $html): string
+    {
+        $position = strpos($html, 'data-payment-due-line');
+
+        $this->assertNotFalse($position, 'Không tìm thấy dòng hạn.');
+
+        $tagStart = strrpos(substr($html, 0, $position), '<');
+        $tagEnd = strpos($html, '>', $position);
+
+        return substr($html, (int) $tagStart, $tagEnd - $tagStart + 1);
+    }
+
+    /**
+     * MỌI node dòng hạn trên trang, chứ không phải node đầu tiên.
+     *
+     * Đây chính là cái bẫy đã làm bug lọt: dòng hạn từng được render HAI LẦN (một
+     * node dưới tiêu đề thẻ, một node trong khối ô chọn trạng thái) trong khi
+     * `applyPayment()` chỉ dựng lại node đầu tiên. Test chỉ đọc node đầu thì xanh
+     * mà trình duyệt vẫn hiện dòng đỏ thứ hai. Vì vậy mọi khẳng định về dòng hạn
+     * phải soi TẤT CẢ node.
+     *
+     * @return list<string>
+     */
+    private function allDueLinesOf(string $html): array
+    {
+        // Bỏ hẳn `<script>`: JS cũng nhắc tên `data-payment-due-line` trong
+        // `querySelectorAll`, và mũi tên `=>` của nó sẽ bị nhầm là dấu `>` mở thẻ
+        // nếu quét thẳng. Dòng hạn là MARKUP, không phải mã.
+        $markup = preg_replace('#<script\b.*?</script>#s', '', (string) $html);
+
+        $lines = [];
+        $offset = 0;
+
+        while (($position = strpos($markup, 'data-payment-due-line>', $offset)) !== false) {
+            $open = $position + strlen('data-payment-due-line');
+            $close = strpos($markup, '</', $open);
+
+            $lines[] = trim(html_entity_decode(
+                substr($markup, $open + 1, $close - $open - 1),
+                ENT_QUOTES | ENT_HTML5,
+            ));
+
+            $offset = $close;
+        }
+
+        $this->assertNotEmpty($lines, 'Không tìm thấy dòng hạn nào.');
+
+        return $lines;
     }
 
     /**

@@ -338,11 +338,13 @@
                            'text-red-600': paymentLabel({{ $row['id'] }}).tone === 'error',
                        }"></p>
 
-                    @if ($payment['state'] !== 'no_due')
-                        <p class="text-[11px] tabular-nums {{ $payment['due_tone'] === 'danger' ? 'text-red-700' : ($payment['due_tone'] === 'warning' ? 'text-amber-700' : ($payment['due_tone'] === 'settled' ? 'text-emerald-700' : 'text-gray-600')) }}"
-                           data-testid="payment-due-{{ $row['id'] }}"
-                           data-payment-due-line>{{ $payment['due_line'] }}</p>
-                    @endif
+                    {{-- KHÔNG in lại dòng hạn ở đây. Trước đây khối ô chọn trạng
+                         thái có in thêm một `<p data-payment-due-line>` nữa, và đó
+                         chính là nơi sinh ra bug "đã trả nhưng vẫn đỏ quá hạn":
+                         `applyPayment()` dùng `querySelector` nên chỉ dựng lại
+                         node ĐẦU TIÊN, node thứ hai giữ nguyên chuỗi cũ. Dòng hạn
+                         là thông tin của KỲ nên chỉ có một chỗ hiện — ngay dưới
+                         tiêu đề thẻ, phía trên ô điều khiển. --}}
                 </div>
 
                 {{-- ═══ SỐ LIỆU ═══
@@ -1026,16 +1028,20 @@
                     // từng hiện sai kiểu "đã trả nhưng vẫn quá hạn N ngày" vì nó
                     // tự so sánh ngày mà không biết `payment_status`; giờ nó cũng do
                     // server quyết, nên đổi trạng thái là dòng này tự đúng lại.
-                    const dueLine = row.querySelector('[data-payment-due-line]');
-
-                    if (dueLine) {
+                    //
+                    // `querySelectorAll` chứ không `querySelector`: nếu sau này có
+                    // thêm một chỗ hiện dòng hạn nữa thì `querySelector` chỉ dựng
+                    // lại node ĐẦU TIÊN và node còn lại giữ nguyên chuỗi "quá hạn
+                    // N ngày" của kỳ đã trả — đúng loại bug đã gặp. Dựng lại MỌI
+                    // node thì không còn chỗ nào để sót.
+                    row.querySelectorAll('[data-payment-due-line]').forEach((dueLine) => {
                         dueLine.textContent = payment.due_line ?? '';
 
                         dueLine.classList.toggle('text-red-700', payment.due_tone === 'danger');
                         dueLine.classList.toggle('text-amber-700', payment.due_tone === 'warning');
                         dueLine.classList.toggle('text-emerald-700', payment.due_tone === 'settled');
                         dueLine.classList.toggle('text-gray-600', payment.due_tone === 'neutral');
-                    }
+                    });
 
                     const alert = row.querySelector('[data-payment-alert]');
 

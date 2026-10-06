@@ -62,16 +62,21 @@
         /**
          * Nhớ chế độ sắp xếp của màn hiện tại.
          *
-         * `init()` chỉ hành động khi URL KHÔNG mang `?sort=` — tức người dùng vào
-         * trang bằng menu/sidebar chứ không phải do vừa chọn. Có `?sort=` rồi thì
-         * URL là ý chí rõ ràng nhất, kể cả khi nó khác lựa chọn đã lưu (người dùng
-         * muốn xem thử chế độ khác và không muốn nó bị ghi đè vĩnh viễn).
+         * `init()` KHÔNG điều hướng nữa — xem giải thích bên dưới.
          */
         function ccSortPicker(storageKey, currentMode, knownModes) {
             return {
                 mode: currentMode,
 
                 init() {
+                    // URL có `?sort=` ⇒ ý chí rõ ràng của lần truy cập này, kể cả khi
+                    // nó khác lựa chọn đã lưu (người dùng muốn xem thử chế độ khác và
+                    // không muốn nó bị ghi đè vĩnh viễn). Giữ nguyên hành vi cũ: không
+                    // đụng vào lựa chọn đã nhớ.
+                    const url = new URL(window.location.href);
+
+                    if (url.searchParams.has('sort')) return;
+
                     let stored = null;
 
                     try {
@@ -81,22 +86,55 @@
                         return;
                     }
 
-                    if (!stored || stored === this.mode) return;
-                    if (!knownModes.includes(stored)) return;
+                    if (!stored || !knownModes.includes(stored)) return;
 
-                    const url = new URL(window.location.href);
+                    if (stored === this.mode) return;
 
-                    if (url.searchParams.has('sort')) return;
-
-                    url.searchParams.set('sort', stored);
-                    window.location.replace(url.toString());
+                    // KHÔNG `window.location.replace()` ở đây nữa.
+                    //
+                    // Server đọc chế độ ĐÃ NHỚ qua cookie CÙNG TÊN khoá
+                    // `localStorage` (`credit-card-overview-sort`,
+                    // `credit-card-management-sort`, `credit-card-statements-sort`)
+                    // nên lần vào sau đã render đúng ngay ở request ĐẦU. Bản cũ chỉ
+                    // lưu `localStorage` rồi tự `location.replace` để yêu cầu lần
+                    // hai, nên mỗi lần vào trang đều tải 2 lần: 1 request dựng trang
+                    // theo mặc định rồi 1 request nữa mới dựng lại theo lựa chọn đã
+                    // nhớ. Đây là nguồn `GET /thetindung` thứ hai — KHÔNG phải tùy
+                    // chọn hiển thị (`persistDisplay()` chỉ ghi `localStorage`, không
+                    // điều hướng).
+                    //
+                    // Ghi cookie ở đây chỉ để chữa lành dữ liệu cũ: người dùng đã
+                    // đổi chế độ từ trước khi có cookie thì `localStorage` có mà
+                    // cookie thì chưa. Không ghi thì lượt này hiện mặc định (đúng
+                    // với những gì server vừa render) và lượt sau mới đúng.
+                    this.rememberMode(stored);
                 },
 
                 remember() {
+                    this.rememberMode(this.mode);
+                },
+
+                /**
+                 * Ghi lựa chọn vào CẢ HAI nơi: `localStorage` cho tương thích dữ
+                 * liệu cũ, cookie để server đọc được ngay request đầu tiên.
+                 *
+                 * Tên cookie trùng tên khoá `localStorage` để mỗi màn tự lưu trữ
+                 * độc lập — Tổng quan, Quản lý thẻ và Sao kê có ba chế độ riêng.
+                 */
+                rememberMode(mode) {
                     try {
-                        window.localStorage.setItem(storageKey, this.mode);
+                        window.localStorage.setItem(storageKey, mode);
                     } catch (e) {
                         // Không lưu được thì lần sau về mặc định, vẫn dùng được.
+                    }
+
+                    try {
+                        const oneYear = 60 * 60 * 24 * 365;
+
+                        document.cookie =
+                            `${storageKey}=${encodeURIComponent(mode)}; path=/; max-age=${oneYear}; SameSite=Lax`;
+                    } catch (e) {
+                        // Cookie bị chặn ⇒ server về mặc định, không hỏng trang.
                     }
                 },
             };

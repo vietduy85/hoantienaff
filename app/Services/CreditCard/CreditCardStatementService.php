@@ -339,6 +339,38 @@ class CreditCardStatementService
         // khiển biến mất, và làm "chưa nhập" khác "chưa trả".
         $status = $statement?->payment_status ?? CreditCardStatement::PAYMENT_STATUS_UNPAID;
         $isPaid = $status === CreditCardStatement::PAYMENT_STATUS_PAID;
+
+        // `paid` QUYẾT ĐỊNH TRƯỚC MỌI THỨ KHÁC. Câu hỏi "quá hạn mấy ngày" chỉ
+        // có nghĩa khi khoản nợ CHƯA được trả; trả rồi thì hạn đó chỉ còn là
+        // ngày đã lịch sử. Nên ở đây ta không tính `days_to_due` và không dựng
+        // cửa sổ nhắc cho kỳ đã trả — cùng một lý do mà `dueDisplay()`/`paymentAlert()`
+        // trả về `settled`/`null`. Tính trước rồi mới quên dùng là cách làm nửa
+        // vời: `days_to_due` vẫn lọt ra payload và bất cứ tầng nào đọc nó cũng
+        // thấy "quá hạn" cho một kỳ đã trả.
+        if ($isPaid) {
+            return [
+                'status' => $status,
+                'status_label' => CreditCardStatement::PAYMENT_STATUS_LABELS[$status]
+                    ?? CreditCardStatement::PAYMENT_STATUS_LABELS[CreditCardStatement::PAYMENT_STATUS_PAID],
+                'is_paid' => true,
+                ...$this->statementState($statement),
+                'reminder_days' => $reminderDays,
+                // Không cửa sổ nhắc cho kỳ đã trả.
+                'reminder_start_date' => null,
+                'reminder_start_label' => null,
+                // Ngày hạn VẪN phải có: người dùng cần biết hạn của kỳ này là khi
+                // nào, chỉ là không còn ý nghĩa "còn bao lâu nữa" nữa.
+                'due_date' => $due?->toDateString(),
+                'payment_due_date' => $due?->toDateString(),
+                'due_label' => $due?->format('d/m/Y'),
+                // Không quá hạn ⇒ không có số đếm ngược.
+                'days_to_due' => null,
+                'state' => 'paid',
+                ...$this->dueDisplay('paid', $due, null),
+                'alert' => null,
+            ];
+        }
+
         $reminderStart = $this->paymentReminderStartDate($due, $reminderDays);
         $daysToDue = $due === null ? null : (int) $today->diffInDays($due, false);
 
@@ -347,7 +379,6 @@ class CreditCardStatementService
         $reminderReached = $reminderStart !== null && ! $today->lessThan($reminderStart);
 
         $state = match (true) {
-            $isPaid => 'paid',
             $due === null => 'no_due',
             $daysToDue < 0 => 'overdue',
             $daysToDue === 0 => 'due_today',

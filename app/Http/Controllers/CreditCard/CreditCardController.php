@@ -76,7 +76,9 @@ class CreditCardController extends Controller
         // Thứ tự do `CreditCardCardSortService` quyết định (service DUY NHẤT, dùng
         // chung cho cả ba màn) — nhưng các chỉ số vẫn khoá theo `user_card_id`, nên
         // đổi thứ tự KHÔNG ghép số của thẻ này vào thẻ khác.
-        $sortMode = $this->sort->normalizeMode($request->query('sort'));
+        $sortMode = $this->sort->normalizeMode(
+            $request->query('sort') ?? $request->cookie('credit-card-overview-sort')
+        );
         $userCreditCards = $this->sort->sort($sortMode, $cards, $today);
 
         // Số ngày nhắc là thiết lập CHUNG của user — đọc MỘT LẦN rồi truyền vào
@@ -220,7 +222,9 @@ class CreditCardController extends Controller
 
         // Trang này là nơi DUY NHẤT cho kéo-thả đổi thứ tự, nên `manual` ở đây
         // còn là hành động ghi; ba chế độ còn lại chỉ xem trước.
-        $sortMode = $this->sort->normalizeMode($request->query('sort'));
+        $sortMode = $this->sort->normalizeMode(
+            $request->query('sort') ?? $request->cookie('credit-card-management-sort')
+        );
 
         $cards = $this->sort->sort(
             $sortMode,

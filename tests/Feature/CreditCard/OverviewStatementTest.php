@@ -89,10 +89,366 @@ class OverviewStatementTest extends TestCase
             "Kỳ {$start->format('d/m/Y')} &ndash; {$end->format('d/m/Y')}",
             $html,
         );
-        $this->assertStringContainsString('5.000.000', $html);
-        $this->assertStringContainsString('250.000', $html);
-        // 5.000.000 − 250.000, đọc bằng công thức của model.
+
+        // Tổng quan chỉ in DƯ NỢ CUỐI KỲ — 5.000.000 − 250.000, đọc bằng công
+        // thức của model. Hai số thành phần là chi tiết của màn Sao kê; xem
+        // `statement_only_does_not_show_actual_spend` / `..._actual_reward`.
         $this->assertStringContainsString('4.750.000', $html);
+    }
+
+    // =====================================================================
+    // Khối sao kê ở Tổng quan chỉ cần DƯ NỢ + HẠN + TRẠNG THÁI
+    // =====================================================================
+
+    /** Số tiền chi tiêu thực tế KHÔNG được in ở khối sao kê của Tổng quan. */
+    #[Test]
+    public function statement_only_does_not_show_actual_spend(): void
+    {
+        $card = $this->makeUserCard($this->owner->id);
+
+        // 5.000.000 là số riêng của bản ghi sao kê: kỳ hiện tại chưa có giao
+        // dịch nên ô "Số tiền đã chi tiêu" của Tổng quan không in ra nó.
+        $this->writeStatement($card, '5000000', '250000', $this->completedPeriodStart($card));
+
+        $html = $this->actingAs($this->owner)->get('/thetindung')->assertOk()->getContent();
+
+        $this->assertStringNotContainsString('Chi tiêu thực tế', $html);
+        $this->assertStringNotContainsString('5.000.000', $html);
+    }
+
+    /** Số hoàn/thưởng thực tế KHÔNG được in ở khối sao kê của Tổng quan. */
+    #[Test]
+    public function statement_only_does_not_show_actual_reward(): void
+    {
+        $card = $this->makeUserCard($this->owner->id);
+
+        $this->writeStatement($card, '5000000', '250000', $this->completedPeriodStart($card));
+
+        $html = $this->actingAs($this->owner)->get('/thetindung')->assertOk()->getContent();
+
+        $this->assertStringNotContainsString('Hoàn/thưởng thực tế', $html);
+        $this->assertStringNotContainsString('250.000', $html);
+    }
+
+    /** Dư nợ cuối kỳ PHẢI còn, và đúng tên gọi mới. */
+    #[Test]
+    public function statement_only_shows_closing_balance(): void
+    {
+        $card = $this->makeUserCard($this->owner->id);
+
+        $this->writeStatement($card, '5000000', '250000', $this->completedPeriodStart($card));
+
+        $html = $this->actingAs($this->owner)->get('/thetindung')->assertOk()->getContent();
+
+        $this->assertStringContainsString('Dư nợ cuối kỳ', $html);
+        $this->assertStringContainsString(
+            '4.750.000',
+            $this->textOfTestId($html, 'card-statement-closing-balance'),
+        );
+        // Tên cũ "Còn phải trả" là nhãn của màn Sao kê, không phải của Tổng quan.
+        $this->assertStringNotContainsString('Còn phải trả', $html);
+    }
+
+    /** Hạn thanh toán của kỳ vẫn hiện, lấy đúng ngày hạn của kỳ đó. */
+    #[Test]
+    public function statement_only_shows_payment_due_date(): void
+    {
+        $card = $this->cardWithDueDate('2026-10-22');
+        $this->at('2026-10-17');
+
+        $this->writeStatement($card, '5000000', '250000', $this->completedPeriodStart($card));
+
+        $html = $this->actingAs($this->owner)->get('/thetindung')->assertOk()->getContent();
+
+        $this->assertStringContainsString('22/10/2026', $this->textOfTestId($html, 'card-statement-due'));
+    }
+
+    /** Trạng thái thanh toán của kỳ hiện ra, kể cả khi chưa có dòng sao kê. */
+    #[Test]
+    public function statement_only_shows_payment_status(): void
+    {
+        $card = $this->cardWithDueDate('2026-10-22');
+        $this->at('2026-10-17');
+
+        // Cố ý KHÔNG ghi dòng sao kê: kỳ ảo phải vẫn báo trạng thái.
+        $html = $this->actingAs($this->owner)->get('/thetindung')->assertOk()->getContent();
+
+        $this->assertStringContainsString(
+            'Chưa thanh toán',
+            $this->textOfTestId($html, 'card-statement-payment-status'),
+        );
+
+        $statement = $this->writeStatement($card, '5000000', '250000', $this->completedPeriodStart($card));
+        $this->markPaid($statement);
+
+        $html = $this->actingAs($this->owner)->get('/thetindung')->assertOk()->getContent();
+
+        $this->assertStringContainsString(
+            'ĐÃ THANH TOÁN',
+            $this->textOfTestId($html, 'card-statement-payment-status'),
+        );
+    }
+
+    /** Kỳ đã trả thì Tổng quan không được báo quá hạn. */
+    #[Test]
+    public function statement_paid_does_not_show_overdue_warning(): void
+    {
+        $card = $this->cardWithDueDate('2026-10-22');
+        $this->at('2026-10-25');
+
+        $statement = $this->writeStatement($card, '5000000', '250000', $this->completedPeriodStart($card));
+        $this->markPaid($statement);
+
+        $html = $this->actingAs($this->owner)->get('/thetindung')->assertOk()->getContent();
+
+        $this->assertAlertHidden($html);
+        $this->assertStringNotContainsString('ĐÃ QUÁ HẠN THANH TOÁN', $html);
+        $this->assertStringNotContainsString('Quá hạn 3 ngày', $html);
+        // Ngày hạn vẫn hiện — người dùng cần biết hạn của kỳ là khi nào.
+        $this->assertStringContainsString('Hạn thanh toán kỳ này: 22/10/2026', $html);
+    }
+
+    /** Kỳ CHƯA trả mà quá hạn thì phải báo. */
+    #[Test]
+    public function statement_unpaid_overdue_shows_overdue_warning(): void
+    {
+        $card = $this->cardWithDueDate('2026-10-22');
+        $this->at('2026-10-25');
+
+        $this->writeStatement($card, '5000000', '250000', $this->completedPeriodStart($card));
+
+        $html = $this->actingAs($this->owner)->get('/thetindung')->assertOk()->getContent();
+
+        $this->assertAlertVisible($html);
+        $this->assertStringContainsString('ĐÃ QUÁ HẠN THANH TOÁN', $html);
+        $this->assertStringContainsString('Quá hạn 3 ngày', $html);
+    }
+
+    /** Kỳ CHƯA trả mà đang trong cửa sổ nhắc thì phải báo sắp đến hạn. */
+    #[Test]
+    public function statement_unpaid_reminder_shows_reminder(): void
+    {
+        $card = $this->cardWithDueDate('2026-10-22');
+        $this->at('2026-10-17');
+
+        $this->writeStatement($card, '5000000', '250000', $this->completedPeriodStart($card));
+        $this->setReminder(5);
+
+        $html = $this->actingAs($this->owner)->get('/thetindung')->assertOk()->getContent();
+
+        $this->assertAlertVisible($html);
+        $this->assertStringContainsString('SẮP ĐẾN HẠN THANH TOÁN', $html);
+        $this->assertStringContainsString('Còn 5 ngày', $html);
+    }
+
+    /** Bật/ tắt khối sao kê KHÔNG được đụng vào tổng của Tổng quan. */
+    #[Test]
+    public function statement_only_does_not_change_overview_totals(): void
+    {
+        $card = $this->cardWithDueDate('2026-10-22');
+        $this->at('2026-10-17');
+
+        // Ghi một dòng sao kê vào kỳ ĐÃ CHỐT, không giao dịch nào ở kỳ hiện tại.
+        $this->writeStatement($card, '5000000', '250000', $this->completedPeriodStart($card));
+
+        $totals = $this->summaryOf('/thetindung');
+
+        // Tổng của Tổng quan là của KỲ HIỆN TẠI, nên dòng sao kê 5.000.000 của
+        // kỳ đã chốt không được lọt vào ô tổng.
+        $this->assertStringStartsWith('0', $totals['stat-total-spend']);
+        $this->assertStringStartsWith('0', $totals['stat-expected-cashback']);
+    }
+
+    /** Tùy chọn "Sao kê" độc lập với tùy chọn "Số tiền đã chi tiêu". */
+    #[Test]
+    public function statement_display_preference_is_independent_from_spend_display(): void
+    {
+        // Cổng hiển thị nằm trong vòng lặp thẻ, nên cần ít nhất một thẻ thì trang
+        // mới render ra `x-show` — không có thẹ thì trống, test sẽ pass vì lý do sai.
+        $this->makeUserCard($this->owner->id);
+
+        $html = $this->overviewHtml();
+
+        // Bốn tùy chọn là BỐN khoá riêng: bỏ tick "Sao kê" không được kéo theo
+        // việc ẩn "Số tiền đã chi tiêu" và ngược lại.
+        $spend = $this->inputTagOf($html, 'data-testid="toggle-spend"');
+        $statement = $this->inputTagOf($html, 'data-testid="toggle-statement"');
+
+        $this->assertStringContainsString('x-model="display.spend"', $spend);
+        $this->assertStringContainsString('x-model="display.statement"', $statement);
+        $this->assertStringContainsString('checked', $spend);
+        $this->assertStringContainsString('checked', $statement);
+
+        // Cổng hiển thị cũng tách: hai khối có `showSection` riêng.
+        $this->assertStringContainsString("showSection('spend')", $html);
+        $this->assertStringContainsString("showSection('statement')", $html);
+    }
+
+    /** Tùy chọn "Sao kê" độc lập với tùy chọn "Cashback dự kiến". */
+    #[Test]
+    public function statement_display_preference_is_independent_from_cashback_display(): void
+    {
+        $this->makeUserCard($this->owner->id);
+
+        $html = $this->overviewHtml();
+
+        $cashback = $this->inputTagOf($html, 'data-testid="toggle-cashback"');
+        $statement = $this->inputTagOf($html, 'data-testid="toggle-statement"');
+
+        $this->assertStringContainsString('x-model="display.cashback"', $cashback);
+        $this->assertStringContainsString('x-model="display.statement"', $statement);
+        $this->assertStringContainsString("showSection('cashback')", $html);
+        $this->assertStringContainsString("showSection('statement')", $html);
+
+        // Khoá lưu trữ giữ đúng 4 lựa chọn độc lập.
+        $this->assertStringContainsString(
+            '{ spend: true, cashback: true, quota: true, statement: true }',
+            $html,
+        );
+    }
+
+    /**
+     * Mở Tổng quan KHÔNG được sinh thêm một lần tải trang.
+     *
+     * Không có hạ tầng test trình duyệt trong dự án nên kiểm bằng đọc mã. Đây từng
+     * là nguồn `GET /thetindung` thứ HAI: `ccSortPicker.init()` tự điều hướng để áp
+     * lại chế độ đã nhớ, trong khi server chỉ đọc `?sort=` nên request đầu luôn về
+     * mặc định. Nay server đọc cookie nên request đầu đã render đúng.
+     *
+     * So khớp trong THÂN HÀM, không so cả trang: trang này vốn có chữ giải thích
+     * nhắc tới `location.replace`, và khẳng định "không được xuất hiện ở bất kỳ
+     * đâu" sẽ đỏ vì chính dòng chú thích giải thích lý do.
+     */
+    #[Test]
+    public function the_overview_does_not_navigate_a_second_time_on_load(): void
+    {
+        $html = $this->overviewHtml();
+
+        $sortPicker = $this->stripJsComments($this->bodyOfFunction($html, 'ccSortPicker'));
+        $persist = $this->stripJsComments($this->bodyOfFunction($html, 'creditCardOverview'));
+
+        // KHÔNG điều hướng bằng `replace`/`reload`/`assign`/`href` — đây chính là
+        // request thứ hai mà mỗi lần vào trang đều bắn ra.
+        foreach (['location.replace', 'location.reload', 'location.assign', 'location.href ='] as $navigation) {
+            $this->assertStringNotContainsString(
+                $navigation,
+                $sortPicker,
+                "`{$navigation}` trong `ccSortPicker` sẽ khiến trang tải 2 lần.",
+            );
+        }
+
+        // Đọc `location.href` để biết URL có `?sort=` hay không thì được; gán nó
+        // thì không. Kiểm chứng đúng bằng cách đọc `href` nhưng không gán.
+        $this->assertStringContainsString('window.location.href', $sortPicker);
+        $this->assertStringNotContainsString('window.location.href =', $sortPicker);
+
+        // Chế độ đã nhớ giờ đi qua cookie để server đọc được ở request đầu.
+        $this->assertStringContainsString('rememberMode', $sortPicker);
+        $this->assertStringContainsString('document.cookie', $sortPicker);
+
+        // Tùy chọn hiển thị chỉ ghi `localStorage`, không điều hướng.
+        $this->assertStringContainsString('persistDisplay', $persist);
+        $this->assertStringNotContainsString('location', $persist);
+
+        // Server đọc chế độ đã nhớ từ cookie nên không cần `?sort=`.
+        $this->assertStringContainsString(
+            "\$request->query('sort') ?? \$request->cookie('credit-card-overview-sort')",
+            file_get_contents(app_path('Http/Controllers/CreditCard/CreditCardController.php')),
+        );
+    }
+
+    /** Chế độ sắp xếp đã nhớ vẫn được tôn trọng, và đúng ngay ở request đầu. */
+    #[Test]
+    public function the_overview_honours_the_remembered_sort_mode_without_a_query_param(): void
+    {
+        // Thẻ nợ gần hạn nhất phải lên trước khi sắp theo "còn thiếu nhiều nhất".
+        $this->makeUserCard($this->owner->id, ['credit_limit' => '10000000', 'desired_spend' => '20000000']);
+        $this->makeUserCard($this->owner->id, ['credit_limit' => '50000000', 'desired_spend' => '50000000']);
+
+        $byQuery = $this->orderOfCards(
+            $this->actingAs($this->owner)->get('/thetindung?sort=min_spend')->assertOk()->getContent()
+        );
+
+        $byCookie = $this->orderOfCards(
+            $this->actingAs($this->owner)
+                ->withCookie('credit-card-overview-sort', 'min_spend')
+                ->get('/thetindung')
+                ->assertOk()
+                ->getContent()
+        );
+
+        $this->assertNotEmpty($byCookie);
+        $this->assertSame(
+            $byQuery,
+            $byCookie,
+            'Cookie phải cho ra đúng thứ tự như `?sort=` đưa ra, ngay ở request đầu.',
+        );
+    }
+
+    /** Nội dung trang Tổng quan. */
+    private function overviewHtml(): string
+    {
+        return $this->actingAs($this->owner)->get('/thetindung')->assertOk()->getContent();
+    }
+
+    /** Thứ tự id thẻ theo thứ tự xuất hiện trên trang. */
+    private function orderOfCards(string $html): array
+    {
+        preg_match_all('/data-testid="card-row"\s+data-card-id="(\d+)"/', $html, $matches);
+
+        return array_map('intval', $matches[1]);
+    }
+
+    /**
+     * Thân một hàm JS trong HTML, cắt theo cặp ngoặc đầu tiên sau `function`.
+     *
+     * Cần khi muốn khẳng định về MÃ CHẠY CHỨ KHÔNG PHẢI về chữi giải thích: các
+     * bình luận trong mã thường phải nhắc tên chính thứ đó để giải thích vì sao nó
+     * bị bỏ, và khẳng định "không xuất hiện ở đâu cả" sẽ đỏ oang vì chính dòng
+     * giải thích ấy.
+     */
+    private function bodyOfFunction(string $html, string $function): string
+    {
+        $start = strpos($html, 'function '.$function);
+
+        $this->assertNotFalse($start, "Không tìm thấy hàm JS {$function}.");
+
+        $open = strpos($html, '{', $start);
+
+        $this->assertNotFalse($open);
+
+        $depth = 0;
+        $length = strlen($html);
+
+        for ($i = $open; $i < $length; $i++) {
+            if ($html[$i] === '{') {
+                $depth++;
+            } elseif ($html[$i] === '}') {
+                $depth--;
+
+                if ($depth === 0) {
+                    return substr($html, $start, $i - $start + 1);
+                }
+            }
+        }
+
+        $this->fail("Hàm JS {$function} không cân bằng ngoặc.");
+    }
+
+    /**
+     * Bỏ chú thích JS khỏi một đoạn mã trước khi khẳng định về nó.
+     *
+     * Bình luận trong mã PHẢI nhắc tên chính thứ của thứ đã bị bỏ — đó là cách
+     * người sau không vô tình thêm lại. Nên khẳng định "không được xuất hiện ở đâu
+     * cả" mà quét cả bình luận thì luôn đỏ, đúng cái giá của việc viết tốt.
+     * Ở đây chỉ quan tâm MÃ CHẠY.
+     */
+    private function stripJsComments(string $code): string
+    {
+        $withoutBlocks = preg_replace('#/\*.*?\*/#s', '', $code);
+
+        // `//` đứng ngay sau `:` là trong URL (`https://`), không phải chú thích.
+        return preg_replace('#(?<!:)//[^\n]*#', '', (string) $withoutBlocks);
     }
 
     #[Test]

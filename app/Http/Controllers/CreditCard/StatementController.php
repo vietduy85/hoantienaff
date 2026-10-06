@@ -67,7 +67,12 @@ class StatementController extends Controller
     {
         $userId = (int) $request->user()->id;
         $today = CarbonImmutable::now();
-        $sortMode = $this->sort->normalizeMode($request->query('sort'));
+
+        // `?sort=` thắng; thiếu thì lấy chế độ đã nhớ trong cookie để request ĐẦU
+        // đã render đúng — xem `ccSortPicker` trong `partials/sort-picker.blade.php`.
+        $sortMode = $this->sort->normalizeMode(
+            $request->query('sort') ?? $request->cookie('credit-card-statements-sort')
+        );
 
         $cards = $this->ownedCards($userId);
 
@@ -121,7 +126,9 @@ class StatementController extends Controller
     {
         $userId = (int) $request->user()->id;
         $today = CarbonImmutable::now();
-        $sortMode = $this->sort->normalizeMode($request->query('sort'));
+        $sortMode = $this->sort->normalizeMode(
+            $request->query('sort') ?? $request->cookie('credit-card-statements-sort')
+        );
         $reminderDays = $this->settings->reminderDaysFor($userId);
 
         $data = $this->sort

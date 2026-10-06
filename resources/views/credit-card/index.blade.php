@@ -752,26 +752,25 @@
                                     Kỳ {{ $row['statement']['start_label'] }} &ndash; {{ $row['statement']['end_label'] }}
                                 </p>
 
-                                {{-- Số tiền đọc từ `payment` — kỳ ảo trả về 0/0/0, cùng
-                                     nguồn với màn Sao kê. KHÔNG dùng
+                                {{-- CHỈ DƯ NỢ CUỐI KỲ.
+                                     KHÔNG in "Chi tiêu thực tế" / "Hoàn thưởng thực
+                                     tế" ở đây: đó là hai số của màn Sao kê, và
+                                     Tổng quan đã có ô "Số tiền đã chi tiêu" riêng
+                                     cho việc đó. In cả hai chỗ là lặp lại cùng một
+                                     dữ liệu ở hai nơi, và làm card cao lên ở
+                                     mobile chỉ vì hai dòng không ai đọc ở màn
+                                     này. Dư nợ cuối kỳ thì phải giữ: đó là
+                                     câu hỏi duy nhất Tổng quan cần trả lời —
+                                     "thẻ này còn nợ bao nhiêu".
+
+                                     Số đọc từ `payment` — kỳ ảo trả về
+                                     `0.00`, cùng nguồn với màn Sao kê. KHÔNG dùng
                                      `$row['statement']['actual_spend']`: bản đó null
-                                     khi chưa có dòng và sẽ khoét đúng cái khối số
-                                     mà người dùng cần để biết mình còn nợ bao nhiêu. --}}
+                                     khi chưa có dòng và sẽ khoét đúng số liệu mà
+                                     người dùng cần thấy. --}}
                                 <dl class="space-y-0.5" data-testid="card-statement-values">
                                     <div class="flex flex-wrap items-baseline gap-x-1.5 text-xs min-w-0">
-                                        <dt class="shrink-0 text-gray-500">Chi tiêu thực tế</dt>
-                                        <dd class="min-w-0 text-gray-800 tabular-nums">
-                                            <x-credit-card.money :value="$payment['actual_spend']" />
-                                        </dd>
-                                    </div>
-                                    <div class="flex flex-wrap items-baseline gap-x-1.5 text-xs min-w-0">
-                                        <dt class="shrink-0 text-gray-500">Hoàn/thưởng thực tế</dt>
-                                        <dd class="min-w-0 text-gray-800 tabular-nums">
-                                            <x-credit-card.money :value="$payment['actual_reward']" />
-                                        </dd>
-                                    </div>
-                                    <div class="flex flex-wrap items-baseline gap-x-1.5 text-xs min-w-0">
-                                        <dt class="shrink-0 text-gray-500">Còn phải trả</dt>
+                                        <dt class="shrink-0 text-gray-500">Dư nợ cuối kỳ</dt>
                                         <dd class="min-w-0 font-semibold text-gray-900 tabular-nums"
                                             data-testid="card-statement-closing-balance">
                                             <x-credit-card.money :value="$payment['closing_balance']" />
