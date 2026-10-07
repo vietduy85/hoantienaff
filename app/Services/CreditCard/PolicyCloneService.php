@@ -52,6 +52,7 @@ class PolicyCloneService
         private readonly CategoryRuleService $rules,
         private readonly TierService $tiers,
         private readonly CategoryComboService $combos,
+        private readonly SpendQualificationService $qualifications,
     ) {}
 
     /**
@@ -101,6 +102,16 @@ class PolicyCloneService
                 // `$userCard->user_id` ⇒ combo hệ thống được snapshot thành bản sao
                 // scope `user` (xem `mapComboForClone`).
                 $this->copyChildren($blueprint->id, $root->id, (int) $userCard->user_id);
+            }
+
+            // Điều kiện hoàn tiền đặc biệt: payload editor gửi khoá `spend_qualification`
+            // (kể cả `null` = tắt) thì ghi đè bản clone; khoá VẮNG = chưa chỉnh ⇒ giữ
+            // nguyên TỪ BLUEPRINT (bản tầng dưới đã clone tiers/rule từ đúng `$blueprint`
+            // này), kèm dấu vết `source_template_id` của chính blueprint.
+            if (array_key_exists('spend_qualification', $overrides)) {
+                $this->qualifications->persistForPolicyVersion($root->id, $overrides['spend_qualification'], (int) $userCard->user_id);
+            } else {
+                $this->qualifications->copyFromPolicyVersion((int) $blueprint->id, $root->id);
             }
 
             // Thẻ trỏ về chuỗi version của chính nó.
@@ -163,6 +174,10 @@ class PolicyCloneService
             // khớp với metadata ở trên. Lấy từ `root` sẽ tạo ra template mang
             // cấu hình version 1 trong khi metadata lại lấy từ version N.
             $this->copyChildren($source->id, $blueprint->id);
+
+            // Điều kiện hoàn tiền đặc biệt của THẺ cũng được deep-clone thành bản
+            // riêng của blueprint (template user có thể trỏ category riêng của user).
+            $this->qualifications->copyFromPolicyVersion($source->id, $blueprint->id);
 
             return $template->refresh();
         });
@@ -235,6 +250,15 @@ class PolicyCloneService
                 $this->replaceChildren($newVersion->id, $overrides['tiers']);
             } else {
                 $this->copyChildren($latest->id, $newVersion->id);
+            }
+
+            // Điều kiện hoàn tiền đặc biệt: `spend_qualification` có mặt trong
+            // overrides (kể cả `null`) ⇒ ghi đè; vắng mặt ⇒ copy từ version mới
+            // nhất (chỉnh sửa ở version 2, 3... không được mất).
+            if (array_key_exists('spend_qualification', $overrides)) {
+                $this->qualifications->persistForPolicyVersion($newVersion->id, $overrides['spend_qualification'], (int) $userCard->user_id);
+            } else {
+                $this->qualifications->copyFromPolicyVersion($latest->id, $newVersion->id);
             }
 
             // Đóng version cũ — CHỈ đổi metadata vòng đời, không sửa business rule.
@@ -345,6 +369,16 @@ class PolicyCloneService
                     'min_total_spend' => 0,
                     'max_total_spend' => null,
                 ]]);
+            }
+
+            // Điều kiện hoàn tiền đặc biệt của blueprint (append-only): overrides
+            // có khoá `spend_qualification` (kể cả `null`) ⇒ ghi đè (system validation
+            // bên trong persist); vắng mặt ⇒ copy từ blueprint nguồn. Template mới
+            // không có nguồn và không kèm payload thì không tạo điều kiện nào.
+            if (array_key_exists('spend_qualification', $overrides)) {
+                $this->qualifications->persistForPolicyVersion($newBlueprint->id, $overrides['spend_qualification'], null);
+            } elseif ($latest !== null) {
+                $this->qualifications->copyFromPolicyVersion($latest->id, $newBlueprint->id);
             }
 
             // Đóng blueprint cũ — CHỈ metadata vòng đời, không sửa business rule.
@@ -497,6 +531,15 @@ class PolicyCloneService
                     $this->replaceChildren($cloned->id, $overrides['tiers']);
                 } else {
                     $this->copyChildren($blueprint->id, $cloned->id);
+                }
+
+                // Điều kiện hoàn tiền đặc biệt của blueprint clone: blueprint đang
+                // sửa có payload `spend_qualification` (kể cả `null`) ⇒ ghi đè; các
+                // blueprint còn lại chép nguyên trạng từ blueprint nguồn.
+                if ($isEdited && array_key_exists('spend_qualification', $overrides)) {
+                    $this->qualifications->persistForPolicyVersion($cloned->id, $overrides['spend_qualification'], null);
+                } else {
+                    $this->qualifications->copyFromPolicyVersion($blueprint->id, $cloned->id);
                 }
             }
 

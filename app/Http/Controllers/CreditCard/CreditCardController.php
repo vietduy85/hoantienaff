@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\CreditCard\Category;
 use App\Models\CreditCard\CategoryCombo;
 use App\Models\CreditCard\PolicyTemplate;
+use App\Models\CreditCard\SpendQualificationTemplate;
 use App\Models\CreditCard\UserCard;
 use App\Services\CreditCard\BankService;
 use App\Services\CreditCard\CategoryService;
@@ -13,6 +14,7 @@ use App\Services\CreditCard\CreditCardCardSortService;
 use App\Services\CreditCard\CreditCardOverviewService;
 use App\Services\CreditCard\CreditCardStatementService;
 use App\Services\CreditCard\CreditCardUserSettingService;
+use App\Services\CreditCard\SpendQualificationService;
 use App\Services\CreditCard\StatementPeriodService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -271,6 +273,21 @@ class CreditCardController extends Controller
                 ->selectableBy($userId)
                 ->orderBy('name')
                 ->get(),
+            'spendQualificationTemplates' => SpendQualificationTemplate::query()
+                ->where('is_active', true)
+                ->orderBy('sort_order')
+                ->orderBy('name')
+                ->get()
+                ->map(fn (SpendQualificationTemplate $template): array => [
+                    'id' => (int) $template->id,
+                    'name' => $template->name,
+                    // Payload điều kiện kèm sẵn: chọn mẫu là sao chép sang thẻ rồi
+                    // chỉnh, KHÔNG gọi thêm API khi mở form (đúng ưu tiên mobile).
+                    'spend_qualification' => app(SpendQualificationService::class)
+                        ->payloadForTemplate((int) $template->id),
+                ])
+                ->values()
+                ->all(),
         ]);
     }
 

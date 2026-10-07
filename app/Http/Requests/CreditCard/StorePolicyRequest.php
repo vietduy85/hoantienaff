@@ -54,6 +54,25 @@ class StorePolicyRequest extends FormRequest
             'rounding_mode' => ['sometimes', Rule::in(['round', 'floor', 'ceil'])],
             'note' => ['sometimes', 'nullable', 'string', 'max:1000'],
 
+            // Điều kiện hoàn tiền đặc biệt (optional): mảng = ghi; `null` = không
+            // dùng; vắng khoá = policy không có điều kiện.
+            'spend_qualification' => ['sometimes', 'nullable', 'array'],
+            'spend_qualification.enabled' => ['sometimes', 'boolean'],
+            'spend_qualification.name' => ['sometimes', 'nullable', 'string', 'max:150'],
+            'spend_qualification.note' => ['sometimes', 'nullable', 'string', 'max:5000'],
+            'spend_qualification.conditions' => ['sometimes', 'array'],
+            'spend_qualification.conditions.*.id' => ['sometimes', 'nullable', 'integer'],
+            'spend_qualification.conditions.*.type' => [
+                'sometimes',
+                Rule::in(['category', 'other']),
+            ],
+            'spend_qualification.conditions.*.category_id' => ['sometimes', 'nullable', 'integer'],
+            'spend_qualification.conditions.*.min_spend' => ['sometimes', 'numeric', 'min:0'],
+            'spend_qualification.conditions.*.note' => ['sometimes', 'nullable', 'string', 'max:5000'],
+            'spend_qualification.conditions.*.sort_order' => ['sometimes', 'integer', 'min:0'],
+            'spend_qualification.conditions.*.excluded_category_ids' => ['sometimes', 'array'],
+            'spend_qualification.conditions.*.excluded_category_ids.*' => ['integer'],
+
             // Bậc chi tiêu (chỉ mode = scratch). Bỏ trống hoặc mảng rỗng hợp lệ:
             // service tự tạo một bậc mặc định, nên không bắt `min:1`.
             'tiers' => ['sometimes', 'array'],
@@ -115,6 +134,11 @@ class StorePolicyRequest extends FormRequest
 
         if (is_array($tiers)) {
             $payload['tiers'] = array_values($tiers);
+        }
+
+        // Điều kiện hoàn tiền đặc biệt của policy tự dựng (scratch).
+        if ($this->has('spend_qualification')) {
+            $payload['spend_qualification'] = $this->input('spend_qualification');
         }
 
         return $payload;

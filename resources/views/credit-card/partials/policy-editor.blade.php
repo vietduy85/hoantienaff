@@ -24,6 +24,11 @@
                       `ValidatesRuleTargets` từ chối — xem note cuối partial).
       $sourceVersionId ?int  phiên bản làm nguồn copy (luồng "Chỉnh sửa version N")
       $viewMode       bool   CHẾ ĐỘ XEM: mọi ô nhập bị khoá, không có nút thêm/xoá/lưu nào.
+      $spendQualificationTemplates list|null  Mẫu "Điều kiện hoàn tiền đặc biệt" để user
+                              form Thẻ chọn (chỉ hệ thống đang bật, kèm payload điều kiện).
+                              Rỗng = ẩn dropdown nguồn (màn quản trị: chính sách tự soạn).
+      $showSpendQualification bool  false ⇒ ẩn trọn khối "Điều kiện hoàn tiền đặc biệt"
+                              (màn không cần tính năng này cũng không kéo theo chỗ khác).
 
     ---------------------------------------------------------------------------
     CHẾ ĐỘ HOSTED (form Thẻ)
@@ -78,6 +83,8 @@
     $sourceVersionId = $sourceVersionId ?? null;
     $viewMode = $viewMode ?? false;
     $hosted = $hosted ?? false;
+    $spendQualificationTemplates = $spendQualificationTemplates ?? [];
+    $showSpendQualification = $showSpendQualification ?? true;
     $showTemplateMeta = $showTemplateMeta ?? true;
     $showPolicyMeta = $showPolicyMeta ?? true;
     // Ô "Chi tiêu tối thiểu để được hoàn tiền" (Vạch Min-Spend) tách khỏi
@@ -101,7 +108,7 @@
 <div class="space-y-4 sm:space-y-5">
 @else
 <div x-data="systemPolicyEditor(@js($initial), @js($endpoint), @js($categories), @js($sourceVersionId),
-@js($updateEndpoint), @js($viewMode), @js($combos))"
+@js($updateEndpoint), @js($viewMode), @js($combos), @js($spendQualificationTemplates))"
      class="space-y-4 sm:space-y-5">
 @endif
 
@@ -426,6 +433,140 @@
         </div>
     </div>
 
+    {{-- ═══ ĐIỀU KIỆN HOÀN TIỀN ĐẶC BIỆT ═══
+         Hiểu đúng cụm này: đây KHÔNG phải "điều kiện để tính hoàn" thông thường
+         (bậc/rulee đã làm việc đó), mà là GATE cả kỳ sao kê: thẻ phải đạt TẤT CẢ
+         các điều kiện (AND) đo trên CHI TIÊU THỰC TẾ của kỳ thì kỳ đó mới được
+         hoàn tiền — chưa đạt là mọi giao dịch kỳ bị đánh REASON_QUALIFICATION_NOT_MET.
+
+         - Trang quản trị: chính sách tự soạn bộ điều kiện (danh mục system).
+         - Form Thẻ (hosted): là DROPDOWN chọn mẫu hệ thống đang bật ("Không sử dụng"
+           / mẫu), chọn mẫu xong thì làm việc trên BẢN CLONE đang sửa (mẫu gốc không
+           đổi); sửa thoải mái rồi payload gửi cả bộ điều kiện hoàn chỉnh.
+
+         Payload (chung quy ước khoá): màn quản trị LUÔN gửi `spend_qualification`
+         (null = không có); form Thẻ chỉ gửi khi người dùng chủ động đụng vào
+         (`qualification_touched`) — vắng khoá = tầng clone giữ nguyên bản đang chạy. --}}
+    @if ($showSpendQualification)
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <header class="px-4 sm:px-5 py-3.5 border-b border-gray-100">
+            <h3 class="font-semibold text-gray-800 text-sm">Điều kiện hoàn tiền đặc biệt</h3>
+            <p class="text-xs text-gray-500 mt-0.5">
+                Mọi điều kiện gộp bằng <b>AND</b>. Để được hoàn tiền, chi tiêu <b>thực tế</b> của kỳ sao kê
+                phải đạt đủ các điều kiện này (không phải tiền hoàn, không phải hạn mức).
+            </p>
+        </header>
+
+        @if (count($spendQualificationTemplates) > 0)
+        <div class="px-4 sm:px-5 py-3 border-b border-gray-100" x-show="!{{ $p }}viewMode">
+            <label class="block text-sm font-medium text-gray-700" for="cc-sq-source">Nguồn</label>
+            <select id="cc-sq-source" x-model="{{ $p }}qualification_source"
+                    @change="{{ $p }}pickQualificationSource()"
+                    :disabled="{{ $p }}viewMode"
+                    data-testid="spend-qualification-source"
+                    class="mt-1 block w-full min-h-[44px] rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
+                <option value="">Không sử dụng</option>
+                <template x-for="t in {{ $p }}spendQualificationTemplates" :key="t.id">
+                    <option :value="t.id" x-text="t.name"></option>
+                </template>
+                <option value="existing" x-show="{{ $p }}hasExistingSpendQualification"
+                        x-cloak>Giữ nguyên điều kiện đang có</option>
+            </select>
+            <p class="mt-1 text-xs text-gray-500">
+                Chọn mẫu sẽ <b>sao chép điều kiện</b> vào chính sách thẻ để bạn chỉnh riêng; mẫu gốc không đổi.
+            </p>
+        </div>
+        @endif
+
+        <template x-if="{{ $p }}spend_qualification == null">
+            <div class="px-4 sm:px-5 py-6 text-center">
+                <p class="text-sm text-gray-500">Không sử dụng điều kiện hoàn tiền đặc biệt.</p>
+            </div>
+        </template>
+
+        <template x-if="{{ $p }}spend_qualification != null">
+            <div>
+                <ul class="divide-y divide-gray-100">
+                    <template x-for="(sqCondition, sqi) in {{ $p }}spend_qualification.conditions" :key="sqi">
+                        <li class="px-4 sm:px-5 py-4 space-y-3">
+                            <div class="flex items-center justify-between gap-3">
+                                <div class="flex items-center gap-2 min-w-0">
+                                    <span class="shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-full bg-purple-50 text-purple-700 text-xs font-semibold"
+                                          x-text="sqi + 1"></span>
+                                    <span class="text-xs text-gray-400" x-text="sqCondition.type === 'other'
+                                        ? 'Lĩnh vực khác (tổng cả kỳ trừ danh mục loại)' : 'Danh mục cụ thể'"></span>
+                                </div>
+                                <button type="button" @click="{{ $p }}removeSpendCondition(sqi)" x-show="!{{ $p }}viewMode"
+                                        class="shrink-0 inline-flex items-center justify-center w-11 h-11 rounded-lg text-gray-400 hover:bg-rose-50 hover:text-rose-600"
+                                        aria-label="Xoá điều kiện đặc biệt">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                    </svg>
+                                </button>
+                            </div>
+
+                            <template x-if="sqCondition.type === 'category'">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Danh mục</label>
+                                    <select x-model="sqCondition.category_id" :disabled="{{ $p }}viewMode"
+                                            class="mt-1 block w-full min-h-[44px] rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
+                                        <option value="">— Chọn danh mục —</option>
+                                        <template x-for="cat in {{ $p }}spendCategories" :key="cat.id">
+                                            <option :value="cat.id" x-text="cat.name"></option>
+                                        </template>
+                                    </select>
+                                </div>
+                            </template>
+
+                            <template x-if="sqCondition.type === 'other'">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">
+                                        Loại trừ danh mục <span class="font-normal text-gray-400">(bỏ trống = tính trên tổng chi tiêu cả kỳ)</span>
+                                    </label>
+                                    <div class="mt-1 flex flex-wrap gap-1.5">
+                                        <template x-for="cat in {{ $p }}spendCategories" :key="cat.id">
+                                            <button type="button" :disabled="{{ $p }}viewMode"
+                                                    @click="{{ $p }}toggleSpendExcluded(sqCondition, cat.id)"
+                                                    :class="sqCondition.excluded_category_ids.includes(cat.id)
+                                                        ? 'bg-purple-600 text-white border-purple-600'
+                                                        : 'bg-white text-gray-600 border-gray-200 hover:border-purple-300'"
+                                                    class="inline-flex items-center px-3 h-9 rounded-full border text-xs font-medium transition-colors disabled:opacity-40"
+                                                    x-text="cat.name"></button>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">
+                                    Chi tiêu tối thiểu trong kỳ <span class="text-rose-500">*</span>
+                                </label>
+                                <div class="relative mt-1">
+                                    <input type="number" min="0" step="1000" x-model.number="sqCondition.min_spend"
+                                           :disabled="{{ $p }}viewMode"
+                                           class="block w-full rounded-xl border-gray-300 pr-10 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
+                                    <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-gray-400">đ</span>
+                                </div>
+                            </div>
+                        </li>
+                    </template>
+                </ul>
+
+                <div class="px-4 sm:px-5 py-3 border-t border-gray-100 flex flex-wrap gap-2" x-show="!{{ $p }}viewMode">
+                    <button type="button" @click="{{ $p }}addSpendCategory()"
+                            class="inline-flex items-center justify-center h-11 px-3.5 rounded-xl border border-dashed border-purple-300 text-purple-700 text-xs font-semibold hover:bg-purple-50">
+                        ＋ Thêm điều kiện danh mục
+                    </button>
+                    <button type="button" @click="{{ $p }}addSpendOther()" :disabled="{{ $p }}hasSpendOther"
+                            class="inline-flex items-center justify-center h-11 px-3.5 rounded-xl border border-dashed border-purple-300 text-purple-700 text-xs font-semibold hover:bg-purple-50 disabled:opacity-40 disabled:cursor-not-allowed">
+                        ＋ Thêm "Lĩnh vực khác"
+                    </button>
+                </div>
+            </div>
+        </template>
+    </div>
+    @endif
+
     {{-- Hành động. Ở chế độ HOSTED (form thẻ) KHÔNG có: nút "Lưu thẻ" của form
          cha là nút lưu duy nhất, tránh hai nút cùng ghi một chính sách. --}}
     @if (! $viewMode && ! $hosted)
@@ -493,6 +634,27 @@
     }
 
     /**
+     * Chuẩn hoá điều kiện hoàn tiền đặc biệt từ presenter (version/blueprint/mẫu)
+     * về hình dạng state của editor. `null` nếu không có điều kiện.
+     */
+    function ccNormalizeSpendQualification(value) {
+        if (!value || !Array.isArray(value.conditions)) return null;
+
+        return {
+            conditions: value.conditions.map((condition) => ({
+                type: condition.type,
+                category_id: condition.category_id ?? null,
+                min_spend: condition.min_spend ?? '',
+                note: condition.note ?? null,
+                excluded_category_ids: Array.isArray(condition.excluded_category_ids)
+                    ? condition.excluded_category_ids.map(Number)
+                    : [],
+            })),
+            source_template_id: value.source_template_id ?? null,
+        };
+    }
+
+    /**
      * STATE + PAYLOAD CỦA POLICY EDITOR — nguồn sự thật DUY NHẤT cho mọi màn hình.
      *
      * Tách riêng khỏi `systemPolicyEditor()` vì form Thẻ cần đúng phần này mà KHÔNG
@@ -505,8 +667,25 @@
      * @param categories array  danh mục user được chọn
      * @param combos     array  combo user được chọn (kèm `category_count`)
      * @param viewMode   bool   khoá toàn bộ ô nhập
+     * @param spendQualificationTemplates array  mẫu điều kiện hệ thống (form Thẻ)
      */
-    window.policyEditorState = function (initial, categories, combos, viewMode) {
+    window.policyEditorState = function (initial, categories, combos, viewMode, spendQualificationTemplates) {
+        const spendQualificationTpl = spendQualificationTemplates ?? [];
+
+        const initialQualification = ccNormalizeSpendQualification(initial.spend_qualification ?? null);
+
+        const initialQualificationSource = (function () {
+            if (!initialQualification) return '';
+            if (initialQualification.conditions.length === 0) return '';
+
+            const sourceId = initialQualification.source_template_id;
+            if (sourceId !== null && spendQualificationTpl.some((t) => Number(t.id) === Number(sourceId))) {
+                return String(sourceId);
+            }
+
+            return 'existing';
+        })();
+
         return {
             viewMode: viewMode ?? false,
             meta: {
@@ -574,6 +753,29 @@
             combos: combos ?? [],
             busy: false,
             error: '',
+
+            // ── Điều kiện hoàn tiền đặc biệt ──────────────────────────────────
+            // Danh mục người dùng được chọn để làm điều kiện (user form: `selectableBy`,
+            // admin: system active đã quy về danh mục user).
+            spendCategories: categories ?? [],
+            // Mẫu hệ thống đang bật (form Thẻ hiển thị dropdown nguồn; admin rỗng).
+            spendQualificationTemplates: spendQualificationTpl,
+            // `null` = KHÔNG sử dụng. Nếu có: `{ conditions: [...], source_template_id }`.
+            // Đây là bộ điều kiện HOÀN CHỈNH sẽ gửi đi (không phải "id mẫu").
+            spend_qualification: initialQualification,
+            // Giá trị dropdown "Nguồn": '' | 'existing' | id-mẫu.
+            qualification_source: initialQualificationSource,
+            // Form Thẻ chỉ gửi khoá `spend_qualification` khi người dùng CHỦ ĐỘNG đụng vào
+            // (đổi nguồn, thêm/sửa/xoá điều kiện). Vắng khoá = giữ nguyên bản đang chạy.
+            qualification_touched: false,
+
+            get hasExistingSpendQualification() {
+                return this.spend_qualification !== null;
+            },
+
+            get hasSpendOther() {
+                return (this.spend_qualification?.conditions ?? []).some((condition) => condition.type === 'other');
+            },
 
             addTier() {
                 this.tiers.push({
@@ -741,6 +943,139 @@
                 return Number.isFinite(parsed) ? parsed : null;
             },
 
+            // ══ ĐIỀU KIỆN HOÀN TIỀN ĐẶC BIỆT ══
+
+            // Đổi nguồn trong dropdown: '' (không dùng) | 'existing' (giữ nguyên) | id mẫu.
+            pickQualificationSource() {
+                this.qualification_touched = true;
+
+                if (this.qualification_source === '') {
+                    this.spend_qualification = null;
+                    return;
+                }
+
+                if (this.qualification_source === 'existing') {
+                    return;
+                }
+
+                const template = this.spendQualificationTemplates.find((t) => String(t.id) === String(this.qualification_source));
+
+                if (!template) {
+                    this.spend_qualification = null;
+                    return;
+                }
+
+                // Sao chép TẬN GỐC (deep close) điều kiện mẫu vào state — gốc không đổi.
+                this.spend_qualification = ccNormalizeSpendQualification(template.spend_qualification) || { conditions: [] };
+                if (this.spend_qualification) {
+                    this.spend_qualification.source_template_id = Number(template.id);
+                }
+            },
+
+            addSpendCategory() {
+                if (!this.spend_qualification) {
+                    this.spend_qualification = { conditions: [], source_template_id: null };
+                }
+
+                const used = this.spend_qualification.conditions
+                    .filter((condition) => condition.type === 'category')
+                    .map((condition) => Number(condition.category_id));
+                const free = this.spendCategories.find((category) => !used.includes(Number(category.id)));
+
+                if (!free) {
+                    this.error = 'Đã dùng hết danh mục để làm điều kiện hoàn tiền đặc biệt.';
+                    return;
+                }
+
+                this.spend_qualification.conditions.push({
+                    type: 'category',
+                    category_id: free.id,
+                    min_spend: '',
+                    note: null,
+                    excluded_category_ids: [],
+                });
+                this.qualification_touched = true;
+            },
+
+            addSpendOther() {
+                if (this.hasSpendOther) return;
+
+                if (!this.spend_qualification) {
+                    this.spend_qualification = { conditions: [], source_template_id: null };
+                }
+
+                this.spend_qualification.conditions.push({
+                    type: 'other',
+                    category_id: null,
+                    min_spend: '',
+                    note: null,
+                    excluded_category_ids: [],
+                });
+                this.qualification_touched = true;
+            },
+
+            removeSpendCondition(index) {
+                if (!this.spend_qualification) {
+                    return;
+                }
+
+                this.spend_qualification.conditions.splice(index, 1);
+
+                if (this.spend_qualification.conditions.length === 0) {
+                    this.spend_qualification = null;
+                    this.qualification_source = '';
+                }
+
+                this.qualification_touched = true;
+            },
+
+            toggleSpendExcluded(condition, categoryId) {
+                categoryId = Number(categoryId);
+                const index = (condition.excluded_category_ids ?? []).indexOf(categoryId);
+
+                if (index === -1) {
+                    condition.excluded_category_ids.push(categoryId);
+                } else {
+                    condition.excluded_category_ids.splice(index, 1);
+                }
+
+                this.qualification_touched = true;
+            },
+
+            /**
+             * Payload `spend_qualification` sẵn sàng gửi đi: `null` (không có điều
+             * kiện) hoặc mảng điều kiện chuẩn hoá kèm `source_template_id` (nếu có).
+             * Màn quản trị LUÔN gửi kết quả hàm này (khoá mang giá trị null khi không
+             * có điều kiện) để "gỡ bỏ" mang nghĩa chủ động; form Thẻ chỉ gửi khi
+             * `qualification_touched`.
+             */
+            spendQualificationPayload() {
+                if (this.spend_qualification === null) {
+                    return null;
+                }
+
+                const conditions = (this.spend_qualification.conditions ?? [])
+                    .map((condition) => ({
+                        type: condition.type,
+                        category_id: condition.type === 'category' ? this.targetId(condition.category_id) : null,
+                        min_spend: this.num(condition.min_spend),
+                        note: condition.note || null,
+                        excluded_category_ids: condition.type === 'other'
+                            ? (condition.excluded_category_ids ?? []).map(Number)
+                            : [],
+                    }))
+                    .filter((condition) => condition.type === 'other' || condition.category_id !== null);
+
+                const payload = { conditions };
+
+                const sourceId = this.spend_qualification.source_template_id ?? null;
+                if (sourceId !== null && sourceId !== '' && sourceId !== undefined) {
+                    payload.source_template_id = Number(sourceId);
+                }
+
+                return payload;
+            },
+
             // Cấu hình thuộc VERSION — thân của "Lưu lại" (PATCH versions.update) và
             // cũng là phần `tiers` mà form Thẻ gửi kèm. Một hàm, hai nơi dùng.
             versionConfig() {
@@ -810,9 +1145,9 @@
      * Editor System Policy: state chung + vỏ giao tiếp với API (nút lưu, redirect).
      * Form Thẻ KHÔNG dùng lớp này — nó dùng `policyEditorState()` và tự lưu.
      */
-    window.systemPolicyEditor = function (initial, endpoint, categories, sourceVersionId, updateEndpoint, viewMode, combos) {
+    window.systemPolicyEditor = function (initial, endpoint, categories, sourceVersionId, updateEndpoint, viewMode, combos, spendQualificationTemplates) {
         return {
-            ...window.policyEditorState(initial, categories, combos, viewMode),
+            ...window.policyEditorState(initial, categories, combos, viewMode, spendQualificationTemplates),
             endpoint: endpoint ?? '',
             sourceVersionId: sourceVersionId ?? null,
             updateEndpoint: updateEndpoint ?? null,
@@ -829,9 +1164,12 @@
 
             // Payload cho "Lưu lại" (PATCH versions.update): cấu hình version + metadata
             // template. KHÔNG có `source_version_id` vì không tạo version mới.
+            // Màn quản trị LUÔN gửi `spend_qualification` (null = gỡ bỏ) vì ô điều kiện
+            // luôn hiển thị ⇒ khoá vắng có nghĩa "không quản lý" — không đúng ở đây.
             currentPayload() {
                 return {
                     ...this.versionConfig(),
+                    spend_qualification: this.spendQualificationPayload(),
                     ...this.templateMeta(),
                 };
             },
@@ -842,6 +1180,7 @@
             payload() {
                 const payload = {
                     ...this.versionConfig(),
+                    spend_qualification: this.spendQualificationPayload(),
                     ...this.templateMeta(),
                 };
 

@@ -2,6 +2,8 @@
 
 use App\Http\Controllers\Admin\AffiliateConfigController;
 use App\Http\Controllers\Admin\AffiliateShortLinkController;
+use App\Http\Controllers\Admin\CreditCard\SpendQualificationAdminController;
+use App\Http\Controllers\Admin\CreditCard\SpendQualificationTemplateApiController;
 use App\Http\Controllers\Admin\CreditCard\SystemCategoryAdminController;
 use App\Http\Controllers\Admin\CreditCard\SystemComboAdminController;
 use App\Http\Controllers\Admin\CreditCard\SystemPolicyAdminController;
@@ -420,6 +422,45 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
     Route::patch('/credit-card/system-combos/{combo}', [SystemComboAdminController::class, 'update'])
         ->middleware('permission:credit-cards.manage')
         ->name('credit-card.system-combos.update');
+
+    // === Quản trị "Mẫu điều kiện hoàn tiền đặc biệt" (Credit Card) ===
+    // Master data: admin soạn bộ điều kiện ⇒ user chọn → hệ thống DEEP-CLONE vào
+    // policy version của thẻ. Trang Blade đổ dữ liệu; ghi đi qua JSON API dưới.
+    Route::get('/credit-card/spend-qualifications', [SpendQualificationAdminController::class, 'index'])
+        ->middleware('permission:credit-cards.view')
+        ->name('credit-card.spend-qualifications.index');
+    Route::get('/credit-card/spend-qualifications/create', [SpendQualificationAdminController::class, 'create'])
+        ->middleware('permission:credit-cards.manage')
+        ->name('credit-card.spend-qualifications.create');
+    Route::get('/credit-card/spend-qualifications/{template}', [SpendQualificationAdminController::class, 'show'])
+        ->middleware('permission:credit-cards.view')
+        ->name('credit-card.spend-qualifications.show');
+    Route::get('/credit-card/spend-qualifications/{template}/edit', [SpendQualificationAdminController::class, 'edit'])
+        ->middleware('permission:credit-cards.manage')
+        ->name('credit-card.spend-qualifications.edit');
+
+    Route::prefix('credit-card/api/spend-qualifications')->name('credit-card.spend-qualifications.api.')
+        ->middleware('throttle:credit-card-admin-api')
+        ->group(function () {
+            Route::get('/', [SpendQualificationTemplateApiController::class, 'index'])
+                ->middleware('permission:credit-cards.view')
+                ->name('index');
+            Route::post('/', [SpendQualificationTemplateApiController::class, 'store'])
+                ->middleware('permission:credit-cards.manage')
+                ->name('store');
+            Route::get('/{template}', [SpendQualificationTemplateApiController::class, 'show'])
+                ->middleware('permission:credit-cards.view')
+                ->name('show');
+            Route::patch('/{template}', [SpendQualificationTemplateApiController::class, 'update'])
+                ->middleware('permission:credit-cards.manage')
+                ->name('update');
+            Route::post('/{template}/active', [SpendQualificationTemplateApiController::class, 'setActive'])
+                ->middleware('permission:credit-cards.manage')
+                ->name('active');
+            Route::delete('/{template}', [SpendQualificationTemplateApiController::class, 'destroy'])
+                ->middleware('permission:credit-cards.manage')
+                ->name('destroy');
+        });
 });
 
 // Static pages - explicit routes

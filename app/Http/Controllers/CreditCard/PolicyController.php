@@ -225,6 +225,12 @@ class PolicyController extends Controller
         // nên form Thẻ hydrate đúng một hình dạng dữ liệu với Policy Editor chính
         // thức. Thiếu `transaction_caps` ở đây là mất cấu hình cap theo bậc ngay
         // lần mở form đầu tiên — trước đây có trường này thì phải sửa tay.
-        return $data + ['tiers' => $this->presenter->tiers($version)];
+        // Điều kiện hoàn tiền đặc biệt được đưa chung vào payload để editor Thẻ
+        // chỉnh bản clone với đúng hình dạng admin (`spend_qualification: null`
+        // = không có điều kiện; mảng = có).
+        return $data + [
+            'tiers' => $this->presenter->tiers($version),
+            'spend_qualification' => $this->presenter->spendQualification((int) $version->id),
+        ];
     }
 }

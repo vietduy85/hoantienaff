@@ -123,6 +123,9 @@ $travelPlatforms = collect(config('travel.platforms'))
                             <x-dropdown-link :href="route('admin.credit-card.system-combos.index')" :active="request()->routeIs('admin.credit-card.system-combos.*')">
                                 Combo danh mục
                             </x-dropdown-link>
+                            <x-dropdown-link :href="route('admin.credit-card.spend-qualifications.index')" :active="request()->routeIs('admin.credit-card.spend-qualifications.*')">
+                                ⛔ Mẫu điều kiện hoàn tiền đặc biệt
+                            </x-dropdown-link>
                         @endcan
 
                         @can('credit-cards.view')
@@ -234,6 +237,9 @@ $travelPlatforms = collect(config('travel.platforms'))
                 </x-responsive-nav-link>
                 <x-responsive-nav-link :href="route('admin.credit-card.system-combos.index')" :active="request()->routeIs('admin.credit-card.system-combos.*')">
                     Combo danh mục
+                </x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('admin.credit-card.spend-qualifications.index')" :active="request()->routeIs('admin.credit-card.spend-qualifications.*')">
+                    ⛔ Mẫu điều kiện hoàn tiền đặc biệt
                 </x-responsive-nav-link>
             @endcan
 

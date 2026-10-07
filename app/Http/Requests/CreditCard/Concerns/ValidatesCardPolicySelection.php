@@ -6,6 +6,7 @@ use App\Models\CreditCard\Category;
 use App\Models\CreditCard\CategoryCombo;
 use App\Models\CreditCard\PolicyTemplate;
 use App\Models\CreditCard\PolicyTierCategory;
+use App\Models\CreditCard\SpendQualificationCondition;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 
@@ -59,6 +60,29 @@ trait ValidatesCardPolicySelection
             // (service rơi về giá trị mẫu).
             "{$prefix}policy.min_total_spend" => ['sometimes', 'nullable', 'numeric', 'min:0'],
             "{$prefix}policy.name" => ['nullable', 'string', 'max:150'],
+
+            // Điều kiện hoàn tiền đặc biệt (SpendQualification) — khối này CHỈ
+            // được gửi khi form đang chỉnh một bộ điều kiện ĐÃ CÓ (meta đã hydrate).
+            // Gửi `null` = chủ động GỠ bỏ điều kiện; vắng khoá = giữ nguyên bản clone.
+            "{$prefix}policy.spend_qualification" => ['sometimes', 'nullable', 'array'],
+            "{$prefix}policy.spend_qualification.enabled" => ['sometimes', 'boolean'],
+            "{$prefix}policy.spend_qualification.name" => ['sometimes', 'nullable', 'string', 'max:150'],
+            "{$prefix}policy.spend_qualification.note" => ['sometimes', 'nullable', 'string', 'max:5000'],
+            "{$prefix}policy.spend_qualification.conditions" => ['sometimes', 'array'],
+            "{$prefix}policy.spend_qualification.conditions.*.id" => ['sometimes', 'nullable', 'integer'],
+            "{$prefix}policy.spend_qualification.conditions.*.type" => [
+                'required',
+                Rule::in([SpendQualificationCondition::TYPE_CATEGORY, SpendQualificationCondition::TYPE_OTHER]),
+            ],
+            // `category_id` bắt buộc với type=category; bắt buộc VẮNG với type=other
+            // (service chốt — xem `normalizeConditions`). `required` ở đây sẽ chặn
+            // lọt sai xuống tầng dưới.
+            "{$prefix}policy.spend_qualification.conditions.*.category_id" => ['sometimes', 'nullable', 'integer', Rule::exists(Category::class, 'id')],
+            "{$prefix}policy.spend_qualification.conditions.*.min_spend" => ['required', 'numeric', 'min:0', 'regex:/^\d+(\.\d{1,2})?$/'],
+            "{$prefix}policy.spend_qualification.conditions.*.note" => ['sometimes', 'nullable', 'string', 'max:5000'],
+            "{$prefix}policy.spend_qualification.conditions.*.sort_order" => ['sometimes', 'integer', 'min:0'],
+            "{$prefix}policy.spend_qualification.conditions.*.excluded_category_ids" => ['sometimes', 'array'],
+            "{$prefix}policy.spend_qualification.conditions.*.excluded_category_ids.*" => ['integer', Rule::exists(Category::class, 'id')],
 
             "{$prefix}policy.tiers" => ['sometimes', 'nullable', 'array'],
             // `id` tier/rule do editor mang theo để mở lại đúng dòng cũ. Service KHÔNG
@@ -176,6 +200,15 @@ trait ValidatesCardPolicySelection
         // không quản lý ô này ⇒ giữ nguyên giá trị đang có).
         if (array_key_exists('min_total_spend', $policy) && $policy['min_total_spend'] !== '') {
             $selection['min_total_spend'] = $policy['min_total_spend'];
+        }
+
+        // Điều kiện hoàn tiền đặc biệt: khoá CÓ MẶT là "chủ động gửi" (mảng = ghi
+        // đè; `null`/rỗng = gỡ bỏ). Khoá VẮNG = form không quản lý ⇒ KHÔNG đưa vào
+        // selection để tầng clone giữ nguyên bản sao/đang chạy.
+        if (array_key_exists('spend_qualification', $policy)) {
+            $selection['spend_qualification'] = ($policy['spend_qualification'] === '' || $policy['spend_qualification'] === null)
+                ? null
+                : $policy['spend_qualification'];
         }
 
         if (isset($policy['tiers']) && is_array($policy['tiers'])) {

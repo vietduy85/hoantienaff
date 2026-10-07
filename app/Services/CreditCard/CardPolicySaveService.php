@@ -121,6 +121,16 @@ class CardPolicySaveService
             ? ['min_total_spend' => $policy['min_total_spend'] ?? 0]
             : [];
 
+        // Điều kiện hoàn tiền đặc biệt: CHỈ đưa vào payload khi form GỬI khoá
+        // (form chỉ gửi khi đang chỉnh sửa một bộ điều kiện đã có — xem
+        // registerEditorMeta trong UI). Khoá vắng ⇒ chạy đúng hành vi "copy/giữ
+        // nguyên bản clone" của PolicyCloneService; khoá `null` ⇒ gỡ bỏ điều kiện.
+        $spendQualification = array_key_exists('spend_qualification', $policy)
+            ? ['spend_qualification' => $policy['spend_qualification']]
+            : [];
+
+        $qualificationOverrides = $spendQualification;
+
         if ($templateId !== null) {
             // `cloneUserTemplate` tự phân nhánh system/own-user và từ chối
             // template của user khác — nhận luôn id client nhưng không tin nó.
@@ -132,14 +142,16 @@ class CardPolicySaveService
                 $effectiveFrom,
                 $policy['name'] ?? null,
                 $tiers === null
-                    ? $minTotalSpend
-                    : ['tiers' => $tiers] + $minTotalSpend,
+                    ? $minTotalSpend + $qualificationOverrides
+                    : ['tiers' => $tiers] + $minTotalSpend + $qualificationOverrides,
             );
 
             return;
         }
 
         if ($tiers === null) {
+            // KHÔNG có lựa chọn nào (giữ nguyên hiện trạng) thì cũng không đụng
+            // tới điều kiện chi tiêu — client đã gửi `policy` nhưng rỗng.
             return;
         }
 
@@ -149,7 +161,7 @@ class CardPolicySaveService
             $this->policies->createFromScratch($card, $effectiveFrom, [
                 'name' => $policy['name'] ?? 'Chính sách của tôi',
                 'tiers' => $tiers,
-            ] + $minTotalSpend);
+            ] + $minTotalSpend + $qualificationOverrides);
 
             return;
         }
@@ -160,7 +172,7 @@ class CardPolicySaveService
             $this->policies->createFromScratch($card, $effectiveFrom, [
                 'name' => $policy['name'] ?? 'Chính sách của tôi',
                 'tiers' => $tiers,
-            ] + $minTotalSpend);
+            ] + $minTotalSpend + $qualificationOverrides);
 
             return;
         }
@@ -173,7 +185,7 @@ class CardPolicySaveService
         $this->policies->updateCurrentVersionInPlace($card, [
             'name' => $policy['name'] ?? null,
             'tiers' => $tiers,
-        ] + $minTotalSpend);
+        ] + $minTotalSpend + $qualificationOverrides);
     }
 
     /**

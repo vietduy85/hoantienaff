@@ -51,6 +51,7 @@ class PolicyService
         private readonly PolicyEngineService $engine,
         private readonly TierService $tiers,
         private readonly CategoryRuleService $rules,
+        private readonly SpendQualificationService $qualifications,
     ) {}
 
     /**
@@ -98,6 +99,12 @@ class PolicyService
             ]];
 
             $this->insertTiers($policy, $tiers);
+
+            // Điều kiện hoàn tiền đặc biệt của policy tự dựng: chỉ ghi khi payload
+            // mang khoá (form không chọn template nhưng vẫn có bộ điều kiện tay).
+            if (array_key_exists('spend_qualification', $attributes)) {
+                $this->qualifications->persistForPolicyVersion((int) $policy->id, $attributes['spend_qualification'] ?? null, (int) $userCard->user_id);
+            }
 
             $userCard->forceFill([
                 'current_policy_id' => $policy->id,
@@ -256,6 +263,14 @@ class PolicyService
                 ])->save();
             }
 
+            // Điều kiện hoàn tiền đặc biệt: form Thẻ gửi khoá (kể cả `null` = tắt)
+            // thì ghi đè; khoá vắng ⇒ giữ nguyên bản đang chạy (đúng bất biến
+            // "key present → replace"). Điều kiện này là tài sản của version của
+            // thẻ nên sửa tại chỗ không đụng template/template khác.
+            if (array_key_exists('spend_qualification', $overrides)) {
+                $this->qualifications->persistForPolicyVersion((int) $version->id, $overrides['spend_qualification'], (int) $userCard->user_id);
+            }
+
             $userCard->unsetRelation('currentPolicy');
 
             return $version->refresh();
@@ -378,6 +393,15 @@ class PolicyService
 
             if (array_key_exists('tiers', $data)) {
                 $this->syncTiers($version, $data['tiers']);
+            }
+
+            // Điều kiện hoàn tiền đặc biệt của blueprint hệ thống: `spend_qualification`
+            // có mặt trong payload editor (kể cả `null`) ⇒ ghi đè IN-PLACE (hệ thống
+            // chỉ được tham chiếu danh mục hệ thống — persist validate bên trong);
+            // vắng mặt ⇒ giữ nguyên. Mỗi notification xuất bản là mỗi blueprint riêng
+            // (policy_version_id UNIQUE) nên thẻ đã clone không bị ảnh hưởng.
+            if (array_key_exists('spend_qualification', $data)) {
+                $this->qualifications->persistForPolicyVersion((int) $version->id, $data['spend_qualification'], null);
             }
 
             return $version->refresh();

@@ -6,6 +6,7 @@ use App\Http\Requests\CreditCard\Concerns\ValidatesRuleTargets;
 use App\Models\CreditCard\Category;
 use App\Models\CreditCard\CategoryCombo;
 use App\Models\CreditCard\PolicyTierCategory;
+use App\Models\CreditCard\SpendQualificationCondition;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -71,6 +72,25 @@ class CreateSystemPolicyRequest extends FormRequest
             'tiers.*.rules.*.min_transaction_amount' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'tiers.*.rules.*.spend_from' => ['sometimes', 'numeric', 'min:0'],
             'tiers.*.rules.*.spend_to' => ['sometimes', 'nullable', 'numeric', 'min:0'],
+
+            // Điều kiện hoàn tiền đặc biệt của blueprint v1: `null` = không dùng;
+            // mảng = ghi. Vắng khoá = blueprint không có điều kiện.
+            'spend_qualification' => ['sometimes', 'nullable', 'array'],
+            'spend_qualification.enabled' => ['sometimes', 'boolean'],
+            'spend_qualification.name' => ['sometimes', 'nullable', 'string', 'max:150'],
+            'spend_qualification.note' => ['sometimes', 'nullable', 'string', 'max:5000'],
+            'spend_qualification.conditions' => ['sometimes', 'array'],
+            'spend_qualification.conditions.*.id' => ['sometimes', 'nullable', 'integer'],
+            'spend_qualification.conditions.*.type' => [
+                'required',
+                Rule::in([SpendQualificationCondition::TYPE_CATEGORY, SpendQualificationCondition::TYPE_OTHER]),
+            ],
+            'spend_qualification.conditions.*.category_id' => ['sometimes', 'nullable', 'integer', Rule::exists(Category::class, 'id')],
+            'spend_qualification.conditions.*.min_spend' => ['required', 'numeric', 'min:0', 'regex:/^\d+(\.\d{1,2})?$/'],
+            'spend_qualification.conditions.*.note' => ['sometimes', 'nullable', 'string', 'max:5000'],
+            'spend_qualification.conditions.*.sort_order' => ['sometimes', 'integer', 'min:0'],
+            'spend_qualification.conditions.*.excluded_category_ids' => ['sometimes', 'array'],
+            'spend_qualification.conditions.*.excluded_category_ids.*' => ['integer', Rule::exists(Category::class, 'id')],
         ];
     }
 
@@ -136,6 +156,12 @@ class CreateSystemPolicyRequest extends FormRequest
 
         if (is_array($tiers) && $tiers !== []) {
             $overrides['tiers'] = array_values($tiers);
+        }
+
+        // Điều kiện hoàn tiền đặc biệt: khoá có mặt = ghi (kể cả `null` = gỡ bỏ);
+        // vắng mặt = blueprint không có điều kiện.
+        if ($this->has('spend_qualification')) {
+            $overrides['spend_qualification'] = $this->input('spend_qualification');
         }
 
         return $overrides;

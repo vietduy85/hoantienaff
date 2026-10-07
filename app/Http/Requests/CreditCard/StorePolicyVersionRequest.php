@@ -36,6 +36,25 @@ class StorePolicyVersionRequest extends FormRequest
             'max_cashback_total_per_period' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'rounding_mode' => ['sometimes', Rule::in(['round', 'floor', 'ceil'])],
             'note' => ['sometimes', 'nullable', 'string', 'max:1000'],
+
+            // Điều kiện hoàn tiền đặc biệt (optional): `null` = gỡ bỏ; mảng =
+            // ghi đè; vắng khoá = version mới giữ nguyên từ version hiện tại.
+            'spend_qualification' => ['sometimes', 'nullable', 'array'],
+            'spend_qualification.enabled' => ['sometimes', 'boolean'],
+            'spend_qualification.name' => ['sometimes', 'nullable', 'string', 'max:150'],
+            'spend_qualification.note' => ['sometimes', 'nullable', 'string', 'max:5000'],
+            'spend_qualification.conditions' => ['sometimes', 'array'],
+            'spend_qualification.conditions.*.id' => ['sometimes', 'nullable', 'integer'],
+            'spend_qualification.conditions.*.type' => [
+                'sometimes',
+                Rule::in(['category', 'other']),
+            ],
+            'spend_qualification.conditions.*.category_id' => ['sometimes', 'nullable', 'integer'],
+            'spend_qualification.conditions.*.min_spend' => ['sometimes', 'numeric', 'min:0'],
+            'spend_qualification.conditions.*.note' => ['sometimes', 'nullable', 'string', 'max:5000'],
+            'spend_qualification.conditions.*.sort_order' => ['sometimes', 'integer', 'min:0'],
+            'spend_qualification.conditions.*.excluded_category_ids' => ['sometimes', 'array'],
+            'spend_qualification.conditions.*.excluded_category_ids.*' => ['integer'],
         ];
     }
 
@@ -60,6 +79,10 @@ class StorePolicyVersionRequest extends FormRequest
             if ($this->has($field)) {
                 $overrides[$field] = $this->input($field);
             }
+        }
+
+        if ($this->has('spend_qualification')) {
+            $overrides['spend_qualification'] = $this->input('spend_qualification');
         }
 
         return $overrides;

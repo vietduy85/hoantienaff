@@ -39,7 +39,9 @@ use LogicException;
  *   1. Chưa có policy version nào hiệu lực ⇒ no_policy_version
  *   2. Tổng eligible spend < `min_total_spend` của policy ⇒ below_minimum_spend
  *   3. Không bậc nào phủ tổng (lỗi cấu hình khoảng tier bị hở) ⇒ no_matching_tier
- *   4. Giao dịch không có rule / dưới `min_transaction_amount` ⇒ no_category_rule
+ *   4. Không đạt "Điều kiện hoàn tiền đặc biệt" của version ⇒ qualification_not_met
+ *      (đo trên CHI TIÊU THỰC TẾ của CẢ KỲ — xem SpendQualificationService)
+ *   5. Giao dịch không có rule / dưới `min_transaction_amount` ⇒ no_category_rule
  *      hoặc below_min_transaction_amount
  *
  * ---------------------------------------------------------------------------
@@ -53,6 +55,7 @@ class CashbackRecordService
         private readonly PolicyEngineService $engine,
         private readonly TierResolverService $tiers,
         private readonly CashbackCalculator $calculator,
+        private readonly SpendQualificationService $qualifications,
     ) {}
 
     /**
@@ -132,7 +135,39 @@ class CashbackRecordService
             $rules = $this->tiers->rulesForTier($tier);
             $transactionCaps = $this->tiers->transactionCapsForTier($tier);
 
-            // ---- 4-6. Hàm thuần + ghi snapshot ----
+            // ---- 4. "Điều kiện hoàn tiền đặc biệt" của version (gate cả kỳ) ----
+            // Đo trên CHI TIÊU THỰC TẾ của toàn bộ giao dịch kỳ (xe `$transactions`,
+            // không phải `$lines` đã lọc theo rule). Không đạt ⇒ MỌI giao dịch kỳ
+            // ineligible với `qualification_not_met` — reason đứng TRƯỚC
+            // below_minimum_spend/no_category_rule theo §thứ tự đã chốt. Bậc đã
+            // resolve nên tier_id/tier_name vẫn được lưu để giải thích sau này.
+            if (! $this->qualifications->evaluateForPeriod($version, $transactions)) {
+                $results = $this->writeAllIneligible(
+                    $userCard,
+                    $transactions,
+                    Transaction::REASON_QUALIFICATION_NOT_MET,
+                    version: $version,
+                    tierId: $tier?->id,
+                );
+
+                $this->writePeriodTotals($period, $totalEligibleSpend, 0.0, [
+                    'policy_version_id' => $version->id,
+                    'policy_version_no' => (int) $version->version_no,
+                    'tier_id' => $tier?->id,
+                    'tier_name' => $tier?->name,
+                    'min_total_spend' => (float) $version->min_total_spend,
+                    'reason' => Transaction::REASON_QUALIFICATION_NOT_MET,
+                    'application_mode' => 'retroactive',
+                    'transaction_count' => $transactions->count(),
+                    'eligible_transaction_count' => 0,
+                    'total_eligible_spend' => round($totalEligibleSpend, 2),
+                    'statement_date_basis' => $userCard->statement_date_basis,
+                ]);
+
+                return ['period' => $period->refresh(), 'results' => $results, 'skipped' => false];
+            }
+
+            // ---- 5-7. Hàm thuần + ghi snapshot ----
             $results = $this->calculator->calculate(
                 rules: $rules,
                 transactions: $lines,

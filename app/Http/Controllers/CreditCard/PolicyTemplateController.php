@@ -99,14 +99,17 @@ class PolicyTemplateController extends Controller
         }
 
         if ($blueprint === null) {
-            return $data + ['tiers' => []];
+            return $data + ['tiers' => [], 'spend_qualification' => null];
         }
 
         return $data + [
             // Cùng presenter với trang admin và với policy của thẻ: blueprint mà
             // form Thẻ sẽ hydrate vào Policy Editor phải có `transaction_caps`,
-            // `target_type`, `spend_from`/`spend_to`/`is_enabled` y hệt.
+            // `target_type`, `spend_from`/`spend_to`/`is_enabled` y hệt, kèm
+            // `spend_qualification` để editor hiển thị điều kiện hoàn tiền của
+            // mẫu (null = mẫu không có điều kiện).
             'tiers' => $this->presenter->tiers($blueprint),
+            'spend_qualification' => $this->presenter->spendQualification((int) $blueprint->id),
         ];
     }
 }

@@ -87,6 +87,9 @@
             // danh sách chỉ có một nguồn — không thể lệch với những gì server validate.
             'ruleCategories' => $ruleCategories,
             'ruleCombos' => $ruleCombos,
+            // Mẫu "Điều kiện hoàn tiền đặc biệt" hệ thống đang bật, kèm payload điều
+            // kiện để form Thẻ sao chép ngay (không gọi API khi mở form).
+            'spendQualificationTemplates' => $spendQualificationTemplates,
             // Chế độ sắp xếp đang xem và endpoint đổi thứ tự. Chỉ `manual` mới cho
             // kéo/di chuyển — ba chế độ kia là XEM TRƯỚC, xem xong thứ tự lưu không
             // bị đụng tới.
@@ -539,6 +542,13 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
 
                             <p class="text-xs text-gray-600" x-text="policySourceLabel()"></p>
 
+                            <p class="text-xs text-gray-600" x-show="policyEditor.spend_qualification !== null">
+                                🚦 Điều kiện hoàn tiền đặc biệt: <span class="font-semibold text-gray-800" x-text="spendQualificationSummary()"></span>
+                            </p>
+                            <p class="text-xs text-gray-600" x-show="policyEditor.spend_qualification === null">
+                                🚦 Điều kiện hoàn tiền đặc biệt: <span class="font-semibold text-gray-800">Không sử dụng</span>
+                            </p>
+
                             <template x-for="(tier, i) in policyEditor.tiers" :key="'t' + i">
                                 <div class="rounded-lg bg-white border border-gray-200 p-3 space-y-2">
                                     <div class="min-w-0">
@@ -637,6 +647,8 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                                     // `$showPolicyMeta` nên bật riêng, không mở lại
                                     // "Tên chính sách"/"Ngày bắt đầu".
                                     'showMinSpend' => true,
+                                    // Nguồn "Điều kiện hoàn tiền đặc biệt": dropdown mẫu.
+                                    'spendQualificationTemplates' => $spendQualificationTemplates,
                                 ])
                             </div>
                         </template>
@@ -810,6 +822,9 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                     // Danh sách target cho Policy Editor, render sẵn từ server.
                     ruleCategories: state.ruleCategories ?? [],
                     ruleCombos: state.ruleCombos ?? [],
+                    // Mẫu "Điều kiện hoàn tiền đặc biệt" hệ thống đang bật (kèm payload
+                    // điều kiện để user sao chép về thẻ). Rỗng = ẩn dropdown nguồn.
+                    spendQualificationTemplates: state.spendQualificationTemplates ?? [],
 
                     // Chỉ `manual` mới ghi `sort_order`; xem `CreditCardCardSortService`.
                     sortMode: state.sort_mode ?? 'manual',
@@ -1172,6 +1187,14 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                             tiers: this.policyEditor
                                 ? JSON.parse(JSON.stringify(this.policyEditor.tiers))
                                 : [],
+                            // Trạng thái "Điều kiện hoàn tiền đặc biệt" cũng phải trả lại
+                            // nguyên trạng khi Huỷ (gồm cờ "đã đụng" để payload không gửi
+                            // khoá thừa).
+                            spend_qualification: this.policyEditor
+                                ? JSON.parse(JSON.stringify(this.policyEditor.spend_qualification))
+                                : null,
+                            qualification_source: this.policyEditor?.qualification_source ?? '',
+                            qualification_touched: this.policyEditor?.qualification_touched ?? false,
                         };
 
                         this.policyEditMode = true;
@@ -1206,6 +1229,12 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                                 status: snapshot.meta.status,
                                 tiers: snapshot.tiers,
                             });
+
+                            if (this.policyEditor) {
+                                this.policyEditor.spend_qualification = snapshot.spend_qualification ?? null;
+                                this.policyEditor.qualification_source = snapshot.qualification_source ?? '';
+                                this.policyEditor.qualification_touched = snapshot.qualification_touched ?? false;
+                            }
                         } else {
                             this.policyEditor = null;
                         }
@@ -1358,6 +1387,13 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                             payload.template_id = Number(this.policy.template_id);
                         }
 
+                        // Điều kiện hoàn tiền đặc biệt: form Thẻ chỉ gửi khoá khi người
+                        // dùng CHỦ ĐỘNG đụng vào khu điều kiện (`qualification_touched`).
+                        // Vắng khoá = tầng clone giữ nguyên bản đang chạy/blueprint.
+                        if (this.policyEditor && this.policyEditor.qualification_touched) {
+                            payload.spend_qualification = this.policyEditor.spendQualificationPayload();
+                        }
+
                         return payload;
                     },
 
@@ -1396,10 +1432,16 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                                 // và `cards/{card}/{version}`) đã trả khoá này.
                                 min_total_spend: source?.min_total_spend ?? null,
                                 tiers: source?.tiers ?? [],
+                                // Điều kiện hoàn tiền đặc biệt của version/mẫu nạp về.
+                                // Nếu mẫu API chưa trả khoá này thì `source?.spend_qualification`
+                                // là `undefined` ⇒ hydrate về null (giống "không dùng"),
+                                // vậy nên CHỈ cần kèm khi endpoint thực sự trả.
+                                spend_qualification: source?.spend_qualification ?? null,
                             },
                             this.ruleCategories,
                             this.ruleCombos,
                             false,
+                            this.spendQualificationTemplates,
                         );
 
                         // `viewMode` là state của chính editor ⇒ đổi ở đây là mọi
@@ -1473,6 +1515,18 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                         return cap === null
                             ? 'Tổng hoàn tối đa mỗi kỳ: không giới hạn'
                             : `Tổng hoàn tối đa mỗi kỳ: ${ccMoney(cap)}`;
+                    },
+
+                    /** Tóm tắt "Điều kiện hoàn tiền đặc biệt" cho khung Tóm tắt. */
+                    spendQualificationSummary() {
+                        const conditions = this.policyEditor?.spend_qualification?.conditions ?? [];
+
+                        if (conditions.length === 0) return 'Không sử dụng';
+
+                        const total = conditions.reduce((sum, c) => sum + (Number(c.min_spend) || 0), 0);
+                        const label = conditions.length === 1 ? 'điều kiện' : 'điều kiện';
+
+                        return `${conditions.length} ${label} · tổng tối thiểu ${ccMoney(total)} đ/kỳ`;
                     },
 
                     /** Trần chi tiết của một quy tắc; gộp các trần còn lại. */

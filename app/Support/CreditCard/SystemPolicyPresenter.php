@@ -8,6 +8,7 @@ use App\Models\CreditCard\PolicyTier;
 use App\Models\CreditCard\PolicyTierCategory;
 use App\Models\CreditCard\PolicyTierCategoryTransactionCap;
 use App\Models\CreditCard\PolicyVersion;
+use App\Services\CreditCard\SpendQualificationService;
 
 /**
  * SystemPolicyPresenter — định dạng dữ liệu System Policy (Template + blueprint)
@@ -18,6 +19,9 @@ use App\Models\CreditCard\PolicyVersion;
  */
 class SystemPolicyPresenter
 {
+    public function __construct(
+        private readonly SpendQualificationService $qualifications,
+    ) {}
     public function template(PolicyTemplate $template, bool $withDetails = false): array
     {
         // Bản version "đang phát hành cho user mới" = DEFAULT, fallback về current.
@@ -50,6 +54,10 @@ class SystemPolicyPresenter
         }
 
         $data['tiers'] = $blueprint === null ? [] : $this->tiers($blueprint);
+
+        // Điều kiện hoàn tiền đặc biệt đi kèm blueprint đang phát hành (null nếu
+        // chính sách không có điều kiện — UI cần phân biệt "không có" vs "rỗng").
+        $data['spend_qualification'] = $blueprint === null ? null : $this->spendQualification((int) $blueprint->id);
 
         return $data;
     }
@@ -91,6 +99,7 @@ class SystemPolicyPresenter
             'rounding_mode' => $blueprint->rounding_mode,
             'tiers_count' => $this->countTiers($blueprint),
             'categories_count' => $this->countCategories($blueprint),
+            'spend_qualification' => $this->spendQualification((int) $blueprint->id),
             'tiers' => $this->tiers($blueprint),
         ];
     }
@@ -224,5 +233,17 @@ class SystemPolicyPresenter
             ->whereIn('tier_id', PolicyTier::query()->where('policy_id', $blueprint->id)->select('id'))
             ->distinct()
             ->count('category_id');
+    }
+
+    /**
+     * Payload điều kiện hoàn tiền đặc biệt của một blueprint (version).
+     *
+     * `null` = version KHÔNG có điều kiện (UI ẩn khối chỉnh sửa); mảng = có điều
+     * kiện (kể cả rỗng, khi đó engine coi là no-op). Dùng CHUNG method serialize
+     * của SpendQualificationService để payload admin ↔ editor ↔ card không lệch.
+     */
+    public function spendQualification(int $policyVersionId): ?array
+    {
+        return $this->qualifications->payloadForPolicyVersion($policyVersionId);
     }
 }

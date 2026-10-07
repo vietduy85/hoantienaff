@@ -61,6 +61,8 @@ class Transaction extends CreditCardModel
 
     public const REASON_NO_TIER = 'no_matching_tier';
 
+    public const REASON_QUALIFICATION_NOT_MET = 'qualification_not_met';
+
     protected $table = 'credit_card_transactions';
 
     protected $fillable = [
