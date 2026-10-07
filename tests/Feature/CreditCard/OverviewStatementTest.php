@@ -300,11 +300,14 @@ class OverviewStatementTest extends TestCase
         $this->assertStringContainsString("showSection('cashback')", $html);
         $this->assertStringContainsString("showSection('statement')", $html);
 
-        // Khoá lưu trữ giữ đúng 4 lựa chọn độc lập.
+        // Khoá lưu trữ giữ các lựa chọn độc lập: cashback và statement phải nằm
+        // trong cùng object mặc định (thêm khoá "Điều kiện hoàn tiền đặc biệt"
+        // ở Phase sau không được phá hai khoá này).
         $this->assertStringContainsString(
-            '{ spend: true, cashback: true, quota: true, statement: true }',
+            'cashback: true, quota: true, qualification: true, statement: true',
             $html,
         );
+        $this->assertStringContainsString('spend: true, cashback: true', $html);
     }
 
     /**

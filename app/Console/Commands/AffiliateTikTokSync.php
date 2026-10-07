@@ -12,6 +12,7 @@ use App\Services\TikTok\TikTokCashbackCalculator;
 use App\Services\TikTok\TikTokOrderSyncService;
 use App\Services\TikTok\TikTokServiceException;
 use App\Services\TikTok\TikTokUserResolver;
+use App\Support\AffiliateSyncLock;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -30,16 +31,13 @@ class AffiliateTikTokSync extends Command
 
     private const EXPECTED_CREATOR = 'hoan_tien_mua_sam';
 
-    private const SYNC_LOCK_KEY = 'affiliate-tiktok-sync:lock';
-
-    private const SYNC_LOCK_SECONDS = 1800;
-
     public function handle(): int
     {
         $flags = collect(['dry-run', 'import', 'sync'])->filter(fn ($f) => $this->option($f));
 
         if ($flags->count() > 1) {
             $this->error('[BLOCK] Chỉ được dùng MỘT trong các chế độ: --dry-run, --import, --sync.');
+
             return self::FAILURE;
         }
 
@@ -56,6 +54,7 @@ class AffiliateTikTokSync extends Command
             $this->line('  • php artisan affiliate:tiktok-sync --dry-run   (chỉ đọc, không ghi DB)');
             $this->line('  • php artisan affiliate:tiktok-sync --import    (ghi affiliate_order_items, KHÔNG credit wallet)');
             $this->line('  • php artisan affiliate:tiktok-sync --sync      (đồng bộ đầy đủ + credit wallet implicit)');
+
             return self::FAILURE;
         }
 
@@ -64,9 +63,9 @@ class AffiliateTikTokSync extends Command
 
     private function handleDryRun(): int
     {
-        $client   = new RioHubClient();
-        $resolver = new TikTokUserResolver();
-        $cashback = new TikTokCashbackCalculator();
+        $client = new RioHubClient;
+        $resolver = new TikTokUserResolver;
+        $cashback = new TikTokCashbackCalculator;
 
         $this->printConfig($client);
 
@@ -75,13 +74,13 @@ class AffiliateTikTokSync extends Command
         $this->printSnapshot('DB SNAPSHOT — TRƯỚC (read-only)', $before);
 
         $fetchStart = microtime(true);
-        $fetched    = $this->fetchAllOrders($client);
+        $fetched = $this->fetchAllOrders($client);
         $apiSeconds = round(microtime(true) - $fetchStart, 3);
 
         if ($fetched['error'] !== null) {
             $this->newLine();
             $this->error('--- API ERROR (DỪNG, không ghi DB) ---');
-            $this->error("  Endpoint        : /partner/tiktok/affiliate/orders");
+            $this->error('  Endpoint        : /partner/tiktok/affiliate/orders');
             $this->error("  HTTP status     : {$fetched['error']['http']}");
             $this->error("  RioHub message  : {$fetched['error']['riohub']}");
             $this->error("  Message         : {$fetched['error']['message']}");
@@ -96,11 +95,11 @@ class AffiliateTikTokSync extends Command
 
         $processStart = microtime(true);
 
-        $rows          = [];
-        $mapStats      = ['sub_id' => 0, 'sub1' => 0, 'fallback_empty' => 0, 'fallback_not_found' => 0];
-        $statusCounts  = [];
-        $commission    = ['match' => 0, 'different' => 0, 'no_actual' => 0];
-        $parseIssues   = [];
+        $rows = [];
+        $mapStats = ['sub_id' => 0, 'sub1' => 0, 'fallback_empty' => 0, 'fallback_not_found' => 0];
+        $statusCounts = [];
+        $commission = ['match' => 0, 'different' => 0, 'no_actual' => 0];
+        $parseIssues = [];
         $cashbackTotal = 0.0;
 
         foreach ($fetched['orders'] as $raw) {
@@ -112,6 +111,7 @@ class AffiliateTikTokSync extends Command
                     json_encode($raw['order_id'] ?? $raw['id'] ?? '?', JSON_UNESCAPED_UNICODE),
                     $e->getMessage(),
                 );
+
                 continue;
             }
 
@@ -130,9 +130,9 @@ class AffiliateTikTokSync extends Command
             $cb = $cashback->calculate($order);
             $cashbackTotal += $cb['cashback_amount'];
 
-            $est    = $order->getEstCommission();
+            $est = $order->getEstCommission();
             $actual = $order->getActualCommission();
-            $diff   = $this->commissionDiff($est, $actual);
+            $diff = $this->commissionDiff($est, $actual);
             if ($actual === null) {
                 $commission['no_actual']++;
             } elseif ($diff === 'MATCH') {
@@ -141,24 +141,24 @@ class AffiliateTikTokSync extends Command
                 $commission['different']++;
             }
 
-            $statusKey = ($order->getStatus() ?? '?') . ' / ' . ($order->getSettlementStatus() ?? '?');
+            $statusKey = ($order->getStatus() ?? '?').' / '.($order->getSettlementStatus() ?? '?');
             $statusCounts[$statusKey] = ($statusCounts[$statusKey] ?? 0) + 1;
 
             $rows[] = [
-                'Order'         => $order->getOrderId(),
-                'Product'       => (string) ($order->getProductId() ?? '-'),
-                'Content ID'    => $order->getContentId() === null || $order->getContentId() === '' ? '-' : $order->getContentId(),
-                'Status'        => $statusKey,
-                'SubID'         => $order->getSubId() ?? '-',
-                'Sub1'          => $order->getSub1() ?? '-',
-                'Est cm'        => $this->money($est),
-                'Actual cm'     => $this->money($actual),
-                'PIT'           => $order->getPit() ?? '-',
-                'Diff'          => $diff,
+                'Order' => $order->getOrderId(),
+                'Product' => (string) ($order->getProductId() ?? '-'),
+                'Content ID' => $order->getContentId() === null || $order->getContentId() === '' ? '-' : $order->getContentId(),
+                'Status' => $statusKey,
+                'SubID' => $order->getSubId() ?? '-',
+                'Sub1' => $order->getSub1() ?? '-',
+                'Est cm' => $this->money($est),
+                'Actual cm' => $this->money($actual),
+                'PIT' => $order->getPit() ?? '-',
+                'Diff' => $diff,
                 'Resolved User' => $resolved['username'],
-                'User ID'       => (string) $resolved['user_id'],
-                'Rate'          => $this->percent($cb['cashback_rate']),
-                'Cashback'      => $this->money($cb['cashback_amount'], 0),
+                'User ID' => (string) $resolved['user_id'],
+                'Rate' => $this->percent($cb['cashback_rate']),
+                'Cashback' => $this->money($cb['cashback_amount'], 0),
             ];
         }
 
@@ -171,8 +171,8 @@ class AffiliateTikTokSync extends Command
             ['Status / Settlement', 'Count', 'Affiliate status', 'Cashback (dry-run)', 'Wallet credit'],
             collect($statusCounts)->map(function (int $count, string $key) {
                 [$num, $settle] = array_pad(explode(' / ', $key, 2), 2, '?');
-                $tok    = $this->statusMeaning((int) ($num === '?' ? 0 : $num), $settle);
-                $aff    = $tok['affiliate'];
+                $tok = $this->statusMeaning((int) ($num === '?' ? 0 : $num), $settle);
+                $aff = $tok['affiliate'];
                 $willCb = $tok['cashback'] ? 'CÓ' : 'KHÔNG';
 
                 return [$key, (string) $count, $aff, $willCb, 'NO (dry-run)'];
@@ -181,8 +181,8 @@ class AffiliateTikTokSync extends Command
 
         $this->newLine();
         $this->info(sprintf('--- SAMPLE ORDERS (orders fetched: %d) ---', $fetched['orderCount']));
-        $printRows   = array_slice($rows, 0, 50);
-        $truncated   = count($rows) > count($printRows);
+        $printRows = array_slice($rows, 0, 50);
+        $truncated = count($rows) > count($printRows);
         if (count($printRows) > 0) {
             $this->table(array_keys($printRows[0]), $printRows);
         } else {
@@ -238,7 +238,7 @@ class AffiliateTikTokSync extends Command
         if (count($parseIssues) > 0) {
             $this->warn('--- PARSE / VALIDATION ISSUES (không bỏ qua) ---');
             foreach ($parseIssues as $issue) {
-                $this->line('  ! ' . $issue);
+                $this->line('  ! '.$issue);
             }
             $this->newLine();
         }
@@ -250,12 +250,13 @@ class AffiliateTikTokSync extends Command
 
     private function handleImport(): int
     {
-        $client = new RioHubClient();
+        $client = new RioHubClient;
 
         $this->printConfig($client);
 
         if (! config('services.riohub.base_url', '') || ! config('services.riohub.api_key', '')) {
             $this->error('[BLOCK] Thiếu cấu hình RioHub — không import.');
+
             return self::FAILURE;
         }
 
@@ -264,7 +265,7 @@ class AffiliateTikTokSync extends Command
         $this->printSnapshot('DB SNAPSHOT — TRƯỚC (read-only)', $before);
 
         $service = new TikTokOrderSyncService($client);
-        $start   = microtime(true);
+        $start = microtime(true);
 
         try {
             $result = $service->run(creditWallet: false);
@@ -272,11 +273,11 @@ class AffiliateTikTokSync extends Command
             $elapsed = round(microtime(true) - $start, 3);
             $this->newLine();
             $this->error('--- API ERROR (DỪNG, không ghi DB) ---');
-            $this->error('  HTTP status   : ' . $e->getCode());
+            $this->error('  HTTP status   : '.$e->getCode());
             if ($e instanceof TikTokServiceException) {
-                $this->error('  RioHub message : ' . ($e->getRioHubMessage() ?? ''));
+                $this->error('  RioHub message : '.($e->getRioHubMessage() ?? ''));
             }
-            $this->error('  Message        : ' . $e->getMessage());
+            $this->error('  Message        : '.$e->getMessage());
             $this->error("  Elapsed        : {$elapsed} s");
 
             $after = $this->dbSnapshot();
@@ -288,7 +289,7 @@ class AffiliateTikTokSync extends Command
         }
 
         $elapsed = round(microtime(true) - $start, 3);
-        $after   = $this->dbSnapshot();
+        $after = $this->dbSnapshot();
 
         $this->newLine();
         $this->info('--- KẾT QUẢ IMPORT (Phase 2.2 — KHÔNG credit wallet) ---');
@@ -306,7 +307,7 @@ class AffiliateTikTokSync extends Command
         if (count($result->errorsDetail) > 0) {
             $this->warn('--- ERRORS (không bỏ qua) ---');
             foreach ($result->errorsDetail as $err) {
-                $this->line('  ! ' . $err);
+                $this->line('  ! '.$err);
             }
             $this->newLine();
         }
@@ -336,7 +337,7 @@ class AffiliateTikTokSync extends Command
 
         $this->newLine();
         $distinct = AffiliateOrderItem::where('platform', 'TikTok')->count();
-        $dups     = AffiliateOrderItem::where('platform', 'TikTok')
+        $dups = AffiliateOrderItem::where('platform', 'TikTok')
             ->groupBy('order_id', 'item_id')
             ->selectRaw('order_id, item_id, COUNT(*) AS c')
             ->havingRaw('COUNT(*) > 1')
@@ -355,17 +356,18 @@ class AffiliateTikTokSync extends Command
         $this->printSnapshot('DB SNAPSHOT — SAU (read-only)', $after);
         $this->printComparison($before, $after);
 
-        $walletOk  = $before['walletTx'] === $after['walletTx']
+        $walletOk = $before['walletTx'] === $after['walletTx']
             && $before['walletBalance'] === $after['walletBalance']
             && $before['totalEarned'] === $after['totalEarned'];
-        $shopeeOk  = $before['shopee'] === $after['shopee'];
-        $dupOk     = $dups->count() === 0;
+        $shopeeOk = $before['shopee'] === $after['shopee'];
+        $dupOk = $dups->count() === 0;
 
         $this->newLine();
         if ($walletOk && $shopeeOk && $dupOk) {
             $this->info('KẾT LUẬN: wallet + Shopee KHÔNG đổi ✓, không duplicate ✓.');
         } else {
             $this->error('CẢNH BÁO: phát hiện thay đổi ngoài TikTok hoặc duplicate!');
+
             return self::FAILURE;
         }
 
@@ -376,14 +378,15 @@ class AffiliateTikTokSync extends Command
 
     private function handleSync(): int
     {
-        $client = new RioHubClient();
+        $client = new RioHubClient;
 
-        $lock = Cache::lock(self::SYNC_LOCK_KEY, self::SYNC_LOCK_SECONDS);
+        $lock = Cache::lock(AffiliateSyncLock::KEY, AffiliateSyncLock::SECONDS);
         if (! $lock->get()) {
             $this->error('[BLOCK] Một phiên đồng bộ TikTok khác đang chạy — bỏ qua để tránh chạy song song.');
             Log::warning('[TikTok Sync] scheduled_windows skipped (lock held)', [
                 'sync_type' => 'scheduled_windows',
             ]);
+
             return self::FAILURE;
         }
 
@@ -397,12 +400,13 @@ class AffiliateTikTokSync extends Command
         try {
             if (! config('services.riohub.base_url', '') || ! config('services.riohub.api_key', '')) {
                 $this->error('[BLOCK] Thiếu cấu hình RioHub — không sync.');
+
                 return self::FAILURE;
             }
 
             $service = new TikTokOrderSyncService($client);
-            $start   = microtime(true);
-            $result  = $service->run(creditWallet: true);
+            $start = microtime(true);
+            $result = $service->run(creditWallet: true);
             $elapsed = round(microtime(true) - $start, 3);
 
             $this->info('--- KẾT QUẢ SYNC (Phase 3 — đầy đủ, credit wallet implicit) ---');
@@ -424,7 +428,7 @@ class AffiliateTikTokSync extends Command
             if (count($result->errorsDetail) > 0) {
                 $this->warn('--- ERRORS (không bỏ qua) ---');
                 foreach ($result->errorsDetail as $err) {
-                    $this->line('  ! ' . $err);
+                    $this->line('  ! '.$err);
                 }
             }
 
@@ -447,7 +451,7 @@ class AffiliateTikTokSync extends Command
             $elapsed = round(microtime(true) - (isset($start) ? $start : microtime(true)), 3);
             $this->newLine();
             $this->error('--- SYNC THẤT BẠI (fail-safe, không xóa / không reversal hàng loạt) ---');
-            $this->error('  Message : ' . $e->getMessage());
+            $this->error('  Message : '.$e->getMessage());
             $this->error("  Elapsed : {$elapsed} s");
 
             Log::error('[TikTok Sync] scheduled_windows failed', [
@@ -465,15 +469,15 @@ class AffiliateTikTokSync extends Command
     private function printConfig(RioHubClient $client): void
     {
         $baseUrl = config('services.riohub.base_url', '');
-        $apiKey  = (string) config('services.riohub.api_key', '');
+        $apiKey = (string) config('services.riohub.api_key', '');
         $creator = (string) config('services.riohub.creator_username', '');
 
         $this->info('--- RIOHUB CONFIG (API key được che) ---');
-        $this->line('  Base URL            : ' . $baseUrl);
-        $this->line('  API Key             : ' . $this->maskKey($apiKey));
-        $this->line('  Creator (.env)      : ' . $creator);
-        $this->line('  Creator (yêu cầu)   : ' . self::EXPECTED_CREATOR);
-        $this->line('  Creator đúng?       : ' . ($creator === self::EXPECTED_CREATOR ? 'YES' : 'NO'));
+        $this->line('  Base URL            : '.$baseUrl);
+        $this->line('  API Key             : '.$this->maskKey($apiKey));
+        $this->line('  Creator (.env)      : '.$creator);
+        $this->line('  Creator (yêu cầu)   : '.self::EXPECTED_CREATOR);
+        $this->line('  Creator đúng?       : '.($creator === self::EXPECTED_CREATOR ? 'YES' : 'NO'));
         if (! $baseUrl || ! $apiKey) {
             $this->error('  [FATAL] Thiếu RIOHUB_BASE_URL hoặc RIOHUB_API_KEY trong cấu hình.');
         }
@@ -484,11 +488,11 @@ class AffiliateTikTokSync extends Command
      */
     private function fetchAllOrders(RioHubClient $client): array
     {
-        $orders   = [];
+        $orders = [];
         $pageTimes = [];
-        $page      = 1;
-        $total     = null;
-        $error     = null;
+        $page = 1;
+        $total = null;
+        $error = null;
 
         $pageSize = max(1, min((int) ($this->option('page-size') ?: 50), 100));
 
@@ -497,20 +501,20 @@ class AffiliateTikTokSync extends Command
 
             try {
                 $response = $client->getOrders([
-                    'page'      => $page,
+                    'page' => $page,
                     'page_size' => $pageSize,
                 ]);
             } catch (RioHubException $e) {
                 $error = [
-                    'http'    => (string) $e->getStatusCode(),
-                    'riohub'  => (string) ($e->getRioHubMessage() ?? ''),
+                    'http' => (string) $e->getStatusCode(),
+                    'riohub' => (string) ($e->getRioHubMessage() ?? ''),
                     'message' => $e->getMessage(),
                 ];
                 break;
             } catch (\Throwable $e) {
                 $error = [
-                    'http'    => 'n/a',
-                    'riohub'  => get_class($e),
+                    'http' => 'n/a',
+                    'riohub' => get_class($e),
                     'message' => $e->getMessage(),
                 ];
                 break;
@@ -518,13 +522,13 @@ class AffiliateTikTokSync extends Command
 
             $pageTimes[$page] = round((microtime(true) - $t0) * 1000, 2);
 
-            $data  = $response->getData();
+            $data = $response->getData();
             $batch = $data['orders'] ?? [];
 
             if (! is_array($batch)) {
                 $error = [
-                    'http'    => (string) $response->getStatusCode(),
-                    'riohub'  => '',
+                    'http' => (string) $response->getStatusCode(),
+                    'riohub' => '',
                     'message' => 'Malformed response: orders không phải array.',
                 ];
                 break;
@@ -534,26 +538,26 @@ class AffiliateTikTokSync extends Command
                 $orders[] = $raw;
             }
 
-            $total   = (int) ($data['total'] ?? count($orders));
+            $total = (int) ($data['total'] ?? count($orders));
             $fetched = count($orders);
             $page++;
         } while ($fetched < $total && count($batch) > 0 && $page <= self::MAX_PAGES);
 
         if ($page > self::MAX_PAGES && $error === null) {
             $error = [
-                'http'    => 'n/a',
-                'riohub'  => '',
-                'message' => 'Vượt quá ' . self::MAX_PAGES . ' trang — dừng để tránh vòng lặp vô hạn.',
+                'http' => 'n/a',
+                'riohub' => '',
+                'message' => 'Vượt quá '.self::MAX_PAGES.' trang — dừng để tránh vòng lặp vô hạn.',
             ];
         }
 
         return [
-            'pages'      => count($pageTimes),
+            'pages' => count($pageTimes),
             'orderCount' => count($orders),
-            'total'      => $total,
-            'pageTimes'  => $pageTimes,
-            'orders'     => $orders,
-            'error'      => $error,
+            'total' => $total,
+            'pageTimes' => $pageTimes,
+            'orders' => $orders,
+            'error' => $error,
         ];
     }
 
@@ -563,11 +567,11 @@ class AffiliateTikTokSync extends Command
     private function dbSnapshot(): array
     {
         return [
-            'tiktok'        => (int) AffiliateOrderItem::where('platform', 'TikTok')->count(),
-            'shopee'        => (int) AffiliateOrderItem::where('platform', 'Shopee')->count(),
-            'walletTx'      => (int) WalletTransaction::count(),
+            'tiktok' => (int) AffiliateOrderItem::where('platform', 'TikTok')->count(),
+            'shopee' => (int) AffiliateOrderItem::where('platform', 'Shopee')->count(),
+            'walletTx' => (int) WalletTransaction::count(),
             'walletBalance' => (float) User::sum('wallet_balance'),
-            'totalEarned'   => (float) User::sum('total_earned'),
+            'totalEarned' => (float) User::sum('total_earned'),
         ];
     }
 
@@ -631,7 +635,7 @@ class AffiliateTikTokSync extends Command
             return 'MATCH';
         }
 
-        return 'DIFFERENT (' . number_format($actual - $est, 2, '.', ',') . ')';
+        return 'DIFFERENT ('.number_format($actual - $est, 2, '.', ',').')';
     }
 
     private function money(?float $value, int $decimals = 2): string
@@ -641,7 +645,7 @@ class AffiliateTikTokSync extends Command
 
     private function percent(float $rate): string
     {
-        return ((int) round($rate * 100)) . '%';
+        return ((int) round($rate * 100)).'%';
     }
 
     private function maskKey(string $key): string
@@ -651,10 +655,10 @@ class AffiliateTikTokSync extends Command
         }
 
         if (strlen($key) <= 8) {
-            return $key[0] . '****';
+            return $key[0].'****';
         }
 
-        return substr($key, 0, 4) . '...' . substr($key, -4);
+        return substr($key, 0, 4).'...'.substr($key, -4);
     }
 
     private function yesNo(bool $ok): string

@@ -18,27 +18,39 @@ use Illuminate\Validation\ValidationException;
 class WalletService
 {
     private const RUNNING_NO_PREFIX = 'WT';
+
     private const SEQ_PAD_LENGTH = 4;
 
     public function creditCashback(AffiliateOrderItem $item, bool $throwOnDuplicate = true): ?WalletTransaction
     {
-        if ($this->isCashbackCredited($item)) {
-            if ($throwOnDuplicate) {
-                throw new DuplicateCashbackException($item->id);
-            }
+        $user = $item->user;
 
-            Log::warning('Duplicate cashback skipped', [
-                'affiliate_order_item_id' => $item->id,
-                'order_id' => $item->order_id,
-                'user_id' => $item->user_id,
-            ]);
-
+        if ($user === null) {
             return null;
         }
 
-        $user = $item->user;
+        return DB::transaction(function () use ($item, $user, $throwOnDuplicate) {
+            // Lock the user row FIRST so the duplicate check and the balance
+            // read are serialized against any concurrent credit (same item or a
+            // different item of the same user), preventing lost updates.
+            $user = User::where('id', $user->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        return DB::transaction(function () use ($item, $user) {
+            if ($this->isCashbackCredited($item)) {
+                if ($throwOnDuplicate) {
+                    throw new DuplicateCashbackException($item->id);
+                }
+
+                Log::warning('Duplicate cashback skipped', [
+                    'affiliate_order_item_id' => $item->id,
+                    'order_id' => $item->order_id,
+                    'user_id' => $item->user_id,
+                ]);
+
+                return null;
+            }
+
             $runningNo = $this->generateRunningNo();
             $balanceBefore = $this->getBalance($user);
             $amount = (float) $item->cashback_amount;
@@ -56,7 +68,7 @@ class WalletService
                 'balance_after' => $balanceAfter,
                 'reference_type' => 'affiliate_order_item',
                 'reference_id' => $item->id,
-                'description' => 'Cashback đơn hàng ' . $item->order_id,
+                'description' => 'Cashback đơn hàng '.$item->order_id,
                 'status' => WalletTransaction::STATUS_COMPLETED,
                 'completed_at' => now(),
                 'processed_by' => null,
@@ -116,7 +128,7 @@ class WalletService
                 'balance_after' => $balanceAfter,
                 'reference_type' => 'withdraw_request',
                 'reference_id' => $request->id,
-                'description' => 'Rút tiền ' . $request->bank_name,
+                'description' => 'Rút tiền '.$request->bank_name,
                 'status' => WalletTransaction::STATUS_COMPLETED,
                 'completed_at' => now(),
                 'processed_by' => $admin->id,
@@ -310,7 +322,7 @@ class WalletService
     public function createWithdrawRequest(User $user, float $amount): WithdrawRequest
     {
         return DB::transaction(function () use ($user, $amount) {
-            if (!$user->bank_name || !$user->bank_account_number || !$user->bank_account_name) {
+            if (! $user->bank_name || ! $user->bank_account_number || ! $user->bank_account_name) {
                 throw ValidationException::withMessages([
                     'bank_info' => __('Bạn chưa cập nhật thông tin ngân hàng.'),
                 ]);
@@ -362,7 +374,7 @@ class WalletService
                 'balance_after' => $balance,
                 'reference_type' => 'withdraw_request',
                 'reference_id' => $request->id,
-                'description' => 'Rút tiền ' . $user->bank_name,
+                'description' => 'Rút tiền '.$user->bank_name,
                 'status' => WalletTransaction::STATUS_PENDING,
                 'completed_at' => null,
                 'processed_by' => null,
@@ -382,9 +394,9 @@ class WalletService
     public function generateWithdrawRunningNo(): string
     {
         $today = now()->format('Ymd');
-        $prefix = 'WR' . $today;
+        $prefix = 'WR'.$today;
 
-        $lastRunningNo = WithdrawRequest::where('running_no', 'like', $prefix . '%')
+        $lastRunningNo = WithdrawRequest::where('running_no', 'like', $prefix.'%')
             ->lockForUpdate()
             ->max('running_no');
 
@@ -395,7 +407,7 @@ class WalletService
             $newSeq = 1;
         }
 
-        return $prefix . str_pad((string) $newSeq, self::SEQ_PAD_LENGTH, '0', STR_PAD_LEFT);
+        return $prefix.str_pad((string) $newSeq, self::SEQ_PAD_LENGTH, '0', STR_PAD_LEFT);
     }
 
     public function isWithdrawCredited(WithdrawRequest $request): bool
@@ -543,13 +555,12 @@ class WalletService
      * decremented so it stays consistent with syncBalance() (which recomputes
      * it as the sum of credit rows only).
      *
-     * @param AffiliateOrderItem $item The order item that was refunded.
-     * @param bool $throwOnDuplicate When true throws DuplicateCashbackException
-     *        if a reversal already exists for this item; otherwise returns null.
-     *
+     * @param  AffiliateOrderItem  $item  The order item that was refunded.
+     * @param  bool  $throwOnDuplicate  When true throws DuplicateCashbackException
+     *                                  if a reversal already exists for this item; otherwise returns null.
      * @return ?WalletTransaction The newly created reversal transaction, or
-     *         null if no credit exists to reverse or a reversal already exists
-     *         (throwOnDuplicate=false).
+     *                            null if no credit exists to reverse or a reversal already exists
+     *                            (throwOnDuplicate=false).
      */
     public function reverseCashback(AffiliateOrderItem $item, bool $throwOnDuplicate = true): ?WalletTransaction
     {
@@ -608,7 +619,7 @@ class WalletService
                 'balance_after' => $balanceAfter,
                 'reference_type' => 'affiliate_order_item',
                 'reference_id' => $item->id,
-                'description' => 'Hoàn tiền đơn hàng ' . $item->order_id,
+                'description' => 'Hoàn tiền đơn hàng '.$item->order_id,
                 'status' => WalletTransaction::STATUS_COMPLETED,
                 'completed_at' => now(),
                 'processed_by' => null,
@@ -655,9 +666,9 @@ class WalletService
     public function generateRunningNo(): string
     {
         $today = now()->format('Ymd');
-        $prefix = self::RUNNING_NO_PREFIX . $today;
+        $prefix = self::RUNNING_NO_PREFIX.$today;
 
-        $lastRunningNo = WalletTransaction::where('running_no', 'like', $prefix . '%')
+        $lastRunningNo = WalletTransaction::where('running_no', 'like', $prefix.'%')
             ->lockForUpdate()
             ->max('running_no');
 
@@ -668,6 +679,6 @@ class WalletService
             $newSeq = 1;
         }
 
-        return $prefix . str_pad((string) $newSeq, self::SEQ_PAD_LENGTH, '0', STR_PAD_LEFT);
+        return $prefix.str_pad((string) $newSeq, self::SEQ_PAD_LENGTH, '0', STR_PAD_LEFT);
     }
 }

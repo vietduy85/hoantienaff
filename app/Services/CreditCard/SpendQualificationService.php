@@ -341,6 +341,131 @@ class SpendQualificationService
     }
 
     /**
+     * Tóm tắt "Điều kiện hoàn tiền đặc biệt" cho Tổng quan (CHỈ ĐỌC, KHÔNG đổi rule).
+     *
+     * Nhận qualification ĐÃ NẠP SẴN của policy version hiện tại và các dòng giao
+     * dịch THỰC TẾ của kỳ sao kê hiện tại của thẻ (cùng shape `TransactionLine` mà
+     * `CreditCardOverviewService` đang giữ sẵn). Số `actual_spend` tính bằng ĐÚNG
+     * ngữ nghĩa của gate {@see evaluateForPeriod()}: category = tổng amount thực tế
+     * của đúng danh mục; other = tổng amount thực tế CẢ kỳ − các danh mục loại trừ —
+     * để Tổng quan không suy ra một bản tính lệch với engine.
+     *
+     * Trả về `null` khi KHÔNG nên hiện section trên Tổng quan: qualification bị
+     * tắt, hoặc không có điều kiện nào bật (§3). Gọi bên thiếu hẳn qualification
+     * thì tự trả `null` trước khi gọi hàm này — đây chỉ là lớp tính số, không quyết
+     * định hiển thị. Không có giao dịch nào ⇒ `actual_spend = 0` (edge case chuẩn).
+     *
+     * @param  Collection<int, TransactionLine>  $rows
+     * @return array{
+     *     enabled: bool,
+     *     conditions: array<int, array{
+     *         type: string, label: string, actual_spend: float,
+     *         min_spend: float, remaining: float, met: bool
+     *     }>
+     * }|null
+     */
+    public function summaryForPeriod(SpendQualification $qualification, Collection $rows): ?array
+    {
+        if (! $qualification->isEnabled()) {
+            return null;
+        }
+
+        // `conditions` đọc quan hệ đã eager-load (nếu không nạp sẵn thì lazy-load),
+        // giữ đúng thứ tự `sort_order, id` — "Lĩnh vực khác" luôn cuối.
+        $enabled = $qualification->conditions->filter(
+            fn (SpendQualificationCondition $condition): bool => $condition->is_enabled
+        );
+
+        if ($enabled->isEmpty()) {
+            return null;
+        }
+
+        $categoryTotals = $this->actualSpendByCategoryFromRows($rows);
+        $totalSpend = $this->totalSpendFromRows($rows);
+
+        $summary = [];
+
+        foreach ($enabled as $condition) {
+            if ($condition->isCategory()) {
+                $label = $condition->category?->name ?? ('Danh mục #'.$condition->category_id);
+                $actual = round($categoryTotals[(int) $condition->category_id] ?? 0.0, 2);
+            } else {
+                $label = 'Lĩnh vực khác';
+                $excluded = 0.0;
+
+                foreach ($condition->excludedCategories as $excludedCategory) {
+                    $excluded += $categoryTotals[(int) $excludedCategory->category_id] ?? 0.0;
+                }
+
+                $actual = round($totalSpend - $excluded, 2);
+            }
+
+            $minSpend = (float) $condition->min_spend;
+
+            $summary[] = [
+                'type' => $condition->condition_type,
+                'label' => $label,
+                'actual_spend' => $actual,
+                'min_spend' => $minSpend,
+                'remaining' => round(max(0.0, $minSpend - $actual), 2),
+                'met' => $actual >= $minSpend,
+            ];
+        }
+
+        return [
+            'enabled' => true,
+            'conditions' => $summary,
+        ];
+    }
+
+    /**
+     * Tổng chi tiêu THỰC TẾ theo danh mục từ các dòng giao dịch đã giữ sẵn ở Tổng
+     * quan (`TransactionLine`, không phải model). Cùng ngữ nghĩa
+     * {@see actualSpendByCategory()} của gate — không lọc eligible, không áp
+     * `min_transaction_amount`, không theo tier rate.
+     *
+     * @param  Collection<int, TransactionLine>  $rows
+     * @return array<int, float>
+     */
+    private function actualSpendByCategoryFromRows(Collection $rows): array
+    {
+        $totals = [];
+
+        foreach ($rows as $row) {
+            $categoryId = $row->categoryId;
+
+            if ($categoryId === null) {
+                continue;
+            }
+
+            $totals[$categoryId] = ($totals[$categoryId] ?? 0.0) + (float) $row->amount;
+        }
+
+        foreach ($totals as &$total) {
+            $total = round($total, 2);
+        }
+
+        return $totals;
+    }
+
+    /**
+     * Tổng chi tiêu thực tế của toàn bộ dòng giao dịch (cùng ngữ nghĩa
+     * {@see totalSpend()} của gate).
+     *
+     * @param  Collection<int, TransactionLine>  $rows
+     */
+    private function totalSpendFromRows(Collection $rows): float
+    {
+        $total = 0.0;
+
+        foreach ($rows as $row) {
+            $total += (float) $row->amount;
+        }
+
+        return round($total, 2);
+    }
+
+    /**
      * Chuẩn hoá + kiểm tính hợp lệ danh sách điều kiện từ payload.
      *
      * Đảm bảo: type hợp lệ; `category` bắt buộc category_id + KHÔNG có excluded;

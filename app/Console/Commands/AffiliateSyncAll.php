@@ -7,6 +7,7 @@ use App\Services\Lazada\LazadaOrderSyncService;
 use App\Services\ShopeeFood\ShopeeFoodOrderSyncService;
 use App\Services\TikTok\TikTokOrderSyncService;
 use App\Services\WalletService;
+use App\Support\AffiliateSyncLock;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -43,10 +44,6 @@ class AffiliateSyncAll extends Command
 
     protected $description = 'Đồng bộ toàn bộ affiliate: TikTok → Lazada (sync + finalize) → ShopeeFood. Dành cho Windows Task Scheduler (mỗi 6 giờ).';
 
-    private const LOCK_KEY = 'affiliate:sync-all:lock';
-
-    private const LOCK_SECONDS = 7200;
-
     public function __construct(
         private readonly TikTokOrderSyncService $tikTokService,
         private readonly LazadaOrderSyncService $lazadaService,
@@ -64,10 +61,10 @@ class AffiliateSyncAll extends Command
         $this->box("Affiliate Sync All\nStarted: {$started->format('Y-m-d H:i:s')}");
         Log::info('Affiliate Sync All started', ['started_at' => $started->format('Y-m-d H:i:s')]);
 
-        $lock = Cache::lock(self::LOCK_KEY, self::LOCK_SECONDS);
+        $lock = Cache::lock(AffiliateSyncLock::KEY, AffiliateSyncLock::SECONDS);
 
         if (! $lock->get()) {
-            $this->error('[BLOCK] Một lần chạy affiliate:sync-all khác đang thực hiện — bỏ qua lần này (chống chạy chồng lấn).');
+            $this->error('[BLOCK] Một phiên đồng bộ affiliate khác (sync-all / admin sync / import CSV) đang thực hiện — bỏ qua lần này (chống chạy chồng lấn).');
             Log::warning('Affiliate Sync All skipped (lock held)', [
                 'started_at' => $started->format('Y-m-d H:i:s'),
             ]);
@@ -143,7 +140,7 @@ class AffiliateSyncAll extends Command
         $this->info("[{$step}/{$total}] {$label}");
 
         Log::info("{$label} started", [
-            'step'       => $step,
+            'step' => $step,
             'started_at' => now()->format('Y-m-d H:i:s'),
         ]);
 
@@ -153,10 +150,10 @@ class AffiliateSyncAll extends Command
             $this->error("{$label} FAILED: {$e->getMessage()}");
 
             Log::error("{$label} failed", [
-                'platform'  => $label,
-                'step'      => $step,
+                'platform' => $label,
+                'step' => $step,
                 'exception' => get_class($e),
-                'message'   => $e->getMessage(),
+                'message' => $e->getMessage(),
                 'timestamp' => now()->format('Y-m-d H:i:s'),
             ]);
 
@@ -165,7 +162,7 @@ class AffiliateSyncAll extends Command
 
         if (! $ok) {
             Log::warning("{$label} completed with errors", [
-                'step'       => $step,
+                'step' => $step,
                 'finished_at' => now()->format('Y-m-d H:i:s'),
             ]);
         }
@@ -199,10 +196,12 @@ class AffiliateSyncAll extends Command
 
         if ($result->errors > 0) {
             $this->warn('TikTok Sync completed with errors');
+
             return false;
         }
 
         $this->info('TikTok Sync completed');
+
         return true;
     }
 
@@ -233,10 +232,12 @@ class AffiliateSyncAll extends Command
 
         if ($result->errors > 0) {
             $this->warn('Lazada Sync completed with errors — finalize sẽ KHÔNG chạy.');
+
             return false;
         }
 
         $this->info('Lazada Sync completed');
+
         return true;
     }
 
@@ -258,13 +259,15 @@ class AffiliateSyncAll extends Command
         if ($counts['errors'] > 0) {
             Log::error('Lazada Finalize completed with errors', [
                 'timestamp' => now()->format('Y-m-d H:i:s'),
-                'counts'    => $counts,
+                'counts' => $counts,
             ]);
             $this->warn('Lazada Finalize completed with errors');
+
             return false;
         }
 
         $this->info('Lazada Finalize completed');
+
         return true;
     }
 
@@ -291,10 +294,12 @@ class AffiliateSyncAll extends Command
 
         if ($result->errors > 0) {
             $this->warn('ShopeeFood Sync completed with errors');
+
             return false;
         }
 
         $this->info('ShopeeFood Sync completed');
+
         return true;
     }
 

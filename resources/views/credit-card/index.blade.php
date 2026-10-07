@@ -77,6 +77,13 @@
             'statement' => $latestStatements[$card->id] ?? null,
             'statements_url' => route('credit-cards.statements'),
         ]);
+
+        // Có thẻ nào đang hiển thị khối "Điều kiện hoàn tiền đặc biệt" không.
+        // Label ô toggle ở dải "Hiển thị" chỉ xuất hiện khi có khối THẬT — §2 cấm
+        // để cụm từ này lọt vào trang khi không có thẻ nào dùng điều kiện.
+        $hasAnySpendQualification = collect($cardMetrics)->contains(
+            fn ($metrics): bool => ($metrics['spend_qualification'] ?? null) !== null
+        );
     @endphp
 
     <div x-data="creditCardOverview(@js($overviewState))" class="space-y-4">
@@ -386,7 +393,7 @@
                 @endif
             </div>
 
-            {{-- ═══ "Hiển thị" — 4 tùy chọn ĐỘC LẬP ═══
+            {{-- ═══ "Hiển thị" — 5 tùy chọn ĐỘC LẬP ═══
                  Một DẢI mảnh có đường kẻ, KHÔNG phải card lồng trong card. Chỉ ẩn/hiện
                  phần hiển thị phía dưới trên MỌI thẻ; dữ liệu và nghiệp vụ không đổi,
                  không reload trang (Alpine), và lựa chọn được nhớ trong localStorage
@@ -415,6 +422,15 @@
                            class="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500">
                     <span>Quota hoàn tiền còn lại</span>
                 </label>
+
+                @if ($hasAnySpendQualification)
+                <label class="inline-flex items-center gap-1.5 text-xs sm:text-sm text-gray-700 cursor-pointer select-none">
+                    <input type="checkbox" x-model="display.qualification" @change="persistDisplay()"
+                           data-testid="toggle-qualification" checked
+                           class="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500">
+                    <span>Điều kiện hoàn tiền đặc biệt</span>
+                </label>
+            @endif
 
                 <label class="inline-flex items-center gap-1.5 text-xs sm:text-sm text-gray-700 cursor-pointer select-none">
                     <input type="checkbox" x-model="display.statement" @change="persistDisplay()"
@@ -718,6 +734,66 @@
                                 </div>
                             @endif
 
+                            {{-- ═══ ĐIỀU KIỆN HOÀN TIỀN ĐẶC BIỆT ═══
+                                 Chỉ thêm một block HIỂN THỊ giống hệt Quota: đọc payload
+                                 `spend_qualification` mà `CreditCardOverviewService` đã
+                                 tính sẵn (actual = chi tiêu THỰC TẾ của kỳ hiện tại của
+                                 chính thẻ này; other = tổng kỳ − danh mục loại trừ) —
+                                 Blade/JS KHÔNG có công thức nào.
+
+                                 KHÔNG hiện khi: card không có qualification, qualification
+                                 tắt, hoặc không có điều kiện nào bật — server đã trả
+                                 `null` và số `0 / min` của card chưa chi tiêu vẫn là
+                                 trạng thái thật (edge case "không có transaction").
+                                 KHÔNG đọc System Policy/template để quyết định hiển thị. --}}
+                            @php
+                                $spendQualification = $metrics['spend_qualification'] ?? null;
+                                $sqConditions = $spendQualification !== null ? ($spendQualification['conditions'] ?? []) : [];
+                            @endphp
+                            @if ($spendQualification !== null && $sqConditions !== [])
+                                <div class="pt-0.5 min-w-0"
+                                     x-show="showSection('qualification')"
+                                     data-testid="card-qualification-section">
+                                    <p class="text-xs font-semibold text-gray-700 mb-0.5">Điều kiện hoàn tiền đặc biệt</p>
+
+                                    <ul class="space-y-0.5">
+                                        @foreach ($sqConditions as $sqIndex => $sqCondition)
+                                            {{-- Giữ đúng sort_order của qualification; "Lĩnh vực
+                                                 khác" luôn ở cuối (bất biến domain, server đã
+                                                 chuẩn hoá). Mỗi dòng: nhãn → " : " → actual / min
+                                                 → trạng thái, không có thanh tiến độ. --}}
+                                            <li class="flex flex-wrap items-baseline gap-x-1.5 text-xs min-w-0"
+                                                data-testid="card-qualification-row">
+                                                <span class="shrink-0 max-w-[42%] truncate font-medium text-gray-700">{{ $sqCondition['label'] }}</span>
+                                                <span class="text-gray-300">:</span>
+
+                                                <span class="min-w-0 text-gray-600 tabular-nums">
+                                                    {{-- actual / min. KHÔNG nối " đ" sau
+                                                         `x-credit-card.money` — hậu tố nằm sẵn trong
+                                                         component (§9). --}}
+                                                    <span class="font-semibold text-gray-900"
+                                                          x-text="ccMoneyVnd(qualificationConditionValue(@js($cardKey), {{ $sqIndex }}, 'actual_spend'))"><x-credit-card.money :value="$sqCondition['actual_spend']" /></span>
+                                                    <span class="text-gray-400"
+                                                          x-text="' / ' + ccMoneyVnd(qualificationConditionValue(@js($cardKey), {{ $sqIndex }}, 'min_spend'))"> / <x-credit-card.money :value="$sqCondition['min_spend']" /></span>
+
+                                                    {{-- Trạng thái: ĐÃ ĐẠT khi actual >= min, còn lại
+                                                         "Còn thiếu <số>". KHÔNG hiện "Còn thiếu 0 đ"
+                                                         khi đã đạt (§7). --}}
+                                                    @if ($sqCondition['met'])
+                                                        <span class="font-semibold text-emerald-600"
+                                                              data-testid="card-qualification-met">→ ĐÃ ĐẠT</span>
+                                                    @else
+                                                        <span class="font-semibold text-rose-600"
+                                                              data-testid="card-qualification-remaining">→ Còn thiếu <span
+                                                                  x-text="ccMoneyVnd(qualificationConditionValue(@js($cardKey), {{ $sqIndex }}, 'remaining'))"><x-credit-card.money :value="$sqCondition['remaining']" /></span></span>
+                                                    @endif
+                                                </span>
+                                            </li>
+                                        @endforeach
+                                    </ul>
+                                </div>
+                            @endif
+
                             {{-- ═══ SAO KÊ KỲ VỪA KẾT THÚC ═══
                                  CHỈ ĐỌC. Sao kê là số tiền thực tế trên bảng
                                  kê của ngân hàng, nên nó KHÔNG được cộng vào
@@ -880,7 +956,7 @@
             const ccDisplayStorageKey = 'cc.overview.display';
 
             /**
-             * 4 tùy chọn độc lập; MẶC ĐỊNH bật hết.
+             * 5 tùy chọn độc lập; MẶC ĐỊNH bật hết.
              *
              * Danh sách khoá đóng ở đây để khi đọc từ `localStorage` không tin
              * bừa thuộc tính lạ trong JSON — nếu không, một giá trị rác sẽ tạo ra
@@ -892,11 +968,11 @@
              * bật — không phá vỡ lựa chọn của người dùng đang dùng trang.
              */
             function ccDefaultDisplay() {
-                return { spend: true, cashback: true, quota: true, statement: true };
+                return { spend: true, cashback: true, quota: true, qualification: true, statement: true };
             }
 
             /**
-             * Đọc lựa chọn đã lưu, chỉ nhận đúng 4 khoá boolean ở trên.
+             * Đọc lựa chọn đã lưu, chỉ nhận đúng 5 khoá boolean ở trên.
              *
              * Trả `null` khi chưa lưu, JSON hỏng, hoặc không còn khoá nào hợp lệ —
              * khi đó dùng mặc định bật hết. Mọi lỗi bị nuốt: `localStorage` có thể
@@ -1031,6 +1107,15 @@
                      */
                     quotaRuleValue(id, index, key) {
                         return this.quotaRules(id)[index]?.[key] ?? null;
+                    },
+
+                    /**
+                     * Một ô của khối điều kiện đặc biệt theo THỨ TỰ
+                     * (tra theo chỉ số để server vẫn render sẵn, list không đổi giữa
+                     * hai lần làm mới cùng một phiên — giống `quotaRuleValue`).
+                     */
+                    qualificationConditionValue(id, index, key) {
+                        return this.card_metrics?.[String(id)]?.spend_qualification?.conditions?.[index]?.[key] ?? null;
                     },
 
                     /** Trần CHUNG của bậc đích — mẫu số của dòng "Cashback dự kiến". */

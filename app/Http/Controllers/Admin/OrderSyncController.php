@@ -12,6 +12,8 @@ use App\Services\ShopeeFood\ShopeeFoodOrderSyncService;
 use App\Services\ShopeeFood\ShopeeFoodSyncResult;
 use App\Services\TikTok\TikTokOrderSyncService;
 use App\Services\TikTok\TikTokServiceException;
+use App\Services\TikTok\TikTokSyncResult;
+use App\Support\AffiliateSyncLock;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -31,10 +33,6 @@ use Illuminate\View\View;
  */
 class OrderSyncController extends Controller
 {
-    private const SYNC_LOCK_KEY = 'affiliate-tiktok-sync:lock';
-
-    private const SYNC_LOCK_SECONDS = 1800;
-
     public function __construct(
         private readonly TikTokOrderSyncService $tikTokService,
         private readonly ShopeeFoodOrderSyncService $shopeeFoodService,
@@ -51,18 +49,18 @@ class OrderSyncController extends Controller
 
         $stats = [
             'tiktok' => [
-                'total'    => AffiliateOrderItem::where('platform', 'TikTok')->count(),
-                'settled'  => AffiliateOrderItem::where('platform', 'TikTok')->where('affiliate_status', 'Hoàn thành')->count(),
+                'total' => AffiliateOrderItem::where('platform', 'TikTok')->count(),
+                'settled' => AffiliateOrderItem::where('platform', 'TikTok')->where('affiliate_status', 'Hoàn thành')->count(),
                 'refunded' => AffiliateOrderItem::where('platform', 'TikTok')->where('affiliate_status', 'Đã hủy')->count(),
             ],
             'shopeefood' => [
-                'total'    => AffiliateOrderItem::where('platform', 'ShopeeFood')->count(),
-                'settled'  => AffiliateOrderItem::where('platform', 'ShopeeFood')->where('affiliate_status', 'Hoàn thành')->count(),
+                'total' => AffiliateOrderItem::where('platform', 'ShopeeFood')->count(),
+                'settled' => AffiliateOrderItem::where('platform', 'ShopeeFood')->where('affiliate_status', 'Hoàn thành')->count(),
                 'refunded' => AffiliateOrderItem::where('platform', 'ShopeeFood')->where('affiliate_status', 'Đã hủy')->count(),
             ],
             'lazada' => [
-                'total'    => AffiliateOrderItem::where('platform', 'Lazada')->count(),
-                'settled'  => AffiliateOrderItem::where('platform', 'Lazada')->where('affiliate_status', 'Hoàn thành')->count(),
+                'total' => AffiliateOrderItem::where('platform', 'Lazada')->count(),
+                'settled' => AffiliateOrderItem::where('platform', 'Lazada')->where('affiliate_status', 'Hoàn thành')->count(),
                 'refunded' => AffiliateOrderItem::where('platform', 'Lazada')->where('affiliate_status', 'Đã hủy')->count(),
             ],
         ];
@@ -92,16 +90,17 @@ class OrderSyncController extends Controller
     {
         $validated = $request->validate([
             'from' => ['nullable', 'date'],
-            'to'   => ['nullable', 'date'],
+            'to' => ['nullable', 'date'],
         ]);
 
-        $lock = Cache::lock(self::SYNC_LOCK_KEY, self::SYNC_LOCK_SECONDS);
+        $lock = Cache::lock(AffiliateSyncLock::KEY, AffiliateSyncLock::SECONDS);
 
         if (! $lock->get()) {
             $request->session()->flash(
                 'tiktok_sync_error',
                 'Một phiên đồng bộ đang chạy (TikTok/ShopeeFood/Lazada). Vui lòng thử lại sau.',
             );
+
             return redirect()->route('admin.tiktok-order-sync.index');
         }
 
@@ -148,7 +147,7 @@ class OrderSyncController extends Controller
 
             Log::info('[Admin Sync][ShopeeFood] manual sync', [
                 'sync_type' => $request->user()->hasRole('Operator') ? 'manual_operator' : 'manual_admin',
-                'result'    => $result->toArray(),
+                'result' => $result->toArray(),
             ]);
 
             $request->session()->flash('shopeefood_sync_result', $this->formatShopeeFoodSummary($result));
@@ -168,7 +167,7 @@ class OrderSyncController extends Controller
 
             Log::info('[Admin Sync][Lazada] manual sync', [
                 'sync_type' => $request->user()->hasRole('Operator') ? 'manual_operator' : 'manual_admin',
-                'result'    => $result->toArray(),
+                'result' => $result->toArray(),
             ]);
 
             $request->session()->flash('lazada_sync_result', $this->formatLazadaSummary($result));
@@ -185,22 +184,22 @@ class OrderSyncController extends Controller
     /**
      * @return array<string, mixed>
      */
-    private function formatTikTokSummary(\App\Services\TikTok\TikTokSyncResult $result): array
+    private function formatTikTokSummary(TikTokSyncResult $result): array
     {
         $data = $result->toArray();
 
         return [
-            'success'            => $result->errors === 0,
-            'message'            => $result->errors > 0 ? 'Đồng bộ TikTok không hoàn toàn' : 'Đồng bộ TikTok hoàn tất',
-            'orders_fetched'     => $data['orders_fetched'],
-            'items_fetched'      => $data['items_fetched'],
-            'inserted'           => $data['inserted'],
-            'updated'            => $data['updated'],
-            'skipped'            => $data['skipped'],
-            'wallet_credits'     => $data['cashback_credited'],
-            'wallet_reversals'   => $data['cashback_reversed'],
-            'errors'             => $data['errors'],
-            'duration'           => round($data['elapsed_seconds'], 2),
+            'success' => $result->errors === 0,
+            'message' => $result->errors > 0 ? 'Đồng bộ TikTok không hoàn toàn' : 'Đồng bộ TikTok hoàn tất',
+            'orders_fetched' => $data['orders_fetched'],
+            'items_fetched' => $data['items_fetched'],
+            'inserted' => $data['inserted'],
+            'updated' => $data['updated'],
+            'skipped' => $data['skipped'],
+            'wallet_credits' => $data['cashback_credited'],
+            'wallet_reversals' => $data['cashback_reversed'],
+            'errors' => $data['errors'],
+            'duration' => round($data['elapsed_seconds'], 2),
         ];
     }
 
@@ -212,29 +211,29 @@ class OrderSyncController extends Controller
         $data = $result->toArray();
 
         return [
-            'success'               => $result->errors === 0,
-            'message'               => $result->errors > 0 ? 'Đồng bộ ShopeeFood không hoàn toàn' : 'Đồng bộ ShopeeFood hoàn tất',
-            'checkouts_fetched'     => $result->checkoutsFetched,
-            'orders_fetched'        => $result->ordersFetched,
-            'items_fetched'         => $result->itemsFetched,
-            'inserted'              => $result->inserted,
-            'updated'               => $result->updated,
-            'would_insert'          => $result->wouldInsert,
-            'would_update'          => $result->wouldUpdate,
-            'pending'               => $result->pending,
-            'completed'             => $result->completed,
-            'cancelled'             => $result->cancelled,
-            'unresolved_users'      => $result->unresolvedUsers,
-            'total_commission'      => $data['total_commission'],
-            'cashback_estimate'     => $data['cashback_estimate'],
-            'cashback_eligible'     => $result->cashbackEligible,
-            'wallet_credits'        => $result->cashbackCredited,
-            'wallet_reversals'      => $result->cashbackReversed,
-            'cashback_skipped'      => $result->cashbackSkipped,
+            'success' => $result->errors === 0,
+            'message' => $result->errors > 0 ? 'Đồng bộ ShopeeFood không hoàn toàn' : 'Đồng bộ ShopeeFood hoàn tất',
+            'checkouts_fetched' => $result->checkoutsFetched,
+            'orders_fetched' => $result->ordersFetched,
+            'items_fetched' => $result->itemsFetched,
+            'inserted' => $result->inserted,
+            'updated' => $result->updated,
+            'would_insert' => $result->wouldInsert,
+            'would_update' => $result->wouldUpdate,
+            'pending' => $result->pending,
+            'completed' => $result->completed,
+            'cancelled' => $result->cancelled,
+            'unresolved_users' => $result->unresolvedUsers,
+            'total_commission' => $data['total_commission'],
+            'cashback_estimate' => $data['cashback_estimate'],
+            'cashback_eligible' => $result->cashbackEligible,
+            'wallet_credits' => $result->cashbackCredited,
+            'wallet_reversals' => $result->cashbackReversed,
+            'cashback_skipped' => $result->cashbackSkipped,
             'commission_mismatches' => $result->commissionMismatches,
-            'invalid_lines'         => $result->invalidLines,
-            'errors'                => $result->errors,
-            'duration'              => round($data['elapsed_seconds'], 2),
+            'invalid_lines' => $result->invalidLines,
+            'errors' => $result->errors,
+            'duration' => round($data['elapsed_seconds'], 2),
         ];
     }
 
@@ -246,30 +245,30 @@ class OrderSyncController extends Controller
         $data = $result->toArray();
 
         return [
-            'success'               => $result->errors === 0,
-            'message'               => $result->errors > 0 ? 'Đồng bộ Lazada không hoàn toàn' : 'Đồng bộ Lazada hoàn tất',
-            'months_fetched'        => $result->monthsFetched,
-            'pages_fetched'         => $result->pagesFetched,
-            'records_fetched'       => $result->recordsFetched,
-            'inserted'              => $result->inserted,
-            'updated'               => $result->updated,
-            'would_insert'          => $result->wouldInsert,
-            'would_update'          => $result->wouldUpdate,
-            'pending'               => $result->pending,
-            'completed'             => $result->completed,
-            'cancelled'             => $result->cancelled,
-            'unresolved_users'      => $result->unresolvedUsers,
-            'total_commission'      => $data['total_commission'],
-            'cashback_estimate'     => $data['cashback_estimate'],
-            'cashback_eligible'     => $result->cashbackEligible,
-            'wallet_credits'        => $result->cashbackCredited,
-            'wallet_reversals'      => $result->cashbackReversed,
-            'cashback_skipped'      => $result->cashbackSkipped,
+            'success' => $result->errors === 0,
+            'message' => $result->errors > 0 ? 'Đồng bộ Lazada không hoàn toàn' : 'Đồng bộ Lazada hoàn tất',
+            'months_fetched' => $result->monthsFetched,
+            'pages_fetched' => $result->pagesFetched,
+            'records_fetched' => $result->recordsFetched,
+            'inserted' => $result->inserted,
+            'updated' => $result->updated,
+            'would_insert' => $result->wouldInsert,
+            'would_update' => $result->wouldUpdate,
+            'pending' => $result->pending,
+            'completed' => $result->completed,
+            'cancelled' => $result->cancelled,
+            'unresolved_users' => $result->unresolvedUsers,
+            'total_commission' => $data['total_commission'],
+            'cashback_estimate' => $data['cashback_estimate'],
+            'cashback_eligible' => $result->cashbackEligible,
+            'wallet_credits' => $result->cashbackCredited,
+            'wallet_reversals' => $result->cashbackReversed,
+            'cashback_skipped' => $result->cashbackSkipped,
             'commission_mismatches' => $result->commissionMismatches,
-            'unknown_statuses'      => $result->unknownStatuses,
-            'invalid_lines'         => $result->invalidLines,
-            'errors'                => $result->errors,
-            'duration'              => round($data['elapsed_seconds'], 2),
+            'unknown_statuses' => $result->unknownStatuses,
+            'invalid_lines' => $result->invalidLines,
+            'errors' => $result->errors,
+            'duration' => round($data['elapsed_seconds'], 2),
         ];
     }
 }

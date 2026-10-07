@@ -6,7 +6,10 @@ use App\Models\AffiliateOrderItem;
 use App\Models\User;
 use App\Services\ShopeeCsvParser;
 use App\Services\WalletService;
+use App\Support\AffiliateSyncLock;
 use Illuminate\Console\Command;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class AffiliateImportShopee extends Command
@@ -14,24 +17,35 @@ class AffiliateImportShopee extends Command
     protected $signature = 'affiliate:import-shopee
                         {--dry-run : Parse and analyze without importing}
                         {--file= : Import a specific CSV file}';
+
     protected $description = 'Import newest Shopee Affiliate Commission Report CSV from Downloads';
 
     private const DOWNLOADS_DIR = 'C:\Users\Administrator\Downloads';
+
     private const IMPORTED_DIR = 'C:\Users\Administrator\Downloads\Imported';
 
     private int $totalRows = 0;
+
     private int $newCount = 0;
+
     private int $updatedCount = 0;
+
     private int $lockedCount = 0;
+
     private int $unmappedCount = 0;
+
     private int $errorCount = 0;
+
     private int $cashbackCreditedCount = 0;
+
     private int $cashbackSkippedCount = 0;
 
     private bool $isDryRun = false;
+
     private string $importBatch = '';
 
     private WalletService $walletService;
+
     private ShopeeCsvParser $parser;
 
     public function __construct(WalletService $walletService, ShopeeCsvParser $parser)
@@ -54,79 +68,105 @@ class AffiliateImportShopee extends Command
         // Resolve file path
         if ($specifiedFile) {
             $filePath = $specifiedFile;
-            if (!file_exists($filePath)) {
-                $this->error('File không tồn tại: ' . $filePath);
+            if (! file_exists($filePath)) {
+                $this->error('File không tồn tại: '.$filePath);
+
                 return Command::FAILURE;
             }
             $originalName = basename($filePath);
             $this->line('');
-            $this->line('File: ' . $originalName);
+            $this->line('File: '.$originalName);
         } else {
             $files = $this->listCsvFiles();
             if (empty($files)) {
-                $this->error('Không tìm thấy file CSV nào trong ' . self::DOWNLOADS_DIR);
+                $this->error('Không tìm thấy file CSV nào trong '.self::DOWNLOADS_DIR);
+
                 return Command::FAILURE;
             }
 
             $filePath = $files[0]['path'];
             $originalName = basename($filePath);
             $this->line('');
-            $this->line('Đã chọn: ' . $originalName);
+            $this->line('Đã chọn: '.$originalName);
             $this->line('Lý do: Modified Time mới nhất.');
         }
 
         // Check file accessibility
-        if (!$this->isFileAccessible($filePath)) {
+        if (! $this->isFileAccessible($filePath)) {
             $this->error('');
-            $this->error('Không thể đọc file: ' . $originalName);
+            $this->error('Không thể đọc file: '.$originalName);
             $this->error('Có thể file đang được mở bởi Excel.');
             $this->error('Vui lòng đóng file rồi chạy lại.');
+
             return Command::FAILURE;
         }
 
         // Parse CSV
         $result = $this->parser->parse($filePath);
-        if (!$result['is_valid']) {
+        if (! $result['is_valid']) {
             $this->error('Header không khớp với định dạng Export Shopee.');
             $this->line('');
             $this->line('Các cột bắt buộc:');
             foreach ($this->parser->getRequiredColumns() as $col) {
-                $this->line('  - ' . $col);
+                $this->line('  - '.$col);
             }
-            if (!empty($result['missing'])) {
+            if (! empty($result['missing'])) {
                 $this->line('');
                 $this->line('Thiếu:');
                 foreach ($result['missing'] as $col) {
-                    $this->line('  - ' . $col);
+                    $this->line('  - '.$col);
                 }
             }
+
             return Command::FAILURE;
         }
 
-        if (!empty($result['unused'])) {
+        if (! empty($result['unused'])) {
             $this->line('');
             $this->line('Các cột không sử dụng:');
             foreach ($result['unused'] as $col) {
-                $this->line('  - ' . $col);
+                $this->line('  - '.$col);
             }
         }
 
-        // Import (or dry run)
-        $importOk = $this->importFromParsedRows($result['rows'], $originalName);
-        if (!$importOk) {
-            $this->error('Import thất bại.');
-            return Command::FAILURE;
+        // Chạy dưới chung lock affiliate để import CSV không bao giờ ghi đè /
+        // credit chồng lấn với một API sync đang chạy (sync-all / admin).
+        // Dry-run chỉ đọc, không cần lock.
+        $lock = null;
+        if (! $this->isDryRun) {
+            $lock = Cache::lock(AffiliateSyncLock::KEY, AffiliateSyncLock::SECONDS);
+
+            if (! $lock->get()) {
+                $this->error('[BLOCK] Một phiên đồng bộ affiliate khác (sync-all / admin sync / import CSV) đang thực hiện — bỏ qua lần này.');
+
+                return Command::FAILURE;
+            }
         }
 
-        // Move file (only if not dry run)
-        if (!$this->isDryRun) {
-            try {
-                $this->moveToImported($filePath, $originalName);
-            } catch (\Exception $e) {
-                $this->error('');
-                $this->error('Không thể di chuyển file: ' . $originalName);
-                $this->error($e->getMessage());
+        try {
+            // Import (or dry run)
+            $importOk = $this->importFromParsedRows($result['rows'], $originalName);
+            if (! $importOk) {
+                $this->error('Import thất bại.');
+
                 return Command::FAILURE;
+            }
+
+            // Move file (only if not dry run)
+            if (! $this->isDryRun) {
+                try {
+                    $this->moveToImported($filePath, $originalName);
+                } catch (\Exception $e) {
+                    $this->error('');
+                    $this->error('Không thể di chuyển file: '.$originalName);
+                    $this->error($e->getMessage());
+
+                    return Command::FAILURE;
+                }
+            }
+        } finally {
+            if ($lock !== null) {
+                $lock->release();
             }
         }
 
@@ -136,18 +176,18 @@ class AffiliateImportShopee extends Command
         $this->info('================================');
         $this->info('  Shopee Import');
         $this->info('================================');
-        $this->line('  File:              ' . $originalName);
-        $this->line('  Batch:             ' . $this->importBatch);
+        $this->line('  File:              '.$originalName);
+        $this->line('  Batch:             '.$this->importBatch);
         $this->line('  Platform:          Shopee');
-        $this->line('  Tổng dòng:         ' . $this->totalRows);
-        $this->line('  Đơn mới:           ' . $this->newCount);
-        $this->line('  Đơn cập nhật:      ' . $this->updatedCount);
-        $this->line('  Đơn locked (skip): ' . $this->lockedCount);
-        $this->line('  Không map user:    ' . $this->unmappedCount);
-        $this->line('  Lỗi:               ' . $this->errorCount);
-        $this->line('  Cashback đã ghi:   ' . $this->cashbackCreditedCount);
-        $this->line('  Cashback bỏ qua:   ' . $this->cashbackSkippedCount);
-        $this->line('  Thời gian:         ' . $elapsed . ' giây');
+        $this->line('  Tổng dòng:         '.$this->totalRows);
+        $this->line('  Đơn mới:           '.$this->newCount);
+        $this->line('  Đơn cập nhật:      '.$this->updatedCount);
+        $this->line('  Đơn locked (skip): '.$this->lockedCount);
+        $this->line('  Không map user:    '.$this->unmappedCount);
+        $this->line('  Lỗi:               '.$this->errorCount);
+        $this->line('  Cashback đã ghi:   '.$this->cashbackCreditedCount);
+        $this->line('  Cashback bỏ qua:   '.$this->cashbackSkippedCount);
+        $this->line('  Thời gian:         '.$elapsed.' giây');
         $this->info('================================');
 
         if ($this->isDryRun) {
@@ -201,15 +241,15 @@ class AffiliateImportShopee extends Command
 
             // If sub_id1 is empty, generate default username based on channel
             $rawSubId1 = $data['sub_id1'] ?? null;
-            if (!$rawSubId1 || trim($rawSubId1) === '') {
+            if (! $rawSubId1 || trim($rawSubId1) === '') {
                 $channel = isset($data['channel']) ? trim($data['channel']) : '';
                 $data['sub_id1'] = match ($channel) {
-                    'Shopee', 'shopee', 'SHOPEE'     => 'NonameShopee',
-                    'Zalo', 'zalo', 'ZALO'           => 'NonameZalo',
+                    'Shopee', 'shopee', 'SHOPEE' => 'NonameShopee',
+                    'Zalo', 'zalo', 'ZALO' => 'NonameZalo',
                     'Facebook', 'facebook', 'FACEBOOK' => 'NonameFacebook',
-                    'TikTok', 'tiktok', 'TIKTOK'     => 'NonameTikTok',
-                    'Website', 'website', 'WEBSITE'   => 'NonameWebsite',
-                    default                           => 'NonameUnknown',
+                    'TikTok', 'tiktok', 'TIKTOK' => 'NonameTikTok',
+                    'Website', 'website', 'WEBSITE' => 'NonameWebsite',
+                    default => 'NonameUnknown',
                 };
             }
 
@@ -221,7 +261,7 @@ class AffiliateImportShopee extends Command
                 $data['sub_id2'] ?? null
             );
 
-            if (!$data['_legacy_preserve_user']) {
+            if (! $data['_legacy_preserve_user']) {
                 // User mapping: sub_id1 → users.username → users.id
                 $username = $data['sub_id1'] ?? null;
                 if ($username && trim($username) !== '') {
@@ -261,12 +301,12 @@ class AffiliateImportShopee extends Command
             && trim((string) $subId2) === '82';
     }
 
-    private function processBatch(array &$rows, \Illuminate\Support\Carbon $now): void
+    private function processBatch(array &$rows, Carbon $now): void
     {
         DB::transaction(function () use ($rows, $now) {
             foreach ($rows as $data) {
                 // Transient marker: never persist.
-                $legacyPreserveUser = !empty($data['_legacy_preserve_user']);
+                $legacyPreserveUser = ! empty($data['_legacy_preserve_user']);
                 unset($data['_legacy_preserve_user']);
 
                 $existing = AffiliateOrderItem::where('platform', $data['platform'])
@@ -275,8 +315,10 @@ class AffiliateImportShopee extends Command
                     ->first();
 
                 if ($existing) {
-                    if ($existing->locked_at !== null) {
+                    if ($existing->locked_at !== null || $existing->isFinalized()) {
                         $this->lockedCount++;
+
+                        continue;
                     }
 
                     $oldStatus = $existing->affiliate_status;
@@ -374,8 +416,9 @@ class AffiliateImportShopee extends Command
                 ->first();
 
             if ($existing) {
-                if ($existing->locked_at !== null) {
+                if ($existing->locked_at !== null || $existing->isFinalized()) {
                     $this->lockedCount++;
+
                     continue;
                 }
                 $this->updatedCount++;
@@ -387,36 +430,36 @@ class AffiliateImportShopee extends Command
 
     private function listCsvFiles(): array
     {
-        $files = glob(self::DOWNLOADS_DIR . '\*.csv');
-        if (!$files) {
+        $files = glob(self::DOWNLOADS_DIR.'\*.csv');
+        if (! $files) {
             return [];
         }
 
-        usort($files, fn($a, $b) => filemtime($b) - filemtime($a));
+        usort($files, fn ($a, $b) => filemtime($b) - filemtime($a));
 
         $count = count($files);
         $this->line('');
-        $this->line('Đã tìm thấy ' . $count . ' file CSV.');
+        $this->line('Đã tìm thấy '.$count.' file CSV.');
 
         foreach ($files as $index => $file) {
             $name = basename($file);
             $mtime = date('Y-m-d H:i:s', filemtime($file));
             $this->line('');
-            $this->line('[' . ($index + 1) . '] ' . $name);
-            $this->line('  Modified: ' . $mtime);
+            $this->line('['.($index + 1).'] '.$name);
+            $this->line('  Modified: '.$mtime);
         }
 
-        return array_map(fn($path) => ['path' => $path, 'mtime' => filemtime($path)], $files);
+        return array_map(fn ($path) => ['path' => $path, 'mtime' => filemtime($path)], $files);
     }
 
     private function isFileAccessible(string $filePath): bool
     {
-        if (!file_exists($filePath)) {
+        if (! file_exists($filePath)) {
             return false;
         }
 
         $fh = @fopen($filePath, 'r');
-        if (!$fh) {
+        if (! $fh) {
             return false;
         }
         fclose($fh);
@@ -426,16 +469,16 @@ class AffiliateImportShopee extends Command
 
     private function moveToImported(string $filePath, string $originalName): void
     {
-        if (!is_dir(self::IMPORTED_DIR)) {
-            if (!@mkdir(self::IMPORTED_DIR, 0777, true) && !is_dir(self::IMPORTED_DIR)) {
-                throw new \RuntimeException('Không thể tạo thư mục ' . self::IMPORTED_DIR);
+        if (! is_dir(self::IMPORTED_DIR)) {
+            if (! @mkdir(self::IMPORTED_DIR, 0777, true) && ! is_dir(self::IMPORTED_DIR)) {
+                throw new \RuntimeException('Không thể tạo thư mục '.self::IMPORTED_DIR);
             }
         }
 
-        $newName = $this->importBatch . '_' . $originalName;
-        $destPath = self::IMPORTED_DIR . '\\' . $newName;
+        $newName = $this->importBatch.'_'.$originalName;
+        $destPath = self::IMPORTED_DIR.'\\'.$newName;
 
-        if (!@rename($filePath, $destPath)) {
+        if (! @rename($filePath, $destPath)) {
             throw new \RuntimeException(
                 'Không thể di chuyển file. Có thể file đang được mở bởi Excel hoặc chương trình khác.'
             );

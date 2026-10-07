@@ -3,6 +3,7 @@
 namespace App\Services\CreditCard;
 
 use App\Models\CreditCard\PolicyTier;
+use App\Models\CreditCard\SpendQualification;
 use App\Models\CreditCard\StatementPeriod;
 use App\Models\CreditCard\Transaction;
 use App\Models\CreditCard\UserCard;
@@ -66,6 +67,7 @@ class CreditCardOverviewService
         private readonly CashbackQuotaService $quotas,
         private readonly TierResolverService $tiers,
         private readonly CashbackCalculator $calculator,
+        private readonly SpendQualificationService $qualifications,
     ) {}
 
     /**
@@ -136,7 +138,8 @@ class CreditCardOverviewService
      *     minimum_spend: string|null,
      *     has_minimum: bool,
      *     meets_minimum: bool,
-     *     minimum_percent: string|null
+     *     minimum_percent: string|null,
+     *     spend_qualification: array<string, mixed>|null
      * }>
      */
     private function perCardFrom(Collection $cards, Collection $currentPeriods, array $quotas): array
@@ -160,6 +163,10 @@ class CreditCardOverviewService
         );
 
         $periodByCard = $currentPeriods->keyBy('user_card_id');
+
+        // "Điều kiện hoàn tiền đặc biệt" của các policy version của CHÍNH các thẻ
+        // này, gom MỘT đợt để không N+1.
+        $qualificationByPolicy = $this->qualificationsByPolicy($cards);
 
         $result = [];
 
@@ -195,6 +202,43 @@ class CreditCardOverviewService
             $hasMinimum = $minimumSpend !== null && Decimal::isPositive($minimumSpend);
             $meetsMinimum = ! $hasMinimum || Decimal::compare($spent, $minimumSpend) >= 0;
 
+            // -------------------------------------------------------------------------
+            // "ĐIỀU KIỆN HOÀN TIỀN ĐẶC BIỆT" (chỉ để HIỂN THỊ — không đổi gate)
+            // -------------------------------------------------------------------------
+            // "Thực tế" ở đây = giao dịch của ĐÚNG kỳ sao kê hiện tại của thẻ này
+            // (`$linesByCard[$cardId]` — cùng đợt giao dịch `transactionLinesByCard()`
+            // đã dựng cho "Cashback dự kiến", không query thêm).
+            //
+            // CHỈ đọc qualification gắn với policy version ĐANG GẮN VỚI CHÍNH THẺ
+            // này (`current_policy_id`) — không đọc System Policy, không đọc template
+            // trong DB (§3). Điều kiện tắt / không có điều kiện nào bật / không có
+            // qualification ⇒ `null` ⇒ view không hiện section (§12). Không gate theo
+            // việc có kỳ hay không: thẻ cấu hình điều kiện mà chưa chi tiêu thì
+            // `actual = 0` và vẫn hiện "Còn thiếu" — đúng edge case "không có
+            // transaction". Tiền đã format về chuỗi `Decimal` cho đúng quy ước mọi
+            // mốc tiền khác của Tổng quan.
+            $spendQualification = null;
+            $policyId = $card->current_policy_id === null ? null : (int) $card->current_policy_id;
+
+            if ($policyId !== null) {
+                $qualification = $qualificationByPolicy[$policyId] ?? null;
+
+                if ($qualification !== null) {
+                    $spendQualification = $this->qualifications->summaryForPeriod(
+                        $qualification,
+                        collect($linesByCard[$cardId] ?? []),
+                    );
+
+                    if ($spendQualification !== null) {
+                        foreach ($spendQualification['conditions'] as $index => $condition) {
+                            $spendQualification['conditions'][$index]['actual_spend'] = Decimal::money($condition['actual_spend']);
+                            $spendQualification['conditions'][$index]['min_spend'] = Decimal::money($condition['min_spend']);
+                            $spendQualification['conditions'][$index]['remaining'] = Decimal::money($condition['remaining']);
+                        }
+                    }
+                }
+            }
+
             $result[$cardId] = [
                 'desired_spend' => $desiredSpend,
                 'spent' => $spent,
@@ -212,6 +256,7 @@ class CreditCardOverviewService
                 'has_goal' => Decimal::isPositive($desiredSpend),
                 'has_period' => $period !== null,
                 'quota' => $quotas[$cardId] ?? null,
+                'spend_qualification' => $spendQualification,
 
                 // --- Chỉ để dựng thanh tiến độ + vạch mốc tối thiểu ở Tổng quan ---
                 'eligible_spend' => $eligibleSpend,
@@ -262,6 +307,41 @@ class CreditCardOverviewService
             ->get();
 
         return [$cards, $currentPeriods];
+    }
+
+    /**
+     * Bộ điều kiện "Điều kiện hoàn tiền đặc biệt" của các policy version đang gắn
+     * với CHÍNH các thẻ này, khoá theo `policy_version_id`.
+     *
+     * MỘT query chính + eager-load conditions/categories/danh mục loại trừ — không
+     * N+1 dù Tổng quan có bao nhiêu thẻ. Phạm vi an toàn: chỉ chạm các
+     * `current_policy_id` của chính user (đã lọc ở {@see scope()}), nên không thể
+     * đọc được điều kiện của thẻ người khác — giống hệt cách đọc "Vạch Min-Spend"
+     * từ `currentPolicy` (§14).
+     *
+     * @param  Collection<int, UserCard>  $cards
+     * @return array<int, SpendQualification>
+     */
+    private function qualificationsByPolicy(Collection $cards): array
+    {
+        $policyIds = $cards
+            ->filter(fn (UserCard $card): bool => $card->current_policy_id !== null)
+            ->pluck('current_policy_id')
+            ->map(fn ($id): int => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($policyIds === []) {
+            return [];
+        }
+
+        return SpendQualification::query()
+            ->whereIn('policy_version_id', $policyIds)
+            ->with(['conditions.category', 'conditions.excludedCategories'])
+            ->get()
+            ->keyBy(fn (SpendQualification $qualification): int => (int) $qualification->policy_version_id)
+            ->all();
     }
 
     /**
