@@ -5,12 +5,15 @@ namespace Tests\Feature;
 use App\Models\AffiliateOrderItem;
 use App\Models\User;
 use App\Models\WalletTransaction;
+use App\Support\AffiliateSyncLock;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Spatie\Permission\Models\Role;
+use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
 
 class TikTokSyncPhase3Test extends TestCase
@@ -18,6 +21,7 @@ class TikTokSyncPhase3Test extends TestCase
     use RefreshDatabase;
 
     private User $fallback;
+
     private User $admin;
 
     protected function setUp(): void
@@ -25,19 +29,19 @@ class TikTokSyncPhase3Test extends TestCase
         parent::setUp();
 
         config([
-            'services.riohub.base_url'         => 'https://riohub.vn/api/v1',
-            'services.riohub.api_key'          => 'rhk_TEST_API_KEY_abcdef0123456789',
+            'services.riohub.base_url' => 'https://riohub.vn/api/v1',
+            'services.riohub.api_key' => 'rhk_TEST_API_KEY_abcdef0123456789',
             'services.riohub.creator_username' => 'hoan_tien_mua_sam',
         ]);
 
-        app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+        app()[PermissionRegistrar::class]->forgetCachedPermissions();
 
         Role::create(['name' => 'Admin']);
 
         $this->fallback = User::factory()->create([
-            'username'       => 'tintuctonghop103',
+            'username' => 'tintuctonghop103',
             'wallet_balance' => 0,
-            'total_earned'   => 0,
+            'total_earned' => 0,
         ]);
 
         $this->admin = User::factory()->create(['username' => 'admin']);
@@ -51,37 +55,50 @@ class TikTokSyncPhase3Test extends TestCase
                 $query = [];
                 parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
 
-                $page  = (int) ($query['page'] ?? 1);
-                $size  = (int) ($query['page_size'] ?? 50);
+                $page = (int) ($query['page'] ?? 1);
+                $size = (int) ($query['page_size'] ?? 50);
                 $chunk = array_slice($orders, ($page - 1) * $size, $size);
 
                 return Http::response([
-                    'page'      => $page,
+                    'page' => $page,
                     'page_size' => $size,
-                    'total'     => count($orders),
-                    'orders'    => $chunk,
+                    'total' => count($orders),
+                    'orders' => $chunk,
                 ], 200);
             },
+            // Admin sync also runs ShopeeFood + Lazada feeds; return empty feeds
+            // so the admin manual-sync tests never hit live APIs or credit rows.
+            'data.addlivetag.com/*' => Http::response([
+                'code' => 0,
+                'msg' => 'success',
+                'data' => ['total_count' => 0, 'page_size' => 100, 'list' => []],
+            ]),
+            'https://api.lazada.vn/*' => Http::response([
+                'code' => 0,
+                'request_id' => 'req-test',
+                '_trace_id_' => 'trace-test',
+                'result' => ['success' => true, 'data' => []],
+            ]),
         ]);
     }
 
     private function settledOrder(string $orderId, float $gmv, float $actualCommission, string $sub1 = ''): array
     {
         return [
-            'order_id'          => $orderId,
-            'product_id'        => (string) (1000 + (int) substr($orderId, -3)),
-            'product_name'      => "Sản phẩm {$orderId}",
-            'content_id'        => '7495366414587628324',
-            'status'            => 2,
+            'order_id' => $orderId,
+            'product_id' => (string) (1000 + (int) substr($orderId, -3)),
+            'product_name' => "Sản phẩm {$orderId}",
+            'content_id' => '7495366414587628324',
+            'status' => 2,
             'settlement_status' => 'SETTLED',
-            'tt_order_status'   => 103,
-            'commission_gmv'    => $gmv,
+            'tt_order_status' => 103,
+            'commission_gmv' => $gmv,
             'actual_commission' => $actualCommission,
-            'est_commission'    => $actualCommission,
-            'pit'               => 'MCN-001',
-            'sub_id'            => '',
-            'sub1'              => $sub1,
-            'time_created'      => '2026-07-28 10:00:00',
+            'est_commission' => $actualCommission,
+            'pit' => 'MCN-001',
+            'sub_id' => '',
+            'sub1' => $sub1,
+            'time_created' => '2026-07-28 10:00:00',
         ];
     }
 
@@ -121,7 +138,7 @@ class TikTokSyncPhase3Test extends TestCase
     {
         $this->fakeRioHubPaged([$this->settledOrder('ORD-201', 100000, 8848)]);
 
-        $first  = Artisan::call('affiliate:tiktok-sync', ['--sync' => true]);
+        $first = Artisan::call('affiliate:tiktok-sync', ['--sync' => true]);
         $second = Artisan::call('affiliate:tiktok-sync', ['--sync' => true]);
 
         $this->assertSame(0, $first);
@@ -155,7 +172,7 @@ class TikTokSyncPhase3Test extends TestCase
 
     public function test_sync_command_skips_when_lock_is_held(): void
     {
-        $lock = Cache::lock('affiliate-tiktok-sync:lock', 1800);
+        $lock = Cache::lock(AffiliateSyncLock::KEY, AffiliateSyncLock::SECONDS);
         $lock->get();
 
         $this->fakeRioHubPaged([$this->settledOrder('ORD-220', 100000, 8848)]);
@@ -174,7 +191,7 @@ class TikTokSyncPhase3Test extends TestCase
     {
         Http::fake([
             'https://riohub.vn/api/v1/partner/tiktok/affiliate/orders*' => function () {
-                throw new \Illuminate\Http\Client\ConnectionException('timed out');
+                throw new ConnectionException('timed out');
             },
         ]);
 
@@ -202,7 +219,7 @@ class TikTokSyncPhase3Test extends TestCase
 
     public function test_admin_manual_sync_is_blocked_when_lock_is_held(): void
     {
-        Cache::lock('affiliate-tiktok-sync:lock', 1800)->get();
+        Cache::lock(AffiliateSyncLock::KEY, AffiliateSyncLock::SECONDS)->get();
 
         $this->fakeRioHubPaged([$this->settledOrder('ORD-230', 100000, 8848)]);
 
@@ -220,35 +237,35 @@ class TikTokSyncPhase3Test extends TestCase
     {
         // Pre-existing Shopee row to prove it is untouched.
         $shopee = AffiliateOrderItem::create([
-            'platform'             => 'Shopee',
-            'order_id'             => 'S-001',
-            'order_status'         => 'Hoàn thành',
-            'checkout_id'          => 'SC-1',
-            'shop_name'            => 'S',
-            'shop_id'              => 0,
-            'item_id'              => 1,
-            'item_name'            => 'i',
-            'model_id'             => 0,
-            'item_price'           => 100,
-            'quantity'             => 1,
-            'order_amount'         => 100,
-            'commission_type'      => 'Fixed',
+            'platform' => 'Shopee',
+            'order_id' => 'S-001',
+            'order_status' => 'Hoàn thành',
+            'checkout_id' => 'SC-1',
+            'shop_name' => 'S',
+            'shop_id' => 0,
+            'item_id' => 1,
+            'item_name' => 'i',
+            'model_id' => 0,
+            'item_price' => 100,
+            'quantity' => 1,
+            'order_amount' => 100,
+            'commission_type' => 'Fixed',
             'shopee_commission_rate' => 5,
-            'shopee_commission'    => 10,
+            'shopee_commission' => 10,
             'seller_commission_rate' => 0,
             'total_product_commission' => 10,
             'order_commission_shopee' => 10,
             'order_commission_seller' => 0,
             'total_order_commission' => 10,
             'agreed_commission_rate' => 5,
-            'net_commission'       => 10,
-            'affiliate_status'     => 'Hoàn thành',
-            'import_batch'         => '20260830_000000',
-            'user_id'              => $this->fallback->id,
-            'username'             => $this->fallback->username,
-            'cashback_amount'      => 5,
-            'first_imported_at'    => now(),
-            'last_shopee_sync_at'  => now()->subDay(),
+            'net_commission' => 10,
+            'affiliate_status' => 'Hoàn thành',
+            'import_batch' => '20260830_000000',
+            'user_id' => $this->fallback->id,
+            'username' => $this->fallback->username,
+            'cashback_amount' => 5,
+            'first_imported_at' => now(),
+            'last_shopee_sync_at' => now()->subDay(),
         ]);
 
         $this->fakeRioHubPaged([$this->settledOrder('ORD-240', 100000, 8848)]);

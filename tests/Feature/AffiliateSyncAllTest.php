@@ -14,6 +14,7 @@ use App\Services\ShopeeFood\ShopeeFoodSyncResult;
 use App\Services\TikTok\TikTokOrderSyncService;
 use App\Services\TikTok\TikTokSyncResult;
 use App\Services\WalletService;
+use App\Support\AffiliateSyncLock;
 use DOMDocument;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request as HttpRequest;
@@ -86,14 +87,14 @@ class AffiliateSyncAllTest extends TestCase
     private function finalizeCounts(array $overrides = []): array
     {
         return array_merge([
-            'checked'              => 0,
-            'eligible'             => 0,
-            'finalized'            => 0,
-            'credited'             => 0,
-            'skipped'              => 0,
+            'checked' => 0,
+            'eligible' => 0,
+            'finalized' => 0,
+            'credited' => 0,
+            'skipped' => 0,
             'historical_protected' => 0,
-            'reversed'             => 0,
-            'errors'               => 0,
+            'reversed' => 0,
+            'errors' => 0,
         ], $overrides);
     }
 
@@ -106,7 +107,7 @@ class AffiliateSyncAllTest extends TestCase
                     $calls[] = 'tikTokSync';
                 }
 
-                return new TikTokSyncResult();
+                return new TikTokSyncResult;
             });
 
         return $mock;
@@ -121,7 +122,7 @@ class AffiliateSyncAllTest extends TestCase
                     $calls[] = 'shopeeFoodSync';
                 }
 
-                return new ShopeeFoodSyncResult();
+                return new ShopeeFoodSyncResult;
             });
 
         return $mock;
@@ -163,22 +164,22 @@ class AffiliateSyncAllTest extends TestCase
     private function fakeLazadaCredentials(): void
     {
         config([
-            'services.lazada.app_key'    => 'FAKE_APP_KEY',
+            'services.lazada.app_key' => 'FAKE_APP_KEY',
             'services.lazada.app_secret' => 'FAKE_APP_SECRET_OF_32_CHARS___',
             'services.lazada.user_token' => 'FAKE_USER_TOKEN',
-            'services.lazada.base_url'   => 'https://api.lazada.vn/rest',
+            'services.lazada.base_url' => 'https://api.lazada.vn/rest',
         ]);
     }
 
     private function payload(array $records): array
     {
         return [
-            'code'       => 0,
+            'code' => 0,
             'request_id' => 'req-test',
             '_trace_id_' => 'trace-test',
-            'result'     => [
+            'result' => [
                 'success' => true,
-                'data'    => $records,
+                'data' => $records,
             ],
         ];
     }
@@ -191,9 +192,9 @@ class AffiliateSyncAllTest extends TestCase
     private function createMember(): User
     {
         return User::factory()->create([
-            'username'       => 'alice123',
+            'username' => 'alice123',
             'wallet_balance' => 0,
-            'total_earned'   => 0,
+            'total_earned' => 0,
         ]);
     }
 
@@ -232,7 +233,7 @@ class AffiliateSyncAllTest extends TestCase
             ->andReturnUsing(function () use (&$calls): LazadaSyncResult {
                 $calls[] = 'lazadaSync';
 
-                return new LazadaSyncResult();
+                return new LazadaSyncResult;
             });
 
         $finalizer = Mockery::mock(LazadaFinalizeService::class);
@@ -318,7 +319,7 @@ class AffiliateSyncAllTest extends TestCase
             ->andReturnUsing(function () use (&$calls): LazadaSyncResult {
                 $calls[] = 'lazadaSync';
 
-                return new LazadaSyncResult();
+                return new LazadaSyncResult;
             });
 
         $finalizer = Mockery::mock(LazadaFinalizeService::class);
@@ -354,7 +355,7 @@ class AffiliateSyncAllTest extends TestCase
 
         $this->bindAll($tikTok, $lazadaSync, $finalizer, $shopeeFood);
 
-        $lock = Cache::lock('affiliate:sync-all:lock', 7200);
+        $lock = Cache::lock(AffiliateSyncLock::KEY, AffiliateSyncLock::SECONDS);
         $lock->get();
 
         try {
@@ -379,7 +380,7 @@ class AffiliateSyncAllTest extends TestCase
         $this->freeze('2026-08-15 09:00:00');            // delivered + 11d → eligible
         $this->fakePage1($this->memberOverrides($member, 'fulfilled'));
 
-        $this->app->instance(LazadaOrderSyncService::class, new LazadaOrderSyncService(new LazadaApiClient()));
+        $this->app->instance(LazadaOrderSyncService::class, new LazadaOrderSyncService(new LazadaApiClient));
         $this->app->instance(LazadaFinalizeService::class, app(LazadaFinalizeService::class));
 
         $this->app->instance(TikTokOrderSyncService::class, $this->okTikTok(times: 2));
@@ -404,38 +405,38 @@ class AffiliateSyncAllTest extends TestCase
         // Historical Lazada row credited BEFORE the lifecycle (finalized_at NULL
         // on purpose — protection marker is the completed wallet credit).
         $item = AffiliateOrderItem::factory()->create([
-            'platform'          => 'Lazada',
-            'order_id'          => '839912345678901',
-            'lazada_line_key'   => '839912345678901|839912345678902|6021831634002',
+            'platform' => 'Lazada',
+            'order_id' => '839912345678901',
+            'lazada_line_key' => '839912345678901|839912345678902|6021831634002',
             'lazada_raw_status' => 'fulfilled',
-            'delivered_at'      => Carbon::parse(self::DELIVERED),
-            'finalized_at'      => null,
-            'affiliate_status'  => AffiliateOrderItem::STATUS_COMPLETED,
-            'order_status'      => AffiliateOrderItem::STATUS_COMPLETED,
-            'cashback_rate'     => 0.50,
-            'cashback_amount'   => 5000,
-            'net_commission'    => 12000,
-            'order_amount'      => 200000,
-            'user_id'           => $member->id,
-            'username'          => $member->username,
+            'delivered_at' => Carbon::parse(self::DELIVERED),
+            'finalized_at' => null,
+            'affiliate_status' => AffiliateOrderItem::STATUS_COMPLETED,
+            'order_status' => AffiliateOrderItem::STATUS_COMPLETED,
+            'cashback_rate' => 0.50,
+            'cashback_amount' => 5000,
+            'net_commission' => 12000,
+            'order_amount' => 200000,
+            'user_id' => $member->id,
+            'username' => $member->username,
         ]);
 
         WalletTransaction::factory()->create([
-            'user_id'        => $member->id,
-            'username'       => $member->username,
-            'platform'       => 'Lazada',
-            'type'           => WalletTransaction::TYPE_CASHBACK,
-            'direction'      => 'credit',
-            'amount'         => 5000,
+            'user_id' => $member->id,
+            'username' => $member->username,
+            'platform' => 'Lazada',
+            'type' => WalletTransaction::TYPE_CASHBACK,
+            'direction' => 'credit',
+            'amount' => 5000,
             'reference_type' => 'affiliate_order_item',
-            'reference_id'   => $item->id,
-            'status'         => WalletTransaction::STATUS_COMPLETED,
-            'completed_at'   => Carbon::parse('2026-07-01 00:00:00'),
+            'reference_id' => $item->id,
+            'status' => WalletTransaction::STATUS_COMPLETED,
+            'completed_at' => Carbon::parse('2026-07-01 00:00:00'),
         ]);
 
         $this->freeze('2026-09-01 00:00:00'); // far past the 10-day window
 
-        $this->app->instance(LazadaOrderSyncService::class, new LazadaOrderSyncService(new LazadaApiClient()));
+        $this->app->instance(LazadaOrderSyncService::class, new LazadaOrderSyncService(new LazadaApiClient));
         $this->app->instance(LazadaFinalizeService::class, app(LazadaFinalizeService::class));
 
         $this->app->instance(TikTokOrderSyncService::class, $this->okTikTok());
@@ -476,7 +477,7 @@ class AffiliateSyncAllTest extends TestCase
 
     public function test_windows_task_xml_is_valid_xml(): void
     {
-        $doc = new DOMDocument();
+        $doc = new DOMDocument;
         $loaded = $doc->load(self::XML_PATH);
 
         $this->assertTrue($loaded, 'XML must parse');
@@ -485,7 +486,7 @@ class AffiliateSyncAllTest extends TestCase
 
     public function test_windows_task_xml_has_program_arguments_and_start_in(): void
     {
-        $doc = new DOMDocument();
+        $doc = new DOMDocument;
         $doc->load(self::XML_PATH);
 
         $command = $this->xmlText($doc, 'Command');
@@ -499,7 +500,7 @@ class AffiliateSyncAllTest extends TestCase
 
     public function test_windows_task_xml_repeats_every_six_hours_indefinitely(): void
     {
-        $doc = new DOMDocument();
+        $doc = new DOMDocument;
         $doc->load(self::XML_PATH);
 
         $this->assertSame('PT6H', $this->xmlText($doc, 'Interval'));
@@ -510,7 +511,7 @@ class AffiliateSyncAllTest extends TestCase
 
     public function test_windows_task_xml_ignores_new_instances(): void
     {
-        $doc = new DOMDocument();
+        $doc = new DOMDocument;
         $doc->load(self::XML_PATH);
 
         $this->assertSame('IgnoreNew', $this->xmlText($doc, 'MultipleInstancesPolicy'));
