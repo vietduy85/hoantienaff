@@ -8,44 +8,54 @@ $travelPlatforms = collect(config('travel.platforms'))
     <!-- Primary Navigation Menu -->
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex justify-between h-14 sm:h-16">
-            <div class="flex items-center gap-5 sm:gap-6">
+            {{-- Menu chính: 1 nguồn, cùng thứ tự trên Desktop & Mobile:
+                 Trang chủ → Thẻ tín dụng → Hỗ trợ → So sánh giá → Tin tức KM → Đặt vé máy bay, khách sạn.
+                 Nằm trong overflow-x-auto để cuộn ngang khi không đủ chỗ (không wrap,
+                 không làm header cao bất thường). --}}
+            <div class="flex flex-1 min-w-0 items-center gap-5 sm:gap-6 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                 x-init="$nextTick(() => { const el = $el.querySelector('[aria-current=\"page\"]'); if (el && el.scrollIntoView) el.scrollIntoView({ inline: 'nearest', block: 'nearest' }); })">
+
                 <!-- Trang chủ -->
                 <a href="{{ route('dashboard') }}"
-                   class="font-semibold text-emerald-600 hover:text-emerald-700 active:text-emerald-800 transition-colors text-sm sm:text-base whitespace-nowrap"
+                   class="shrink-0 font-semibold text-emerald-600 hover:text-emerald-700 active:text-emerald-800 transition-colors text-sm sm:text-base whitespace-nowrap"
                    aria-label="Trang chủ">
                     Trang chủ
                 </a>
 
                 <!-- Thẻ tín dụng -->
-                {{-- hidden xl:inline: hàng nav hiện tại rộng ~831px, đã tràn ở <880px.
-                     Thêm tab làm tràn thêm ở 1024px, nên chỉ hiện ở >=1280px (xl).
-                     Ở 640-1279px: dùng entry trong dropdown tài khoản + menu hamburger. --}}
                 <a href="{{ route('credit-cards.index') }}"
                    @if (request()->routeIs('credit-cards.*')) aria-current="page" @endif
                    @class([
-                       'hidden xl:inline font-semibold text-emerald-600 hover:text-emerald-700 active:text-emerald-800 transition-colors text-sm sm:text-base whitespace-nowrap',
+                       'shrink-0 font-semibold text-emerald-600 hover:text-emerald-700 active:text-emerald-800 transition-colors text-sm sm:text-base whitespace-nowrap',
                        'text-emerald-700' => request()->routeIs('credit-cards.*'),
                    ])
                    aria-label="Thẻ tín dụng">
                     💳 Thẻ tín dụng
                 </a>
 
+                <!-- Hỗ trợ -->
+                <button @click="showSupport = true"
+                        class="shrink-0 font-semibold text-emerald-600 hover:text-emerald-700 active:text-emerald-800 transition-colors text-sm sm:text-base whitespace-nowrap"
+                        aria-label="Hỗ trợ">
+                    Hỗ trợ
+                </button>
+
                 <!-- So sánh giá -->
                 <a href="{{ route('price-comparison.index') }}"
-                   class="font-semibold text-emerald-600 hover:text-emerald-700 active:text-emerald-800 transition-colors text-sm sm:text-base whitespace-nowrap"
+                   class="shrink-0 font-semibold text-emerald-600 hover:text-emerald-700 active:text-emerald-800 transition-colors text-sm sm:text-base whitespace-nowrap"
                    aria-label="So sánh giá">
                     🔎 So sánh giá
                 </a>
 
                 <!-- Tin tức KM -->
                 <a href="{{ route('promotion-news.index') }}"
-                   class="font-semibold text-emerald-600 hover:text-emerald-700 active:text-emerald-800 transition-colors text-sm sm:text-base whitespace-nowrap"
+                   class="shrink-0 font-semibold text-emerald-600 hover:text-emerald-700 active:text-emerald-800 transition-colors text-sm sm:text-base whitespace-nowrap"
                    aria-label="Tin tức KM">
                     📰 Tin tức KM
                 </a>
 
-                <!-- Đặt vé máy bay, khách sạn (Desktop) -->
-                <div class="relative hidden sm:block" @click.away="showTravel = false">
+                <!-- Đặt vé máy bay, khách sạn (Desktop: dropdown; Mobile: bottom-sheet bên dưới) -->
+                <div class="relative shrink-0" @click.away="showTravel = false">
                     <button @click="showTravel = !showTravel"
                             class="font-semibold text-emerald-600 hover:text-emerald-700 active:text-emerald-800 transition-colors text-sm sm:text-base whitespace-nowrap inline-flex items-center gap-1"
                             aria-label="Đặt vé máy bay, khách sạn">
@@ -54,34 +64,29 @@ $travelPlatforms = collect(config('travel.platforms'))
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
                         </svg>
                     </button>
-                    <div x-show="showTravel"
-                         x-transition:enter="transition ease-out duration-150"
-                         x-transition:enter-start="opacity-0 scale-95"
-                         x-transition:enter-end="opacity-100 scale-100"
-                         x-transition:leave="transition ease-in duration-100"
-                         x-transition:leave-start="opacity-100 scale-100"
-                         x-transition:leave-end="opacity-0 scale-95"
-                         class="absolute left-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-50"
-                         style="display: none;">
-                        @foreach($travelPlatforms as $platform)
-                            <a href="{{ $platform['url'] }}"
-                               target="_blank" rel="noopener noreferrer"
-                               class="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
-                                {{ $platform['name'] }}
-                            </a>
-                        @endforeach
+
+                    {{-- Dropdown chỉ cho >=sm (mobile dùng bottom-sheet, tránh bị cắt bởi overflow). --}}
+                    <div class="hidden sm:block absolute left-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-50">
+                        <div x-show="showTravel"
+                             x-transition:enter="transition ease-out duration-150"
+                             x-transition:enter-start="opacity-0 scale-95"
+                             x-transition:enter-end="opacity-100 scale-100"
+                             x-transition:leave="transition ease-in duration-100"
+                             x-transition:leave-start="opacity-100 scale-100"
+                             x-transition:leave-end="opacity-0 scale-95">
+                            @foreach($travelPlatforms as $platform)
+                                <a href="{{ $platform['url'] }}"
+                                   target="_blank" rel="noopener noreferrer"
+                                   class="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+                                    {{ $platform['name'] }}
+                                </a>
+                            @endforeach
+                        </div>
                     </div>
                 </div>
 
-                <!-- Hỗ trợ -->
-                <button @click="showSupport = true"
-                        class="font-semibold text-emerald-600 hover:text-emerald-700 active:text-emerald-800 transition-colors text-sm sm:text-base whitespace-nowrap"
-                        aria-label="Hỗ trợ">
-                    Hỗ trợ
-                </button>
-
                 <!-- Navigation Links -->
-                <div class="hidden space-x-8 sm:-my-px sm:ms-10 sm:flex">
+                <div class="hidden shrink-0 space-x-8 sm:-my-px sm:ms-10 sm:flex">
                     <x-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
                         {{ __('Dashboard') }}
                     </x-nav-link>
@@ -110,10 +115,6 @@ $travelPlatforms = collect(config('travel.platforms'))
 
                         <x-dropdown-link :href="route('wallet.index')">
                             {{ __('Ví tiền') }}
-                        </x-dropdown-link>
-
-                        <x-dropdown-link :href="route('credit-cards.index')" :active="request()->routeIs('credit-cards.*')">
-                            💳 {{ __('Thẻ tín dụng') }}
                         </x-dropdown-link>
 
                         @can('credit-cards.view')
@@ -222,15 +223,10 @@ $travelPlatforms = collect(config('travel.platforms'))
 
     <!-- Responsive Navigation Menu -->
     <div :class="{'block': open, 'hidden': ! open}" class="hidden sm:hidden">
+        {{-- Các mục chính (Trang chủ / Thẻ tín dụng / Hỗ trợ / So sánh giá / Tin tức KM / Đặt vé máy bay,
+             khách sạn) đã nằm ở thanh ngang phía trên cho mọi breakpoint — không lặp lại trong hamburger.
+             Hamburger chỉ giữ phần tài khoản/cài đặt/admin. --}}
         <div class="pt-2 pb-3 space-y-1">
-            <x-responsive-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
-                {{ __('Dashboard') }}
-            </x-responsive-nav-link>
-
-            <x-responsive-nav-link :href="route('credit-cards.index')" :active="request()->routeIs('credit-cards.*')">
-                💳 {{ __('Thẻ tín dụng') }}
-            </x-responsive-nav-link>
-
             @can('credit-cards.view')
                 <x-responsive-nav-link :href="route('admin.credit-card.system-categories.index')" :active="request()->routeIs('admin.credit-card.system-categories.*')">
                     Danh mục hệ thống
@@ -248,34 +244,6 @@ $travelPlatforms = collect(config('travel.platforms'))
                     🎯 {{ __('Quản lý chính sách hoàn tiền') }}
                 </x-responsive-nav-link>
             @endcan
-
-            <x-responsive-nav-link :href="route('price-comparison.index')">
-                🔎 {{ __('So sánh giá') }}
-            </x-responsive-nav-link>
-
-            <x-responsive-nav-link :href="route('promotion-news.index')">
-                📰 {{ __('Tin tức KM') }}
-            </x-responsive-nav-link>
-
-                <!-- Đặt vé máy bay, khách sạn (Mobile) -->
-            <div>
-                <button @click="showTravel = !showTravel"
-                        class="w-full text-start ps-3 pe-4 py-2 border-l-4 border-transparent text-base font-medium text-gray-600 hover:text-gray-800 hover:bg-gray-50 hover:border-gray-300 transition duration-150 ease-in-out inline-flex items-center justify-between">
-                    <span>Đặt vé máy bay, khách sạn</span>
-                    <svg class="w-4 h-4" :class="{'rotate-180': showTravel}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                    </svg>
-                </button>
-                <div x-show="showTravel" x-collapse class="ms-6 space-y-1">
-                    @foreach($travelPlatforms as $platform)
-                        <a href="{{ $platform['url'] }}"
-                           target="_blank" rel="noopener noreferrer"
-                           class="block ps-3 pe-4 py-2 border-l-4 border-transparent text-base font-medium text-gray-600 hover:text-gray-800 hover:bg-gray-50 hover:border-gray-300 transition duration-150 ease-in-out">
-                            {{ $platform['name'] }}
-                        </a>
-                    @endforeach
-                </div>
-            </div>
         </div>
 
         <!-- Responsive Settings Options -->
@@ -429,6 +397,24 @@ $travelPlatforms = collect(config('travel.platforms'))
             </p>
         </div>
     </x-bottom-sheet>
+
+    {{-- Bottom Sheet: Đặt vé máy bay, khách sạn (chỉ Mobile) --}}
+    <div class="sm:hidden">
+        <x-bottom-sheet show="showTravel" title="Đặt vé máy bay, khách sạn">
+            <div class="space-y-2">
+                @foreach($travelPlatforms as $platform)
+                    <a href="{{ $platform['url'] }}"
+                       target="_blank" rel="noopener noreferrer"
+                       class="flex items-center justify-between bg-gray-50 rounded-2xl px-4 h-12 text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors">
+                        <span>{{ $platform['name'] }}</span>
+                        <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                        </svg>
+                    </a>
+                @endforeach
+            </div>
+        </x-bottom-sheet>
+    </div>
 </nav>
 
 @push('scripts')

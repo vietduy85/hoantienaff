@@ -100,6 +100,13 @@ class TransactionController extends Controller
                 'id' => $t->category->id,
                 'name' => $t->category->name,
             ],
+            // Ba khoá này để client gộp ngược vào dòng lịch sử sau khi lưu
+            // (trang Lịch sử dùng `category_id` mở form, `category_name` in ra
+            // dòng, `editable` quyết định nút Sửa) — trước đây payload API thiếu
+            // nên sau một lần lưu, row mất `editable` và không mở lại được form.
+            'category_id' => $t->category_id === null ? null : (int) $t->category_id,
+            'category_name' => $t->category?->name,
+            'editable' => ! ($t->statementPeriod !== null && $t->statementPeriod->isFinalized()),
             'period' => $t->statementPeriod === null ? null : [
                 'id' => $t->statementPeriod->id,
                 'start' => $t->statementPeriod->period_start?->toDateString(),

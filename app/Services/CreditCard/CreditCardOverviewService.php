@@ -35,13 +35,23 @@ use Illuminate\Support\Collection;
  * docblock lớp đó về lý do.
  *
  * ---------------------------------------------------------------------------
- * PHẠM VI THỜI GIAN = KỲ SAO KẾ HIỆN TẠI
+ * PHẠM VI THỜI GIAN = KỲ SAO KẾ HIỆN TẠI (DERIVE THEO ANCHOR, KHÔNG ĐỌC BỊCỘT)
  * ---------------------------------------------------------------------------
- * "Kỳ hiện tại" = kỳ `open` mà hôm nay nằm trong `[period_start, period_end]`.
- * Đây đúng nghĩa module đang dùng (`StatementPeriod::contains()`), nên không
- * phải tự chế ra "30 ngày gần nhất" cũng không cần ép về tháng lịch. Thẻ có
- * `statement_day` khác nhau thì mỗi thẻ một kỳ — ta gộp TẤT CẢ các kỳ hiện
- * tại, không chỉ thẻ đầu tiên.
+ * "Kỳ hiện tại" = ranh giới [period_start, period_end] SUY RA từ anchor của thẻ
+ * qua {@see StatementPeriodService::currentBoundaries()} — cùng một nguồn với
+ * `CreditCardController::periodBounds()` in trên ô ngày của từng thẻ, nên ngày
+ * và số liệu không thể lệch nhau.
+ *
+ * KHÔNG dùng câu truy vấn "hôm nay nằm trong [period_start, period_end]" để
+ * CHỌN kỳ: record lưu trong DB có thể là bản ghi thời kỳ cấu hình cũ (vd. anchor
+ * mặc định sinh 02/10→01/11 trong khi anchor hiện tại của thẻ là 6 ⇒ kỳ đúng là
+ * 06/10→05/11). Record sai ranh giới đó vẫn "chứa" hôm nay ⇒ đọc theo cách cũ
+ * là đọc nhầm kỳ. Thay vào đó derive ranh giới đúng rồi TRA record khớp ĐÚNG
+ * `(user_card_id, period_start, period_end)` — record không khớp ⇒ không có kỳ
+ * (`has_period=false`), tuyệt đối KHÔNG tạo bản ghi chỉ vì mở trang.
+ *
+ * Thẻ có `statement_day` khác nhau thì mỗi thẻ một kỳ — mỗi thẻ một bộ ranh
+ * giới, vẫn gộp tất cả kỳ hiện tại vào một query duy nhất (không N+1).
  *
  * ---------------------------------------------------------------------------
  * TOÀN BỘ TRUY VẤN SCOPE THEO `user_id`
@@ -68,6 +78,7 @@ class CreditCardOverviewService
         private readonly TierResolverService $tiers,
         private readonly CashbackCalculator $calculator,
         private readonly SpendQualificationService $qualifications,
+        private readonly StatementPeriodService $periods,
     ) {}
 
     /**
@@ -273,17 +284,25 @@ class CreditCardOverviewService
     }
 
     /**
-     * Phạm vi đọc của user: tập thẻ + các kỳ hiện tại (kỳ `open` chứa hôm nay).
+     * Phạm vi đọc của user: tập thẻ + các kỳ hiện tại của từng thẻ.
      *
-     * Chỉ lấy đúng cột cần dùng: `id` cho mọi `WHERE ... IN (...)` và
-     * `desired_spend` cho tiến độ. Không eager-load quan hệ nào ở đây — controller
-     * lo phần hiển thị thẻ.
+     * Kỳ hiện tại DERIVE theo anchor từng thẻ (chỉ tính toán, không tạo record)
+     * rồi khớp record theo ĐÚNG `(user_card_id, period_start, period_end)` —
+     * xem ghi chú "PHẠM VI THỜI GIAN" ở đầu lớp về lý do không đọc theo
+     * "hôm nay nằm trong kỳ". Một query duy nhất cho mọi thẻ (không N+1),
+     * vẫn giữ bộ lọc `open()`: kỳ đã finalize không phải kỳ hiện tại để đọc.
+     *
+     * Chỉ lấy đúng cột cần dùng: `id` cho mọi `WHERE ... IN (...)`,
+     * `desired_spend` cho tiến độ, và `statement_day`/`statement_period_start`
+     * — hai cột mà `currentBoundaries()` đọc để derive anchor (thiếu chúng,
+     * `anchorDay()` fallback về `null` ⇒ cả tập kỳ khớp nhầm bounds). Không
+     * eager-load quan hệ nào ở đây — controller lo phần hiển thị thẻ.
      *
      * @return array{0: Collection<int, UserCard>, 1: Collection<int, StatementPeriod>}
      */
     private function scope(int $userId): array
     {
-        $today = CarbonImmutable::now()->toDateString();
+        $today = CarbonImmutable::now();
 
         // Tập thẻ của user: mọi truy vấn bên dưới kẹp trong tập này.
         // `with('currentPolicy')` chỉ để đọc `min_total_spend` của policy RIÊNG của
@@ -292,17 +311,40 @@ class CreditCardOverviewService
             ->ownedBy($userId)
             ->orderBy('id')
             ->with('currentPolicy')
-            ->get(['id', 'desired_spend', 'current_policy_id']);
+            ->get(['id', 'desired_spend', 'current_policy_id', 'statement_day', 'statement_period_start']);
 
         if ($cards->isEmpty()) {
             return [new Collection, new Collection];
         }
 
+        // Mỗi thẻ một bộ ranh giới derive theo anchor của CHÍNH thẻ đó — cùng
+        // nguồn với `CreditCardController::periodBounds()` (ô ngày hiển thị).
+        $branches = [];
+
+        foreach ($cards as $card) {
+            [$start, $end] = $this->periods->currentBoundaries($card, $today);
+
+            $branches[] = [
+                'card_id' => (int) $card->id,
+                'start' => $start->toDateString(),
+                'end' => $end->toDateString(),
+            ];
+        }
+
+        // Một query duy nhất: WHERE (card A ∧ start A ∧ end A) ∨ (card B ∧ …).
+        // Mỗi nhánh là MỘT nhóm ngoặc nên AND/OR không bị trộn sai thứ tự.
         $currentPeriods = StatementPeriod::query()
             ->open()
             ->whereIn('user_card_id', $cards->pluck('id')->all())
-            ->whereDate('period_start', '<=', $today)
-            ->whereDate('period_end', '>=', $today)
+            ->where(function ($query) use ($branches): void {
+                foreach ($branches as $branch) {
+                    $query->orWhere(function ($query) use ($branch): void {
+                        $query->where('user_card_id', $branch['card_id'])
+                            ->whereDate('period_start', $branch['start'])
+                            ->whereDate('period_end', $branch['end']);
+                    });
+                }
+            })
             ->orderBy('user_card_id')
             ->get();
 

@@ -31,6 +31,9 @@
         // Mỗi dòng có sẵn URL update của riêng nó nên JS không phải nối chuỗi.
         $historyState = [
             'rows' => $rows,
+            // Số dòng tổng (chưa phân trang) — xoá một dòng thì trừ ngay trên
+            // header, không cần tải lại trang.
+            'total' => (int) $total,
             'update_urls' => collect($rows)->mapWithKeys(fn (array $row): array => [
                 $row['id'] => route('credit-cards.api.transactions.update', ['transaction' => $row['id']]),
             ])->all(),
@@ -65,7 +68,9 @@
                         @endif
                     </h3>
                     <p class="text-xs text-gray-500 mt-0.5">
-                        {{ $total }} giao dịch · Ngày chốt bảng kê: hàng {{ $card->statement_day }}
+                        {{-- Đếm gộp trong MỘT span: server render "{{ $total }} giao dịch"
+                     (text liền mạch cho test/SEO), Alpine ghi đè khi xoá dòng. --}}
+                        <span x-text="total + ' giao dịch'">{{ $total }} giao dịch</span> · Ngày chốt bảng kê: hàng {{ $card->statement_day }}
                     </p>
                 </div>
                 <a href="{{ route('credit-cards.manage') }}"
@@ -126,21 +131,33 @@
                      data-transaction-id="{{ $row['id'] }}">
                     <div class="flex items-start justify-between gap-3 min-w-0">
                         <div class="min-w-0 space-y-0.5">
-                            <p class="font-semibold text-gray-800">
+                            <p class="font-semibold text-gray-800" data-field="date">
                                 {{ \Illuminate\Support\Carbon::parse($row['transaction_date'])->format('d/m/Y') }}
                             </p>
-                            <p class="text-xs text-gray-500 break-words">
-                                {{ $row['note'] !== null && $row['note'] !== '' ? $row['note'] : 'Không có ghi chú' }}
-                            </p>
-                            {{-- Hoàn tiền: KHÔNG nối " đ" sau `x-credit-card.money` — hậu tố nằm sẵn
-                                 trong component. Nối thêm ra "365.500 đ đ". --}}
-                            @if ($row['cashback_amount'] !== null)
-                                <p class="text-xs font-medium text-emerald-600">
-                                    Hoàn tiền <x-credit-card.money :value="$row['cashback_amount']" />
-                                </p>
+                            {{-- Danh mục: in tên thật của giao dịch ngay trên dòng — trước đây row
+                                 present() chỉ có `category_id` nên view không hiện nổi tên. --}}
+                            <p class="text-xs font-medium text-gray-600 break-words" data-field="category"
+                               @if (($row['category_name'] ?? null) === null) hidden @endif>{{ $row['category_name'] ?? '' }}</p>
+                            {{-- Ghi chú: CHỈ hiện khi có nội dung. Hết in placeholder "Không có
+                                 ghi chú" — `renderRow()` cập nhật phần tử này sau khi lưu. --}}
+                            @if ($row['note'] !== null && trim($row['note']) !== '')
+                                <p class="text-xs text-gray-500 break-words" data-field="note">{{ $row['note'] }}</p>
+                            @else
+                                <p class="text-xs text-gray-500 break-words" data-field="note" hidden></p>
                             @endif
+                            {{-- Hoàn tiền: KHÔNG nối " đ" sau `x-credit-card.money` — hậu tố nằm sẵn
+                                 trong component. Nối thêm ra "365.500 đ đ".
+                                 Rỗng + hidden khi chưa có cashback: giữ sẵn phần tử để `renderRow()`
+                                 hiện/ngắt sau khi lưu mà không tải lại trang. --}}
+                            <p class="text-xs font-medium text-emerald-600" data-field="cashback"
+                               @if ($row['cashback_amount'] === null) hidden @endif>
+                                @if ($row['cashback_amount'] !== null)
+                                    Hoàn tiền <x-credit-card.money :value="$row['cashback_amount']" />
+                                @endif
+                            </p>
                         </div>
                         <p class="shrink-0 font-bold text-gray-800 whitespace-nowrap"
+                           data-field="amount"
                            data-testid="transaction-amount">
                             <x-credit-card.money :value="$row['amount']" />
                         </p>
@@ -281,11 +298,15 @@
              * cần gọi mạng — quan trọng trên mạng yếu.
              *
              * KHÔNG có công thức cashback ở đây: sau khi lưu, server tính lại và ghi
-             * snapshot; số hoàn tiền hiển thị lại là do server trả về.
+             * snapshot. Danh sách dòng là HTML render sẵn từ Blade (không x-for) nên
+             * state Alpine KHÔNG tự đổi DOM — mọi thay đổi sau khi lưu/xoá phải đi
+             * qua `renderRow()` (ghi lại text của đúng dòng) hoặc gỡ node (xoá),
+             * kèm trừ `total` ở header. TUYỆT ĐỐI không `location.reload()`.
              */
             function creditCardHistory(state) {
                 return {
                     rows: state.rows ?? [],
+                    total: state.total ?? 0,
                     update_urls: state.update_urls ?? {},
                     delete_urls: state.delete_urls ?? {},
                     categories: state.categories ?? [],
@@ -298,6 +319,59 @@
 
                     row(id) {
                         return this.rows.find((row) => row.id === Number(id)) ?? null;
+                    },
+
+                    /** '2026-10-07' → '07/10/2026'. Tách chuỗi, KHÔNG qua Date() (lệch múi giờ). */
+                    formatDate(value) {
+                        if (!value) return '';
+
+                        const parts = String(value).split('-');
+
+                        return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : String(value);
+                    },
+
+                    /**
+                     * Ghi số server trả về vào đúng phần tử của dòng trong DOM.
+                     *
+                     * Rows là HTML tĩnh của Blade nên `rows.splice()` không đổi màn
+                     * hình; hàm này là chỗ DUY NHẤT cập nhật hiển thị sau khi lưu.
+                     * Text đặt bằng `textContent` (note/category đã escape sẵn
+                     * server-side, không nối HTML).
+                     */
+                    renderRow(id) {
+                        const row = this.row(id);
+                        const node = document.querySelector(`[data-transaction-id="${Number(id)}"]`);
+
+                        if (!row || !node) return;
+
+                        const setText = (field, text) => {
+                            const el = node.querySelector(`[data-field="${field}"]`);
+                            if (el) el.textContent = text;
+                        };
+
+                        const toggle = (field, show) => {
+                            const el = node.querySelector(`[data-field="${field}"]`);
+                            if (el) el.hidden = !show;
+                        };
+
+                        setText('date', this.formatDate(row.transaction_date));
+
+                        const categoryName = row.category_name ?? '';
+                        toggle('category', categoryName !== '');
+                        setText('category', categoryName);
+
+                        const note = String(row.note ?? '');
+                        toggle('note', note.trim() !== '');
+                        setText('note', note);
+
+                        const hasCashback = row.cashback_amount !== null && row.cashback_amount !== undefined;
+                        toggle('cashback', hasCashback);
+                        // Nhãn + số nằm cùng một phần tử: khi server đã render sẵn
+                        // "Hoàn tiền <span>…</span>" thì ghi đè cả cụm vẫn ra đúng
+                        // chữ người dùng thấy (cùng quy tắc với `x-credit-card.money`).
+                        setText('cashback', hasCashback ? `Hoàn tiền ${ccMoneyVnd(row.cashback_amount)}` : '');
+
+                        setText('amount', ccMoneyVnd(row.amount));
                     },
 
                     openEdit(id) {
@@ -364,11 +438,26 @@
 
                             if (!payload) return;
 
-                            // Thay đúng dòng vừa sửa bằng số server trả về.
+                            // Thay đúng dòng vừa sửa bằng số server trả về, nhưng
+                            // GIỮ shape của dòng lịch sử (tiền là chuỗi) — payload
+                            // API đã có đủ `category_id`/`category_name`/`editable`
+                            // nên row vẫn mở lại được form sau khi lưu.
                             const index = this.rows.findIndex((row) => row.id === Number(id));
+                            const data = payload.data ?? {};
 
                             if (index !== -1) {
-                                this.rows.splice(index, 1, payload.data);
+                                this.rows.splice(index, 1, {
+                                    ...this.rows[index],
+                                    ...data,
+                                    amount: String(data.amount ?? this.rows[index].amount),
+                                    cashback_amount: data.cashback_amount === null || data.cashback_amount === undefined
+                                        ? null
+                                        : String(data.cashback_amount),
+                                });
+
+                                // DOM là HTML tĩnh của Blade: ghi lại số liệu của
+                                // dòng ngay (ngày/tiền/danh mục/ghi chú/hoàn tiền).
+                                this.renderRow(id);
                             }
 
                             this.editingId = null;
@@ -394,6 +483,17 @@
                             if (!payload) return;
 
                             this.rows = this.rows.filter((row) => row.id !== Number(id));
+
+                            // Row là HTML tĩnh của Blade — state đổi chưa đủ: gỡ
+                            // luôn node và trừ số ở header để UI khớp ngay (không
+                            // reload trang).
+                            document.querySelector(`[data-transaction-id="${Number(id)}"]`)?.remove();
+
+                            this.total = Math.max(0, Number(this.total) - 1);
+
+                            if (this.editingId === Number(id)) {
+                                this.editingId = null;
+                            }
                         } finally {
                             this.busyId = null;
                         }

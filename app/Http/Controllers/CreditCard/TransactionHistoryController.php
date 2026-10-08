@@ -128,6 +128,10 @@ class TransactionHistoryController extends Controller
      */
     private function present(Transaction $transaction): array
     {
+        // Eager-load sẵn ở `listFor()`; `loadMissing()` chỉ là chốt an toàn để
+        // không N+1 nếu đường gọi khác quên eager (không query lại khi đã nạp).
+        $transaction->loadMissing('category');
+
         $period = $transaction->statementPeriod;
 
         return [
@@ -135,6 +139,9 @@ class TransactionHistoryController extends Controller
             'transaction_date' => $transaction->transaction_date?->toDateString(),
             'amount' => (string) $transaction->amount,
             'category_id' => $transaction->category_id === null ? null : (int) $transaction->category_id,
+            // Tên danh mục để HIỂN THỊ ngay trên dòng — trước đây row chỉ có
+            // `category_id` nên view không in ra được tên.
+            'category_name' => $transaction->category?->name,
             'note' => $transaction->note,
             'cashback_amount' => $transaction->cashback_amount_snapshot === null
                 ? null

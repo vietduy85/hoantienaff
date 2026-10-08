@@ -661,70 +661,74 @@
                                                 <span class="text-gray-300">:</span>
 
                                                 <span class="min-w-0 text-gray-600 tabular-nums">
-                                                    {{-- ĐÃ DÙNG. In `cashback_used_display`, KHÔNG phải `cashback_used`:
-                                                         `cashback_used` là cashback engine đã trả cho
-                                                         giao dịch CŨ (bậc theo chi tiêu thực tế), có thể
-                                                         bằng 0 trong khi số tiền đã chi vẫn ăn vào trần
-                                                         của bậc đích. Số đứng trước "/ max" phải phản ánh
-                                                         cashback MÀ TIỀN ĐÃ CHI TẠO RA ở tỷ lệ bậc đích.
-                                                         `cashback_used` vẫn giữ nguyên nghĩa snapshot cho mọi
-                                                         phép tính. --}}
-                                                    <span class="font-semibold text-gray-900"
-                                                          x-text="ccMoneyVnd(quotaRuleValue(@js($cardKey), {{ $ruleIndex }}, 'cashback_used_display'))"><x-credit-card.money :value="$quotaRule['cashback_used_display']" /></span>
+                                                    {{-- ═══ BA NHÁNH TRÌNH BÀY ĐÃ CHỐT ═══
+                                                         A. có trần riêng, còn phòng:
+                                                            [đã dùng] / [trần] → Có thể chi thêm ~[x]
+                                                         B. có trần riêng, HẾT phòng:
+                                                            [trần] / [trần] · HẾT QUOTA
+                                                         C. KHÔNG trần riêng:
+                                                            [đã dùng] → Có thể chi thêm ~[x]
+                                                            (hết phòng ⇒ [đã dùng] · HẾT QUOTA)
 
-                                                    {{-- TRẦN RIÊNG. NULL = rule này KHÔNG có trần
-                                                         riêng (đã chốt ở Phase 2) ⇒ bỏ hẳn phần
-                                                         "/ max" thay vì bịa số hoặc hiện "???" (§11).
+                                                         KHÔNG còn nhánh "· còn X đ": số đó là ngân
+                                                         sách chung, in chung với dòng riêng khiến user
+                                                         tưởng là hạn mức của chính danh mục (§4, §11).
 
-                                                         Khoảng trắng quanh "/" phải có Ở PHÍA
-                                                         SERVER: `x-text` ghi `' / '` nên sau khi
-                                                         Alpine thay nội dung sẽ là " / 400.000 đ",
-                                                         còn nếu markup không có khoảng trắng thì lúc
-                                                         mới tải trang nó là "/400.000 đ" — dòng tiền
-                                                         nhảy khi Alpine chạy. --}}
+                                                         Tử số in `cashback_used_display`, KHÔNG phải
+                                                         `cashback_used`: snapshot có thể ghi 0đ (engine
+                                                         chạy bậc theo chi tiêu thực tế) trong khi số
+                                                         tiền đã chi vẫn ăn vào trần bậc đích. Tử số đã
+                                                         được service kẹp theo trần nên không bao giờ
+                                                         vượt mẫu số. Nhánh B in thẳng trần làm tử số —
+                                                         "hết quota" nói phòng đã cạn, nên con số quan
+                                                         trọng là trần, không phải mức đã dùng. --}}
                                                     @if ($quotaRule['has_cashback_max'])
-                                                        <span class="text-gray-400"
-                                                              x-text="' / ' + ccMoneyVnd(quotaRuleValue(@js($cardKey), {{ $ruleIndex }}, 'cashback_max'))"> / <x-credit-card.money :value="$quotaRule['cashback_max']" /></span>
-                                                    @else
-                                                        {{-- KHÔNG có trần riêng: vẫn phải thấy được
-                                                             `cashback_available_for_rule` — đây là ngân
-                                                             sách còn lại, tách bằng "· còn" để KHÔNG
-                                                             trông như một hạn mức của riêng rule (§4,
-                                                             §11). --}}
-                                                        @if ($quotaRule['cashback_available_for_rule'] !== null)
-                                                            <span class="text-gray-500">
-                                                                · còn<span data-testid="card-quota-available"
-                                                                      x-text="' ' + ccMoneyVnd(quotaRuleValue(@js($cardKey), {{ $ruleIndex }}, 'cashback_available_for_rule'))"> <x-credit-card.money :value="$quotaRule['cashback_available_for_rule']" /></span>
-                                                        @endif
-                                                    @endif
-
-                                                    {{-- SỐ TIỀN CHI THÊM — output Phase 2. Không hiện
-                                                         "+0 đ" khi không có dải nào đạt được nữa, vì đó
-                                                         là số tiền đã bị giới hạn chứ không phải
-                                                         số tiền cần chi. Hết phòng hoàn tiền thì nói
-                                                         thẳng là HẾT QUOTA — báo "chi thêm ~0 đ" khiến
-                                                         user tưởng còn dư được 0 đ.
-
-                                                         KHÔNG nối " đ" sau `x-credit-card.money`: hậu tố
-                                                         nằm sẵn trong component. Nối thêm sẽ ra
-                                                         "345.000 đ đ".
-
-                                                         KHÔNG bọc `<span class="font-bold">` quanh số
-                                                         tiền. wrapper đó làm số đậm hơn nhãn ngay cạnh
-                                                         và tách số khỏi chữ "đ" của chính nó, nên
-                                                         "345.000 đ" lệch typography với "365.500 đ"
-                                                         ngay trên cùng dòng. Số tiền kế thừa
-                                                         `font-semibold` của cả cụm xanh — đã đủ nổi
-                                                         bằng màu, không cần thêm độ đậm. --}}
-                                                    @if ($quotaRule['is_exhausted'])
-                                                        <span class="font-semibold text-rose-600"
-                                                              data-testid="card-quota-exhausted">· HẾT QUOTA</span>
-                                                    @elseif ($quotaRule['spend_remaining_estimate'] !== null)
-                                                        @if ($quotaRule['spend_estimate_is_reachable'])
-                                                            <span class="font-semibold text-emerald-600"
-                                                                  data-testid="card-quota-estimate">→ Có thể chi thêm ~<x-credit-card.money :value="$quotaRule['spend_remaining_estimate']" /></span>
+                                                        @if ($quotaRule['is_exhausted'])
+                                                            {{-- B — hết quota: `[trần] / [trần] · HẾT QUOTA`. --}}
+                                                            <span class="font-semibold text-gray-900"
+                                                                  x-text="ccMoneyVnd(quotaRuleValue(@js($cardKey), {{ $ruleIndex }}, 'cashback_max'))"><x-credit-card.money :value="$quotaRule['cashback_max']" /></span>
+                                                            <span class="text-gray-400"
+                                                                  x-text="' / ' + ccMoneyVnd(quotaRuleValue(@js($cardKey), {{ $ruleIndex }}, 'cashback_max'))"> / <x-credit-card.money :value="$quotaRule['cashback_max']" /></span>
+                                                            <span class="font-semibold text-rose-600"
+                                                                  data-testid="card-quota-exhausted">· HẾT QUOTA</span>
                                                         @else
-                                                            <span class="text-gray-400">· không đủ dải rate</span>
+                                                            {{-- A — `[đã dùng] / [trần] → ước lượng`.
+
+                                                                 Khoảng trắng quanh "/" phải có Ở PHÍA
+                                                                 SERVER: `x-text` ghi `' / '` nên sau khi
+                                                                 Alpine thay nội dung sẽ là " / 400.000 đ",
+                                                                 còn nếu markup không có khoảng trắng thì lúc
+                                                                 mới tải trang nó là "/400.000 đ" — dòng tiền
+                                                                 nhảy khi Alpine chạy. --}}
+                                                            <span class="font-semibold text-gray-900"
+                                                                  x-text="ccMoneyVnd(quotaRuleValue(@js($cardKey), {{ $ruleIndex }}, 'cashback_used_display'))"><x-credit-card.money :value="$quotaRule['cashback_used_display']" /></span>
+                                                            <span class="text-gray-400"
+                                                                  x-text="' / ' + ccMoneyVnd(quotaRuleValue(@js($cardKey), {{ $ruleIndex }}, 'cashback_max'))"> / <x-credit-card.money :value="$quotaRule['cashback_max']" /></span>
+                                                            @if ($quotaRule['spend_remaining_estimate'] !== null)
+                                                                @if ($quotaRule['spend_estimate_is_reachable'])
+                                                                    <span class="font-semibold text-emerald-600"
+                                                                          data-testid="card-quota-estimate">→ Có thể chi thêm ~<x-credit-card.money :value="$quotaRule['spend_remaining_estimate']" /></span>
+                                                                @else
+                                                                    <span class="text-gray-400">· không đủ dải rate</span>
+                                                                @endif
+                                                            @endif
+                                                        @endif
+                                                    @else
+                                                        {{-- C — không có trần riêng: KHÔNG bịa số làm
+                                                             mẫu số (§11), KHÔNG in "· còn". Đã dùng +
+                                                             ước lượng là đủ để user hành động. --}}
+                                                        <span class="font-semibold text-gray-900"
+                                                              x-text="ccMoneyVnd(quotaRuleValue(@js($cardKey), {{ $ruleIndex }}, 'cashback_used_display'))"><x-credit-card.money :value="$quotaRule['cashback_used_display']" /></span>
+                                                        @if ($quotaRule['is_exhausted'])
+                                                            <span class="font-semibold text-rose-600"
+                                                                  data-testid="card-quota-exhausted">· HẾT QUOTA</span>
+                                                        @elseif ($quotaRule['spend_remaining_estimate'] !== null)
+                                                            @if ($quotaRule['spend_estimate_is_reachable'])
+                                                                <span class="font-semibold text-emerald-600"
+                                                                      data-testid="card-quota-estimate">→ Có thể chi thêm ~<x-credit-card.money :value="$quotaRule['spend_remaining_estimate']" /></span>
+                                                            @else
+                                                                <span class="text-gray-400">· không đủ dải rate</span>
+                                                            @endif
                                                         @endif
                                                     @endif
                                                 </span>

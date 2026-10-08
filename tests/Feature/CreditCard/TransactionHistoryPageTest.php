@@ -414,6 +414,158 @@ class TransactionHistoryPageTest extends TestCase
     }
 
     // =====================================================================
+    // Dòng lịch sử: danh mục · ghi chú · cập nhật tại chỗ
+    // =====================================================================
+
+    #[Test]
+    public function the_category_name_is_printed_on_the_transaction_row(): void
+    {
+        $category = $this->makeSystemCategory(['name' => 'Nhà hàng Padaria']);
+        $card = $this->cardWithTransactions($category);
+
+        $this->createTransaction($card, $category, '45000');
+
+        $html = $this->actingAs($this->owner)
+            ->get(route('credit-cards.transactions', ['userCard' => $card->id]))
+            ->assertOk()
+            ->getContent();
+
+        // Regex bám `data-field="category"` để không khớp nhầm `<option>` trong
+        // form sửa — option cũng in đúng tên danh mục này.
+        $this->assertMatchesRegularExpression(
+            '/data-field="category"[^>]*>\s*Nhà hàng Padaria\s*</u',
+            $html,
+        );
+    }
+
+    #[Test]
+    public function the_note_is_printed_on_the_transaction_row(): void
+    {
+        $category = $this->makeSystemCategory();
+        $card = $this->cardWithTransactions($category);
+
+        $this->createTransaction($card, $category, '45000', 'Cà phê sáng');
+
+        $html = $this->actingAs($this->owner)
+            ->get(route('credit-cards.transactions', ['userCard' => $card->id]))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertMatchesRegularExpression(
+            '/data-field="note"[^>]*>\s*Cà phê sáng\s*</u',
+            $html,
+        );
+    }
+
+    #[Test]
+    public function a_transaction_without_a_note_keeps_the_note_element_hidden(): void
+    {
+        $category = $this->makeSystemCategory();
+        $card = $this->cardWithTransactions($category);
+
+        $this->createTransaction($card, $category, '45000');
+
+        $html = $this->actingAs($this->owner)
+            ->get(route('credit-cards.transactions', ['userCard' => $card->id]))
+            ->assertOk()
+            ->getContent();
+
+        // Giữ sẵn phần tử ẩn để `renderRow()` điền vào sau khi lưu — không in
+        // placeholder chữ "Không có ghi chú" user sẽ thấy mãi.
+        $this->assertStringContainsString('data-field="note" hidden', $html);
+        $this->assertStringNotContainsString('Không có ghi chú', $html);
+    }
+
+    #[Test]
+    public function deleting_a_transaction_removes_its_row_and_the_count_without_reloading(): void
+    {
+        $category = $this->makeSystemCategory();
+        $card = $this->cardWithTransactions($category);
+
+        $keep = $this->createTransaction($card, $category, '45000', 'Giữ lại');
+        $remove = $this->createTransaction($card, $category, '99000', 'Xoá đi');
+
+        $before = $this->actingAs($this->owner)
+            ->get(route('credit-cards.transactions', ['userCard' => $card->id]))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('2 giao dịch', $before);
+        $this->assertStringContainsString('data-transaction-id="'.$remove->id.'"', $before);
+
+        $this->actingAs($this->owner)
+            ->deleteJson(route('credit-cards.api.transactions.destroy', $remove->id))
+            ->assertOk();
+
+        $after = $this->actingAs($this->owner)
+            ->get(route('credit-cards.transactions', ['userCard' => $card->id]))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('1 giao dịch', $after);
+        $this->assertStringNotContainsString('2 giao dịch', $after);
+        $this->assertStringNotContainsString('data-transaction-id="'.$remove->id.'"', $after);
+        $this->assertStringContainsString('data-transaction-id="'.$keep->id.'"', $after);
+
+        // Trang tự gỡ dòng + trừ bộ đếm tại chỗ: wiring có đủ và KHÔNG có
+        // lệnh reload cả trang.
+        $this->assertStringContainsString('renderRow(', $after);
+        $this->assertStringContainsString('x-text="total + \' giao dịch\'"', $after);
+        $this->assertStringContainsString('this.total = Math.max(0, Number(this.total) - 1)', $after);
+        $this->assertStringNotContainsString('window.location.reload', $after);
+    }
+
+    #[Test]
+    public function the_update_payload_is_complete_and_editable_flips_when_the_period_is_finalized(): void
+    {
+        $category = $this->makeSystemCategory();
+        $other = $this->makeSystemCategory();
+        $card = $this->cardWithTransactions($category);
+        $transaction = $this->createTransaction($card, $category, '45000', 'Ghi chú cũ');
+
+        // Payload phải trả đủ khoá mà row dùng để gộp ngược sau khi lưu:
+        // `category_id` mở lại form, `category_name` in dòng, `editable` nút Sửa.
+        $this->actingAs($this->owner)
+            ->patchJson(route('credit-cards.api.transactions.update', $transaction->id), [
+                'note' => 'Ghi chú sau sửa',
+                'category_id' => $other->id,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.category_id', $other->id)
+            ->assertJsonPath('data.category_name', $other->name)
+            ->assertJsonPath('data.editable', true)
+            ->assertJsonPath('data.note', 'Ghi chú sau sửa');
+
+        // Trang render lại là thấy NGAY dữ liệu vừa lưu.
+        $html = $this->actingAs($this->owner)
+            ->get(route('credit-cards.transactions', ['userCard' => $card->id]))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertMatchesRegularExpression(
+            '/data-field="category"[^>]*>\s*'.preg_quote($other->name, '/').'\s*</u',
+            $html,
+        );
+        $this->assertMatchesRegularExpression('/data-field="note"[^>]*>\s*Ghi chú sau sửa\s*</u', $html);
+
+        // Kỳ chốt ⇒ `editable` false: payload API nói đúng và trang không còn nút Sửa.
+        $transaction->statementPeriod->forceFill(['status' => StatementPeriod::STATUS_FINALIZED])->save();
+
+        $this->actingAs($this->owner)
+            ->getJson(route('credit-cards.api.transactions.index', ['userCard' => $card->id]))
+            ->assertOk()
+            ->assertJsonPath('data.0.editable', false);
+
+        $html = $this->actingAs($this->owner)
+            ->get(route('credit-cards.transactions', ['userCard' => $card->id]))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringNotContainsString('data-testid="edit-transaction"', $html);
+        $this->assertStringContainsString('Kỳ đã chốt bảng kê', $html);
+    }
+
+    // =====================================================================
     // Helper
     // =====================================================================
 

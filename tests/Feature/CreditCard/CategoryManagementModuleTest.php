@@ -46,7 +46,7 @@ class CategoryManagementModuleTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('Danh mục chi tiêu');
-        $response->assertSee('Quản lý các nhóm chi tiêu dùng cho thẻ tín dụng và hoàn tiền');
+        $response->assertDontSee('Quản lý các nhóm chi tiêu dùng cho thẻ tín dụng và hoàn tiền');
         $response->assertSee('DANH MỤC HỆ THỐNG');
         $response->assertSee('DANH MỤC CỦA TÔI');
         $response->assertSee('Bạn chưa tạo danh mục chi tiêu riêng.');

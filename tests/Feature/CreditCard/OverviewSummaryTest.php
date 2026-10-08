@@ -465,18 +465,22 @@ class OverviewSummaryTest extends TestCase
     /**
      * Thẻ đã có policy 1 bậc, 1 rule với rate cho trước và mục tiêu đủ để
      * `expected_cashback` resolve được bậc đích.
+     *
+     * `$statementCloseDay` là ngày CHỐT mà các test vẫn kể ("Sacom chốt 05"),
+     * còn model lưu `statement_day` = anchor = ngày MỞ kỳ — kỳ "chốt 05" là
+     * 06/09–05/10 ⇒ anchor 06. Kỳ fixture trong file này đều mở ở close + 1.
      */
     private function cardWithPolicy(
         string $name,
         $category,
-        int $statementDay,
+        int $statementCloseDay,
         float $rate,
         string $desiredSpend,
     ): UserCard {
         $card = $this->makeUserCard($this->owner->id, [
             'name' => $name,
-            'statement_day' => $statementDay,
-            'payment_due_day' => $statementDay + 10,
+            'statement_day' => $statementCloseDay + 1,
+            'payment_due_day' => $statementCloseDay + 10,
             'desired_spend' => $desiredSpend,
         ]);
 

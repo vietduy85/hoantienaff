@@ -530,13 +530,16 @@ class OverviewQuotaPresentationTest extends TestCase
         // Trần chung KHÔNG BAO GIỜ được in theo kiểu trần riêng ("/ 500.000").
         $this->assertDoesNotMatchRegularExpression('/\/\s*500\.000/', $row, 'Trần chung không được in thành trần riêng.');
 
-        // §4 — `cashback_available_for_rule` vẫn phải hiện được, vì đó là số tiền
-        // user còn hành động được. Tách bằng "· còn" để không trông như hạn mức.
-        $this->assertStringContainsString('· còn', $row);
-        $this->assertStringContainsString('500.000', $row);
+        // ĐÃ CHỐT — nhánh C (không trần riêng): `[đã dùng] → Có thể chi thêm ~[x]`.
+        // KHÔNG còn "· còn X đ" (ngân sách chung in chung với dòng riêng làm user
+        // tưởng đó là hạn mức của danh mục) và KHÔNG in trần chung ra dòng quota.
+        $this->assertStringNotContainsString('· còn', $row);
+        $this->assertStringNotContainsString('500.000', $row, 'Trần chung của bậc không được xuất hiện trên dòng quota.');
+        $this->assertStringContainsString('Có thể chi thêm ~10.000.000', $this->visibleTextOf($row));
 
-        // Và số tiền cần chi thêm vẫn là con số thật.
-        $this->assertStringContainsString('10.000.000', $row);
+        // Toàn trang cũng không được còn dấu vết nhánh cũ.
+        $this->assertStringNotContainsString('· còn', $html);
+        $this->assertStringNotContainsString('card-quota-available', $html);
     }
 
     #[Test]
@@ -1052,6 +1055,119 @@ class OverviewQuotaPresentationTest extends TestCase
         $this->assertStringContainsString('HẾT QUOTA', $row);
         $this->assertStringNotContainsString('Có thể chi thêm', $row);
         $this->assertStringNotContainsString('410.000', $row);
+    }
+
+    // =====================================================================
+    // REGRESSION — hai sự cố thật trên dữ liệu thật (đã chốt xử lý)
+    // =====================================================================
+
+    #[Test]
+    public function a_vpbank_shopee_quota_that_ate_past_its_cap_reads_fully_exhausted(): void
+    {
+        // Sự cố thật: Shopee tiêu 4.237.000 ⇒ cashback 423.700đ vượt trần riêng
+        // 400.000đ. Dòng quota phải kẹp theo trần và nói HẾT QUOTA — không bao
+        // giờ in "423.700 / 400.000", cũng không in "4.000.000" (trần stale) hay
+        // nhánh "· còn".
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '5000000']);
+        $shopee = $this->makeSystemCategory(['name' => 'Shopee']);
+
+        // Giống cấu hình thật: bậc KHÔNG đặt trần chung, trần nằm ở rule Shopee.
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $shopee->id, 'percent' => '10.000', 'cap_cat' => '400000.00', 'quota' => true]]
+        );
+
+        $this->spend($card, $shopee, '4237000');
+
+        $html = $this->overviewHtml();
+        $rule = $this->metricsOf($html)[(string) $card->id]['quota']['rules'][0];
+
+        // Engine đã kẹp snapshot ở trần: 400.000đ, và trình bày cũng kẹp theo.
+        $this->assertSame('400000.00', $rule['cashback_used']);
+        $this->assertSame('400000.00', $rule['cashback_used_display']);
+        $this->assertSame('400000.00', $rule['cashback_max']);
+        $this->assertTrue($rule['is_exhausted']);
+
+        $row = $this->visibleTextOf($this->quotaRowOf($html));
+
+        // Nhánh B đã chốt: `[trần] / [trần] · HẾT QUOTA`.
+        $this->assertStringContainsString('400.000 đ / 400.000 đ · HẾT QUOTA', $row);
+        $this->assertStringNotContainsString('423.700', $row, 'Số vượt trần không được in ra.');
+        $this->assertStringNotContainsString('4.000.000', $row);
+        $this->assertStringNotContainsString('Có thể chi thêm', $row);
+        $this->assertStringNotContainsString('· còn', $html);
+    }
+
+    #[Test]
+    public function an_msb_mdigi_quota_line_reads_used_over_cap_then_the_spend_estimate(): void
+    {
+        // Sự cố thật: dòng MSB Mdigi in nhánh "· còn 196.600 đ" (payload thiếu
+        // trần riêng do policy stale). Sau chốt: format DUY NHẤT
+        // `Tên: [đã dùng] / [trần] → Có thể chi thêm ~[x]`, ước lượng giữ nguyên.
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '1500000']);
+        $food = $this->makeSystemCategory(['name' => 'Ẩm thực & Ăn uống']);
+
+        // Giống cấu hình thật: trần chung của bậc VÀ trần riêng đều 300.000đ.
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => '300000.00']],
+            [['category_id' => $food->id, 'percent' => '20.000', 'cap_cat' => '300000.00', 'quota' => true]]
+        );
+
+        $this->spend($card, $food, '517000');
+
+        $html = $this->overviewHtml();
+        $rule = $this->metricsOf($html)[(string) $card->id]['quota']['rules'][0];
+
+        // 517.000 × 20% = 103.400đ; còn 196.600đ ⇒ 196.600 / 20% = 983.000đ.
+        $this->assertSame('103400.00', $rule['cashback_used_display']);
+        $this->assertSame('300000.00', $rule['cashback_max']);
+        $this->assertSame('196600.00', $rule['cashback_available_for_rule']);
+        $this->assertSame('983000.00', $rule['spend_remaining_estimate']);
+        $this->assertFalse($rule['is_exhausted']);
+
+        $row = $this->visibleTextOf($this->quotaRowByLabel($html, 'Ẩm thực & Ăn uống'));
+
+        // Format A đã chốt — khớp đúng ví dụ user đưa ra.
+        $this->assertStringContainsString(
+            '103.400 đ / 300.000 đ → Có thể chi thêm ~983.000 đ',
+            $row
+        );
+        $this->assertStringNotContainsString('· còn', $row);
+    }
+
+    #[Test]
+    public function an_uncapped_rule_that_runs_out_of_tier_room_says_exhausted_with_no_denominator(): void
+    {
+        // Nhánh C khi hết phòng: `[đã dùng] · HẾT QUOTA` — nhất quán với nhánh B
+        // (nói thẳng việc hết quota) nhưng KHÔNG bịa một "trần riêng" không tồn
+        // tại để làm mẫu số.
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '3500000']);
+        $shopee = $this->makeSystemCategory(['name' => 'Shopee']);
+
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => '300000.00']],
+            [['category_id' => $shopee->id, 'percent' => '10.000', 'cap_cat' => null, 'quota' => true]]
+        );
+
+        // 3.500.000 × 10% = 350.000đ bị trần chung 300.000đ chặn ⇒ hết phòng.
+        $this->spend($card, $shopee, '3500000');
+
+        $html = $this->overviewHtml();
+        $rule = $this->metricsOf($html)[(string) $card->id]['quota']['rules'][0];
+
+        $this->assertNull($rule['cashback_max']);
+        $this->assertTrue($rule['is_exhausted']);
+        $this->assertSame('300000.00', $rule['cashback_used_display']);
+
+        $row = $this->visibleTextOf($this->quotaRowByLabel($html, 'Shopee'));
+
+        $this->assertStringContainsString('300.000 đ · HẾT QUOTA', $row);
+        $this->assertStringNotContainsString('/', $row, 'Không có trần riêng thì không được có mẫu số.');
+        $this->assertStringNotContainsString('· còn', $row);
+        $this->assertStringNotContainsString('Có thể chi thêm', $row);
     }
 
     #[Test]

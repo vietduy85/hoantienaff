@@ -233,9 +233,9 @@ class CreditCardModuleTest extends TestCase
         }
     }
 
-    /** TEST 6: Trang tổng quan có tiêu đề, subtitle, menu sidebar và placeholder. */
+    /** TEST 6: Trang tổng quan có module nav (3 tab chính + menu phụ nhỏ) và placeholder. */
     #[Test]
-    public function index_page_renders_module_title_subtitle_and_sidebar(): void
+    public function index_page_renders_module_nav_and_placeholder(): void
     {
         $user = User::factory()->create();
 
@@ -243,7 +243,9 @@ class CreditCardModuleTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('Thẻ tín dụng');
-        $response->assertSee('Quản lý và theo dõi các thẻ tín dụng của bạn');
+
+        // Header hero (💳 + title + subtitle) đã BỎ theo yêu cầu UI: không hiển thị mô tả marketing.
+        $response->assertDontSee('Quản lý và theo dõi các thẻ tín dụng của bạn');
 
         // Sidebar / module menu đủ 7 mục
         foreach ([
@@ -707,7 +709,6 @@ class CreditCardModuleTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('Danh mục chi tiêu');
-        $response->assertSee('Quản lý các nhóm chi tiêu dùng cho thẻ tín dụng và hoàn tiền');
         $response->assertSee('DANH MỤC HỆ THỐNG');
         $response->assertSee('DANH MỤC CỦA TÔI');
         $response->assertSee('Bạn chưa tạo danh mục chi tiêu riêng.');

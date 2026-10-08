@@ -43,6 +43,30 @@ use LogicException;
  *
  * Ngoại lệ duy nhất: sửa metadata của chính version CHƯA dùng cho kỳ nào
  * (chưa bị khoá, chưa superseded) — xem `rename()`.
+ *
+ * ---------------------------------------------------------------------------
+ * SAU KHI ĐỔI CURRENT POLICY: RECALC CÁC KỲ ĐANG OPEN
+ * ---------------------------------------------------------------------------
+ * `current_policy_id` đổi (tạo version mới / clone template / sửa tại chỗ) nhưng
+ * `statement_periods.policy_id` của kỳ ĐANG MỞ vẫn trỏ version cũ — mà
+ * `CashbackQuotaService::resolveVersions()` ưu tiên `period.policy_id` (hợp
+ * đồng đúng: version engine dùng tính kỳ đó) ⇒ quota/progress đọc cú pháp
+ * của version CŨ. Màn hình đã lưu policy 400K nhưng vẫn hiện cap 4.000.000 là
+ * lỗi này.
+ *
+ * NÊN MỌI ĐƯỜNG ĐỔI POLICY Ở LỚP NÀY gọi
+ * `CashbackRecordService::recalculateOpenPeriods()`, đúng như docblock của nó
+ * đã ghi ("Dùng sau khi: … đổi policy"):
+ *
+ *   - CHỈ kỳ `open` — kỳ đã finalize là bản ghi lịch sử, TUYỆT ĐỐI không
+ *     recalculate, không đổi snapshot (bộ lọc `open()` ở service + `calculatePeriod()`
+ *     tự bỏ qua kỳ finalized).
+ *   - Recalc re-attach policy cho kỳ theo `period_end` (version hiệu lực tại
+ *     thời điểm chốt kỳ — nên version mới `effective_from` SAU kỳ hiện tại thì
+ *     kỳ này VẪN gắn version cũ, đúng luật), rồi tính lại snapshot giao dịch
+ *     CỦA KỲ ĐANG MỞ + tổng kỳ. Snapshot của giao dịch trong kỳ open được ghi
+ *     lại theo pipeline chuẩn của engine — KHÔNG có đường ghi âm thầm nào khác.
+ *   - Không có kỳ open ⇒ no-op (vd. `createFromScratch()` cho thẻ mới).
  */
 class PolicyService
 {
@@ -52,6 +76,7 @@ class PolicyService
         private readonly TierService $tiers,
         private readonly CategoryRuleService $rules,
         private readonly SpendQualificationService $qualifications,
+        private readonly CashbackRecordService $records,
     ) {}
 
     /**
@@ -111,6 +136,10 @@ class PolicyService
                 'status' => UserCard::STATUS_ACTIVE,
             ])->save();
             $userCard->unsetRelation('currentPolicy');
+
+            // Kỳ open (nếu thẻ đã có từ trước) gắn lại policy mới + tính lại theo
+            // pipeline chuẩn. Thẻ mới tinh ⇒ no-op (chưa có kỳ open).
+            $this->records->recalculateOpenPeriods($userCard);
 
             return $policy->refresh();
         });
@@ -186,11 +215,19 @@ class PolicyService
     {
         $this->assertCardUsable($userCard);
 
-        $version = $this->cloner->createNextVersion($userCard, $effectiveFrom, $overrides);
+        // Gộp "tạo version" + "recalc kỳ open" vào MỘT transaction: version đổi
+        // mà kỳ open chưa re-attach thì quota lại đọc version cũ (đúng lỗi đang
+        // sửa). `createNextVersion()` có transaction riêng — lồng trong đây thành
+        // savepoint, rollback atomically nếu recalc lỗi.
+        return DB::connection('creditcard')->transaction(function () use ($userCard, $effectiveFrom, $overrides): PolicyVersion {
+            $version = $this->cloner->createNextVersion($userCard, $effectiveFrom, $overrides);
 
-        $this->engine->currentVersion($userCard);
+            $this->records->recalculateOpenPeriods($userCard);
 
-        return $version;
+            $this->engine->currentVersion($userCard);
+
+            return $version;
+        });
     }
 
     /**
@@ -272,6 +309,11 @@ class PolicyService
             }
 
             $userCard->unsetRelation('currentPolicy');
+
+            // Cap/bậc đổi tại chỗ ⇒ snapshot kỳ open vẫn tính theo cấu hình CŨ
+            // (đã ghi qua `*_snapshot`). Tính lại để snapshot + tổng kỳ khớp cấu
+            // hình mới — vẫn chỉ kỳ open, kỳ finalized không đụng.
+            $this->records->recalculateOpenPeriods($userCard);
 
             return $version->refresh();
         });
@@ -724,7 +766,15 @@ class PolicyService
             throw new LogicException("Template \"{$template->name}\" chưa có cấu hình để sao chép.");
         }
 
-        return $this->cloner->attachTemplateToCard($userCard, $template, $effectiveFrom, $name, $overrides);
+        // Đổi policy cho thẻ (clone template) cũng phải re-attach + recalc kỳ
+        // open — cùng lỗi stale `period.policy_id` như `createVersion()`.
+        return DB::connection('creditcard')->transaction(function () use ($userCard, $template, $effectiveFrom, $name, $overrides): PolicyVersion {
+            $version = $this->cloner->attachTemplateToCard($userCard, $template, $effectiveFrom, $name, $overrides);
+
+            $this->records->recalculateOpenPeriods($userCard);
+
+            return $version;
+        });
     }
 
     private function findVersionOfCard(UserCard $userCard, int $policyId): PolicyVersion

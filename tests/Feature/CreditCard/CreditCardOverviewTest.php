@@ -1022,18 +1022,24 @@ class CreditCardOverviewTest extends TestCase
     }
 
     /**
-     * Kỳ `open` chứa HÔM NAY — đúng định nghĩa "kỳ hiện tại" của module
-     * (`StatementPeriod::contains()`).
+     * Kỳ `open` chứa HÔM NAY — đúng định nghĩa "kỳ hiện tại" của module.
+     *
+     * Ranh giới lấy từ chính `StatementPeriodService::currentBoundaries()` để
+     * khớp với cách `CreditCardOverviewService` chọn kỳ (theo anchor từng thẻ),
+     * nên fixture luôn là đúng kỳ hiện tại dù thẻ dùng `statement_day` nào.
      */
     private function makeCurrentPeriod(UserCard $card, array $attributes = []): StatementPeriod
     {
-        $today = CarbonImmutable::now();
+        [$start, $end] = app(StatementPeriodService::class)->currentBoundaries(
+            $card,
+            CarbonImmutable::now(),
+        );
 
         return $this->makeStatementPeriod($card, array_merge([
-            'period_start' => $today->subDays(10)->toDateString(),
-            'period_end' => $today->addDays(10)->toDateString(),
-            'statement_date' => $today->addDays(10)->toDateString(),
-            'payment_due_date' => $today->addDays(20)->toDateString(),
+            'period_start' => $start->toDateString(),
+            'period_end' => $end->toDateString(),
+            'statement_date' => $end->toDateString(),
+            'payment_due_date' => $end->addDays(10)->toDateString(),
             'status' => StatementPeriod::STATUS_OPEN,
         ], $attributes));
     }

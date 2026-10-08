@@ -71,7 +71,9 @@ return [
      */
     'addlivetag' => [
         'base_url' => env('ADDLIVETAG_BASE_URL', 'https://data.addlivetag.com'),
+        'conversions_base_url' => env('ADDLIVETAG_CONVERSIONS_URL', 'https://addlivetag.com/api/v1/conversions.php'),
         'api_key' => env('ADDLIVETAG_API_KEY'),
+        'max_sync_pages' => (int) env('ADDLIVETAG_MAX_SYNC_PAGES', 100),
     ],
 
     'lazada' => [
