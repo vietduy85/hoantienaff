@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\AffiliateOrderItem;
+use App\Services\AddLiveTag\ShopeeApiSyncService;
 use App\Services\Lazada\LazadaException;
 use App\Services\Lazada\LazadaOrderSyncService;
 use App\Services\Lazada\LazadaSyncResult;
@@ -21,15 +22,18 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
 
 /**
- * Unified admin sync page: TikTok, ShopeeFood & Lazada.
+ * Unified admin sync page: TikTok, Lazada, ShopeeFood & Shopee (AddLiveTag API).
  *
- * One button calls TikTokOrderSyncService THEN ShopeeFoodOrderSyncService THEN
- * LazadaOrderSyncService. Each platform runs in its own try/catch so one
- * platform failing (e.g. missing SHOPEEFOOD_COOKIE / Lazada creds) never loses
- * the other platforms' results. Flash keys are kept separate per platform.
+ * One button calls TikTokOrderSyncService THEN LazadaOrderSyncService THEN
+ * ShopeeFoodOrderSyncService THEN ShopeeApiSyncService (the same shared service
+ * `affiliate:sync-all` step 5 runs — identical pipeline, identical 14-day
+ * window). Each platform runs in its own try/catch so one platform failing
+ * (e.g. missing SHOPEEFOOD_COOKIE / Lazada creds / AddLiveTag API error) never
+ * loses the other platforms' results. Flash keys are kept separate per
+ * platform.
  *
  * Route names and URL are unchanged (admin.tiktok-order-sync.index/.sync,
- * /admin/tiktok-order-sync) — only the implementation broadened to three feeds.
+ * /admin/tiktok-order-sync) — only the implementation broadened.
  */
 class OrderSyncController extends Controller
 {
@@ -37,12 +41,13 @@ class OrderSyncController extends Controller
         private readonly TikTokOrderSyncService $tikTokService,
         private readonly ShopeeFoodOrderSyncService $shopeeFoodService,
         private readonly LazadaOrderSyncService $lazadaService,
+        private readonly ShopeeApiSyncService $shopeeService,
     ) {}
 
     public function index(): View
     {
         $recentOrders = AffiliateOrderItem::query()
-            ->whereIn('platform', ['TikTok', 'ShopeeFood', 'Lazada'])
+            ->whereIn('platform', ['TikTok', 'Lazada', 'ShopeeFood', 'Shopee'])
             ->orderByDesc('id')
             ->limit(25)
             ->get();
@@ -63,6 +68,11 @@ class OrderSyncController extends Controller
                 'settled' => AffiliateOrderItem::where('platform', 'Lazada')->where('affiliate_status', 'Hoàn thành')->count(),
                 'refunded' => AffiliateOrderItem::where('platform', 'Lazada')->where('affiliate_status', 'Đã hủy')->count(),
             ],
+            'shopee' => [
+                'total' => AffiliateOrderItem::where('platform', 'Shopee')->count(),
+                'settled' => AffiliateOrderItem::where('platform', 'Shopee')->where('affiliate_status', 'Hoàn thành')->count(),
+                'refunded' => AffiliateOrderItem::where('platform', 'Shopee')->where('affiliate_status', 'Đã hủy')->count(),
+            ],
         ];
 
         $lastTikTokSyncAt = AffiliateOrderItem::where('platform', 'TikTok')
@@ -77,12 +87,19 @@ class OrderSyncController extends Controller
             ->whereNotNull('last_lazada_sync_at')
             ->max('last_lazada_sync_at');
 
+        // Shopee reuses the SAME tracking column ConversionsImporter::apply()
+        // stamps on every created/updated row — no new table / no new mechanism.
+        $lastShopeeSyncAt = AffiliateOrderItem::where('platform', 'Shopee')
+            ->whereNotNull('last_shopee_sync_at')
+            ->max('last_shopee_sync_at');
+
         return view('admin.order-sync.index', compact(
             'recentOrders',
             'stats',
             'lastTikTokSyncAt',
             'lastShopeeFoodSyncAt',
             'lastLazadaSyncAt',
+            'lastShopeeSyncAt',
         ));
     }
 
@@ -98,16 +115,18 @@ class OrderSyncController extends Controller
         if (! $lock->get()) {
             $request->session()->flash(
                 'tiktok_sync_error',
-                'Một phiên đồng bộ đang chạy (TikTok/ShopeeFood/Lazada). Vui lòng thử lại sau.',
+                'Một phiên đồng bộ đang chạy (TikTok/Lazada/ShopeeFood/Shopee). Vui lòng thử lại sau.',
             );
 
             return redirect()->route('admin.tiktok-order-sync.index');
         }
 
         try {
+            // Same order as affiliate:sync-all: TikTok → Lazada → ShopeeFood → Shopee.
             $this->runTikTok($request, $validated['from'] ?? null, $validated['to'] ?? null);
-            $this->runShopeeFood($request, $validated['from'] ?? null, $validated['to'] ?? null);
             $this->runLazada($request, $validated['from'] ?? null, $validated['to'] ?? null);
+            $this->runShopeeFood($request, $validated['from'] ?? null, $validated['to'] ?? null);
+            $this->runShopee($request);
         } finally {
             $lock->release();
         }
@@ -174,6 +193,50 @@ class OrderSyncController extends Controller
         } catch (LazadaException $e) {
             Log::error('[Admin Sync][Lazada] error', ['error' => $e->getMessage()]);
             $request->session()->flash('lazada_sync_error', $e->getUserMessage());
+        }
+    }
+
+    private function runShopee(Request $request): void
+    {
+        try {
+            // Phase 3: identical pipeline to affiliate:sync-all step 5 —
+            // shared ShopeeApiSyncService (AddLiveTag API, 14-day window,
+            // apply rows + wallet credit, idempotent). The form's from/to
+            // does NOT change Shopee's own 14-day API lookback (business rule);
+            // truncation / API errors report FAIL instead of a fake success.
+            $result = $this->shopeeService->run();
+
+            if (! $result['success']) {
+                Log::error('[Admin Sync][Shopee] AddLiveTag error', ['error' => $result['error']]);
+                $request->session()->flash(
+                    'shopee_sync_error',
+                    'Đồng bộ Shopee (AddLiveTag API) thất bại: '.$result['error'],
+                );
+
+                return;
+            }
+
+            Log::info('[Admin Sync][Shopee] manual sync', [
+                'sync_type' => $request->user()->hasRole('Operator') ? 'manual_operator' : 'manual_admin',
+                'api' => 'AddLiveTag',
+                'from' => $result['from'],
+                'to' => $result['to'],
+                'raw_items' => $result['raw_items'],
+                'orders' => $result['orders'],
+                'created' => $result['applied_created'],
+                'updated' => $result['applied_updated'],
+                'protected' => $result['plan_protected'],
+                'credit' => $result['credit'],
+                'duration' => $result['duration'],
+            ]);
+
+            $request->session()->flash('shopee_sync_result', $this->formatShopeeSummary($result));
+        } catch (\Throwable $e) {
+            Log::error('[Admin Sync][Shopee] error', ['error' => $e->getMessage()]);
+            $request->session()->flash(
+                'shopee_sync_error',
+                'Đồng bộ Shopee (AddLiveTag API) thất bại: '.$e->getMessage(),
+            );
         }
     }
 
@@ -269,6 +332,33 @@ class OrderSyncController extends Controller
             'invalid_lines' => $result->invalidLines,
             'errors' => $result->errors,
             'duration' => round($data['elapsed_seconds'], 2),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $r  result array from ShopeeApiSyncService::run()
+     * @return array<string, mixed>
+     */
+    private function formatShopeeSummary(array $r): array
+    {
+        $creditErrors = (int) ($r['credit']['errors'] ?? 0);
+
+        return [
+            'success' => $creditErrors === 0,
+            'message' => $creditErrors > 0 ? 'Đồng bộ Shopee không hoàn toàn' : 'Đồng bộ Shopee (AddLiveTag API) hoàn tất',
+            'api' => 'AddLiveTag',
+            'from' => $r['from'],
+            'to' => $r['to'] ?? '-',
+            'raw_items' => $r['raw_items'],
+            'orders' => $r['orders'],
+            'inserted' => $r['applied_created'],
+            'updated' => $r['applied_updated'],
+            'protected' => $r['plan_protected'],
+            'user_conflict' => $r['user_conflict'],
+            'sub_id_mismatch' => $r['sub_id_mismatch'],
+            'wallet_credits' => (int) ($r['credit']['credited'] ?? 0),
+            'wallet_errors' => $creditErrors,
+            'duration' => $r['duration'],
         ];
     }
 }

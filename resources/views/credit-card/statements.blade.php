@@ -453,6 +453,11 @@
                             <input type="hidden" name="period_start"
                                    value="{{ $row['period']['period_start'] }}">
 
+                            {{-- Ký tự hậu tố resolve MỘT lần cho cả hai ô — suffix
+                                 rỗng (user bỏ ký tự) thì không render hậu tố và
+                                 không giữ padding pr-10 thừa. --}}
+                            @php $ccSuffix = \App\Support\CreditCard\CreditCardMoneyFormatter::suffix(auth()->id() ?? null); @endphp
+
                             <div>
                                 <label for="statement-spend-{{ $row['id'] }}"
                                        class="block text-sm font-medium text-gray-700">
@@ -463,11 +468,13 @@
                                            type="text" inputmode="decimal" autocomplete="off"
                                            value="{{ \App\Support\CreditCard\CreditCardMoneyFormatter::input($statement['actual_spend'] ?? null, auth()->id() ?? null) }}"
                                            :disabled="busyId === {{ $row['id'] }}"
-                                           class="mt-1 w-full h-11 px-3 pr-10 rounded-xl border-gray-200 text-sm tabular-nums
+                                           class="mt-1 w-full h-11 px-3 {{ $ccSuffix !== '' ? 'pr-10 ' : '' }}rounded-xl border-gray-200 text-sm tabular-nums
                                                   focus:border-emerald-500 focus:ring-emerald-500"
                                            :class="errors.actual_spend ? 'border-red-400' : ''"
                                            placeholder="Nhập 0 nếu kỳ không chi">
-                                    <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-gray-400">{{ \App\Support\CreditCard\CreditCardMoneyFormatter::suffix(auth()->id() ?? null) }}</span>
+                                    @if($ccSuffix !== '')
+                                    <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-gray-400">{{ $ccSuffix }}</span>
+                                    @endif
                                 </div>
                                 <p class="mt-1 text-xs text-red-600" x-show="errors.actual_spend" x-cloak
                                    x-text="errors.actual_spend"></p>
@@ -483,11 +490,13 @@
                                            type="text" inputmode="decimal" autocomplete="off"
                                            value="{{ \App\Support\CreditCard\CreditCardMoneyFormatter::input($statement['actual_reward'] ?? null, auth()->id() ?? null) }}"
                                            :disabled="busyId === {{ $row['id'] }}"
-                                           class="mt-1 w-full h-11 px-3 pr-10 rounded-xl border-gray-200 text-sm tabular-nums
+                                           class="mt-1 w-full h-11 px-3 {{ $ccSuffix !== '' ? 'pr-10 ' : '' }}rounded-xl border-gray-200 text-sm tabular-nums
                                                   focus:border-emerald-500 focus:ring-emerald-500"
                                            :class="errors.actual_reward ? 'border-red-400' : ''"
                                            placeholder="Nhập 0 nếu không có hoàn">
-                                    <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-gray-400">{{ \App\Support\CreditCard\CreditCardMoneyFormatter::suffix(auth()->id() ?? null) }}</span>
+                                    @if($ccSuffix !== '')
+                                    <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-gray-400">{{ $ccSuffix }}</span>
+                                    @endif
                                 </div>
                                 <p class="mt-1 text-xs text-red-600" x-show="errors.actual_reward" x-cloak
                                    x-text="errors.actual_reward"></p>

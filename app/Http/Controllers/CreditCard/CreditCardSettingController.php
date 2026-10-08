@@ -49,26 +49,38 @@ class CreditCardSettingController extends Controller
     }
 
     /**
-     * Lưu đơn vị số tiền (VND | THOUSAND_VND).
+     * Lưu đơn vị số tiền (VND | THOUSAND_VND) + ký tự đại diện.
      *
-     * Tương tự `update()`: chọn là lưu ngay, không có nút "Lưu". Trả về đơn vị
-     * server THỰC SỰ giữ (đã chuẩn hoá) để giao diện đồng bộ về đúng giá trị
-     * trong DB thay vì giữ nguyên lựa chọn vừa bấm.
+     * KHÁC `update()`: không phải "chọn là lưu ngay" — giao diện chỉ PATCH khi
+     * người dùng bấm nút "Lưu", nên payload luôn mang theo CẢ đơn vị và ký tự
+     * (ký tự đã resolve từ default khi người dùng chưa từng cấu hình).
      *
-     * Đổi đơn vị KHÔNG đổi một đồng nào trong dữ liệu: DB vẫn lưu VND, chỉ cách
-     * đọc số trên màn hình đổi — nên không có payload tiền nào đi qua endpoint này.
+     * Trả về `money_unit` server THỰC SỰ giữ và ký tự đã persist (đã chuẩn hoá).
+     * `money_unit_symbol` trong response là giá trị RESOLVED để giao diện luôn
+     * có chuỗi hiển thị: payload tới từ UI luôn là chuỗi nên thường trùng với
+     * giá trị trong DB; riêng lời gọi API thiếu trường (ghi NULL) thì response
+     * trả default theo đơn vị thay vì để input Settings trống.
+     *
+     * Đổi đơn vị/ký tự KHÔNG đổi một đồng nào trong dữ liệu: DB vẫn lưu VND,
+     * chỉ cách đọc số trên màn hình đổi — nên không có payload tiền nào đi qua
+     * endpoint này.
      */
     public function updateMoneyUnit(UpdateCreditCardMoneyUnitRequest $request): JsonResponse
     {
         $setting = $this->settings->updateMoneyUnit(
             (int) $request->user()->id,
             $request->moneyUnit(),
+            $request->moneyUnitSymbol(),
         );
 
         return response()->json([
             'data' => [
                 'user_id' => (int) $setting->user_id,
                 'money_unit' => $setting->money_unit,
+                'money_unit_symbol' => CreditCardUserSettingService::resolveMoneyUnitSymbol(
+                    $setting->money_unit,
+                    $setting->money_unit_symbol,
+                ),
             ],
         ]);
     }

@@ -6,7 +6,8 @@ use App\Models\CreditCard\CreditCardUserSetting;
 use App\Support\CreditCard\CreditCardMoneyFormatter;
 
 /**
- * Thiết lập CHUNG của người dùng: nhắc thanh toán trước mấy ngày + đơn vị số tiền.
+ * Thiết lập CHUNG của người dùng: nhắc thanh toán trước mấy ngày + đơn vị số
+ * tiền + ký tự đại diện của đơn vị đó.
  *
  * ---------------------------------------------------------------------------
  * ĐỌC KHÔNG GHI
@@ -60,6 +61,37 @@ class CreditCardUserSettingService
     }
 
     /**
+     * Ký tự đại diện ĐANG LƯU (thô) của user, hoặc NULL nếu chưa từng cấu hình.
+     *
+     * Trả NGUYÊN trạng thái DB — không resolve mặc định: "" (chủ động bỏ suffix)
+     * và NULL (chưa cấu hình) là hai ý nghĩa khác nhau, chỗ cần biết "user đã
+     * cấu hình gì" phải đọc chỗ này; chỗ chỉ cần chuỗi hiển thị dùng
+     * {@see resolveMoneyUnitSymbol()}.
+     *
+     * Cùng nguyên tắc {@see moneyUnitFor()}: đọc KHÔNG tạo dòng thiết lập.
+     */
+    public function moneyUnitSymbolFor(int $userId): ?string
+    {
+        return $this->forUser($userId)?->money_unit_symbol;
+    }
+
+    /**
+     * Resolve ký tự HIỂN THỊ từ đơn vị + ký tự đã lưu — hàm thuần, không ghi DB.
+     *
+     *   - `rawSymbol !== NULL` ⇒ dùng nguyên văn (kể cả chuỗi rỗng — người dùng
+     *     chủ động bỏ suffix thì phải hiển thị không suffix);
+     *   - `rawSymbol === NULL`  ⇒ mặc định theo đơn vị (VND ⇒ "đ",
+     *     THOUSAND_VND ⇒ "nghìn").
+     *
+     * Một nơi duy nhất cho quy tắc này nên formatter (PHP), Settings controller
+     * (truyền vào view) và response của endpoint không thể lệch nhau.
+     */
+    public static function resolveMoneyUnitSymbol(string $moneyUnit, ?string $rawSymbol): string
+    {
+        return $rawSymbol ?? CreditCardUserSetting::defaultMoneyUnitSymbol($moneyUnit);
+    }
+
+    /**
      * Dòng thiết lập thô của user, hoặc null. Chỉ đọc, không tạo.
      */
     public function forUser(int $userId): ?CreditCardUserSetting
@@ -91,25 +123,36 @@ class CreditCardUserSettingService
     }
 
     /**
-     * Ghi đơn vị số tiền của user, tạo dòng thiết lập nếu chưa có.
+     * Ghi ĐƠN VỊ + KÝ TỰ ĐẠI DIỆN của user, tạo dòng thiết lập nếu chưa có.
      *
-     * Chuẩn hoá TRƯỚC khi ghi để chỉ hai giá trị constant nằm trong DB; request
-     * đã chặn rồi nhưng đây là cửa ghi duy nhất, không được tin mọi đường vào
-     * đều qua validation.
+     * Cả hai cột ghi trong ĐÚNG MỘT `updateOrCreate` — một payload "Lưu" của
+     * Settings không được tách thành hai lần ghi để giữa hai lần đơn vị và ký tự
+     * lệch nhau. `payment_reminder_days` không nằm trong mảng attributes nên
+     * update không đụng tới nó (xem test N).
+     *
+     * `symbol`:
+     *   - `NULL`  = caller không cấu hình ký tự ⇒ cột giữ NULL (chưa từng cấu hình);
+     *   - `""`    = chủ động bỏ suffix ⇒ ghi "" (KHÔNG chuyển thành NULL);
+     *   - khác    => ký tự tuỳ chỉnh, trim hai đầu trước khi ghi.
+     *
+     * Chuẩn hoá TRƯỚC khi ghi; request đã chặn rồi nhưng đây là cửa ghi duy nhất,
+     * không được tin mọi đường vào đều qua validation.
      *
      * Sau khi ghi phải `flush()` memo của `CreditCardMoneyFormatter`: formatter
-     * memo đơn vị theo user trong đời request, để nguyên thì request đang render
-     * (hoặc request tiếp theo trong cùng worker dài) vẫn đọc giá trị cũ.
+     * memo (đơn vị, ký tự) theo user trong đời request, để nguyên thì request
+     * đang render (hoặc request tiếp theo trong cùng worker dài) vẫn đọc giá trị
+     * cũ.
      *
      * @return CreditCardUserSetting
      */
-    public function updateMoneyUnit(int $userId, string $unit): CreditCardUserSetting
+    public function updateMoneyUnit(int $userId, string $unit, ?string $symbol = null): CreditCardUserSetting
     {
-        $normalized = $this->normalizeUnit($unit);
-
         $setting = CreditCardUserSetting::query()->updateOrCreate(
             ['user_id' => $userId],
-            ['money_unit' => $normalized],
+            [
+                'money_unit' => $this->normalizeUnit($unit),
+                'money_unit_symbol' => $symbol === null ? null : $this->normalizeSymbol($symbol),
+            ],
         );
 
         CreditCardMoneyFormatter::flush($userId);
@@ -145,5 +188,22 @@ class CreditCardUserSettingService
         return in_array($unit, CreditCardUserSetting::moneyUnits(), true)
             ? $unit
             : CreditCardUserSetting::MONEY_UNIT_VND;
+    }
+
+    /**
+     * Chuẩn hoá ký tự đại diện trước khi ghi: trim hai đầu, kẹp về 20 ký tự.
+     *
+     * KHÔNG đổi chuỗi rỗng thành NULL: người dùng gõ toàn khoảng trắng rồi Lưu
+     * là hành động "bỏ suffix", kết quả phải là "" chứ không phải "chưa từng cấu
+     * hình" — hai ý nghĩa khác nhau (xem `resolveMoneyUnitSymbol()`).
+     *
+     * Kẹp 20 ký tự theo cột DB — request đã chặn `max:20`, đây là lưới an toàn
+     * thứ hai của cửa ghi duy nhất, cùng lập luận với `normalize()`.
+     */
+    private function normalizeSymbol(string $symbol): string
+    {
+        $trimmed = trim($symbol);
+
+        return mb_strlen($trimmed) > 20 ? mb_substr($trimmed, 0, 20) : $trimmed;
     }
 }

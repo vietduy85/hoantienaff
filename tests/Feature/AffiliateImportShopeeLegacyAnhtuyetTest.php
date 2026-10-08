@@ -90,7 +90,7 @@ class AffiliateImportShopeeLegacyAnhtuyetTest extends TestCase
         ]);
         $path = $this->createTempCsv($csv);
 
-        $this->artisan('affiliate:import-shopee', ['--file' => $path])
+        $this->artisan('affiliate:import-shopee', ['--file' => $path, '--allow-write' => true])
             ->assertSuccessful();
 
         $record->refresh();
@@ -123,7 +123,7 @@ class AffiliateImportShopeeLegacyAnhtuyetTest extends TestCase
         ]);
         $path = $this->createTempCsv($csv);
 
-        $this->artisan('affiliate:import-shopee', ['--file' => $path])
+        $this->artisan('affiliate:import-shopee', ['--file' => $path, '--allow-write' => true])
             ->assertSuccessful();
 
         $record->refresh();
@@ -150,7 +150,7 @@ class AffiliateImportShopeeLegacyAnhtuyetTest extends TestCase
         ]);
         $path = $this->createTempCsv($csv);
 
-        $this->artisan('affiliate:import-shopee', ['--file' => $path])
+        $this->artisan('affiliate:import-shopee', ['--file' => $path, '--allow-write' => true])
             ->assertSuccessful();
 
         $record = AffiliateOrderItem::where('order_id', 'ORDNORMAL')
@@ -183,7 +183,7 @@ class AffiliateImportShopeeLegacyAnhtuyetTest extends TestCase
         ]);
         $path = $this->createTempCsv($csv);
 
-        $this->artisan('affiliate:import-shopee', ['--file' => $path])
+        $this->artisan('affiliate:import-shopee', ['--file' => $path, '--allow-write' => true])
             ->assertSuccessful();
 
         $this->assertDatabaseHas('wallet_transactions', [

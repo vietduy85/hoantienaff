@@ -39,6 +39,10 @@ namespace App\Models\CreditCard;
  * tham gia tính: database luôn lưu VND, `money_unit` chỉ đổi cách View đọc con số
  * đó (4.237.000 đ hay 4.237 nghìn). Nên không có cột tiền nào đổi giá trị khi
  * người dùng đổi đơn vị.
+ *
+ * Kèm theo là `money_unit_symbol` — ký tự người dùng muốn thấy sau con số ("đ",
+ * "nghìn", "VND", "k"…). NULL = chưa từng cấu hình (dùng mặc định theo đơn vị),
+ * "" = chủ động bỏ suffix. Cả hai chỉ là presentation, không tham gia tính.
  */
 class CreditCardUserSetting extends CreditCardModel
 {
@@ -90,6 +94,17 @@ class CreditCardUserSetting extends CreditCardModel
     public const MONEY_UNIT_THOUSAND = 'THOUSAND_VND';
 
     /**
+     * Ký tự mặc định khi `money_unit_symbol` là NULL (chưa từng cấu hình).
+     *
+     * Hai giá trị này là NGUỒN DUY NHẤT cho mặc định — formatter, service và
+     * giao diện Settings đều đọc từ đây, nên không chỗ nào có thể tự đoán một
+     * kiểu khác. Không phải hằng của DB: DB không lưu default (xem migration).
+     */
+    public const DEFAULT_MONEY_UNIT_SYMBOL_VND = 'đ';
+
+    public const DEFAULT_MONEY_UNIT_SYMBOL_THOUSAND = 'nghìn';
+
+    /**
      * `closing_balance`/`payment_status` không nằm ở đây — bảng này chỉ giữ thiết
      * lập của user.
      */
@@ -97,6 +112,7 @@ class CreditCardUserSetting extends CreditCardModel
         'user_id',
         'payment_reminder_days',
         'money_unit',
+        'money_unit_symbol',
     ];
 
     protected function casts(): array
@@ -105,7 +121,24 @@ class CreditCardUserSetting extends CreditCardModel
             'user_id' => 'integer',
             'payment_reminder_days' => 'integer',
             'money_unit' => 'string',
+            // `string` cast giữ nguyên NULL và chuỗi rỗng — hai giá trị có ý
+            // nghĩa KHÁC NHAU (chưa cấu hình vs chủ động bỏ suffix), không được
+            // gộp lại thành một.
+            'money_unit_symbol' => 'string',
         ];
+    }
+
+    /**
+     * Ký tự mặc định của một đơn vị — dùng khi `money_unit_symbol` là NULL.
+     *
+     * Đơn vị lạ (dữ liệu hỏng) về mặc định của VND, cùng lập luận với
+     * {@see moneyUnits()}: một chuỗi hiển thị sai không đáng làm sập trang.
+     */
+    public static function defaultMoneyUnitSymbol(string $unit): string
+    {
+        return $unit === self::MONEY_UNIT_THOUSAND
+            ? self::DEFAULT_MONEY_UNIT_SYMBOL_THOUSAND
+            : self::DEFAULT_MONEY_UNIT_SYMBOL_VND;
     }
 
     /**

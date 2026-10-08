@@ -4,19 +4,30 @@ namespace App\Services\AddLiveTag;
 
 use App\Models\AffiliateOrderItem;
 use App\Models\User;
+use App\Models\WalletTransaction;
+use App\Services\WalletService;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * PHASE 1: compare AddLiveTag-normalized rows against affiliate_order_items
  * and (optionally) apply SAFE row updates.
  *
- * Hard rules (Phase 1):
+ * Hard rules (Phase 1 — plan()/apply()):
  *  - never creates/updates WalletTransactions
  *  - never calls WalletService
  *  - never touches finalized_at / locked_at / reversed_at / final_cashback_amount
  *  - never rewrites rows that already have a completed cashback credit
  *  - never overwrites an existing user mapping on conflict (report only)
  *  - never downgrades a completed row when API still reports paid/unpaid
+ *
+ * PHASE 2 (credit()): the ONLY place in this class that touches the wallet.
+ * Called exclusively by affiliate:sync-all step 5 AFTER apply(). Credits cashback
+ * via WalletService::creditCashback() for rows that are completed + cashback>0 +
+ * user resolved + not already credited/locked/finalized/reversed. Cancelled rows
+ * never receive a NEW credit and no reversal is ever performed (spec §5).
+ * USER_CONFLICT entries are skipped and reported (never silently remapped).
  */
 class ConversionsImporter
 {
@@ -53,7 +64,7 @@ class ConversionsImporter
     {
         $groups = [];
         foreach ($normalizedRows as $i => $row) {
-            $key = $row['order_id'] . '|' . $row['item_id'];
+            $key = $row['order_id'].'|'.$row['item_id'];
             $groups[$key]['rows'][] = $row;
             $groups[$key]['indexes'][] = $i;
         }
@@ -145,7 +156,7 @@ class ConversionsImporter
                 && ($row['sub_id1'] ?? null) !== null
                 && $dbRow->username !== $row['sub_id1']
             ) {
-                $subIdMismatches[$orderSn . '|' . $itemId] = [
+                $subIdMismatches[$orderSn.'|'.$itemId] = [
                     'order_id' => $orderSn,
                     'item_id' => $itemId,
                     'db_username' => $dbRow->username,
@@ -214,7 +225,7 @@ class ConversionsImporter
      */
     public function apply(array $planResult): array
     {
-        return \Illuminate\Support\Facades\DB::transaction(function () use ($planResult) {
+        return DB::transaction(function () use ($planResult) {
             $created = 0;
             $updated = 0;
 
@@ -323,6 +334,107 @@ class ConversionsImporter
     }
 
     /**
+     * PHASE 2: credit cashback for eligible plan entries. MUST be called after
+     * apply() so freshly created rows exist. Idempotent — rows that already have
+     * a completed cashback credit are skipped.
+     *
+     * @return array<string,int>
+     */
+    public function credit(array $planResult, WalletService $wallet): array
+    {
+        $counts = [
+            'checked' => 0,
+            'credited' => 0,
+            'already_credited' => 0,
+            'protected' => 0,
+            'user_conflict' => 0,
+            'not_completed' => 0,
+            'zero_cashback' => 0,
+            'no_user' => 0,
+            'missing' => 0,
+            'errors' => 0,
+        ];
+
+        $keys = [];
+        foreach ($planResult['plan'] as $entry) {
+            if ($entry['action'] === self::ACTION_PROTECTED) {
+                $counts['protected']++;
+
+                continue;
+            }
+            if ($entry['action'] === self::ACTION_USER_CONFLICT) {
+                $counts['user_conflict']++;
+
+                continue;
+            }
+            $keys[] = $entry['order_id'].'|'.$entry['item_id'];
+        }
+        $keys = array_values(array_unique($keys));
+
+        if ($keys === []) {
+            return $counts;
+        }
+
+        $rows = $this->loadExisting($keys);
+
+        foreach ($keys as $key) {
+            $item = $rows[$key] ?? null;
+            if ($item === null) {
+                $counts['missing']++;
+
+                continue;
+            }
+            $counts['checked']++;
+
+            if ($item->isFinalized() || $item->locked_at !== null || $item->isReversed()) {
+                $counts['protected']++;
+
+                continue;
+            }
+            if ($item->affiliate_status !== self::COMPLETED_STATUS) {
+                $counts['not_completed']++;
+
+                continue;
+            }
+            if ((float) $item->cashback_amount <= 0) {
+                $counts['zero_cashback']++;
+
+                continue;
+            }
+            if ($item->user_id === null) {
+                $counts['no_user']++;
+
+                continue;
+            }
+            if ($item->hasCompletedCashbackCredit()) {
+                $counts['already_credited']++;
+
+                continue;
+            }
+
+            try {
+                $transaction = $wallet->creditCashback($item, throwOnDuplicate: false);
+            } catch (\Throwable $e) {
+                $counts['errors']++;
+                Log::warning('[ConversionsImporter] cashback credit failed', [
+                    'key' => $key,
+                    'error' => $e->getMessage(),
+                ]);
+
+                continue;
+            }
+
+            if ($transaction !== null) {
+                $counts['credited']++;
+            } else {
+                $counts['already_credited']++;
+            }
+        }
+
+        return $counts;
+    }
+
+    /**
      * @param  list<string>  $keys  "orderSn|itemId"
      * @return array<string, AffiliateOrderItem>
      */
@@ -341,7 +453,7 @@ class ConversionsImporter
             ->orderBy('id')
             ->get()
             ->each(function (AffiliateOrderItem $row) use (&$map) {
-                $map[$row->order_id . '|' . $row->item_id] = $row;
+                $map[$row->order_id.'|'.$row->item_id] = $row;
             });
 
         return $map;
@@ -363,11 +475,11 @@ class ConversionsImporter
         $ids = array_map(static fn (AffiliateOrderItem $row): int => $row->id, array_values($existing));
 
         $credited = [];
-        \App\Models\WalletTransaction::query()
+        WalletTransaction::query()
             ->where('reference_type', 'affiliate_order_item')
             ->whereIn('reference_id', $ids)
-            ->where('type', \App\Models\WalletTransaction::TYPE_CASHBACK)
-            ->where('status', \App\Models\WalletTransaction::STATUS_COMPLETED)
+            ->where('type', WalletTransaction::TYPE_CASHBACK)
+            ->where('status', WalletTransaction::STATUS_COMPLETED)
             ->pluck('reference_id')
             ->each(function ($id) use (&$credited) {
                 $credited[(int) $id] = true;

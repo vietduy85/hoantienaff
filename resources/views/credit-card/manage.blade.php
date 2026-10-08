@@ -1517,7 +1517,7 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
 
                         return cap === null
                             ? 'Tổng hoàn tối đa mỗi kỳ: không giới hạn'
-                            : `Tổng hoàn tối đa mỗi kỳ: ${ccMoney(cap)}\u00A0${ccMoneySuffix()}`;
+                            : `Tổng hoàn tối đa mỗi kỳ: ${ccMoneySuffixJoin(ccMoney(cap))}`;
                     },
 
                     /** Tóm tắt "Điều kiện hoàn tiền đặc biệt" cho khung Tóm tắt. */
@@ -1529,7 +1529,7 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                         const total = conditions.reduce((sum, c) => sum + (Number(c.min_spend) || 0), 0);
                         const label = conditions.length === 1 ? 'điều kiện' : 'điều kiện';
 
-                        return `${conditions.length} ${label} · tổng tối thiểu ${ccMoney(total)}\u00A0${ccMoneySuffix()}/kỳ`;
+                        return `${conditions.length} ${label} · tổng tối thiểu ${ccMoneySuffixJoin(ccMoney(total))}/kỳ`;
                     },
 
                     /** Trần chi tiết của một quy tắc; gộp các trần còn lại. */
@@ -1537,10 +1537,10 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                         const parts = [];
 
                         const perTx = optionalNumber(rule.max_cashback_per_transaction);
-                        if (perTx !== null) parts.push(`tối đa ${ccMoney(perTx)}\u00A0${ccMoneySuffix()}/giao dịch`);
+                        if (perTx !== null) parts.push(`tối đa ${ccMoneySuffixJoin(ccMoney(perTx))}/giao dịch`);
 
                         const perPeriod = optionalNumber(rule.max_cashback_per_category_per_period);
-                        if (perPeriod !== null) parts.push(`tối đa ${ccMoney(perPeriod)}\u00A0${ccMoneySuffix()}/kỳ`);
+                        if (perPeriod !== null) parts.push(`tối đa ${ccMoneySuffixJoin(ccMoney(perPeriod))}/kỳ`);
 
                         return parts.length > 0 ? parts.join(' · ') : 'không giới hạn';
                     },
@@ -1551,7 +1551,7 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                             ? 'không giới hạn'
                             : ccMoney(Number(tier.max_total_spend));
 
-                        return `Chi tiêu từ ${ccMoney(min)} đến ${max}\u00A0${ccMoneySuffix()}`;
+                        return `Chi tiêu từ ${ccMoney(min)} đến ${ccMoneySuffixJoin(max)}`;
                     },
 
                     /**

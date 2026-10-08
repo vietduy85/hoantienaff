@@ -4,9 +4,10 @@
 
     Xem `App\View\Components\CreditCard\Money` + `App\Support\CreditCard\
     CreditCardMoneyFormatter`: số 0 trước dấu phân cách, phân cách nghìn bằng `.`,
-    không phần thập phân. Đơn vị (`đ` | `nghìn`) do `money_unit` của user quyết
-    định — DB LUÔN LƯU VND, đây chỉ là CÁCH ĐỌC. Nhờ đó không chỗ nào tự thêm
-    "đ" riêng và tự quên ở ô khác.
+    không phần thập phân. Hậu tố (`đ` | `nghìn` | ký tự tuỳ chỉnh của user) do
+    `money_unit` + `money_unit_symbol` của user quyết định — DB LUÔN LƯU VND,
+    đây chỉ là CÁCH ĐỌC. Nhờ đó không chỗ nào tự thêm "đ" riêng và tự quên ở
+    ô khác.
 
     ---------------------------------------------------------------------------
     HẬU TỐ PHẢI KẾ THỪA, KHÔNG TỰ CÓ STYLE
@@ -30,5 +31,16 @@
 
     Vì hậu tố nằm sẵn ở đây, chỗ gọi TUYỆT ĐỐI không nối thêm "đ"/"nghìn" nữa,
     nếu không ra "345.000 đ đ".
+
+    ---------------------------------------------------------------------------
+    HẬU TỐ RỖNG ⇒ KHÔNG GÌ CẢ
+    ---------------------------------------------------------------------------
+    Người dùng có thể đặt ký tự tuỳ chỉnh ("VND", "k") hoặc XOÁ hẳn ký tự. Khi
+    suffix là chuỗi rỗng thì không phát sinh phần tử suffix và KHÔNG nối
+    `&nbsp;` — nếu không ra "2.000.000&nbsp;" (khoảng trắng treo phía sau số).
 --}}
-<span>{{ \App\Support\CreditCard\CreditCardMoneyFormatter::number($value, auth()->id() ?? null) }}&nbsp;<span>{{ \App\Support\CreditCard\CreditCardMoneyFormatter::suffix(auth()->id() ?? null) }}</span></span>
+@php
+    $ccMoneyNumber = \App\Support\CreditCard\CreditCardMoneyFormatter::number($value, auth()->id() ?? null);
+    $ccMoneySuffix = \App\Support\CreditCard\CreditCardMoneyFormatter::suffix(auth()->id() ?? null);
+@endphp
+<span>{{ $ccMoneyNumber }}@if($ccMoneySuffix !== '')&nbsp;<span>{{ $ccMoneySuffix }}</span>@endif</span>

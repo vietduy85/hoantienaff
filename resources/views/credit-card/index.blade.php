@@ -668,7 +668,7 @@
                                                          A. có trần riêng, còn phòng:
                                                             [đã dùng] / [trần] → Có thể chi thêm ~[x]
                                                          B. có trần riêng, HẾT phòng:
-                                                            [trần] / [trần] · HẾT QUOTA
+                                                            [đã dùng] / [trần] · HẾT QUOTA
                                                          C. KHÔNG trần riêng:
                                                             [đã dùng] → Có thể chi thêm ~[x]
                                                             (hết phòng ⇒ [đã dùng] · HẾT QUOTA)
@@ -682,16 +682,22 @@
                                                          chạy bậc theo chi tiêu thực tế) trong khi số
                                                          tiền đã chi vẫn ăn vào trần bậc đích. Tử số đã
                                                          được service kẹp theo trần nên không bao giờ
-                                                         vượt mẫu số. Nhánh B in thẳng trần làm tử số —
-                                                         "hết quota" nói phòng đã cạn, nên con số quan
-                                                         trọng là trần, không phải mức đã dùng. --}}
+                                                         vượt mẫu số. "Hết quota" có hai dạng: trần
+                                                         riêng của chính danh mục hết, hoặc trần CHUNG
+                                                         của bậc hết TRƯỚC trần danh mục — cả hai đều
+                                                         in tử số `cashback_used_display` để con số
+                                                         là MỨC ĐÃ DÙNG THẬT (456.000/800.000 · HẾT
+                                                         QUOTA), không phải "trần/trần" vô nghĩa. --}}
                                                     @if ($quotaRule['has_cashback_max'])
                                                         @if ($quotaRule['is_exhausted'])
-                                                            {{-- B — hết quota: `[trần] / [trần] · HẾT QUOTA`. --}}
-                                                            <span class="font-semibold text-gray-900"
-                                                                  x-text="ccMoneyVnd(quotaRuleValue(@js($cardKey), {{ $ruleIndex }}, 'cashback_max'))"><x-credit-card.money :value="$quotaRule['cashback_max']" /></span>
-                                                            <span class="text-gray-400"
-                                                                  x-text="' / ' + ccMoneyVnd(quotaRuleValue(@js($cardKey), {{ $ruleIndex }}, 'cashback_max'))"> / <x-credit-card.money :value="$quotaRule['cashback_max']" /></span>
+                                                             {{-- B — hết quota: `[đã dùng] / [trần] · HẾT QUOTA`.
+                                                                  Tử số là mức đã dùng THẬT — trần chung
+                                                                  của bậc có thể hết trước trần danh mục,
+                                                                  in "trần/trần" sẽ nói dối mức đã chi. --}}
+                                                             <span class="font-semibold text-gray-900"
+                                                                   x-text="ccMoneyVnd(quotaRuleValue(@js($cardKey), {{ $ruleIndex }}, 'cashback_used_display'))"><x-credit-card.money :value="$quotaRule['cashback_used_display']" /></span>
+                                                             <span class="text-gray-400"
+                                                                   x-text="' / ' + ccMoneyVnd(quotaRuleValue(@js($cardKey), {{ $ruleIndex }}, 'cashback_max'))"> / <x-credit-card.money :value="$quotaRule['cashback_max']" /></span>
                                                             <span class="font-semibold text-rose-600"
                                                                   data-testid="card-quota-exhausted">· HẾT QUOTA</span>
                                                         @else

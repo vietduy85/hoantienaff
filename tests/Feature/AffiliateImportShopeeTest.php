@@ -46,7 +46,7 @@ class AffiliateImportShopeeTest extends TestCase
         ]);
         $path = $this->createTempCsv($csv);
 
-        $this->artisan('affiliate:import-shopee', ['--file' => $path])
+        $this->artisan('affiliate:import-shopee', ['--file' => $path, '--allow-write' => true])
             ->assertSuccessful();
 
         $this->assertDatabaseHas('wallet_transactions', [
@@ -72,7 +72,7 @@ class AffiliateImportShopeeTest extends TestCase
         ]);
         $path1 = $this->createTempCsv($csv1);
 
-        $this->artisan('affiliate:import-shopee', ['--file' => $path1])
+        $this->artisan('affiliate:import-shopee', ['--file' => $path1, '--allow-write' => true])
             ->assertSuccessful();
 
         $this->assertDatabaseCount('wallet_transactions', 0);
@@ -88,7 +88,7 @@ class AffiliateImportShopeeTest extends TestCase
         ]);
         $path2 = $this->createTempCsv($csv2);
 
-        $this->artisan('affiliate:import-shopee', ['--file' => $path2])
+        $this->artisan('affiliate:import-shopee', ['--file' => $path2, '--allow-write' => true])
             ->assertSuccessful();
 
         $this->assertDatabaseCount('wallet_transactions', 1);
@@ -109,7 +109,7 @@ class AffiliateImportShopeeTest extends TestCase
         ]);
         $path1 = $this->createTempCsv($csv1);
 
-        $this->artisan('affiliate:import-shopee', ['--file' => $path1])
+        $this->artisan('affiliate:import-shopee', ['--file' => $path1, '--allow-write' => true])
             ->assertSuccessful();
 
         $this->assertDatabaseCount('wallet_transactions', 0);
@@ -126,7 +126,7 @@ class AffiliateImportShopeeTest extends TestCase
         ]);
         $path2 = $this->createTempCsv($csv2);
 
-        $this->artisan('affiliate:import-shopee', ['--file' => $path2])
+        $this->artisan('affiliate:import-shopee', ['--file' => $path2, '--allow-write' => true])
             ->assertSuccessful();
 
         $this->assertDatabaseCount('wallet_transactions', 0);
@@ -169,7 +169,7 @@ class AffiliateImportShopeeTest extends TestCase
         ]);
         $path = $this->createTempCsv($csv);
 
-        $this->artisan('affiliate:import-shopee', ['--file' => $path])
+        $this->artisan('affiliate:import-shopee', ['--file' => $path, '--allow-write' => true])
             ->assertSuccessful();
 
         $shopeeCount = AffiliateOrderItem::where('platform', 'Shopee')

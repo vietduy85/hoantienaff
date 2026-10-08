@@ -15,7 +15,10 @@
             ? null
             : 'Ví dụ: '.\App\Support\CreditCard\CreditCardMoneyFormatter::number($example, $userId));
 
-    $inputClass = trim(($attributes->get('class') ?? '').' pr-10');
+    // Suffix rỗng (user bỏ ký tự) ⇒ KHÔNG render hậu tố và KHÔNG giữ padding
+    // pr-10 cho khoảng trống không còn dùng — ô input chiếm hết chiều rộng.
+    $hasSuffix = $suffix !== '';
+    $inputClass = trim(($attributes->get('class') ?? '').($hasSuffix ? ' pr-10' : ''));
     $attributes = $attributes->except(['class', 'placeholder']);
 @endphp
 <div x-data="{ ccRaw: null }" class="relative">
@@ -28,5 +31,7 @@
            @if ($placeholder !== null) placeholder="{{ $placeholder }}" @endif
            class="{{ $inputClass }}"
            {{ $attributes }}>
+    @if ($hasSuffix)
     <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-gray-500">{{ $suffix }}</span>
+    @endif
 </div>

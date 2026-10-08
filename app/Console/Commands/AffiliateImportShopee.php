@@ -16,9 +16,10 @@ class AffiliateImportShopee extends Command
 {
     protected $signature = 'affiliate:import-shopee
                         {--dry-run : Parse and analyze without importing}
-                        {--file= : Import a specific CSV file}';
+                        {--file= : Import a specific CSV file}
+                        {--allow-write : Allow actual DB/wallet writes (disabled by default)}';
 
-    protected $description = 'Import newest Shopee Affiliate Commission Report CSV from Downloads';
+    protected $description = 'Import Shopee Affiliate Commission Report CSV. WRITE DISABLED by default (AddLiveTag API is primary source). Use --dry-run for analysis, or --allow-write only if explicitly approved.';
 
     private const DOWNLOADS_DIR = 'C:\Users\Administrator\Downloads';
 
@@ -60,6 +61,14 @@ class AffiliateImportShopee extends Command
         $start = microtime(true);
         $this->isDryRun = (bool) $this->option('dry-run');
         $specifiedFile = $this->option('file');
+        $allowWrite = (bool) $this->option('allow-write');
+
+        if (! $this->isDryRun && ! $allowWrite) {
+            $this->error('[BLOCK] CSV import write is DISABLED because AddLiveTag API is the primary source.');
+            $this->line('Use --dry-run for analysis, or --allow-write ONLY if explicitly approved.');
+
+            return Command::FAILURE;
+        }
 
         $this->info('================================');
         $this->info('  Shopee Import');

@@ -312,8 +312,19 @@ class CreditCardController extends Controller
     /** /thetindung/cai-dat — tuỳ chọn hiển thị của module. */
     public function settings(): View
     {
+        $userId = (int) auth()->id();
+        $settings = app(CreditCardUserSettingService::class);
+
+        $moneyUnit = $settings->moneyUnitFor($userId);
+
         return view('credit-card.settings', [
-            'moneyUnit' => app(CreditCardUserSettingService::class)->moneyUnitFor((int) auth()->id()),
+            'moneyUnit' => $moneyUnit,
+            // Ký tự ĐÃ RESOLVE (NULL ⇒ default theo đơn vị) để ô nhập luôn có
+            // chữ, kể cả khi người dùng chưa từng cấu hình — đọc không ghi DB.
+            'moneyUnitSymbol' => CreditCardUserSettingService::resolveMoneyUnitSymbol(
+                $moneyUnit,
+                $settings->moneyUnitSymbolFor($userId),
+            ),
         ]);
     }
 

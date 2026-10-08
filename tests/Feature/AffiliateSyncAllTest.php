@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\AffiliateOrderItem;
 use App\Models\User;
 use App\Models\WalletTransaction;
+use App\Services\AddLiveTag\ConversionsClient;
 use App\Services\Lazada\LazadaApiClient;
 use App\Services\Lazada\LazadaFinalizeService;
 use App\Services\Lazada\LazadaOrderSyncService;
@@ -54,6 +55,23 @@ class AffiliateSyncAllTest extends TestCase
     {
         parent::setUp();
         $this->fakeLazadaCredentials();
+
+        // Step 5 (Shopee/AddLiveTag) must not hit the real API in these tests.
+        $this->app->instance(ConversionsClient::class, new class extends ConversionsClient
+        {
+            public function __construct() {}
+
+            public function fetch(
+                ?string $from = null,
+                ?string $to = null,
+                ?string $orderId = null,
+                int $page = 1,
+                ?int $pageSizeOverride = null,
+            ): array {
+                return ['items' => [], 'truncated' => false, 'pages_fetched' => 1];
+            }
+        });
+
         Http::preventStrayRequests();
         Http::fake([
             'https://api.lazada.vn/*' => function (HttpRequest $request) {

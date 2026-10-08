@@ -14,11 +14,13 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
+use Tests\Concerns\StubsAddLiveTagApi;
 use Tests\TestCase;
 
 class TikTokSyncPhase3Test extends TestCase
 {
     use RefreshDatabase;
+    use StubsAddLiveTagApi;
 
     private User $fallback;
 
@@ -33,6 +35,10 @@ class TikTokSyncPhase3Test extends TestCase
             'services.riohub.api_key' => 'rhk_TEST_API_KEY_abcdef0123456789',
             'services.riohub.creator_username' => 'hoan_tien_mua_sam',
         ]);
+
+        // Phase 3: the admin sync button also runs the Shopee/AddLiveTag
+        // pipeline — stub the conversions API (never a real HTTP call here).
+        $this->stubAddLiveTagApi();
 
         app()[PermissionRegistrar::class]->forgetCachedPermissions();
 

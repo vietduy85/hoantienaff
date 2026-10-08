@@ -5,6 +5,7 @@ namespace Tests\Feature\CreditCard;
 use App\Models\CreditCard\Category;
 use App\Models\CreditCard\CategoryCombo;
 use App\Models\CreditCard\CategoryComboItem;
+use App\Models\CreditCard\CreditCardUserSetting;
 use App\Models\CreditCard\Policy;
 use App\Models\CreditCard\PolicyTier;
 use App\Models\CreditCard\PolicyTierCategory;
@@ -14,6 +15,7 @@ use App\Models\CreditCard\UserCard;
 use App\Models\User;
 use App\Services\CreditCard\CreditCardTransactionService;
 use App\Services\CreditCard\StatementPeriodService;
+use App\Support\CreditCard\CreditCardMoneyFormatter;
 use Carbon\CarbonImmutable;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Concerns\InteractsWithCreditCardDatabase;
@@ -51,6 +53,20 @@ class OverviewQuotaPresentationTest extends TestCase
         $this->setUpCreditCardTestCase();
 
         $this->owner = User::factory()->create();
+    }
+
+    /**
+     * KHÔNG để memo THOUSAND_VND rò sang test khác.
+     *
+     * Memo tĩnh theo `user_id` sống qua rollback của RefreshDatabase (id tái
+     * sử dụng trong cùng process) — test có đổi đơn vị ở đây mà không flush
+     * thì test kế render với đơn vị nghìn thay vì VND mặc định.
+     */
+    protected function tearDown(): void
+    {
+        CreditCardMoneyFormatter::flushAll();
+
+        parent::tearDown();
     }
 
     // =====================================================================
@@ -1215,6 +1231,169 @@ class OverviewQuotaPresentationTest extends TestCase
     }
 
     // =====================================================================
+    // Trần CHUNG của bậc hết TRƯỚC trần danh mục — "HẾT QUOTA" phải nói
+    // đúng MỨC ĐÃ DÙNG của từng dòng, không in "trần/trần" vô nghĩa.
+    // =====================================================================
+
+    #[Test]
+    public function every_quota_line_reads_exhausted_with_its_own_used_amount_when_the_tier_cap_is_gone(): void
+    {
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '9000000']);
+        $insurance = $this->makeSystemCategory(['name' => 'Bảo hiểm']);
+        $health = $this->makeSystemCategory(['name' => 'Y tế']);
+        $education = $this->makeSystemCategory(['name' => 'Giáo dục']);
+
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => '800000.00']],
+            [
+                ['category_id' => $insurance->id, 'percent' => '10.000', 'cap_cat' => '400000.00', 'quota' => true],
+                ['category_id' => $health->id, 'percent' => '10.000', 'cap_cat' => '800000.00', 'quota' => true],
+                ['category_id' => $education->id, 'percent' => '10.000', 'cap_cat' => '800000.00', 'quota' => true],
+            ]
+        );
+
+        // 400.000 (Bảo hiểm, đúng trần riêng) + 400.000 (Y tế) = 800.000 —
+        // trần CHUNG của bậc cạn đúng bằng cap_period, trước khi Y tế chạm
+        // trần 800.000 riêng của nó.
+        $this->spend($card, $insurance, '4000000');
+        $this->spend($card, $health, '4000000');
+
+        $html = $this->overviewHtml();
+        $quota = $this->metricsOf($html)[(string) $card->id]['quota'];
+
+        // Bậc hết thật: đã dùng 800.000 / 800.000 ⇒ còn 0.
+        $this->assertSame('800000.00', $quota['tier_cashback_used']);
+        $this->assertSame('0.00', $quota['tier_cashback_remaining']);
+        $this->assertTrue($quota['is_exhausted']);
+
+        foreach ($quota['rules'] as $rule) {
+            $this->assertTrue(
+                $rule['is_exhausted'],
+                "Rule {$rule['category_name']} phải exhausted khi trần chung đã 0.",
+            );
+        }
+
+        // Bảo hiểm: danh mục tự hết trước (400.000 = trần riêng 400.000).
+        $insuranceRow = $this->visibleTextOf($this->quotaRowByLabel($html, 'Bảo hiểm'));
+        $this->assertStringContainsString('400.000 đ / 400.000 đ · HẾT QUOTA', $insuranceRow);
+
+        // Y tế: trần RIÊNG vẫn còn 400.000 nhưng trần CHUNG đã hết — tử số
+        // phải là mức đã dùng THẬT 400.000, KHÔNG phải "800.000 / 800.000".
+        $healthRow = $this->visibleTextOf($this->quotaRowByLabel($html, 'Y tế'));
+        $this->assertStringContainsString('400.000 đ / 800.000 đ · HẾT QUOTA', $healthRow);
+        $this->assertStringNotContainsString('800.000 đ / 800.000', $healthRow);
+
+        // Giáo dục: chưa chi gì ⇒ 0/800.000 — vẫn là "HẾT QUOTA" vì bậc hết.
+        $educationRow = $this->visibleTextOf($this->quotaRowByLabel($html, 'Giáo dục'));
+        $this->assertStringContainsString('0 đ / 800.000 đ · HẾT QUOTA', $educationRow);
+
+        // Không dòng nào được mời "chi thêm" khi quỹ chung đã cạn.
+        foreach ([$insuranceRow, $healthRow, $educationRow] as $row) {
+            $this->assertStringNotContainsString('Có thể chi thêm', $row);
+        }
+    }
+
+    #[Test]
+    public function a_tier_with_room_left_keeps_the_estimate_while_a_capped_category_still_reads_exhausted(): void
+    {
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '9000000']);
+        $insurance = $this->makeSystemCategory(['name' => 'Bảo hiểm']);
+        $health = $this->makeSystemCategory(['name' => 'Y tế']);
+
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => '800000.00']],
+            [
+                ['category_id' => $insurance->id, 'percent' => '10.000', 'cap_cat' => '400000.00', 'quota' => true],
+                ['category_id' => $health->id, 'percent' => '10.000', 'cap_cat' => '800000.00', 'quota' => true],
+            ]
+        );
+
+        // 400.000 + 100.000 = 500.000 ⇒ bậc còn 300.000.
+        $this->spend($card, $insurance, '4000000');
+        $this->spend($card, $health, '1000000');
+
+        $html = $this->overviewHtml();
+        $quota = $this->metricsOf($html)[(string) $card->id]['quota'];
+
+        $this->assertSame('500000.00', $quota['tier_cashback_used']);
+        $this->assertSame('300000.00', $quota['tier_cashback_remaining']);
+        $this->assertFalse($quota['is_exhausted']);
+
+        // Bảo hiểm: hết vì trần RIÊNG của chính nó (bachelor vẫn còn phòng).
+        $insuranceRow = $this->visibleTextOf($this->quotaRowByLabel($html, 'Bảo hiểm'));
+        $this->assertStringContainsString('400.000 đ / 400.000 đ · HẾT QUOTA', $insuranceRow);
+        $this->assertStringNotContainsString('Có thể chi thêm', $insuranceRow);
+
+        // Y tế: quỹ chung còn 300.000 ⇒ mời "chi thêm" 3.000.000 (300.000 / 10%),
+        // KHÔNG bị nối gót Bảo hiểm thành "hết".
+        $healthRule = collect($quota['rules'])->firstWhere('category_name', 'Y tế');
+        $this->assertFalse($healthRule['is_exhausted']);
+
+        $healthRow = $this->visibleTextOf($this->quotaRowByLabel($html, 'Y tế'));
+        $this->assertStringContainsString('100.000 đ / 800.000 đ', $healthRow);
+        $this->assertStringContainsString('Có thể chi thêm ~3.000.000 đ', $healthRow);
+        $this->assertStringNotContainsString('· HẾT QUOTA', $healthRow);
+    }
+
+    // =====================================================================
+    // Đơn vị nghìn: MỌI số Tổng quan là số NGUYÊN FLOOR, không thập phân,
+    // không còn một đồng VND thô nào trong text người dùng thấy.
+    // =====================================================================
+
+    #[Test]
+    public function thousand_unit_renders_every_overview_amount_as_a_floored_integer_without_raw_vnd(): void
+    {
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '8000000']);
+        $health = $this->makeSystemCategory(['name' => 'Y tế']);
+
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => '800000.00']],
+            [['category_id' => $health->id, 'percent' => '10.000', 'cap_cat' => '800000.00', 'quota' => true]],
+        );
+
+        // 4.569.990 × 10% = 456.999 đ cashback — số LẺ khắp nơi: chi tiêu,
+        // cashback và quota đều phải floor về nhóm nghìn nguyên.
+        $this->spend($card, $health, '4569990');
+
+        $this->switchToThousandUnit();
+
+        $html = $this->overviewHtml();
+
+        // Tổng hạn mức 50.000.000 ⇒ 50.000; tổng chi tiêu 4.569.990 ⇒ 4.569
+        // (KHÔNG phải 4.570 — floor, không làm tròn lên).
+        $this->assertStringContainsString('<span>50.000&nbsp;<span>nghìn</span></span>', $html);
+        $this->assertStringContainsString('<span>4.569&nbsp;<span>nghìn</span></span>', $html);
+
+        // Dòng quota: 456.999 ⇒ 456, ước lượng 3.430.010 ⇒ 3.430.
+        $row = $this->visibleTextOf($this->quotaRowByLabel($html, 'Y tế'));
+        $this->assertStringContainsString('456 nghìn / 800 nghìn', $row);
+        $this->assertStringContainsString('Có thể chi thêm ~3.430 nghìn', $row);
+        $this->assertStringNotContainsString(',', $row, 'Dòng quota không được chứa dấu thập phân.');
+
+        // Chốt cả trang: không còn bản hiển thị VND thô/thập phân nào.
+        $visible = $this->visibleTextOf($html);
+        $this->assertStringNotContainsString('4.569.990', $visible);
+        $this->assertStringNotContainsString('4.569,990', $visible, 'Bản thập phân cũ của chi tiêu phải biến mất.');
+        $this->assertStringNotContainsString('456,999', $visible, 'Bản thập phân cũ của quota phải biến mất.');
+        $this->assertStringNotContainsString('3.430,010', $visible, 'Bản thập phân cũ của ước lượng phải biến mất.');
+    }
+
+    /** Đổi đơn vị qua endpoint — cùng cửa vào chính thức với người dùng bấm Lưu. */
+    private function switchToThousandUnit(): void
+    {
+        $this->actingAs($this->owner)
+            ->patchJson(route('credit-cards.api.settings.money-unit.update'), [
+                'money_unit' => CreditCardUserSetting::MONEY_UNIT_THOUSAND,
+            ])
+            ->assertOk();
+
+        CreditCardMoneyFormatter::flushAll();
+    }
+
+    // =====================================================================
     // Typography của dòng "Có thể chi thêm" trên mobile
     // =====================================================================
 
@@ -1281,10 +1460,15 @@ class OverviewQuotaPresentationTest extends TestCase
 
         // `x-text` ghi đè nội dung phần tử, nên `&nbsp;` của bản render sẵn biến
         // mất sau khi Alpine chạy. Bản JS phải nối hậu tố bằng chính U+00A0 thì
-        // "345.000" và "đ" mới không tách được ở cả hai thời điểm. Hậu tố lấy từ
-        // `ccMoneySuffix()` (theo đơn vị user) nhưng vẫn dùng U+00A0.
+        // "345.000" và "đ" mới không tách được ở cả hai thời điểm. Mọi chỗ nối
+        // phải đi qua `ccMoneySuffixJoin()` — helper này chèn U+00A0 khi có hậu
+        // tố (lấy từ `ccMoneySuffix()`) và bỏ hậu tố hẳn khi symbol rỗng.
         $this->assertMatchesRegularExpression(
-            '/function ccMoneyVnd\(value\)\s*\{\s*return `\$\{ccMoney\(value\)\}\\\\u00A0\$\{ccMoneySuffix\(\)\}`;/',
+            '/function ccMoneyVnd\(value\)\s*\{\s*return ccMoneySuffixJoin\(ccMoney\(value\)\);\s*\}/',
+            $fixture,
+        );
+        $this->assertMatchesRegularExpression(
+            '/function ccMoneySuffixJoin\(text\)\s*\{\s*const suffix = ccMoneySuffix\(\);\s*return suffix === \'\' \? String\(text\) : `\$\{text\}\\\\u00A0\$\{suffix\}`;/',
             $fixture,
         );
 
