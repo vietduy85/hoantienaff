@@ -3,9 +3,10 @@
 namespace App\Services\CreditCard;
 
 use App\Models\CreditCard\CreditCardUserSetting;
+use App\Support\CreditCard\CreditCardMoneyFormatter;
 
 /**
- * Thiết lập CHUNG của người dùng (hiện chỉ có nhắc thanh toán trước mấy ngày).
+ * Thiết lập CHUNG của người dùng: nhắc thanh toán trước mấy ngày + đơn vị số tiền.
  *
  * ---------------------------------------------------------------------------
  * ĐỌC KHÔNG GHI
@@ -41,6 +42,24 @@ class CreditCardUserSettingService
     }
 
     /**
+     * Đơn vị số tiền của user, luôn về một trong hai giá trị constant.
+     *
+     * Cùng nguyên tắc {@see reminderDaysFor()}: đọc KHÔNG tạo dòng thiết lập —
+     * mở trang không được sinh dữ liệu. Chưa từng đổi đơn vị ⇒ `VND`, đúng đơn vị
+     * module hiển thị từ trước, nên không cần UPDATE dữ liệu nào khi thêm cột.
+     *
+     * Chuẩn hoá tại đây vì đây là nơi DUY NHẤT quyết "đơn vị hợp lệ là gì": giá
+     * trị lạ trong DB chỉ làm hiển thị về VND thay vì làm sập trang hay để mỗi
+     * chỗ đọc tự đoán một kiểu.
+     */
+    public function moneyUnitFor(int $userId): string
+    {
+        $unit = $this->forUser($userId)?->money_unit;
+
+        return $unit === null ? CreditCardUserSetting::MONEY_UNIT_VND : $this->normalizeUnit($unit);
+    }
+
+    /**
      * Dòng thiết lập thô của user, hoặc null. Chỉ đọc, không tạo.
      */
     public function forUser(int $userId): ?CreditCardUserSetting
@@ -72,6 +91,33 @@ class CreditCardUserSettingService
     }
 
     /**
+     * Ghi đơn vị số tiền của user, tạo dòng thiết lập nếu chưa có.
+     *
+     * Chuẩn hoá TRƯỚC khi ghi để chỉ hai giá trị constant nằm trong DB; request
+     * đã chặn rồi nhưng đây là cửa ghi duy nhất, không được tin mọi đường vào
+     * đều qua validation.
+     *
+     * Sau khi ghi phải `flush()` memo của `CreditCardMoneyFormatter`: formatter
+     * memo đơn vị theo user trong đời request, để nguyên thì request đang render
+     * (hoặc request tiếp theo trong cùng worker dài) vẫn đọc giá trị cũ.
+     *
+     * @return CreditCardUserSetting
+     */
+    public function updateMoneyUnit(int $userId, string $unit): CreditCardUserSetting
+    {
+        $normalized = $this->normalizeUnit($unit);
+
+        $setting = CreditCardUserSetting::query()->updateOrCreate(
+            ['user_id' => $userId],
+            ['money_unit' => $normalized],
+        );
+
+        CreditCardMoneyFormatter::flush($userId);
+
+        return $setting->refresh();
+    }
+
+    /**
      * Kẹp giá trị về khoảng hợp lệ.
      *
      * Kẹp chứ không ném lỗi: đây là hàm đọc dữ liệu đã tồn tại, và giá trị lệch
@@ -85,5 +131,19 @@ class CreditCardUserSettingService
             CreditCardUserSetting::MIN_PAYMENT_REMINDER_DAYS,
             min(CreditCardUserSetting::MAX_PAYMENT_REMINDER_DAYS, $days),
         );
+    }
+
+    /**
+     * Kẹp đơn vị về giá trị hợp lệ.
+     *
+     * Kẹp chứ không ném lỗi (cùng lập luận {@see normalize()}): giá trị lạ chỉ có
+     * thể do dữ liệu hỏng, và đơn vị sai không đáng làm hỏng trang — về `VND`,
+     * đơn vị của chính dữ liệu, thì giao diện vẫn hiển thị đúng con số thật.
+     */
+    private function normalizeUnit(string $unit): string
+    {
+        return in_array($unit, CreditCardUserSetting::moneyUnits(), true)
+            ? $unit
+            : CreditCardUserSetting::MONEY_UNIT_VND;
     }
 }

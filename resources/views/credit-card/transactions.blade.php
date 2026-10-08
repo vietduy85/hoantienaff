@@ -203,8 +203,8 @@
 
                         <div class="space-y-1.5">
                             <label class="block text-xs font-semibold text-gray-600">Số tiền</label>
-                            <input type="number" inputmode="decimal" min="0" step="1000" x-model="form.amount"
-                                   class="w-full h-12 rounded-xl border-gray-300 text-base px-4 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                            <x-credit-card.money-input expr="form.amount"
+                                class="w-full h-12 rounded-xl border-gray-300 text-base px-4 shadow-sm focus:border-emerald-500 focus:ring-emerald-500" />
                             <p class="text-xs text-red-600" x-show="errors.amount" x-cloak x-text="errors.amount"></p>
                         </div>
 

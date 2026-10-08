@@ -479,10 +479,11 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                          con số user tự đặt. --}}
                     <div class="space-y-1.5">
                         <label for="cc-credit-limit" class="block text-sm font-semibold text-gray-700">Hạn mức tín dụng</label>
-                        <input id="cc-credit-limit" type="number" inputmode="decimal" min="0" step="1000000"
-                               x-model="form.credit_limit"
-                               placeholder="Ví dụ: 50000000"
-                               class="w-full h-12 rounded-xl border-gray-300 text-base px-4 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                        <x-credit-card.money-input
+                            id="cc-credit-limit"
+                            expr="form.credit_limit"
+                            example="50000000"
+                            class="w-full h-12 rounded-xl border-gray-300 text-base px-4 shadow-sm focus:border-emerald-500 focus:ring-emerald-500" />
                         <p class="text-xs text-gray-500">
                             Hạn mức ngân hàng cấp cho thẻ này. Để trống nếu chưa biết — hệ thống <strong>không</strong> suy ra từ ngân hàng hay chính sách.
                         </p>
@@ -491,9 +492,11 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                     {{-- Số tiền mong muốn chi tiêu --}}
                     <div class="space-y-1.5">
                         <label for="cc-desired" class="block text-sm font-semibold text-gray-700">Số tiền mong muốn chi tiêu</label>
-                        <input id="cc-desired" type="number" inputmode="decimal" min="0" step="100000" x-model="form.desired_spend"
-                               placeholder="Ví dụ: 20000000"
-                               class="w-full h-12 rounded-xl border-gray-300 text-base px-4 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                        <x-credit-card.money-input
+                            id="cc-desired"
+                            expr="form.desired_spend"
+                            example="20000000"
+                            class="w-full h-12 rounded-xl border-gray-300 text-base px-4 shadow-sm focus:border-emerald-500 focus:ring-emerald-500" />
                         <p class="text-xs text-gray-500">Mục tiêu cá nhân của bạn, khác với hạn mức thẻ.</p>
                     </div>
 
@@ -1514,7 +1517,7 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
 
                         return cap === null
                             ? 'Tổng hoàn tối đa mỗi kỳ: không giới hạn'
-                            : `Tổng hoàn tối đa mỗi kỳ: ${ccMoney(cap)}`;
+                            : `Tổng hoàn tối đa mỗi kỳ: ${ccMoney(cap)}\u00A0${ccMoneySuffix()}`;
                     },
 
                     /** Tóm tắt "Điều kiện hoàn tiền đặc biệt" cho khung Tóm tắt. */
@@ -1526,7 +1529,7 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                         const total = conditions.reduce((sum, c) => sum + (Number(c.min_spend) || 0), 0);
                         const label = conditions.length === 1 ? 'điều kiện' : 'điều kiện';
 
-                        return `${conditions.length} ${label} · tổng tối thiểu ${ccMoney(total)} đ/kỳ`;
+                        return `${conditions.length} ${label} · tổng tối thiểu ${ccMoney(total)}\u00A0${ccMoneySuffix()}/kỳ`;
                     },
 
                     /** Trần chi tiết của một quy tắc; gộp các trần còn lại. */
@@ -1534,10 +1537,10 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                         const parts = [];
 
                         const perTx = optionalNumber(rule.max_cashback_per_transaction);
-                        if (perTx !== null) parts.push(`tối đa ${ccMoney(perTx)}/giao dịch`);
+                        if (perTx !== null) parts.push(`tối đa ${ccMoney(perTx)}\u00A0${ccMoneySuffix()}/giao dịch`);
 
                         const perPeriod = optionalNumber(rule.max_cashback_per_category_per_period);
-                        if (perPeriod !== null) parts.push(`tối đa ${ccMoney(perPeriod)}/kỳ`);
+                        if (perPeriod !== null) parts.push(`tối đa ${ccMoney(perPeriod)}\u00A0${ccMoneySuffix()}/kỳ`);
 
                         return parts.length > 0 ? parts.join(' · ') : 'không giới hạn';
                     },
@@ -1548,7 +1551,7 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                             ? 'không giới hạn'
                             : ccMoney(Number(tier.max_total_spend));
 
-                        return `Chi tiêu từ ${ccMoney(min)} đến ${max} đ`;
+                        return `Chi tiêu từ ${ccMoney(min)} đến ${max}\u00A0${ccMoneySuffix()}`;
                     },
 
                     /**

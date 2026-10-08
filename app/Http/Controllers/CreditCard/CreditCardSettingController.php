@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\CreditCard;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\CreditCard\UpdateCreditCardMoneyUnitRequest;
 use App\Http\Requests\CreditCard\UpdateCreditCardSettingRequest;
 use App\Services\CreditCard\CreditCardUserSettingService;
 use Illuminate\Http\JsonResponse;
@@ -43,6 +44,31 @@ class CreditCardSettingController extends Controller
             'data' => [
                 'user_id' => (int) $setting->user_id,
                 'payment_reminder_days' => $days,
+            ],
+        ]);
+    }
+
+    /**
+     * Lưu đơn vị số tiền (VND | THOUSAND_VND).
+     *
+     * Tương tự `update()`: chọn là lưu ngay, không có nút "Lưu". Trả về đơn vị
+     * server THỰC SỰ giữ (đã chuẩn hoá) để giao diện đồng bộ về đúng giá trị
+     * trong DB thay vì giữ nguyên lựa chọn vừa bấm.
+     *
+     * Đổi đơn vị KHÔNG đổi một đồng nào trong dữ liệu: DB vẫn lưu VND, chỉ cách
+     * đọc số trên màn hình đổi — nên không có payload tiền nào đi qua endpoint này.
+     */
+    public function updateMoneyUnit(UpdateCreditCardMoneyUnitRequest $request): JsonResponse
+    {
+        $setting = $this->settings->updateMoneyUnit(
+            (int) $request->user()->id,
+            $request->moneyUnit(),
+        );
+
+        return response()->json([
+            'data' => [
+                'user_id' => (int) $setting->user_id,
+                'money_unit' => $setting->money_unit,
             ],
         ]);
     }

@@ -309,10 +309,12 @@ class CreditCardController extends Controller
         return view('credit-card.compare');
     }
 
-    /** /thetindung/cai-dat — placeholder giai đoạn sau. */
+    /** /thetindung/cai-dat — tuỳ chọn hiển thị của module. */
     public function settings(): View
     {
-        return view('credit-card.settings');
+        return view('credit-card.settings', [
+            'moneyUnit' => app(CreditCardUserSettingService::class)->moneyUnitFor((int) auth()->id()),
+        ]);
     }
 
     /**

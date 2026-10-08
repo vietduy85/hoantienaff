@@ -496,8 +496,9 @@ class CreditCardOverviewTest extends TestCase
         $this->assertStringContainsString('data-testid="add-transaction-button"', $html);
         $this->assertMatchesRegularExpression('/data-testid="add-transaction-button"[^>]*h-1[24]/', $html);
 
-        // Các ô nhập full-width và có `min-w-0` ở ô chỉ số để không tràn ngang.
-        $this->assertMatchesRegularExpression('/id="tx-amount"[^>]*w-full/', $html);
+        // Các ô nhập full-width (class attribute của MoneyInput partial xuất hiện
+        // trước các attributes thừa, nên class của input chứa id="tx-amount").
+        $this->assertMatchesRegularExpression('/<input[^>]*class="[^"]*w-full[^"]*"[^>]*id="tx-amount"/', $html);
         $this->assertStringContainsString('min-w-0', $html);
     }
 

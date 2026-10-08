@@ -296,9 +296,12 @@
                     {{-- Số tiền --}}
                     <div class="space-y-1.5">
                         <label for="tx-amount" class="block text-sm font-semibold text-gray-700">Số tiền</label>
-                        <input id="tx-amount" type="number" inputmode="decimal" min="0" step="1000"
-                               x-model="form.amount" required placeholder="Ví dụ: 250000"
-                               class="w-full h-12 rounded-xl border-gray-300 text-base px-4 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                        <x-credit-card.money-input
+                            id="tx-amount"
+                            expr="form.amount"
+                            example="1555000"
+                            required
+                            class="w-full h-12 rounded-xl border-gray-300 text-base px-4 shadow-sm focus:border-emerald-500 focus:ring-emerald-500" />
                         <p class="text-xs text-red-600" x-show="fieldErrors.amount" x-cloak x-text="fieldErrors.amount"></p>
                     </div>
 
@@ -607,7 +610,7 @@
                                 @if ($hasMinimum)
                                     <span class="shrink-0 text-[11px] font-medium text-red-600"
                                           data-testid="card-minimum-caption">
-                                        Tối thiểu <span x-text="ccMoneyVnd(metricFor(@js($cardKey), 'minimum_spend'))">{{ $metrics['minimum_spend'] }}</span>
+                                        Tối thiểu <span x-text="ccMoneyVnd(metricFor(@js($cardKey), 'minimum_spend'))"><x-credit-card.money :value="$metrics['minimum_spend'] ?? '0.00'" /></span>
                                     </span>
                                 @endif
                             </div>

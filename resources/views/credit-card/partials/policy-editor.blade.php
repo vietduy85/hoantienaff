@@ -158,11 +158,9 @@
             <div class="sm:col-span-2">
                 <label class="block text-sm font-medium text-gray-700" for="cc-sp-min">Chi tiêu tối thiểu để được hoàn tiền</label>
                 <div class="relative mt-1">
-                    <input id="cc-sp-min" type="number" min="0" step="0.01"
-                           x-model.number="{{ $p }}meta.min_total_spend" :disabled="{{ $p }}viewMode"
-                           data-testid="min-total-spend"
-                           class="block w-full rounded-xl border-gray-300 pr-10 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
-                    <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-gray-500">đ</span>
+                    <x-credit-card.money-input id="cc-sp-min" expr="{{ $p }}meta.min_total_spend"
+                        disabled-expr="{{ $p }}viewMode" data-testid="min-total-spend"
+                        class="block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500" />
                 </div>
                 <p class="mt-1 text-xs text-gray-500">
                     {{-- Form Thẻ (hosted) chỉnh riêng được nên câu gợi ý nói rõ điều đó;
@@ -214,20 +212,23 @@
                     </div>
                     <div class="min-w-0">
                         <label class="block text-sm font-medium text-gray-700" :for="`cc-t${ti}-min`">Tổng chi tiêu tối thiểu</label>
-                        <input :id="`cc-t${ti}-min`" type="number" min="0" step="0.01" x-model="tier.min_total_spend" :disabled="{{ $p }}viewMode"
-                               class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
+                        <x-credit-card.money-input id-expr="`cc-t${ti}-min`" expr="tier.min_total_spend"
+                            disabled-expr="{{ $p }}viewMode"
+                            class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500" />
                         <p class="mt-1 text-xs text-gray-500">Mức chi tiêu tối thiểu để đạt bậc này.</p>
                     </div>
                     <div class="min-w-0">
                         <label class="block text-sm font-medium text-gray-700" :for="`cc-t${ti}-max`">Tổng chi tiêu tối đa</label>
-                        <input :id="`cc-t${ti}-max`" type="number" min="0" step="0.01" x-model="tier.max_total_spend" :disabled="{{ $p }}viewMode"
-                               class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
+                        <x-credit-card.money-input id-expr="`cc-t${ti}-max`" expr="tier.max_total_spend"
+                            disabled-expr="{{ $p }}viewMode"
+                            class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500" />
                         <p class="mt-1 text-xs text-gray-500">Mức chi tiêu cao nhất thuộc bậc này. Để trống nếu không giới hạn.</p>
                     </div>
                     <div class="min-w-0">
                         <label class="block text-sm font-medium text-gray-700" :for="`cc-t${ti}-cap`">Hoàn tiền tối đa của bậc / kỳ</label>
-                        <input :id="`cc-t${ti}-cap`" type="number" min="0" step="0.01" x-model="tier.max_cashback_per_period" :disabled="{{ $p }}viewMode"
-                               class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
+                        <x-credit-card.money-input id-expr="`cc-t${ti}-cap`" expr="tier.max_cashback_per_period"
+                            disabled-expr="{{ $p }}viewMode"
+                            class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500" />
                         <p class="mt-1 text-xs text-gray-500">Tổng số tiền hoàn tối đa của bậc này trong một kỳ. Để trống nếu không giới hạn.</p>
                     </div>
                 </div>
@@ -258,19 +259,21 @@
                             <div class="grid gap-2 grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
                                 <div class="min-w-0">
                                     <label class="block text-xs font-medium text-gray-600" :for="`cc-t${ti}-tc${ci}-min`">Từ</label>
-                                    <input :id="`cc-t${ti}-tc${ci}-min`" type="number" min="0" step="0.01" x-model="cap.min_transaction_amount" :disabled="{{ $p }}viewMode"
-                                           class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
+                                    <x-credit-card.money-input id-expr="`cc-t${ti}-tc${ci}-min`" expr="cap.min_transaction_amount"
+                                        disabled-expr="{{ $p }}viewMode"
+                                        class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500" />
                                 </div>
                                 <div class="min-w-0">
                                     <label class="block text-xs font-medium text-gray-600" :for="`cc-t${ti}-tc${ci}-max`">Đến</label>
-                                    <input :id="`cc-t${ti}-tc${ci}-max`" type="number" min="0" step="0.01" x-model="cap.max_transaction_amount" :disabled="{{ $p }}viewMode"
-                                           placeholder="Không giới hạn"
-                                           class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
+                                    <x-credit-card.money-input id-expr="`cc-t${ti}-tc${ci}-max`" expr="cap.max_transaction_amount"
+                                        disabled-expr="{{ $p }}viewMode" placeholder="Không giới hạn"
+                                        class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500" />
                                 </div>
                                 <div class="min-w-0">
                                     <label class="block text-xs font-medium text-gray-600" :for="`cc-t${ti}-tc${ci}-cap`">Hoàn tối đa / giao dịch</label>
-                                    <input :id="`cc-t${ti}-tc${ci}-cap`" type="number" min="0" step="0.01" x-model="cap.max_cashback_per_transaction" :disabled="{{ $p }}viewMode"
-                                           class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
+                                    <x-credit-card.money-input id-expr="`cc-t${ti}-tc${ci}-cap`" expr="cap.max_cashback_per_transaction"
+                                        disabled-expr="{{ $p }}viewMode"
+                                        class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500" />
                                 </div>
                                 <button type="button" @click="{{ $p }}removeTransactionCap(tier, ci)" x-show="!{{ $p }}viewMode"
                                         class="rounded-lg bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-600 border border-rose-200 hover:bg-rose-50 sm:mb-0.5">
@@ -362,14 +365,16 @@
                                 </div>
                                 <div class="min-w-0">
                                     <label class="block text-sm font-medium text-gray-700" :for="`cc-r${ti}-${ri}-cap-tx`">Hoàn tối đa / giao dịch</label>
-                                    <input :id="`cc-r${ti}-${ri}-cap-tx`" type="number" min="0" step="0.01" x-model="rule.max_cashback_per_transaction" :disabled="{{ $p }}viewMode"
-                                           class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
+                                    <x-credit-card.money-input id-expr="`cc-r${ti}-${ri}-cap-tx`" expr="rule.max_cashback_per_transaction"
+                                        disabled-expr="{{ $p }}viewMode"
+                                        class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500" />
                                     <p class="mt-1 text-xs text-gray-500">Số tiền hoàn cao nhất cho một giao dịch.</p>
                                 </div>
                                 <div class="min-w-0">
                                     <label class="block text-sm font-medium text-gray-700" :for="`cc-r${ti}-${ri}-cap-cat`">Hoàn tối đa / danh mục</label>
-                                    <input :id="`cc-r${ti}-${ri}-cap-cat`" type="number" min="0" step="0.01" x-model="rule.max_cashback_per_category_per_period" :disabled="{{ $p }}viewMode"
-                                           class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
+                                    <x-credit-card.money-input id-expr="`cc-r${ti}-${ri}-cap-cat`" expr="rule.max_cashback_per_category_per_period"
+                                        disabled-expr="{{ $p }}viewMode"
+                                        class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500" />
                                     <p class="mt-1 text-xs text-gray-500">Tổng số tiền hoàn cao nhất của danh mục trong một kỳ sao kê.</p>
                                 </div>
                             </div>
@@ -542,10 +547,9 @@
                                     Chi tiêu tối thiểu trong kỳ <span class="text-rose-500">*</span>
                                 </label>
                                 <div class="relative mt-1">
-                                    <input type="number" min="0" step="1000" x-model.number="sqCondition.min_spend"
-                                           :disabled="{{ $p }}viewMode"
-                                           class="block w-full rounded-xl border-gray-300 pr-10 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500">
-                                    <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-gray-400">đ</span>
+                                    <x-credit-card.money-input expr="sqCondition.min_spend"
+                                        disabled-expr="{{ $p }}viewMode"
+                                        class="block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500" />
                                 </div>
                             </div>
                         </li>
@@ -602,6 +606,9 @@
 </div>
 
 @push('scripts')
+@once
+    @include('credit-card.partials.money-js')
+@endonce
 <script>
     /**
      * Thông báo bất biến "mọi quy tắc tính hạn mức phải cùng một bậc".

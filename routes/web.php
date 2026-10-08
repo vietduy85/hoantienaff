@@ -190,6 +190,11 @@ Route::middleware('auth')->group(function () {
             // giờ chỉ định theo id trên URL nên không có policy và không có đường nào
             // chạm vào thiết lập của người khác.
             Route::patch('/cai-dat/nhac-thanh-toan', [CreditCardSettingController::class, 'update'])->name('settings.payment-reminder.update');
+            // Đơn vị số tiền (VND | THOUSAND_VND) — cùng lập luận: route phẳng,
+            // dòng thiết lập luôn thuộc `auth()->id()`, không có `{id}` để chạm
+            // vào thiết lập của người khác, và không có số tiền nào trong payload
+            // (đơn vị chỉ đổi cách hiển thị, DB vẫn lưu VND).
+            Route::patch('/cai-dat/don-vi-tien', [CreditCardSettingController::class, 'updateMoneyUnit'])->name('settings.money-unit.update');
 
             // === Phase 1C: cấu hình policy cashback ===
             //

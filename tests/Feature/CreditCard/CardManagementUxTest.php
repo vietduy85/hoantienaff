@@ -1668,14 +1668,14 @@ class CardManagementUxTest extends TestCase
         $this->assertStringContainsString('transaction_caps', $html);
         $this->assertStringNotContainsString('ruleForm', $html, 'Form thẻ không được còn form thêm quy tắc riêng.');
 
-        // Các ô cap CỐ Ý dùng `x-model` trần, KHÔNG `.number`: ô để trống phải giữ
-        // `''` để `num()` đổi thành `null` (= không giới hạn). Nếu dùng `.number`,
-        // Alpine ép chuỗi rỗng thành số và trần "không giới hạn" thành 0 — tức là
-        // "không được hoàn gì".
-        $this->assertStringContainsString('x-model="rule.max_cashback_per_transaction"', $html);
-        $this->assertStringContainsString('x-model="rule.max_cashback_per_category_per_period"', $html);
-        $this->assertStringContainsString('x-model="tier.max_total_spend"', $html);
-        $this->assertStringContainsString('x-model="tier.max_cashback_per_period"', $html);
+        // Các ô cap CỐ Ý dùng MoneyInput KHÔNG ép kiểu số (không `.number`): ô để
+        // trống phải giữ `''` (ccMoneyParseInput('') === '') để `num()` đổi thành
+        // `null` (= không giới hạn). Nếu dùng `.number`, Alpine ép chuỗi rỗng
+        // thành số và trần "không giới hạn" thành 0 — tức là "không được hoàn gì".
+        $this->assertStringContainsString('rule.max_cashback_per_transaction = ccMoneyParseInput(ccRaw)', $html);
+        $this->assertStringContainsString('rule.max_cashback_per_category_per_period = ccMoneyParseInput(ccRaw)', $html);
+        $this->assertStringContainsString('tier.max_total_spend = ccMoneyParseInput(ccRaw)', $html);
+        $this->assertStringContainsString('tier.max_cashback_per_period = ccMoneyParseInput(ccRaw)', $html);
         $this->assertStringContainsString('x-model="tier.name"', $html);
         $this->assertStringNotContainsString('x-model.number="rule.max_cashback_per_transaction"', $html);
 

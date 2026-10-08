@@ -229,18 +229,18 @@ class CardCreditLimitTest extends TestCase
     {
         $html = $this->actingAs($this->owner)->get(route('credit-cards.manage'))->assertOk()->getContent();
 
-        // Ô nhập hạn mức: type number + min 0 (chặn âm ngay ở trình duyệt) và
-        // được Alpine nối vào form.
+        // Ô nhập hạn mức: text + inputmode decimal (đơn vị theo user) + min 0
+        // (chặn âm ngay ở trình duyệt) và được Alpine nối vào form.
         $this->assertStringContainsString('id="cc-credit-limit"', $html);
         $this->assertMatchesRegularExpression(
-            '/id="cc-credit-limit"[^>]*type="number"/',
+            '/type="text"[^>]*id="cc-credit-limit"/',
             $html
         );
         $this->assertMatchesRegularExpression(
-            '/id="cc-credit-limit"[^>]*min="0"/',
+            '/min="0"[^>]*id="cc-credit-limit"/',
             $html
         );
-        $this->assertStringContainsString('x-model="form.credit_limit"', $html);
+        $this->assertStringContainsString('form.credit_limit = ccMoneyParseInput(ccRaw)', $html);
     }
 
     #[Test]

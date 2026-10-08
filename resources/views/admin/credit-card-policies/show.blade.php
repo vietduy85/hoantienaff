@@ -103,7 +103,7 @@
 
                         <div class="mt-3 grid gap-1.5 grid-cols-1 sm:grid-cols-3 text-xs text-gray-600">
                             <span class="rounded-lg bg-gray-50 border border-gray-100 px-2.5 py-1">
-                                Mức chi tiêu tối thiểu / kỳ: <strong>{{ number_format((float) $version['min_total_spend']) }} ₫</strong>
+                                Mức chi tiêu tối thiểu / kỳ: <strong>{{ \App\Support\CreditCard\CreditCardMoneyFormatter::money($version['min_total_spend'] ?? 0, auth()->id() ?? null) }}</strong>
                             </span>
                             <span class="rounded-lg bg-gray-50 border border-gray-100 px-2.5 py-1">
                                 {{ $version['tiers_count'] }} bậc · {{ $version['categories_count'] }} danh mục
@@ -162,15 +162,15 @@
                                         <p class="font-semibold text-gray-700 text-[13px]">
                                             @if ($tier['name'] && $tier['name'] !== ''){{ $tier['name'] }}@else Bậc {{ $loop->iteration }}@endif
                                             <span class="font-normal text-gray-400">
-                                                ({{ number_format((float) ($tier['min_total_spend'] ?? 0)) }} ₫
+                                                ({{ \App\Support\CreditCard\CreditCardMoneyFormatter::money($tier['min_total_spend'] ?? 0, auth()->id() ?? null) }}
                                                 @if (!empty($tier['max_total_spend']))
-                                                    – {{ number_format((float) $tier['max_total_spend']) }} ₫
+                                                    – {{ \App\Support\CreditCard\CreditCardMoneyFormatter::money($tier['max_total_spend'], auth()->id() ?? null) }}
                                                 @endif)
                                             </span>
                                         </p>
                                         <span class="text-[11px] text-gray-500 rounded-lg bg-white border border-gray-100 px-2 py-0.5">
                                             Hoàn tiền tối đa của bậc / kỳ:
-                                            <strong>{{ !empty($tier['max_cashback_per_period']) || $tier['max_cashback_per_period'] === 0 ? number_format((float) $tier['max_cashback_per_period']) . ' ₫' : 'Không giới hạn' }}</strong>
+                                            <strong>{{ !empty($tier['max_cashback_per_period']) || $tier['max_cashback_per_period'] === 0 ? \App\Support\CreditCard\CreditCardMoneyFormatter::money($tier['max_cashback_per_period'], auth()->id() ?? null) : 'Không giới hạn' }}</strong>
                                         </span>
                                     </div>
                                     <div class="mt-2 grid gap-1.5 sm:grid-cols-2">
@@ -187,7 +187,7 @@
                                                     <span class="block text-[11px] text-gray-400 mt-0.5">
                                                         Hoàn tối đa / giao dịch:
                                                         {{ !empty($rule['max_cashback_per_transaction']) || ($rule['max_cashback_per_transaction'] ?? null) === 0.0
-                                                            ? number_format((float) $rule['max_cashback_per_transaction']) . ' ₫'
+                                                            ? \App\Support\CreditCard\CreditCardMoneyFormatter::money($rule['max_cashback_per_transaction'], auth()->id() ?? null)
                                                             : 'Không giới hạn' }}
                                                     </span>
                                                 </span>
@@ -215,13 +215,13 @@
                                             </p>
                                             @foreach ($tierCaps as $cap)
                                                 <span class="block text-[11px] text-gray-500">
-                                                    {{ number_format((float) $cap['min_transaction_amount']) }} ₫
+                                                    {{ \App\Support\CreditCard\CreditCardMoneyFormatter::money($cap['min_transaction_amount'] ?? 0, auth()->id() ?? null) }}
                                                     @if (!empty($cap['max_transaction_amount']) || ($cap['max_transaction_amount'] ?? null) === 0.0)
-                                                        – {{ number_format((float) $cap['max_transaction_amount']) }} ₫
+                                                        – {{ \App\Support\CreditCard\CreditCardMoneyFormatter::money($cap['max_transaction_amount'], auth()->id() ?? null) }}
                                                     @else
                                                         +
                                                     @endif
-                                                    → tối đa {{ number_format((float) $cap['max_cashback_per_transaction']) }} ₫ / giao dịch
+                                                    → tối đa {{ \App\Support\CreditCard\CreditCardMoneyFormatter::money($cap['max_cashback_per_transaction'], auth()->id() ?? null) }} / giao dịch
                                                 </span>
                                             @endforeach
                                         </div>

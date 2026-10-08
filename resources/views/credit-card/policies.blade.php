@@ -252,12 +252,12 @@
                             <dl class="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
                                 <div class="flex gap-2">
                                     <dt class="text-gray-500">Mức chi tiêu tối thiểu để được hoàn tiền / kỳ:</dt>
-                                    <dd class="font-medium text-gray-800" x-text="money(detail.min_total_spend)"></dd>
+                                    <dd class="font-medium text-gray-800" x-text="ccMoneyVnd(detail.min_total_spend)"></dd>
                                 </div>
                                 <div class="flex gap-2">
                                     <dt class="text-gray-500">Hoàn tiền tối đa / kỳ:</dt>
                                     <dd class="font-medium text-gray-800"
-                                        x-text="detail.max_cashback_total_per_period === null ? 'Không giới hạn' : money(detail.max_cashback_total_per_period)"></dd>
+                                        x-text="detail.max_cashback_total_per_period === null ? 'Không giới hạn' : ccMoneyVnd(detail.max_cashback_total_per_period)"></dd>
                                 </div>
                                 <div class="flex gap-2">
                                     <dt class="text-gray-500">Hiệu lực:</dt>
@@ -274,9 +274,9 @@
                                         <h4 class="font-semibold text-gray-800 text-sm" x-text="tier.name"></h4>
                                         <p class="text-xs text-gray-500 mt-0.5">
                                             Chi tiêu từ
-                                            <span class="font-medium" x-text="money(tier.min_total_spend)"></span>
+                                            <span class="font-medium" x-text="ccMoneyVnd(tier.min_total_spend)"></span>
                                             <span x-show="tier.max_total_spend !== null">
-                                                đến <span class="font-medium" x-text="money(tier.max_total_spend)"></span>
+                                                đến <span class="font-medium" x-text="ccMoneyVnd(tier.max_total_spend)"></span>
                                             </span>
                                             <span x-show="tier.max_total_spend === null">trở lên</span>
                                         </p>
@@ -314,9 +314,9 @@
                                                     <td class="py-1.5 pr-3 text-gray-800" x-text="ruleTargetLabel(rule)"></td>
                                                     <td class="py-1.5 pr-3 text-gray-800" x-text="rule.cashback_percent"></td>
                                                     <td class="py-1.5 pr-3 text-gray-800"
-                                                        x-text="rule.max_cashback_per_transaction === null ? '—' : money(rule.max_cashback_per_transaction)"></td>
+                                                        x-text="rule.max_cashback_per_transaction === null ? '—' : ccMoneyVnd(rule.max_cashback_per_transaction)"></td>
                                                     <td class="py-1.5 pr-3 text-gray-800"
-                                                        x-text="rule.max_cashback_per_category_per_period === null ? '—' : money(rule.max_cashback_per_category_per_period)"></td>
+                                                        x-text="rule.max_cashback_per_category_per_period === null ? '—' : ccMoneyVnd(rule.max_cashback_per_category_per_period)"></td>
                                                     <td class="py-1.5 text-right whitespace-nowrap">
                                                         <span x-show="isEditable" class="inline-flex gap-1.5">
                                                             <button type="button" @click="cloneRule(rule)"
@@ -372,14 +372,16 @@
                         <div class="grid gap-3 sm:grid-cols-2">
                             <div>
                                 <label class="block text-sm font-medium text-gray-700" for="cc-tier-min">Tổng chi tiêu tối thiểu</label>
-                                <input id="cc-tier-min" type="number" min="0" step="0.01" x-model="tierForm.min_total_spend"
-                                       class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                                <x-credit-card.money-input id="cc-tier-min" expr="tierForm.min_total_spend"
+                                    example="5000000"
+                                    class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500" />
                                 <p class="mt-1 text-xs text-gray-500">Mức chi tiêu tối thiểu để đạt bậc này.</p>
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700" for="cc-tier-max">Tổng chi tiêu tối đa</label>
-                                <input id="cc-tier-max" type="number" min="0" step="0.01" x-model="tierForm.max_total_spend"
-                                       class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                                <x-credit-card.money-input id="cc-tier-max" expr="tierForm.max_total_spend"
+                                    example="10000000"
+                                    class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500" />
                                 <p class="mt-1 text-xs text-gray-500">Mức chi tiêu cao nhất thuộc bậc này. Để trống nếu không giới hạn.</p>
                             </div>
                         </div>
@@ -476,14 +478,16 @@
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700" for="cc-rule-cap-tx">Hoàn tối đa / giao dịch</label>
-                                <input id="cc-rule-cap-tx" type="number" min="0" step="0.01" x-model="ruleForm.max_cashback_per_transaction"
-                                       class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                                <x-credit-card.money-input id="cc-rule-cap-tx" expr="ruleForm.max_cashback_per_transaction"
+                                    example="100000"
+                                    class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500" />
                                 <p class="mt-1 text-xs text-gray-500">Số tiền hoàn cao nhất cho một giao dịch.</p>
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700" for="cc-rule-cap-cat">Hoàn tối đa / danh mục</label>
-                                <input id="cc-rule-cap-cat" type="number" min="0" step="0.01" x-model="ruleForm.max_cashback_per_category_per_period"
-                                       class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                                <x-credit-card.money-input id="cc-rule-cap-cat" expr="ruleForm.max_cashback_per_category_per_period"
+                                    example="200000"
+                                    class="mt-1 block w-full rounded-xl border-gray-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500" />
                                 <p class="mt-1 text-xs text-gray-500">Tổng số tiền hoàn cao nhất của danh mục trong một kỳ sao kê.</p>
                             </div>
                         </div>
@@ -529,12 +533,12 @@
                     <dl class="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
                         <div class="flex gap-2">
                             <dt class="text-gray-500">Mức chi tiêu tối thiểu để được hoàn tiền / kỳ:</dt>
-                            <dd class="font-medium text-gray-800" x-text="money(systemDetail.min_total_spend)"></dd>
+                            <dd class="font-medium text-gray-800" x-text="ccMoneyVnd(systemDetail.min_total_spend)"></dd>
                         </div>
                         <div class="flex gap-2">
                             <dt class="text-gray-500">Hoàn tiền tối đa / kỳ:</dt>
                             <dd class="font-medium text-gray-800"
-                                x-text="systemDetail.max_cashback_total_per_period == null ? 'Không giới hạn' : money(systemDetail.max_cashback_total_per_period)"></dd>
+                                x-text="systemDetail.max_cashback_total_per_period == null ? 'Không giới hạn' : ccMoneyVnd(systemDetail.max_cashback_total_per_period)"></dd>
                         </div>
                         <div class="flex gap-2">
                             <dt class="text-gray-500">Hiệu lực từ:</dt>
@@ -546,7 +550,7 @@
                         <div class="rounded-xl border border-gray-100 bg-gray-50/60 p-3 space-y-2">
                             <p class="text-[13px] font-semibold text-gray-800">
                                 <span x-text="tier.name || `Bậc ${tier.sort_order}`"></span>
-                                <span class="font-normal text-gray-400" x-text="` — từ ${money(tier.min_total_spend)}`"></span>
+                                <span class="font-normal text-gray-400" x-text="` — từ ${ccMoneyVnd(tier.min_total_spend)}`"></span>
                             </p>
                             <div class="grid gap-1.5 sm:grid-cols-2">
                                 <template x-for="(rule, ri) in tier.rules ?? []" :key="rule.id ?? `r-${ri}`">
@@ -576,6 +580,9 @@
     </template>
 
     @push('scripts')
+        @once
+            @include('credit-card.partials.money-js')
+        @endonce
         <script>
             window.policyConfig = function (cards) {
                 return {
@@ -979,14 +986,6 @@
                         }
 
                         return rule.category_name ?? `#${rule.category_id}`;
-                    },
-
-                    money(value) {
-                        return new Intl.NumberFormat('vi-VN', {
-                            style: 'currency',
-                            currency: 'VND',
-                            maximumFractionDigits: 0,
-                        }).format(Number(value ?? 0));
                     },
                 };
             };

@@ -458,14 +458,17 @@
                                        class="block text-sm font-medium text-gray-700">
                                     Chi tiêu thực tế <span class="text-red-500">*</span>
                                 </label>
-                                <input id="statement-spend-{{ $row['id'] }}" name="actual_spend"
-                                       type="text" inputmode="decimal" autocomplete="off"
-                                       value="{{ $statement['actual_spend'] ?? '' }}"
-                                       :disabled="busyId === {{ $row['id'] }}"
-                                       class="mt-1 w-full h-11 px-3 rounded-xl border-gray-200 text-sm tabular-nums
-                                              focus:border-emerald-500 focus:ring-emerald-500"
-                                       :class="errors.actual_spend ? 'border-red-400' : ''"
-                                       placeholder="Nhập 0 nếu kỳ không chi">
+                                <div class="relative">
+                                    <input id="statement-spend-{{ $row['id'] }}" name="actual_spend"
+                                           type="text" inputmode="decimal" autocomplete="off"
+                                           value="{{ \App\Support\CreditCard\CreditCardMoneyFormatter::input($statement['actual_spend'] ?? null, auth()->id() ?? null) }}"
+                                           :disabled="busyId === {{ $row['id'] }}"
+                                           class="mt-1 w-full h-11 px-3 pr-10 rounded-xl border-gray-200 text-sm tabular-nums
+                                                  focus:border-emerald-500 focus:ring-emerald-500"
+                                           :class="errors.actual_spend ? 'border-red-400' : ''"
+                                           placeholder="Nhập 0 nếu kỳ không chi">
+                                    <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-gray-400">{{ \App\Support\CreditCard\CreditCardMoneyFormatter::suffix(auth()->id() ?? null) }}</span>
+                                </div>
                                 <p class="mt-1 text-xs text-red-600" x-show="errors.actual_spend" x-cloak
                                    x-text="errors.actual_spend"></p>
                             </div>
@@ -475,14 +478,17 @@
                                        class="block text-sm font-medium text-gray-700">
                                     Hoàn/thưởng thực tế <span class="text-red-500">*</span>
                                 </label>
-                                <input id="statement-reward-{{ $row['id'] }}" name="actual_reward"
-                                       type="text" inputmode="decimal" autocomplete="off"
-                                       value="{{ $statement['actual_reward'] ?? '' }}"
-                                       :disabled="busyId === {{ $row['id'] }}"
-                                       class="mt-1 w-full h-11 px-3 rounded-xl border-gray-200 text-sm tabular-nums
-                                              focus:border-emerald-500 focus:ring-emerald-500"
-                                       :class="errors.actual_reward ? 'border-red-400' : ''"
-                                       placeholder="Nhập 0 nếu không có hoàn">
+                                <div class="relative">
+                                    <input id="statement-reward-{{ $row['id'] }}" name="actual_reward"
+                                           type="text" inputmode="decimal" autocomplete="off"
+                                           value="{{ \App\Support\CreditCard\CreditCardMoneyFormatter::input($statement['actual_reward'] ?? null, auth()->id() ?? null) }}"
+                                           :disabled="busyId === {{ $row['id'] }}"
+                                           class="mt-1 w-full h-11 px-3 pr-10 rounded-xl border-gray-200 text-sm tabular-nums
+                                                  focus:border-emerald-500 focus:ring-emerald-500"
+                                           :class="errors.actual_reward ? 'border-red-400' : ''"
+                                           placeholder="Nhập 0 nếu không có hoàn">
+                                    <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-gray-400">{{ \App\Support\CreditCard\CreditCardMoneyFormatter::suffix(auth()->id() ?? null) }}</span>
+                                </div>
                                 <p class="mt-1 text-xs text-red-600" x-show="errors.actual_reward" x-cloak
                                    x-text="errors.actual_reward"></p>
                             </div>
@@ -633,8 +639,8 @@
                     if (!root) return null;
 
                     return {
-                        actual_spend: root.querySelector('[name="actual_spend"]')?.value ?? '',
-                        actual_reward: root.querySelector('[name="actual_reward"]')?.value ?? '',
+                        actual_spend: ccMoneyParseInput(root.querySelector('[name="actual_spend"]')?.value ?? ''),
+                        actual_reward: ccMoneyParseInput(root.querySelector('[name="actual_reward"]')?.value ?? ''),
                         // Kỳ do dropdown quyết định, form chỉ mang theo.
                         period_start: root.querySelector('[name="period_start"]')?.value ?? '',
                     };

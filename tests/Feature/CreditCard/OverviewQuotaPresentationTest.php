@@ -1281,9 +1281,10 @@ class OverviewQuotaPresentationTest extends TestCase
 
         // `x-text` ghi đè nội dung phần tử, nên `&nbsp;` của bản render sẵn biến
         // mất sau khi Alpine chạy. Bản JS phải nối hậu tố bằng chính U+00A0 thì
-        // "345.000" và "đ" mới không tách được ở cả hai thời điểm.
+        // "345.000" và "đ" mới không tách được ở cả hai thời điểm. Hậu tố lấy từ
+        // `ccMoneySuffix()` (theo đơn vị user) nhưng vẫn dùng U+00A0.
         $this->assertMatchesRegularExpression(
-            '/function ccMoneyVnd\(value\)\s*\{\s*return `\$\{ccMoney\(value\)\}\\\\u00A0đ`;/',
+            '/function ccMoneyVnd\(value\)\s*\{\s*return `\$\{ccMoney\(value\)\}\\\\u00A0\$\{ccMoneySuffix\(\)\}`;/',
             $fixture,
         );
 

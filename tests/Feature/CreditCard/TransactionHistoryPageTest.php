@@ -185,7 +185,7 @@ class TransactionHistoryPageTest extends TestCase
 
         $this->assertStringContainsString('data-testid="edit-transaction"', $html);
         $this->assertStringContainsString('x-model="form.transaction_date"', $html);
-        $this->assertStringContainsString('x-model="form.amount"', $html);
+        $this->assertStringContainsString('ccMoneyToDisplay(form.amount)', $html);
         $this->assertStringContainsString('x-model="form.category_id"', $html);
         $this->assertStringContainsString('x-model="form.note"', $html);
 
