@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>So sánh giá siêu thị - Hoàn Tiền Aff</title>
     <meta name="description" content="So sánh giá sản phẩm tại các siêu thị và cửa hàng điện máy. Tìm giá tốt nhất cho mua sắm hàng ngày.">
@@ -224,7 +224,7 @@
 <body class="bg-gray-50 font-sans text-gray-800 antialiased min-h-screen">
 
     {{-- HEADER --}}
-    <header class="sticky top-0 z-50 bg-emerald-600 shadow-lg">
+    <header class="sticky top-0 z-50 bg-emerald-600 shadow-lg" style="padding-top: env(safe-area-inset-top, 0px);">
         <div class="max-w-2xl mx-auto px-4 h-14 flex items-center gap-3">
             <a href="{{ url('/') }}"
                class="shrink-0 w-9 h-9 flex items-center justify-center rounded-xl bg-white/20 hover:bg-white/30 text-white transition-colors"

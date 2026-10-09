@@ -22,10 +22,15 @@ use Illuminate\Support\Collection;
  *   2. KHÔNG mutate collection đầu vào — trả về collection MỚI đã `values()`.
  *   3. Mọi kỳ sao kê lấy bằng anchor qua `StatementPeriodService`; TUYỆT ĐỐI
  *      không `whereMonth()`/`whereYear()` (xem docblock `StatementPeriodService`).
- *   4. Thiếu kỳ hoặc thiếu hạn thanh toán ⇒ đứng CUỐI, không đứng đầu vì
- *      "không biết" phải bị coi là không ưu tiên.
- *   5. Trùng giá trị ⇒ phân định bằng `sort_order` để thứ tự ổn định giữa các
- *      lần render.
+ *   4. `statement_period` và `payment_due` suy HOÀN TOÀN từ CẤU HÌNH thẻ (anchor
+ *      kỳ + `payment_due_day`) qua `StatementPeriodService` — KHÔNG đọc bảng
+ *      `credit_card_statement_periods`, nên kết quả đúng kể cả khi thẻ chưa có
+ *      bản ghi kỳ nào, và mở trang xem thử KHÔNG sinh bản ghi. Chỉ `min_spend`
+ *      mới cần số chi tiêu của kỳ nên mới đọc bảng kỳ.
+ *   5. Thiếu cấu hình (không suy được kỳ, hoặc không có `payment_due_day`) ⇒
+ *      đứng CUỐI, không đứng đầu vì "không biết" phải bị coi là không ưu tiên.
+ *   6. Trùng giá trị ⇒ phân định bằng `sort_order` rồi `id` để thứ tự ổn định
+ *      giữa các lần render.
  */
 class CreditCardCardSortService
 {
@@ -35,10 +40,21 @@ class CreditCardCardSortService
     /** Thẻ còn thiếu nhiều nhất tới mục tiêu chi tiêu tối thiểu đứng trước. */
     public const MODE_MIN_SPEND = 'min_spend';
 
-    /** Kỳ sao kê sắp chốt trước. */
+    /**
+     * Kỳ sao kê HIỆN TẠI đóng sớm nhất đứng trước.
+     *
+     * "Chốt" = `period_end` của kỳ chứa hôm nay (ngày kết thúc kỳ), không phải
+     * `statement_day` thuần.
+     */
     public const MODE_STATEMENT_PERIOD = 'statement_period';
 
-    /** Hạn thanh toán sớm trước. */
+    /**
+     * Ngày đến hạn thanh toán KẾ TIẾP (chưa qua) gần nhất đứng trước.
+     *
+     * Hạn = `payment_due_day` của tháng sau kỳ liên quan (xem
+     * `StatementPeriodService::paymentDueDateFor()`). Nếu hạn của kỳ trước đã
+     * trôi qua thì lấy hạn kỳ hiện tại; không dùng `spending_deadline_day`.
+     */
     public const MODE_PAYMENT_DUE = 'payment_due';
 
     /**
@@ -94,23 +110,43 @@ class CreditCardCardSortService
             ])->values();
         }
 
-        // Nạp `currentPolicy` một lần cho cả danh sách: đọc relation trong vòng
-        // lặp mà không eager-load là N+1, và mode `min_spend` cần đúng cột này.
-        $this->loadCurrentPolicies($cards);
-
-        // Một truy vấn lấy kỳ hiện tại cho MỌI thẻ thay vì mỗi thẻ một truy vấn.
-        $periods = $this->currentPeriodsFor($cards, $today);
-
-        $items = match ($mode) {
-            self::MODE_MIN_SPEND => $cards->map(fn (UserCard $card): array => $this->minSpendItem($card, $periods[(int) $card->id] ?? null))->all(),
-            self::MODE_STATEMENT_PERIOD => $cards->map(fn (UserCard $card): array => $this->statementPeriodItem($card, $periods[(int) $card->id] ?? null))->all(),
-            self::MODE_PAYMENT_DUE => $cards->map(fn (UserCard $card): array => $this->paymentDueItem($card, $periods[(int) $card->id] ?? null))->all(),
-            default => [],
-        };
+        if ($mode === self::MODE_MIN_SPEND) {
+            // `min_spend` cần `currentPolicy` + số chi tiêu của KỲ HIỆN TẠI (dữ
+            // liệu tổng hợp nằm trên bảng kỳ): nạp policy một lần, rồi MỘT truy
+            // vấn lấy kỳ cho mọi thẻ thay vì mỗi thẻ một truy vấn.
+            $this->loadCurrentPolicies($cards);
+            $periods = $this->currentPeriodsFor($cards, $today);
+            $items = $cards->map(fn (UserCard $card): array => $this->minSpendItem($card, $periods[(int) $card->id] ?? null))->all();
+        } else {
+            // `statement_period` và `payment_due` suy HOÀN TOÀN từ cấu hình thẻ:
+            // không đọc bảng kỳ, không N+1, và kết quả không phụ thuộc việc kỳ đã
+            // có bản ghi hay chưa.
+            $items = $cards->map(fn (UserCard $card): array => match ($mode) {
+                self::MODE_STATEMENT_PERIOD => $this->statementPeriodItem($card, $today),
+                self::MODE_PAYMENT_DUE => $this->paymentDueItem($card, $today),
+                default => $this->unsortableItem($card),
+            })->all();
+        }
 
         usort($items, $this->comparatorFor($mode));
 
         return collect($items)->pluck('card')->values();
+    }
+
+    /**
+     * Mục KHÔNG sắp được (không nên xảy ra qua đường normal) — luôn đứng cuối.
+     *
+     * @return array<string, mixed>
+     */
+    private function unsortableItem(UserCard $card): array
+    {
+        return [
+            'card' => $card,
+            'id' => (int) $card->id,
+            'group' => 1,
+            'money' => PHP_INT_MAX,
+            'sort_order' => (int) $card->sort_order,
+        ];
     }
 
     /**
@@ -178,37 +214,131 @@ class CreditCardCardSortService
     }
 
     /**
+     * `statement_period`: kỳ HIỆN TẠI của thẻ đóng lúc nào.
+     *
+     * Ngày chốt suy từ cấu hình (`currentBoundaries`, không đọc DB) nên thẻ chưa
+     * có bản ghi kỳ vẫn ra kết quả đúng. Thẻ không suy được kỳ ⇒ cuối danh sách.
+     *
      * @return array<string, mixed>
      */
-    private function statementPeriodItem(UserCard $card, ?StatementPeriod $period): array
+    private function statementPeriodItem(UserCard $card, CarbonInterface $today): array
     {
+        $end = $this->currentPeriodEnd($card, $today);
+
         return [
             'card' => $card,
             'id' => (int) $card->id,
-            // Chưa có kỳ nào ⇒ đứng cuối.
-            'group' => $period === null ? 1 : 0,
-            // Sắp xếp theo ngày CHỐT kỳ: kỳ nào chốt trước thì càng gấp.
-            'money' => $period === null ? PHP_INT_MAX : $period->period_end->timestamp,
+            'group' => $end === null ? 1 : 0,
+            // Tăng dần: kỳ nào chốt trước thì càng gấp.
+            'money' => $end === null ? PHP_INT_MAX : $end->timestamp,
             'sort_order' => (int) $card->sort_order,
         ];
     }
 
     /**
+     * `payment_due`: NGÀY ĐẾN HẠN THANH TOÁN KẾ TIẾP của thẻ tính từ hôm nay.
+     *
+     * Không đọc `payment_due_date` đã lưu (có thể cũ/lệch kỳ, hoặc chưa tồn tại):
+     * hạn được suy từ `payment_due_day` + ranh giới kỳ của chính thẻ. Thẻ không có
+     * `payment_due_day` ⇒ cuối danh sách.
+     *
      * @return array<string, mixed>
      */
-    private function paymentDueItem(UserCard $card, ?StatementPeriod $period): array
+    private function paymentDueItem(UserCard $card, CarbonInterface $today): array
     {
-        $due = $period?->payment_due_date;
+        $due = $this->nextPaymentDueDate($card, $today);
 
         return [
             'card' => $card,
             'id' => (int) $card->id,
-            // Thiếu kỳ HOẶC kỳ chưa có hạn thanh toán ⇒ đứng cuối.
             'group' => $due === null ? 1 : 0,
-            // Tăng dần nên hạn đã TRÔN qua (quá khứ) tự động đứng trước hạn tương lai.
+            // Tăng dần: hạn gần nhất đứng trước. Vì đã lọc "chưa qua", không còn
+            // chuyện hạn cũ trong quá khứ chen lên đầu.
             'money' => $due === null ? PHP_INT_MAX : $due->timestamp,
             'sort_order' => (int) $card->sort_order,
         ];
+    }
+
+    /**
+     * Ngày kết thúc kỳ HIỆN TẠI của thẻ, suy từ cấu hình. Null khi thẻ không có
+     * đủ dữ liệu để xác định kỳ.
+     */
+    private function currentPeriodEnd(UserCard $card, CarbonInterface $today): ?CarbonInterface
+    {
+        if (! $this->hasPeriodConfiguration($card)) {
+            return null;
+        }
+
+        [, $end] = $this->periods->currentBoundaries($card, $today);
+
+        return $end;
+    }
+
+    /**
+     * NGÀY ĐẾN HẠN THANH TOÁN KẾ TIẾP (chưa qua) của thẻ.
+     *
+     * ---------------------------------------------------------------------------
+     * VÌ SAO PHẢI XÉT CẢ KỲ LIỀN TRƯỚC, KHÔNG CHỈ KỲ HIỆN TẠI
+     * ---------------------------------------------------------------------------
+     * Hạn thanh toán gắn với một kỳ: `payment_due_day` của tháng SAU `period_end`.
+     * Hôm nay luôn nằm trong kỳ hiện tại nên hạn của kỳ hiện tại luôn ở tương lai.
+     * Nhưng hoá đơn NGAY TRƯỚC vẫn có thể chưa tới hạn (ví dụ kỳ trước đóng ngày
+     * 30/09 → hạn 12/10, hôm nay 09/10): đó mới là khoản phải trả GẦN NHẤT. Vì
+     * vậy lấy hạn nhỏ nhất trong {kỳ liền trước, kỳ hiện tại, kỳ kế tiếp} mà chưa
+     * trôi qua; nếu tất cả đã qua (dữ liệu bất thường) thì lấy hạn xa nhất.
+     *
+     * Dùng `StatementPeriodService` cho MỌI phép tính ngày: không tự chế công
+     * thức clamp/next-month ở đây.
+     */
+    private function nextPaymentDueDate(UserCard $card, CarbonInterface $today): ?CarbonInterface
+    {
+        if ($card->payment_due_day === null || ! $this->hasPeriodConfiguration($card)) {
+            return null;
+        }
+
+        $today = CarbonImmutable::instance($today)->startOfDay();
+
+        [, $currentEnd] = $this->periods->currentBoundaries($card, $today);
+        [, $previousEnd] = $this->periods->completedBoundaries($card, $today);
+        [, $nextEnd] = $this->periods->boundariesForDate($card, $currentEnd->addDay());
+
+        $candidates = [];
+
+        foreach ([$previousEnd, $currentEnd, $nextEnd] as $periodEnd) {
+            $due = $this->periods->paymentDueDateFor($card, $periodEnd);
+
+            if ($due !== null) {
+                $candidates[] = $due;
+            }
+        }
+
+        if ($candidates === []) {
+            return null;
+        }
+
+        usort($candidates, fn (CarbonInterface $a, CarbonInterface $b): int => $a->timestamp <=> $b->timestamp);
+
+        foreach ($candidates as $due) {
+            // "Chưa qua" tính cả HÔM NAY: đến hạn đúng hôm nay vẫn là gần nhất.
+            if ($due->greaterThanOrEqualTo($today)) {
+                return $due;
+            }
+        }
+
+        // Mọi hạn đều đã qua (không xảy ra với luồng thường) ⇒ hạn xa nhất.
+        return $candidates[count($candidates) - 1];
+    }
+
+    /**
+     * Thẻ có đủ cấu hình để suy ra kỳ sao kê không.
+     *
+     * Có `statement_period_start` (nguồn chuẩn) HOẶC `statement_day` (fallback,
+     * mặc định 1) là đủ. Chỉ khi CẢ HAI đều thiếu mới coi là không xác định được.
+     */
+    private function hasPeriodConfiguration(UserCard $card): bool
+    {
+        return $card->statement_period_start !== null
+            || $card->statement_day !== null;
     }
 
     /**

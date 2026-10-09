@@ -134,7 +134,8 @@
              x-show="show"
              x-transition.duration.200ms
              @click="show = false"
-             class="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-gray-800 text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-lg cursor-pointer">
+             class="fixed left-1/2 -translate-x-1/2 z-50 bg-gray-800 text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-lg cursor-pointer"
+             style="top: calc(1rem + env(safe-area-inset-top, 0px));">
             <span x-text="message"></span>
         </div>
     </div>

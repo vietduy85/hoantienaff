@@ -87,9 +87,9 @@
     </div>
 
     @push('scripts')
-        <script>
-            @include('credit-card.partials.money-js')
+        @include('credit-card.partials.money-js')
 
+        <script>
             window.ccSpendQualificationTemplateShow = function (initial) {
                 return {
                     template: (initial && initial.template) || {},

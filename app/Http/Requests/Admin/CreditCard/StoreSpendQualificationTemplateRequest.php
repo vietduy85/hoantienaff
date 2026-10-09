@@ -103,11 +103,20 @@ class StoreSpendQualificationTemplateRequest extends FormRequest
     }
 
     /**
-     * Bộ điều kiện chi tiêu của template (đã có khoá `spend_qualification` bắt buộc).
+     * Bộ điều kiện chi tiêu của template.
      *
-     * @return array<string, mixed>
+     * Kiểu trả về là `?array` CÓ CHỦ ĐÍCH: lớp con
+     * `UpdateSpendQualificationTemplateRequest` (PATCH từng phần) ghi đè cùng chữ
+     * ký để biểu diễn được trạng thái "khoá vắng/null". PHP chỉ cho phép override
+     * THU HẸP kiểu trả về, không cho mở rộng — nên kiểu rộng nhất của gia đình
+     * phải khai báo ngay ở lớp cha này.
+     *
+     * Ở luồng TẠO, `spend_qualification` là `required` nên giá trị thực tế LUÔN là
+     * mảng; `(array)` chỉ để chắc chắn kiểu dù input bị ép kiểu.
+     *
+     * @return array<string, mixed>|null
      */
-    public function spendQualification(): array
+    public function spendQualification(): ?array
     {
         return (array) $this->input('spend_qualification');
     }

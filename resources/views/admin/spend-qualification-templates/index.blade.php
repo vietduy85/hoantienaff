@@ -109,9 +109,9 @@
     </div>
 
     @push('scripts')
-        <script>
-            @include('credit-card.partials.money-js')
+        @include('credit-card.partials.money-js')
 
+        <script>
             window.ccSpendQualificationTemplateIndex = function (initial) {
                 return {
                     templates: (initial && initial.templates) || [],

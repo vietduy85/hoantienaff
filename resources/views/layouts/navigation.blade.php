@@ -4,7 +4,7 @@ $travelPlatforms = collect(config('travel.platforms'))
     ->values();
 @endphp
 
-<nav x-data="{ open: false, showSupport: false, showTravel: false }" class="bg-white border-b border-gray-100">
+<nav x-data="{ open: false, showSupport: false, showTravel: false }" class="bg-white border-b border-gray-100" style="padding-top: env(safe-area-inset-top, 0px);">
     <!-- Primary Navigation Menu -->
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex justify-between h-14 sm:h-16">

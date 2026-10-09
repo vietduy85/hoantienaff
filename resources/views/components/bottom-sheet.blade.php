@@ -10,7 +10,7 @@
      x-transition:leave-end="translate-y-full"
      class="fixed inset-0 z-50 flex items-end">
     <div class="absolute inset-0 bg-black/40" @click="{{ $show }} = false"></div>
-    <div class="relative w-full bg-white rounded-t-2xl shadow-2xl px-5 pt-6 pb-8 space-y-5 max-h-[75vh] overflow-y-auto">
+    <div class="relative w-full bg-white rounded-t-2xl shadow-2xl px-5 pt-6 pb-8 space-y-5 max-h-[75vh] overflow-y-auto" style="padding-bottom: calc(2rem + env(safe-area-inset-bottom, 0px));">
         @if($title)
         <div class="flex items-center justify-between">
             <h3 class="text-lg font-semibold text-gray-800">{{ $title }}</h3>

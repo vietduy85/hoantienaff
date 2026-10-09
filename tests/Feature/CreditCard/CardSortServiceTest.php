@@ -26,12 +26,14 @@ use Tests\TestCase;
  *      không có mục tiêu đứng cuối.
  *   5. Mục tiêu lấy từ policy của CHÍNH thẻ, chi tiêu lấy từ KỲ HIỆN TẠI của
  *      chính thẻ đó — không cộng chung, mỗi thẻ một mục tiêu và một kỳ riêng.
- *   6. `statement_period`: kỳ chốt sớm nhất đứng trước; chưa có kỳ đứng cuối.
- *   7. `payment_due`: hạn sớm nhất đứng trước (hạn đã trôi qua nằm trước hạn
- *      tương lai); chưa có hạn đứng cuối.
+ *   6. `statement_period`: kỳ HIỆN TẠI chốt sớm nhất đứng trước, suy từ cấu hình
+ *      (không cần bản ghi kỳ); thẻ không suy được kỳ đứng cuối.
+ *   7. `payment_due`: NGÀY ĐẾN HẠN KẾ TIẾP (chưa qua) gần nhất đứng trước; hạn
+ *      đúng hôm nay tính là gần nhất; thẻ không có `payment_due_day` đứng cuối.
  *   8. Trùng giá trị phân định bằng `sort_order` rồi `id` — thứ tự ổn định.
  *   9. KHÔNG mutate collection đầu vào.
- *  10. Một truy vấn lấy kỳ cho MỌI thẻ (không N+1) và KHÔNG tạo kỳ khi đọc.
+ *  10. `statement_period`/`payment_due` KHÔNG đọc bảng kỳ (0 truy vấn); `min_spend`
+ *      lấy kỳ của MỌI thẻ trong MỘT truy vấn (không N+1); và KHÔNG tạo kỳ khi đọc.
  *  11. Thẻ không thuộc user không được lọt vào kết quả (phải scope ở tầng truy vấn).
  */
 class CardSortServiceTest extends TestCase
@@ -233,15 +235,84 @@ class CardSortServiceTest extends TestCase
     }
 
     #[Test]
-    public function statement_period_puts_a_card_without_a_period_last(): void
+    public function statement_period_does_not_require_a_stored_period(): void
     {
-        $noPeriod = $this->makeCard('Chưa có kỳ', 10);
-        $withPeriod = $this->makeCard('Có kỳ', 20);
-        $this->seedCurrentPeriod($withPeriod);
+        // KHÔNG seed bản ghi kỳ nào: ngày chốt vẫn phải suy được từ cấu hình thẻ.
+        // Đây là lỗi gốc — bản cũ chỉ đọc `period_end` từ DB nên thẻ chưa có bản
+        // ghi kỳ bị đẩy xuống cuối và thứ tự gần như ngẫu nhiên.
+        $early = $this->makeCard('Chốt sớm', 20, ['statement_day' => 5]);
+        $late = $this->makeCard('Chốt muộn', 10, ['statement_day' => 25]);
+
+        $today = CarbonImmutable::parse('2026-10-09');
+
+        $earlyEnd = app(StatementPeriodService::class)->currentBoundaries($early, $today)[1];
+        $lateEnd = app(StatementPeriodService::class)->currentBoundaries($late, $today)[1];
+
+        // Khoá đúng theo ngày chốt SUY RA, không theo `sort_order` (ngược nhau).
+        $expected = $earlyEnd->lessThan($lateEnd)
+            ? [$early->id, $late->id]
+            : [$late->id, $early->id];
+
+        $this->assertSame($expected, $this->sortedIdsAt('statement_period', [$late, $early], $today));
+    }
+
+    #[Test]
+    public function statement_period_puts_a_card_without_period_config_last(): void
+    {
+        $configured = $this->makeCard('Có cấu hình', 10, ['statement_day' => 10]);
+
+        // Không có CẢ `statement_period_start` lẫn `statement_day`: không thể suy
+        // kỳ. Gán trong bộ nhớ vì cột `statement_day` là NOT NULL ở schema.
+        $broken = $this->makeCard('Thiếu cấu hình', 1);
+        $broken->statement_day = null;
+        $broken->statement_period_start = null;
 
         $this->assertSame(
-            [$withPeriod->id, $noPeriod->id],
-            $this->sortedIds('statement_period', [$noPeriod, $withPeriod]),
+            [$configured->id, $broken->id],
+            $this->sortedIds('statement_period', [$broken, $configured]),
+        );
+    }
+
+    #[Test]
+    public function statement_period_handles_periods_ending_in_different_months(): void
+    {
+        // anchor 25: hôm nay 09/10 < 25 ⇒ kỳ mở 25/09 → chốt 24/10.
+        // anchor 05: hôm nay ≥ 05 ⇒ kỳ mở 05/10 → chốt 04/11.
+        // Kỳ chốt trong tháng 10 phải đứng trước kỳ chốt sang tháng 11.
+        $thisMonth = $this->makeCard('Chốt 24/10', 20, ['statement_day' => 25]);
+        $nextMonth = $this->makeCard('Chốt 04/11', 10, ['statement_day' => 5]);
+
+        $this->assertSame(
+            [$thisMonth->id, $nextMonth->id],
+            $this->sortedIdsAt('statement_period', [$nextMonth, $thisMonth], CarbonImmutable::parse('2026-10-09')),
+        );
+    }
+
+    #[Test]
+    public function statement_period_handles_a_month_end_anchor(): void
+    {
+        // anchor 31 ở tháng 2 bị clamp về 28 (2026 không nhuận): kỳ hiện tại
+        // 31/01 → 27/02. anchor 5 cho kỳ 05/02 → 04/03. Kỳ tháng 2 đứng trước.
+        $monthEnd = $this->makeCard('Anchor 31', 20, ['statement_day' => 31]);
+        $normal = $this->makeCard('Anchor 5', 10, ['statement_day' => 5]);
+
+        $this->assertSame(
+            [$monthEnd->id, $normal->id],
+            $this->sortedIdsAt('statement_period', [$normal, $monthEnd], CarbonImmutable::parse('2026-02-15')),
+        );
+    }
+
+    #[Test]
+    public function statement_period_breaks_an_equal_end_tie_by_sort_order_then_id(): void
+    {
+        // Cùng `statement_period_start` ⇒ cùng ngày chốt; phân định bằng
+        // `sort_order` để thứ tự ổn định giữa các lần tải.
+        $b = $this->makeCard('B', 5, ['statement_period_start' => '2026-10-01']);
+        $a = $this->makeCard('A', 5, ['statement_period_start' => '2026-10-01']);
+
+        $this->assertSame(
+            [$b->id, $a->id],
+            $this->sortedIdsAt('statement_period', [$a, $b], CarbonImmutable::parse('2026-10-09')),
         );
     }
 
@@ -250,39 +321,153 @@ class CardSortServiceTest extends TestCase
     // =====================================================================
 
     #[Test]
-    public function payment_due_puts_an_overdue_card_before_a_future_one(): void
+    public function payment_due_orders_by_the_next_upcoming_due_date(): void
     {
-        $today = CarbonImmutable::now();
+        // Ví dụ đúng trong yêu cầu: hôm nay 09/10/2026, cùng anchor mùng 1.
+        //   A hạn 05/10 (đã qua)  ⇒ hạn kế tiếp 05/11
+        //   B hạn 12/10            ⇒ 12/10
+        //   C hạn 20/10            ⇒ 20/10
+        //   D hạn 05/11            ⇒ 05/11
+        // Kỳ vọng: B, C, A, D — A và D cùng ngày, phân định bằng `sort_order`.
+        $today = CarbonImmutable::parse('2026-10-09');
 
-        $overdue = $this->makeCard('Quá hạn', 10);
-        $this->seedCurrentPeriod($overdue, ['payment_due_date' => $today->subDays(3)->toDateString()]);
+        $a = $this->makeCard('A hạn 05/10', 10, ['statement_period_start' => '2026-10-01', 'payment_due_day' => 5]);
+        $b = $this->makeCard('B hạn 12/10', 20, ['statement_period_start' => '2026-10-01', 'payment_due_day' => 12]);
+        $c = $this->makeCard('C hạn 20/10', 30, ['statement_period_start' => '2026-10-01', 'payment_due_day' => 20]);
+        $d = $this->makeCard('D hạn 05/11', 5, ['statement_period_start' => '2026-10-01', 'payment_due_day' => 5]);
 
-        $future = $this->makeCard('Còn hạn', 20);
-        $this->seedCurrentPeriod($future, ['payment_due_date' => $today->addDays(5)->toDateString()]);
-
-        // Hạn đã TRÔN qua phải đứng trước, không phải đẩy xuống cuối như "chưa có hạn".
         $this->assertSame(
-            [$overdue->id, $future->id],
-            $this->sortedIds('payment_due', [$future, $overdue]),
+            [$b->id, $c->id, $d->id, $a->id],
+            $this->sortedIdsAt('payment_due', [$a, $d, $c, $b], $today),
         );
     }
 
     #[Test]
-    public function payment_due_puts_a_card_without_a_due_date_last(): void
+    public function payment_due_puts_a_due_date_today_first(): void
     {
-        $today = CarbonImmutable::now();
+        // Hạn ĐÚNG HÔM NAY vẫn là gần nhất (0 ngày nữa), không bị coi là "đã qua".
+        $today = CarbonImmutable::parse('2026-10-09');
 
-        $noDue = $this->makeCard('Chưa có hạn', 10);
-        $this->seedCurrentPeriod($noDue, ['payment_due_date' => null]);
-
-        $noPeriod = $this->makeCard('Chưa có kỳ', 20);
-
-        $soon = $this->makeCard('Sắp đến hạn', 30);
-        $this->seedCurrentPeriod($soon, ['payment_due_date' => $today->addDays(2)->toDateString()]);
+        $dueToday = $this->makeCard('Đến hạn hôm nay', 30, ['statement_period_start' => '2026-10-01', 'payment_due_day' => 9]);
+        $dueNextWeek = $this->makeCard('Đến hạn 16/10', 10, ['statement_period_start' => '2026-10-01', 'payment_due_day' => 16]);
 
         $this->assertSame(
-            [$soon->id, $noDue->id, $noPeriod->id],
-            $this->sortedIds('payment_due', [$noPeriod, $noDue, $soon]),
+            [$dueToday->id, $dueNextWeek->id],
+            $this->sortedIdsAt('payment_due', [$dueNextWeek, $dueToday], $today),
+        );
+    }
+
+    #[Test]
+    public function payment_due_ignores_a_stale_stored_due_date(): void
+    {
+        $today = CarbonImmutable::parse('2026-10-09');
+
+        $card = $this->makeCard('A', 10, ['statement_period_start' => '2026-10-01', 'payment_due_day' => 12]);
+        // Ghi hạn CŨ/mâu thuẫn vào bản ghi kỳ: sort không được đọc nó.
+        $this->seedCurrentPeriod($card, ['payment_due_date' => '2020-01-01']);
+
+        $other = $this->makeCard('B', 20, ['statement_period_start' => '2026-10-01', 'payment_due_day' => 20]);
+
+        // Hạn THẬT kế tiếp của A là 12/10 nên A đứng trước B, bất kể bản ghi cũ.
+        $this->assertSame(
+            [$card->id, $other->id],
+            $this->sortedIdsAt('payment_due', [$other, $card], $today),
+        );
+    }
+
+    #[Test]
+    public function payment_due_puts_a_card_without_a_due_day_last(): void
+    {
+        $today = CarbonImmutable::parse('2026-10-09');
+
+        // `payment_due_day` là NOT NULL ở schema nên gán null trong bộ nhớ để mô
+        // phỏng dữ liệu hỏng; sort chỉ đọc thuộc tính nên phép thử vẫn hợp lệ.
+        $noDue = $this->makeCard('Không có hạn', 1, ['statement_period_start' => '2026-10-01', 'payment_due_day' => 12]);
+        $noDue->payment_due_day = null;
+
+        $soon = $this->makeCard('Sắp đến hạn', 30, ['statement_period_start' => '2026-10-01', 'payment_due_day' => 20]);
+
+        $this->assertSame(
+            [$soon->id, $noDue->id],
+            $this->sortedIdsAt('payment_due', [$noDue, $soon], $today),
+        );
+    }
+
+    #[Test]
+    public function payment_due_never_uses_spending_deadline_day(): void
+    {
+        $today = CarbonImmutable::parse('2026-10-09');
+
+        // `spending_deadline_day` cố tình đặt NGƯỢC với thứ tự hạn thanh toán:
+        // nếu code nhầm dùng nó thì thứ tự sẽ đảo.
+        $later = $this->makeCard('Hạn 20/10', 10, [
+            'statement_period_start' => '2026-10-01',
+            'payment_due_day' => 20,
+            'spending_deadline_day' => 1,
+        ]);
+        $sooner = $this->makeCard('Hạn 10/10', 20, [
+            'statement_period_start' => '2026-10-01',
+            'payment_due_day' => 10,
+            'spending_deadline_day' => 28,
+        ]);
+
+        $this->assertSame(
+            [$sooner->id, $later->id],
+            $this->sortedIdsAt('payment_due', [$later, $sooner], $today),
+        );
+    }
+
+    #[Test]
+    public function payment_due_clamps_the_due_day_to_the_last_day_of_a_short_month(): void
+    {
+        // Hôm nay 10/02/2026 (không nhuận). Kỳ trước mở 01/01 → chốt 31/01.
+        // Hạn nằm ở tháng 2 (28 ngày):
+        //   due 27 → 27/02
+        //   due 31 → clamp 28/02
+        //   due 30 → clamp 28/02
+        // 31 và 30 cùng 28/02 ⇒ phân định `sort_order` (31 có sort_order nhỏ hơn).
+        // Nếu KHÔNG clamp thì 30→02/03, 31→03/03 và thứ tự sẽ là 27,30,31.
+        $day27 = $this->makeCard('Hạn 27', 10, ['statement_period_start' => '2026-10-01', 'payment_due_day' => 27]);
+        $day31 = $this->makeCard('Hạn 31', 5, ['statement_period_start' => '2026-10-01', 'payment_due_day' => 31]);
+        $day30 = $this->makeCard('Hạn 30', 6, ['statement_period_start' => '2026-10-01', 'payment_due_day' => 30]);
+
+        $this->assertSame(
+            [$day27->id, $day31->id, $day30->id],
+            $this->sortedIdsAt('payment_due', [$day30, $day31, $day27], CarbonImmutable::parse('2026-02-10')),
+        );
+    }
+
+    #[Test]
+    public function payment_due_uses_the_29th_in_leap_february(): void
+    {
+        // Hôm nay 10/02/2028 (nhuận). Hạn 28/02 dù `payment_due_day` = 31 (clamp
+        // 29/02) phải đứng SAU ngày 28/02 — nếu code cứng 28 sẽ hoà và sort_order
+        // (31 có sort_order nhỏ hơn) đẩy 31 lên trước, làm test đỏ.
+        $day28 = $this->makeCard('Hạn 28', 10, ['statement_period_start' => '2028-01-01', 'payment_due_day' => 28]);
+        $day31 = $this->makeCard('Hạn 31', 5, ['statement_period_start' => '2028-01-01', 'payment_due_day' => 31]);
+
+        $this->assertSame(
+            [$day28->id, $day31->id],
+            $this->sortedIdsAt('payment_due', [$day31, $day28], CarbonImmutable::parse('2028-02-10')),
+        );
+    }
+
+    #[Test]
+    public function payment_due_is_stable_for_equal_due_dates(): void
+    {
+        $today = CarbonImmutable::parse('2026-10-09');
+
+        $second = $this->makeCard('B', 20, ['statement_period_start' => '2026-10-01', 'payment_due_day' => 12]);
+        $first = $this->makeCard('A', 10, ['statement_period_start' => '2026-10-01', 'payment_due_day' => 12]);
+
+        // Hai lần sort với thứ tự đầu vào khác nhau cho CÙNG kết quả.
+        $this->assertSame(
+            [$first->id, $second->id],
+            $this->sortedIdsAt('payment_due', [$second, $first], $today),
+        );
+        $this->assertSame(
+            [$first->id, $second->id],
+            $this->sortedIdsAt('payment_due', [$first, $second], $today),
         );
     }
 
@@ -332,7 +517,37 @@ class CardSortServiceTest extends TestCase
     }
 
     #[Test]
-    public function sorting_reads_every_current_period_in_one_query(): void
+    public function statement_period_and_payment_due_read_no_statement_period_rows(): void
+    {
+        // Hai chế độ này suy ngày từ CẤU HÌNH thẻ nên không cần chạm bảng kỳ —
+        // nhờ vậy thẻ chưa có bản ghi kỳ vẫn đúng và mở trang không sinh bản ghi.
+        $cards = collect();
+
+        for ($i = 1; $i <= 6; $i++) {
+            $cards->push($this->makeCard("Thẻ {$i}", $i, ['statement_period_start' => '2026-10-01', 'payment_due_day' => 5 + $i]));
+        }
+
+        $service = app(CreditCardCardSortService::class);
+
+        $connection = DB::connection('creditcard');
+        $connection->flushQueryLog();
+        $connection->enableQueryLog();
+
+        $service->sort('statement_period', $cards);
+        $service->sort('payment_due', $cards);
+
+        $connection->disableQueryLog();
+
+        $periodQueries = array_filter(
+            $connection->getQueryLog(),
+            fn (array $entry): bool => str_contains($entry['query'], 'credit_card_statement_periods'),
+        );
+
+        $this->assertCount(0, $periodQueries, 'Hai chế độ này không được đọc bảng kỳ.');
+    }
+
+    #[Test]
+    public function min_spend_reads_every_card_period_in_one_query(): void
     {
         $cards = [];
 
@@ -344,22 +559,20 @@ class CardSortServiceTest extends TestCase
 
         $service = app(CreditCardCardSortService::class);
 
-        // Lấy đúng thứ màn hình thật dùng: `EloquentCollection` có `currentPolicy`
-        // eager-load sẵn.
         $collection = UserCard::query()
             ->whereIn('id', array_map(fn (UserCard $card): int => (int) $card->id, $cards))
             ->with('currentPolicy')
             ->get();
 
-        // Nạp quan hệ trước rồi bật query log, để không tính nhầm truy vấn của
-        // bản thân `get()`/`load()` vào số truy vấn của việc sắp xếp.
-        $service->sort('payment_due', $collection);
+        // Nạp quan hệ/`min_spend` một lượt trước, rồi bật query log để chỉ tính
+        // truy vấn của lần sắp xếp.
+        $service->sort('min_spend', $collection);
 
         $connection = DB::connection('creditcard');
         $connection->flushQueryLog();
         $connection->enableQueryLog();
 
-        $service->sort('statement_period', $collection);
+        $service->sort('min_spend', $collection);
 
         $connection->disableQueryLog();
 
@@ -368,13 +581,34 @@ class CardSortServiceTest extends TestCase
             fn (array $entry): bool => str_contains($entry['query'], 'credit_card_statement_periods'),
         );
 
-        // Sáu thẻ, mỗi thẻ một `statement_day` khác nhau nên ranh giới kỳ khác
-        // nhau. Nếu mỗi thẻ một truy vấn thì ở đây là 6.
+        // Sáu thẻ, sáu ranh giới kỳ khác nhau. Nếu mỗi thẻ một truy vấn thì ở đây
+        // là 6; phải gộp còn MỘT.
         $this->assertCount(
             1,
             $periodQueries,
             'Kỳ hiện tại của mọi thẻ phải lấy trong MỘT truy vấn, không N+1.',
         );
+    }
+
+    // =====================================================================
+    // Nhãn UI khớp logic
+    // =====================================================================
+
+    #[Test]
+    public function mode_labels_describe_the_implemented_order(): void
+    {
+        $modes = CreditCardCardSortService::modes();
+
+        // Bốn lựa chọn dùng chung cho cả ba trang.
+        $this->assertSame(
+            ['manual', 'min_spend', 'statement_period', 'payment_due'],
+            array_keys($modes),
+        );
+
+        // Nhãn phản ánh đúng logic: kỳ sao kê "chốt" (ngày kết thúc kỳ) và "hạn
+        // thanh toán" (không phải hạn chót chi tiêu).
+        $this->assertStringContainsString('chốt', $modes['statement_period']);
+        $this->assertStringContainsString('thanh toán', $modes['payment_due']);
     }
 
     #[Test]
@@ -449,6 +683,21 @@ class CardSortServiceTest extends TestCase
     {
         return app(CreditCardCardSortService::class)
             ->sort($mode, collect($cards))
+            ->map(fn (UserCard $card): int => (int) $card->id)
+            ->all();
+    }
+
+    /**
+     * Như `sortedIds()` nhưng cố định "hôm nay" để test không phụ thuộc đồng hồ
+     * chạy thực tế.
+     *
+     * @param  array<int, UserCard>  $cards
+     * @return array<int, int>
+     */
+    private function sortedIdsAt(string $mode, array $cards, CarbonImmutable $today): array
+    {
+        return app(CreditCardCardSortService::class)
+            ->sort($mode, collect($cards), $today)
             ->map(fn (UserCard $card): int => (int) $card->id)
             ->all();
     }

@@ -2,7 +2,7 @@
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
     <head>
         <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
         <meta name="csrf-token" content="{{ csrf_token() }}">
 
         @include('components.pwa-meta')
@@ -15,9 +15,17 @@
 
         <!-- Scripts -->
         @vite(['resources/css/app.css', 'resources/js/app.js'])
+
+        {{-- Safe-area top: mobile cần thêm status bar inset; sm trở lên giữ nguyên (pt-0). --}}
+        <style>
+            .guest-safe-top { padding-top: calc(1.5rem + env(safe-area-inset-top, 0px)); }
+            @media (min-width: 640px) {
+                .guest-safe-top { padding-top: env(safe-area-inset-top, 0px); }
+            }
+        </style>
     </head>
     <body class="font-sans text-gray-900 antialiased">
-        <div class="min-h-screen flex flex-col sm:justify-center items-center pt-6 sm:pt-0 bg-gray-100">
+        <div class="min-h-screen flex flex-col sm:justify-center items-center guest-safe-top bg-gray-100">
             <div>
                 <a href="/">
                     <x-application-logo class="w-20 h-20 fill-current text-gray-500" />

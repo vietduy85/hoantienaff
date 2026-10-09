@@ -2,7 +2,7 @@
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     @include('components.pwa-meta')
     <title>Hoàn Tiền Aff - Nền tảng hoàn tiền affiliate hàng đầu Việt Nam</title>
     <meta name="description" content="Hoàn Tiền Aff giúp bạn tiết kiệm đến 15% khi mua sắm online tại Shopee, Lazada, TikTok Shop, Agoda, Booking.com và Traveloka. Đăng ký miễn phí.">
@@ -38,7 +38,7 @@
             width: 100%;
             max-width: 480px;
             margin: 0 auto;
-            padding: 12px 12px 28px;
+            padding: calc(12px + env(safe-area-inset-top, 0px)) 12px calc(28px + env(safe-area-inset-bottom, 0px));
             display: flex;
             flex-direction: column;
             gap: 0;

@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>{{ $pageTitle ?? 'Hoàn Tiền Aff' }} - HoanTien.xyz</title>
     <meta name="description" content="{{ $pageDescription ?? 'Hoàn Tiền Aff - Nền tảng hoàn tiền affiliate hàng đầu Việt Nam.' }}">
     <meta name="robots" content="index, follow">

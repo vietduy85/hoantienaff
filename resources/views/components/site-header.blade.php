@@ -1,4 +1,4 @@
-<header class="bg-white border-b border-gray-100 sticky top-0 z-50">
+<header class="bg-white border-b border-gray-100 sticky top-0 z-50" style="padding-top: env(safe-area-inset-top, 0px);">
     <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex items-center justify-between h-14 sm:h-16">
             {{-- Logo --}}

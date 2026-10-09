@@ -222,7 +222,8 @@
         {{-- Sheet --}}
         <form method="POST" action="{{ route('wallet.withdraw') }}"
               @submit="if (!canSubmit) $event.preventDefault(); loading = true"
-              class="relative w-full bg-white rounded-t-2xl shadow-2xl px-5 pt-6 pb-8 space-y-5 max-h-[75vh] overflow-y-auto">
+              class="relative w-full bg-white rounded-t-2xl shadow-2xl px-5 pt-6 pb-8 space-y-5 max-h-[75vh] overflow-y-auto"
+              style="padding-bottom: calc(2rem + env(safe-area-inset-bottom, 0px));">
             @csrf
             <input type="hidden" name="amount" :value="rawAmount">
 
