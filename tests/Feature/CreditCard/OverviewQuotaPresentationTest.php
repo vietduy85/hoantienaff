@@ -812,7 +812,7 @@ class OverviewQuotaPresentationTest extends TestCase
             'Thiếu ô tiêu đề thẻ.'
         );
 
-        preg_match('/<p\b[^>]*data-testid="card-title"[^>]*>/', $this->overviewHtml(), $titleTag);
+        preg_match('/<\w+\b[^>]*data-testid="card-title"[^>]*>/', $this->overviewHtml(), $titleTag);
 
         $this->assertMatchesRegularExpression(
             '/\btruncate\b/',
@@ -868,7 +868,7 @@ class OverviewQuotaPresentationTest extends TestCase
         $this->assertDoesNotMatchRegularExpression('/\bshadow\b/', $tag);
 
         // Tương phản: chữ xám RẤT ĐẬM trên nền pastel RẤT NHẠT.
-        preg_match('/<p\b[^>]*data-testid="card-title"[^>]*>/', $band[1] ?? '', $titleTag);
+        preg_match('/<\w+\b[^>]*data-testid="card-title"[^>]*>/', $band[1] ?? '', $titleTag);
 
         $this->assertMatchesRegularExpression(
             '/\btext-gray-900\b/',

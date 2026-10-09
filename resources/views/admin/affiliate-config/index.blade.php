@@ -7,9 +7,11 @@
 
     <div class="py-6 px-4 max-w-xl mx-auto"
          x-data="{
-             dashboardStrategy: '{{ $settings['dashboard_strategy'] }}',
-             adminStrategy: '{{ $settings['admin_strategy'] }}'
-         }">
+             extensionEnabled: '{{ $settings['extension_enabled'] }}',
+             dashboardStrategy: '{{ $settings['extension_enabled'] === 'true' ? $settings['dashboard_strategy'] : 'direct' }}',
+             adminStrategy: '{{ $settings['extension_enabled'] === 'true' ? $settings['admin_strategy'] : 'direct' }}'
+         }"
+         x-effect="if (extensionEnabled === 'false') { dashboardStrategy = 'direct'; adminStrategy = 'direct'; }">
 
         @if (session('success'))
             <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-sm text-emerald-700 mb-4">
@@ -21,9 +23,49 @@
             @csrf
             @method('PUT')
 
+            {{-- Phần 0: Extension Worker --}}
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-4">
+                <h3 class="text-sm font-bold text-gray-800 uppercase tracking-wide">Extension Worker</h3>
+
+                <div class="flex items-center justify-between gap-4">
+                    <div>
+                        <div class="text-sm font-medium text-gray-800">
+                            Cho phép tạo short link bằng Extension Worker
+                        </div>
+                        <div class="text-xs text-gray-500 mt-0.5">
+                            Khi tắt, toàn bộ luồng tạo link bằng Extension Worker sẽ dừng và tự chuyển sang Direct Link.
+                        </div>
+                        <div class="text-xs mt-1 font-semibold"
+                             :class="extensionEnabled === 'true' ? 'text-emerald-600' : 'text-gray-500'"
+                             x-text="extensionEnabled === 'true' ? 'Trạng thái hiện tại: Đang BẬT' : 'Trạng thái hiện tại: Đang TẮT'"></div>
+                    </div>
+
+                    <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                        <input type="hidden" name="extension_enabled" value="false">
+                        <input type="checkbox" name="extension_enabled" value="true"
+                               x-model="extensionEnabled" true-value="true" false-value="false"
+                               class="sr-only peer">
+                        <div class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:bg-emerald-500 transition-colors
+                                    after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white
+                                    after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5
+                                    after:transition-all peer-checked:after:translate-x-full"></div>
+                    </label>
+                </div>
+
+                @error('extension_enabled')
+                    <p class="text-xs text-red-600">{{ $message }}</p>
+                @enderror
+            </div>
+
             {{-- Phần 1: Dashboard Strategy --}}
             <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-4">
                 <h3 class="text-sm font-bold text-gray-800 uppercase tracking-wide">Dashboard</h3>
+
+                <template x-if="extensionEnabled === 'false'">
+                    <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700">
+                        Extension Worker đang tắt trong cấu hình hệ thống.
+                    </div>
+                </template>
 
                 <div class="space-y-2">
                     <label class="flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors"
@@ -36,10 +78,13 @@
                         </div>
                     </label>
 
-                    <label class="flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors"
-                           :class="dashboardStrategy === 'extension' ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'">
+                    <label class="flex items-center gap-3 p-3 rounded-xl border-2 transition-colors"
+                           :class="extensionEnabled === 'false'
+                               ? 'border-gray-200 opacity-50 cursor-not-allowed'
+                               : (dashboardStrategy === 'extension' ? 'border-emerald-400 bg-emerald-50 cursor-pointer' : 'border-gray-200 hover:border-gray-300 cursor-pointer')">
                         <input type="radio" name="dashboard_strategy" value="extension" x-model="dashboardStrategy"
-                               class="text-emerald-500 focus:ring-emerald-400">
+                               :disabled="extensionEnabled === 'false'"
+                               class="text-emerald-500 focus:ring-emerald-400 disabled:cursor-not-allowed">
                         <div>
                             <div class="text-sm font-medium text-gray-800">Extension Worker</div>
                             <div class="text-xs text-gray-500">Dùng Browser Extension tạo link</div>
@@ -55,11 +100,20 @@
             <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-4">
                 <h3 class="text-sm font-bold text-gray-800 uppercase tracking-wide">Admin Short Link</h3>
 
+                <template x-if="extensionEnabled === 'false'">
+                    <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700">
+                        Extension Worker đang tắt trong cấu hình hệ thống.
+                    </div>
+                </template>
+
                 <div class="space-y-2">
-                    <label class="flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors"
-                           :class="adminStrategy === 'extension' ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'">
+                    <label class="flex items-center gap-3 p-3 rounded-xl border-2 transition-colors"
+                           :class="extensionEnabled === 'false'
+                               ? 'border-gray-200 opacity-50 cursor-not-allowed'
+                               : (adminStrategy === 'extension' ? 'border-emerald-400 bg-emerald-50 cursor-pointer' : 'border-gray-200 hover:border-gray-300 cursor-pointer')">
                         <input type="radio" name="admin_strategy" value="extension" x-model="adminStrategy"
-                               class="text-emerald-500 focus:ring-emerald-400">
+                               :disabled="extensionEnabled === 'false'"
+                               class="text-emerald-500 focus:ring-emerald-400 disabled:cursor-not-allowed">
                         <div>
                             <div class="text-sm font-medium text-gray-800">Extension Worker</div>
                             <div class="text-xs text-gray-500">Dùng Browser Extension tạo link</div>

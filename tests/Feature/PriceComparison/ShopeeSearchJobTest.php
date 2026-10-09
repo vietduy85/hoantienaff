@@ -2,12 +2,14 @@
 
 namespace Tests\Feature\PriceComparison;
 
-use App\Services\AffiliateSearchLinks\Providers\ShopeeAffiliateSearchLinkProvider;
 use App\Models\LinkRequest;
+use App\Models\Setting;
 use App\Models\User;
+use App\Services\AffiliateSearchLinks\Providers\ShopeeAffiliateSearchLinkProvider;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Testing\TestResponse;
 use Tests\Fixture\CoopOnlineFixture;
 use Tests\TestCase;
 
@@ -29,6 +31,8 @@ class ShopeeSearchJobTest extends TestCase
 
         config(['services.affiliate_extension.token' => $this->extensionToken]);
 
+        Setting::set(Setting::EXTENSION_SHORTLINK_ENABLED, 'true');
+
         $this->userA = User::factory()->create(['username' => 'user_a']);
         $this->userB = User::factory()->create(['username' => 'user_b']);
     }
@@ -37,9 +41,9 @@ class ShopeeSearchJobTest extends TestCase
     {
         Http::fake([
             'https://discovery.tekoapis.com/api/v1/search' => Http::response([
-                'code'       => '0',
+                'code' => '0',
                 'pagination' => ['totalItems' => 0, 'totalPages' => 0],
-                'result'     => ['products' => []],
+                'result' => ['products' => []],
             ]),
         ]);
     }
@@ -53,14 +57,14 @@ class ShopeeSearchJobTest extends TestCase
         ]);
     }
 
-    private function search(string $keyword): \Illuminate\Testing\TestResponse
+    private function search(string $keyword): TestResponse
     {
-        return $this->get('/so-sanh-gia?keyword=' . rawurlencode($keyword));
+        return $this->get('/so-sanh-gia?keyword='.rawurlencode($keyword));
     }
 
     private function expectedOriginalUrl(string $keyword): string
     {
-        return (new ShopeeAffiliateSearchLinkProvider())->buildSearchUrl($keyword);
+        return (new ShopeeAffiliateSearchLinkProvider)->buildSearchUrl($keyword);
     }
 
     public function test_guest_search_creates_no_shopee_job_and_shows_fallback(): void
@@ -79,7 +83,7 @@ class ShopeeSearchJobTest extends TestCase
     {
         $this->fakeCoopEmpty();
 
-        $this->actingAs($this->userA)->get('/so-sanh-gia?keyword=' . rawurlencode('mì Hảo Hảo'))->assertOk();
+        $this->actingAs($this->userA)->get('/so-sanh-gia?keyword='.rawurlencode('mì Hảo Hảo'))->assertOk();
 
         $this->assertDatabaseCount('link_requests', 1);
 
@@ -202,7 +206,7 @@ class ShopeeSearchJobTest extends TestCase
         $this->actingAs($this->userA)->get('/so-sanh-gia?keyword=mì')->assertOk();
         $job = LinkRequest::first();
 
-        $jobs = $this->getJson('/api/extension/jobs?token=' . $this->extensionToken);
+        $jobs = $this->getJson('/api/extension/jobs?token='.$this->extensionToken);
         $jobs->assertOk()
             ->assertJsonPath('jobs.0.id', $job->id)
             ->assertJsonPath('jobs.0.original_url', $job->original_url)
@@ -210,7 +214,7 @@ class ShopeeSearchJobTest extends TestCase
 
         $this->assertSame('processing', $job->fresh()->status);
 
-        $result = $this->postJson('/api/extension/results?token=' . $this->extensionToken, [
+        $result = $this->postJson('/api/extension/results?token='.$this->extensionToken, [
             'results' => [
                 ['id' => $job->id, 'affiliate_url' => 'https://s.shopee.vn/xyz789', 'status' => 'completed'],
             ],
@@ -220,7 +224,7 @@ class ShopeeSearchJobTest extends TestCase
         $this->assertSame('completed', $job->fresh()->status);
         $this->assertSame('https://s.shopee.vn/xyz789', $job->fresh()->affiliate_url);
 
-        $poll = $this->actingAs($this->userA)->getJson('/api/link-request/' . $job->id);
+        $poll = $this->actingAs($this->userA)->getJson('/api/link-request/'.$job->id);
         $poll->assertOk()
             ->assertJsonPath('status', 'completed')
             ->assertJsonPath('affiliate_url', 'https://s.shopee.vn/xyz789')
@@ -235,7 +239,7 @@ class ShopeeSearchJobTest extends TestCase
         $job = LinkRequest::first();
 
         $this->actingAs($this->userA)
-            ->getJson('/api/link-request/' . $job->id)
+            ->getJson('/api/link-request/'.$job->id)
             ->assertOk()
             ->assertJsonPath('status', 'pending')
             ->assertJsonPath('affiliate_url', null);
@@ -249,7 +253,7 @@ class ShopeeSearchJobTest extends TestCase
         $job = LinkRequest::first();
 
         $this->actingAs($this->userB)
-            ->getJson('/api/link-request/' . $job->id)
+            ->getJson('/api/link-request/'.$job->id)
             ->assertStatus(403);
     }
 
@@ -294,5 +298,59 @@ class ShopeeSearchJobTest extends TestCase
         $this->actingAs($this->userA)->get('/so-sanh-gia')->assertOk();
 
         $this->assertDatabaseCount('link_requests', 0);
+    }
+
+    public function test_extension_disabled_creates_no_job_and_shows_fallback(): void
+    {
+        Setting::set(Setting::EXTENSION_SHORTLINK_ENABLED, 'false');
+        $this->fakeCoopEmpty();
+
+        $response = $this->actingAs($this->userA)->get('/so-sanh-gia?keyword='.rawurlencode('mì Hảo Hảo'));
+
+        $response->assertOk();
+        $this->assertDatabaseCount('link_requests', 0);
+        $response->assertSee('Xem trên Shopee ↗', escape: false);
+        $response->assertDontSee('x-data="pcShopeeCard', escape: false);
+    }
+
+    public function test_extension_disabled_reuses_completed_link_without_new_job(): void
+    {
+        Setting::set(Setting::EXTENSION_SHORTLINK_ENABLED, 'false');
+        $this->fakeCoopEmpty();
+
+        LinkRequest::create([
+            'user_id' => $this->userA->id,
+            'original_url' => $this->expectedOriginalUrl('mì'),
+            'platform' => 'Shopee',
+            'status' => 'completed',
+            'affiliate_url' => 'https://s.shopee.vn/done',
+        ]);
+
+        $response = $this->actingAs($this->userA)->get('/so-sanh-gia?keyword='.rawurlencode('mì'));
+
+        $response->assertOk()
+            ->assertSee('https://s.shopee.vn/done')
+            ->assertSee('Mua sắm ↗', escape: false)
+            ->assertDontSee('x-data="pcShopeeCard', escape: false);
+
+        $this->assertDatabaseCount('link_requests', 1);
+    }
+
+    public function test_extension_disabled_jobs_endpoint_returns_empty_and_leaves_pending(): void
+    {
+        Setting::set(Setting::EXTENSION_SHORTLINK_ENABLED, 'false');
+
+        $pending = LinkRequest::create([
+            'user_id' => $this->userA->id,
+            'original_url' => 'https://shopee.vn/product/1/2',
+            'platform' => 'Shopee',
+            'status' => 'pending',
+        ]);
+
+        $this->getJson('/api/extension/jobs?token='.$this->extensionToken)
+            ->assertOk()
+            ->assertJsonPath('jobs', []);
+
+        $this->assertSame('pending', $pending->fresh()->status);
     }
 }

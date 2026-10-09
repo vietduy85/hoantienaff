@@ -18,7 +18,13 @@ class AffiliateLinkService
     {
         $platform = strtolower($linkRequest->platform ?? '');
 
-        if (!str_contains($platform, 'shopee')) {
+        if (! str_contains($platform, 'shopee')) {
+            return;
+        }
+
+        if (! Setting::extensionShortlinkEnabled()) {
+            $this->directStrategy->handle($linkRequest);
+
             return;
         }
 
@@ -32,6 +38,7 @@ class AffiliateLinkService
 
         if ($strategy === 'direct') {
             $this->directStrategy->handle($linkRequest);
+
             return;
         }
 
@@ -42,7 +49,13 @@ class AffiliateLinkService
     {
         $platform = strtolower($linkRequest->platform ?? '');
 
-        if (!str_contains($platform, 'shopee')) {
+        if (! str_contains($platform, 'shopee')) {
+            return;
+        }
+
+        if (! Setting::extensionShortlinkEnabled()) {
+            $this->directStrategy->handle($linkRequest);
+
             return;
         }
 

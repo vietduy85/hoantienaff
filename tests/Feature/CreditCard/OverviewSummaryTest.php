@@ -307,8 +307,13 @@ class OverviewSummaryTest extends TestCase
 
         $html = $this->overviewHtml();
 
+        // Chỉ soi VÙNG hai ô tổng. Từ khi mỗi thẻ in thêm khoảng ngày chi tiêu của
+        // kỳ riêng dưới tên thẻ, quét cả trang sẽ bắt đúng khoảng ngày hợp lệ của
+        // từng thẻ — không còn là "ô tổng in một khoảng ngày duy nhất".
+        $tiles = $this->overviewSummaryTiles($html);
+
         foreach (['06/09', '05/10/2026', '09/09', '08/10/2026'] as $range) {
-            $this->assertStringNotContainsString($range, $html);
+            $this->assertStringNotContainsString($range, $tiles);
         }
     }
 

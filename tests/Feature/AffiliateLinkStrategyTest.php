@@ -25,6 +25,8 @@ class AffiliateLinkStrategyTest extends TestCase
         $this->user = User::factory()->create([
             'username' => 'testuser123',
         ]);
+
+        Setting::set(Setting::EXTENSION_SHORTLINK_ENABLED, 'true');
     }
 
     private function createShopeeLink(string $url = 'https://shopee.vn/product/123/456'): LinkRequest
@@ -472,5 +474,57 @@ class AffiliateLinkStrategyTest extends TestCase
 
         $pendingCount = LinkRequest::where('status', 'pending')->count();
         $this->assertEquals(1, $pendingCount);
+    }
+
+    // ─── Extension Worker OFF → Direct Link fallback ────────────
+
+    public function test_extension_disabled_falls_back_to_direct_for_dashboard(): void
+    {
+        Setting::set(Setting::EXTENSION_SHORTLINK_ENABLED, 'false');
+        Setting::set('affiliate.dashboard.strategy', 'extension');
+        Setting::set('affiliate.direct.shopee_affiliate_id', '12345');
+        Setting::set('affiliate.direct.resolve_shortlink', 'false');
+
+        $link = $this->createShopeeLink();
+
+        app(AffiliateLinkService::class)->handle($link, 'dashboard');
+
+        $link->refresh();
+        $this->assertEquals('completed', $link->status);
+        $this->assertStringStartsWith('https://s.shopee.vn/an_redir?', $link->affiliate_url);
+        $this->assertEquals(0, LinkRequest::where('status', 'pending')->count());
+    }
+
+    public function test_extension_disabled_falls_back_to_direct_for_admin(): void
+    {
+        Setting::set(Setting::EXTENSION_SHORTLINK_ENABLED, 'false');
+        Setting::set('affiliate.admin.strategy', 'extension');
+        Setting::set('affiliate.direct.shopee_affiliate_id', '12345');
+        Setting::set('affiliate.direct.resolve_shortlink', 'false');
+
+        $link = $this->createShopeeLink();
+
+        app(AffiliateLinkService::class)->handle($link, 'admin');
+
+        $link->refresh();
+        $this->assertEquals('completed', $link->status);
+        $this->assertNotNull($link->affiliate_url);
+        $this->assertEquals(0, LinkRequest::where('status', 'pending')->count());
+    }
+
+    public function test_extension_disabled_via_extension_falls_back_to_direct(): void
+    {
+        Setting::set(Setting::EXTENSION_SHORTLINK_ENABLED, 'false');
+        Setting::set('affiliate.direct.shopee_affiliate_id', '12345');
+        Setting::set('affiliate.direct.resolve_shortlink', 'false');
+
+        $link = $this->createShopeeLink();
+
+        app(AffiliateLinkService::class)->handleViaExtension($link);
+
+        $link->refresh();
+        $this->assertEquals('completed', $link->status);
+        $this->assertStringStartsWith('https://s.shopee.vn/an_redir?', $link->affiliate_url);
+        $this->assertEquals(0, LinkRequest::where('status', 'pending')->count());
     }
 }

@@ -36,6 +36,7 @@ class ShopeeFoodRoutingTest extends TestCase
         Setting::set('affiliate.admin.strategy', 'extension');
         Setting::set('affiliate.direct.shopee_affiliate_id', '12345');
         Setting::set('affiliate.direct.resolve_shortlink', 'false');
+        Setting::set(Setting::EXTENSION_SHORTLINK_ENABLED, 'true');
 
         Http::fake([
             'data.addlivetag.com/*' => Http::response(['status' => 'ok', 'data' => []], 200),
@@ -60,12 +61,12 @@ class ShopeeFoodRoutingTest extends TestCase
 
     private function expectedShopeeFoodDeepLink(int $restaurantId, string $username): string
     {
-        return 'https://shopeefood.shopee.vn/now-food/shop/' . $restaurantId
-            . '?shareChannel=copy_link'
-            . '&utm_source=an_12345'
-            . '&utm_medium=affiliate_food'
-            . '&utm_campaign=-'
-            . '&utm_content=' . rawurlencode($username);
+        return 'https://shopeefood.shopee.vn/now-food/shop/'.$restaurantId
+            .'?shareChannel=copy_link'
+            .'&utm_source=an_12345'
+            .'&utm_medium=affiliate_food'
+            .'&utm_campaign=-'
+            .'&utm_content='.rawurlencode($username);
     }
 
     // ─── 1. shopee.vn → Direct Link ─────────────────────────────
@@ -357,10 +358,10 @@ class ShopeeFoodRoutingTest extends TestCase
         Http::fake([
             'spf.shopee.vn/4qFce98g0F*' => Http::response('', 301, [
                 'Location' => 'https://shopeefood.vn/now-food/shop/757850'
-                    . '?utm_source=an_17343840387'
-                    . '&utm_medium=affiliate_food'
-                    . '&utm_campaign=-'
-                    . '&utm_content=tintuctonghop103----',
+                    .'?utm_source=an_17343840387'
+                    .'&utm_medium=affiliate_food'
+                    .'&utm_campaign=-'
+                    .'&utm_content=tintuctonghop103----',
             ]),
             'shopeefood.vn/now-food/shop/757850*' => Http::response('', 200),
         ]);

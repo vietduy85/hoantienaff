@@ -8,6 +8,7 @@ use App\Services\AffiliateLinkService;
 use App\Services\ShopeeFood\ShopeeFoodAffiliateLinkService;
 use App\Services\ShopeeFood\ShopeeFoodPreviewService;
 use App\Services\ShopeeFood\ShopeeFoodUrlParser;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -39,7 +40,7 @@ class DashboardController extends Controller
         return view('dashboard', compact('pinnedLinks', 'recentLinks'));
     }
 
-    public function store(Request $request): \Illuminate\Http\JsonResponse|RedirectResponse
+    public function store(Request $request): JsonResponse|RedirectResponse
     {
         $request->validate([
             'original_url' => ['required', 'string', 'max:2048'],
@@ -58,7 +59,9 @@ class DashboardController extends Controller
             'original_url' => ['url'],
         ]);
 
-        $strategy = Setting::get('affiliate.dashboard.strategy', 'direct');
+        $strategy = Setting::extensionShortlinkEnabled()
+            ? Setting::get('affiliate.dashboard.strategy', 'direct')
+            : 'direct';
 
         if ($strategy === 'direct') {
             $controller = app(DashboardCreateDirectLinkController::class);
@@ -99,15 +102,15 @@ class DashboardController extends Controller
         return redirect()->route('dashboard');
     }
 
-    private function storeViaShopeeFoodDeepLink(Request $request, string $originalUrl): \Illuminate\Http\JsonResponse|RedirectResponse
+    private function storeViaShopeeFoodDeepLink(Request $request, string $originalUrl): JsonResponse|RedirectResponse
     {
         $user = auth()->user();
 
         $link = LinkRequest::create([
-            'user_id'      => $user->id,
+            'user_id' => $user->id,
             'original_url' => $originalUrl,
-            'platform'     => 'ShopeeFood',
-            'status'       => 'processing',
+            'platform' => 'ShopeeFood',
+            'status' => 'processing',
         ]);
 
         $pipeline = $this->shopeeFoodAffiliateLink->resolvePipeline($originalUrl);
@@ -122,27 +125,27 @@ class DashboardController extends Controller
         if ($affiliateUrl === null) {
             Log::warning('[ShopeeFood] Deep link generation failed', [
                 'link_request_id' => $link->id,
-                'original_url'    => $originalUrl,
-                'restaurant_id'   => $restaurantId,
+                'original_url' => $originalUrl,
+                'restaurant_id' => $restaurantId,
             ]);
 
             $link->update([
                 'status' => 'failed',
-                'notes'  => 'Không thể tạo affiliate link ShopeeFood.',
+                'notes' => 'Không thể tạo affiliate link ShopeeFood.',
             ]);
         } else {
             $link->update([
                 'affiliate_url' => $affiliateUrl,
-                'status'        => 'completed',
+                'status' => 'completed',
             ]);
         }
 
         if ($request->expectsJson() || $request->ajax()) {
             return response()->json([
-                'success'       => true,
-                'request_id'    => $link->id,
-                'platform'      => $link->platform,
-                'status'        => $link->status,
+                'success' => true,
+                'request_id' => $link->id,
+                'platform' => $link->platform,
+                'status' => $link->status,
                 'affiliate_url' => $link->affiliate_url,
             ]);
         }
@@ -161,11 +164,11 @@ class DashboardController extends Controller
         $url = strtolower($url);
 
         $platforms = [
-            'shopee'  => 'Shopee',
+            'shopee' => 'Shopee',
             'shp.ee' => 'Shopee',
-            'lazada'  => 'Lazada',
-            'tiktok'  => 'TikTok Shop',
-            'tiki'    => 'Tiki',
+            'lazada' => 'Lazada',
+            'tiktok' => 'TikTok Shop',
+            'tiki' => 'Tiki',
         ];
 
         foreach ($platforms as $domain => $name) {

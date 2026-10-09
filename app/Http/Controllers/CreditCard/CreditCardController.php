@@ -16,6 +16,7 @@ use App\Services\CreditCard\CreditCardStatementService;
 use App\Services\CreditCard\CreditCardUserSettingService;
 use App\Services\CreditCard\SpendQualificationService;
 use App\Services\CreditCard\StatementPeriodService;
+use App\Support\CreditCard\Decimal;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -74,6 +75,7 @@ class CreditCardController extends Controller
 
         // Một lượt đọc cho cả 4 chỉ số lẫn số liệu từng thẻ.
         $overview = $this->overview->forPage($userId);
+        $cardMetrics = $overview['cards'];
 
         // Thứ tự do `CreditCardCardSortService` quyết định (service DUY NHẤT, dùng
         // chung cho cả ba màn) — nhưng các chỉ số vẫn khoá theo `user_card_id`, nên
@@ -97,7 +99,7 @@ class CreditCardController extends Controller
             'summary' => $overview['summary'],
             // Số liệu từng thẻ: chi tiêu kỳ hiện tại, tiến độ theo `desired_spend`,
             // cashback engine đã ghi và quota hoàn tiền còn lại. Khoá theo id thẻ.
-            'cardMetrics' => $overview['cards'],
+            'cardMetrics' => $cardMetrics,
             // Chỉ thẻ CÒN NHẬN GIAO DỊCH mới hiện trong ô chọn thẻ của form
             // nhập giao dịch. Thẻ đã đóng vẫn hiện ở danh sách để xem lịch sử.
             'transactionCards' => $userCreditCards->filter(fn (UserCard $card): bool => $card->isUsable())->values(),
@@ -121,6 +123,10 @@ class CreditCardController extends Controller
             // Ranh giới kỳ hiện tại cho Ô NGÀY: chặn chọn ngoài kỳ ngay trên máy,
             // server còn chặn lại ở `StoreTransactionRequest`.
             'periodBounds' => $this->periodBounds($userCreditCards, $today),
+            // Thời gian chi tiêu của KỲ HIỆN TẠI từng thẻ (khoảng ngày, số ngày còn
+            // lại, số tiền còn cần chi) — tính SẴN ở server bằng đúng
+            // `StatementPeriodService`, KHÔNG viết công thức kỳ trong Blade/JS.
+            'spendingTime' => $this->spendingTime($userCreditCards, $cardMetrics, $today),
             // Sao kê KỲ ĐÃ KẾT THÚC GẦN NHẤT của từng thẻ, khoá theo
             // `user_card_id`. CHỈ ĐỌC: không cộng vào `summary`/`cardMetrics`, nên
             // bỏ khối "Sao kê" ở view thì các chỉ số trên không đổi.
@@ -200,6 +206,115 @@ class CreditCardController extends Controller
         }
 
         return $bounds;
+    }
+
+    /**
+     * Thông tin THỜI GIAN CHI TIÊU của kỳ sao kê hiện tại, khoá theo `user_card_id`.
+     *
+     * ---------------------------------------------------------------------------
+     * NGUỒN NGÀY — KHÔNG CÓ CÔNG THỨC KỲ NÀO Ở ĐÂY
+     * ---------------------------------------------------------------------------
+     *   - Ngày BẮT ĐẦU  = đầu kỳ sao kê hiện tại, lấy từ
+     *     {@see StatementPeriodService::currentBoundaries()} — CÙNG nguồn với ô
+     *     ngày và số liệu `CreditCardOverviewService`, nên ngày và số không thể lệch.
+     *   - Ngày KẾT THÚC = hạn chót chi tiêu của thẻ nếu có
+     *     ({@see UserCard::spendingDeadlineFor()}, tự kẹp ngày cuối tháng), ngược
+     *     lại là ngày cuối kỳ sao kê.
+     *
+     * Chỉ TÍNH TOÁN: `currentBoundaries()` không truy vấn và không tạo kỳ, nên mở
+     * trang Tổng quan không bao giờ sinh bản ghi kỳ sao kê hay giao dịch.
+     *
+     * ---------------------------------------------------------------------------
+     * SỐ NGÀY — THEO NGÀY LỊCH, KHÔNG ÂM
+     * ---------------------------------------------------------------------------
+     * Hôm nay đặt về `startOfDay()` nên đếm theo ngày trọn vẹn (không phụ thuộc giờ).
+     * Quá hạn ⇒ `0`; đúng ngày hạn ⇒ `0` nhưng đánh dấu `due_today` để giao diện nói
+     * "Hạn chót hôm nay" thay vì "Đã hết hạn" quá sớm. Số ngày không bao giờ âm.
+     *
+     * ---------------------------------------------------------------------------
+     * SỐ TIỀN CÒN CẦN CHI — VND GỐC, KHÔNG DÙNG SỐ ĐÃ FLOOR
+     * ---------------------------------------------------------------------------
+     * `remaining_to_target = max(0, desired_spend - spent)` trên CHUỖI tiền VND thô
+     * (`Decimal`), dùng đúng `spent` mà `CreditCardOverviewService` đã tính cho kỳ
+     * hiện tại. KHÔNG lấy từ số hiển thị (đơn vị nghìn có thể đã floor), KHÔNG lấy
+     * hạn mức tín dụng, KHÔNG lấy cashback/quota. Thẻ chưa đặt mục tiêu ⇒
+     * `has_goal = false` và `remaining_to_target = 0.00`.
+     *
+     * @param  Collection<int, UserCard>  $cards
+     * @param  array<int, array<string, mixed>>  $cardMetrics
+     * @return array<int, array{
+     *     range_label: string,
+     *     days_label: string,
+     *     is_overdue: bool,
+     *     days_left: int,
+     *     has_goal: bool,
+     *     amount_state: string,
+     *     remaining_to_target: string
+     * }>
+     */
+    private function spendingTime(Collection $cards, array $cardMetrics, CarbonImmutable $today): array
+    {
+        $out = [];
+        $todayDay = $today->startOfDay();
+
+        foreach ($cards as $card) {
+            [$start, $end] = $this->periods->currentBoundaries($card, $today);
+
+            // Hạn chót chi tiêu nếu thẻ cấu hình; không có thì lấy ngày cuối kỳ.
+            // `spendingDeadlineFor()` là nguồn clamp ngày cuối tháng DUY NHẤT của
+            // thẻ (min với số ngày của tháng), không tạo ngày tràn sang tháng sau.
+            $deadline = CarbonImmutable::instance($card->spendingDeadlineFor($end) ?? $end)->startOfDay();
+
+            $isOverdue = $todayDay->greaterThan($deadline);
+            $isDueToday = $todayDay->equalTo($deadline);
+            $daysLeft = ($isOverdue || $isDueToday) ? 0 : (int) $todayDay->diffInDays($deadline);
+
+            if ($isOverdue) {
+                $daysLabel = 'Đã hết hạn chi tiêu';
+            } elseif ($isDueToday) {
+                $daysLabel = 'Hạn chót hôm nay';
+            } else {
+                $daysLabel = 'Còn '.$daysLeft.' ngày';
+            }
+
+            $metrics = $cardMetrics[(int) $card->id] ?? null;
+            $hasGoal = (bool) ($metrics['has_goal'] ?? false);
+
+            $remaining = '0.00';
+
+            if ($hasGoal) {
+                $remaining = Decimal::clampZero(Decimal::subtract(
+                    Decimal::money($metrics['desired_spend'] ?? '0'),
+                    Decimal::money($metrics['spent'] ?? '0'),
+                ));
+            }
+
+            // Trạng thái cho chuỗi bên phải — Blade chỉ chọn câu chữ, số vẫn đi qua
+            // `x-credit-card.money` để tôn trọng Money Unit của user.
+            if (! $hasGoal) {
+                $amountState = 'no_goal';
+            } elseif (! Decimal::isPositive($remaining)) {
+                $amountState = 'met';
+            } elseif ($isOverdue) {
+                // Đã quá hạn mà chưa đạt: nói "còn thiếu" (sự thật) — KHÔNG mời chi
+                // tiếp trong kỳ đã khép lại.
+                $amountState = 'short';
+            } else {
+                $amountState = 'need';
+            }
+
+            $out[(int) $card->id] = [
+                'range_label' => $start->format('d/m').' – '.$deadline->format('d/m'),
+                'days_label' => $daysLabel,
+                'is_overdue' => $isOverdue,
+                'days_left' => $daysLeft,
+                'has_goal' => $hasGoal,
+                'amount_state' => $amountState,
+                'remaining_to_target' => $remaining,
+            ];
+        }
+
+        return $out;
     }
 
     /**

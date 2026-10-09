@@ -3,6 +3,7 @@
 namespace App\Services\AffiliateSearchLinks;
 
 use App\Models\LinkRequest;
+use App\Models\Setting;
 use App\Models\User;
 use App\Services\AffiliateLinkService;
 use App\Services\AffiliateSearchLinks\Providers\ShopeeAffiliateSearchLinkProvider;
@@ -24,13 +25,22 @@ class ShopeeSearchJobService
      */
     public function ensureForKeyword(string $keyword, User $user): array
     {
-        $searchUrl = (new ShopeeAffiliateSearchLinkProvider())->buildSearchUrl($keyword);
+        $searchUrl = (new ShopeeAffiliateSearchLinkProvider)->buildSearchUrl($keyword);
+
+        $extensionEnabled = Setting::extensionShortlinkEnabled();
+
+        // When the Extension Worker is disabled, only an already-completed link
+        // may be reused: no pending/processing job is picked up and no new job
+        // is ever enqueued.
+        $reusableStatuses = $extensionEnabled
+            ? ['pending', 'processing', 'completed']
+            : ['completed'];
 
         $recent = LinkRequest::query()
             ->where('user_id', $user->id)
             ->where('original_url', $searchUrl)
             ->where('platform', 'Shopee')
-            ->whereIn('status', ['pending', 'processing', 'completed'])
+            ->whereIn('status', $reusableStatuses)
             ->orderByDesc('id')
             ->get()
             ->first(function (LinkRequest $lr) {
@@ -39,24 +49,32 @@ class ShopeeSearchJobService
 
         if ($recent) {
             return [
-                'request_id'    => $recent->id,
-                'status'        => $recent->status === 'completed' ? 'ready' : $recent->status,
+                'request_id' => $recent->id,
+                'status' => $recent->status === 'completed' ? 'ready' : $recent->status,
                 'affiliate_url' => $recent->affiliate_url ?: null,
             ];
         }
 
+        if (! $extensionEnabled) {
+            return [
+                'request_id' => null,
+                'status' => 'unavailable',
+                'affiliate_url' => null,
+            ];
+        }
+
         $link = LinkRequest::create([
-            'user_id'      => $user->id,
+            'user_id' => $user->id,
             'original_url' => $searchUrl,
-            'platform'     => 'Shopee',
-            'status'       => 'processing',
+            'platform' => 'Shopee',
+            'status' => 'processing',
         ]);
 
         $this->affiliateLinkService->handleViaExtension($link);
 
         return [
-            'request_id'    => $link->id,
-            'status'        => $link->status ?: 'pending',
+            'request_id' => $link->id,
+            'status' => $link->status ?: 'pending',
             'affiliate_url' => null,
         ];
     }

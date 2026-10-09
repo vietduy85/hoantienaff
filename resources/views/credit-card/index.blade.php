@@ -76,6 +76,10 @@
             // kỳ là việc của `StatementPeriodService`.
             'statement' => $latestStatements[$card->id] ?? null,
             'statements_url' => route('credit-cards.statements'),
+            // Khoảng thời gian chi tiêu của kỳ hiện tại (ngày bắt đầu → hạn chót),
+            // số ngày còn lại và số tiền còn cần chi — server đã tính sẵn. `null`
+            // khi thẻ không có dữ liệu (không xảy ra với luồng thường) ⇒ view bỏ qua.
+            'spending_time' => $spendingTime[$card->id] ?? null,
         ]);
 
         // Có thẻ nào đang hiển thị khối "Điều kiện hoàn tiền đặc biệt" không.
@@ -396,7 +400,7 @@
                 @endif
             </div>
 
-            {{-- ═══ "Hiển thị" — 5 tùy chọn ĐỘC LẬP ═══
+            {{-- ═══ "Hiển thị" — 6 tùy chọn ĐỘC LẬP ═══
                  Một DẢI mảnh có đường kẻ, KHÔNG phải card lồng trong card. Chỉ ẩn/hiện
                  phần hiển thị phía dưới trên MỌI thẻ; dữ liệu và nghiệp vụ không đổi,
                  không reload trang (Alpine), và lựa chọn được nhớ trong localStorage
@@ -440,6 +444,17 @@
                            data-testid="toggle-statement" checked
                            class="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500">
                     <span>Sao kê kỳ vừa kết thúc</span>
+                </label>
+
+                {{-- Option thứ sáu: bật/tắt toàn bộ thông tin THỜI GIAN CHI TIÊU
+                     (khoảng ngày dưới tên thẻ + hàng "Còn N ngày / Còn cần chi X").
+                     Cùng cơ chế `display` + `localStorage` với năm ô còn lại, và
+                     mặc định BẬT nên người dùng cũ thấy y như trước khi tắt. --}}
+                <label class="inline-flex items-center gap-1.5 text-xs sm:text-sm text-gray-700 cursor-pointer select-none">
+                    <input type="checkbox" x-model="display.spending_time" @change="persistDisplay()"
+                           data-testid="toggle-spending-time" checked
+                           class="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500">
+                    <span>Thời gian chi tiêu</span>
                 </label>
             </div>
 
@@ -510,17 +525,30 @@
                             <div class="-mx-4 sm:-mx-5 -mt-4 px-4 sm:px-5 py-2.5 {{ $bandClass }}
                                         flex items-center justify-between gap-3 min-w-0"
                                  data-testid="card-header">
-                                {{-- Tên do USER tự đặt, KHÔNG in tên ngân hàng (lặp giữa các
-                                     thẻ, không giúp gì trên điện thoại). Tên dài cắt bằng
-                                     `truncate` + `min-w-0` để nút "Chi tiết" không bị đẩy
-                                     xuống dòng và không sinh thanh cuộn ngang. --}}
-                                <p class="font-bold text-gray-900 text-[15px] leading-tight truncate min-w-0"
-                                   data-testid="card-title">
-                                    {{ $card->name ?: 'Thẻ tín dụng' }}
-                                    @if ($card->card_number_last4)
-                                        <span class="font-medium text-gray-500 text-sm">· •••• {{ $card->card_number_last4 }}</span>
+                                {{-- Khối TÊN + KHOẢNG THỜI GIAN CHI TIÊU. Bọc trong
+                                     `<span class="block">` (KHÔNG dùng `<div>`) để
+                                     header vẫn chỉ có MỘT lớp `<div>` đóng — cấu trúc
+                                     mà test header đang đọc. `min-w-0` để `truncate`
+                                     của tên thẻ vẫn hiệu lực trong flex, nhờ đó nút
+                                     "Chi tiết" không bị đẩy xuống dòng. --}}
+                                <span class="block min-w-0">
+                                    <span class="block font-bold text-gray-900 text-[15px] leading-tight truncate min-w-0"
+                                          data-testid="card-title">
+                                        {{ $card->name ?: 'Thẻ tín dụng' }}
+                                        @if ($card->card_number_last4)
+                                            <span class="font-medium text-gray-500 text-sm">· •••• {{ $card->card_number_last4 }}</span>
+                                        @endif
+                                    </span>
+
+                                    {{-- Dòng phụ MISA: khoảng ngày chi tiêu của kỳ hiện tại,
+                                         ví dụ "21/09 – 20/10". Xám trung tính, không icon,
+                                         không đường viền — chỉ một dòng chữ mảnh. --}}
+                                    @if ($row['spending_time'] !== null)
+                                        <span class="block text-[11px] leading-tight text-gray-500 tabular-nums"
+                                              data-testid="card-spending-range"
+                                              x-show="showSection('spending_time')">{{ $row['spending_time']['range_label'] }}</span>
                                     @endif
-                                </p>
+                                </span>
 
                                 {{-- Route này là trang chi tiết/lịch sử của chính thẻ đó.
                                      Nền trắng mờ để nổi trên dải pastel mà không thêm viền. --}}
@@ -587,6 +615,50 @@
                                 <span class="mt-0.5 block text-[11px] font-medium text-purple-600"
                                       data-testid="card-progress-goal-state"
                                       x-show="isOverGoal(@js($cardKey))">Đã vượt mục tiêu</span>
+                            @endif
+
+                            {{-- ═══ THỜI GIAN CHI TIÊU ═══
+                                 MỘT hàng hai phía ngay dưới thanh tiến độ: "Còn N ngày"
+                                 (trái) và "Còn cần chi X" (phải). Toàn bộ số đã tính sẵn ở
+                                 server — Blade chỉ chọn câu chữ và MÀU, số tiền đi qua
+                                 `x-credit-card.money` để tôn trọng Money Unit.
+                                 Ẩn/hiện theo ô "Thời gian chi tiêu" trong dải Hiển thị.
+
+                                 MÀU: hai vế mang hai màu khác nhau để đọc tách bạch —
+                                 ngày còn lại là XANH DƯƠNG ĐẬM; đúng hạn HÔM NAY là
+                                 HỔ PHÁCH; đã QUÁ HẠN là ĐỎ (màu trạng thái, không đổi
+                                 logic). Số tiền còn cần chi là XANH LÁ; đã đạt mục tiêu
+                                 là TÍM (đồng bộ với "Đã vượt mục tiêu"); còn thiếu là ĐỎ.
+                                 Chữ 14px, weight medium như yêu cầu kích thước. --}}
+                            @if ($row['spending_time'] !== null)
+                                @php $spendingTime = $row['spending_time']; @endphp
+                                <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 text-sm font-medium leading-tight min-w-0"
+                                     data-testid="card-spending-time-summary"
+                                     x-show="showSection('spending_time')">
+                                    {{-- Trạng thái ngày: quá hạn (đỏ) → đúng hạn hôm nay
+                                         (hổ phách) → còn đếm ngược (xanh dương đậm). Dùng
+                                         `days_left` server đã tính (0 chỉ khi hôm nay/quá
+                                         hạn), KHÔNG suy diễn lại ở client. --}}
+                                    <span class="tabular-nums @if ($spendingTime['is_overdue']) text-red-600 @elseif ($spendingTime['days_left'] === 0) text-amber-600 @else text-blue-700 @endif"
+                                          data-testid="card-spending-days">{{ $spendingTime['days_label'] }}</span>
+
+                                    {{-- Bên phải: số tiền còn cần chi. Chỉ "Còn cần chi" mới
+                                         nhấn xanh lá; đã quá hạn thì "Còn thiếu" (đỏ, không
+                                         mời chi tiếp trong kỳ đã khép lại); đạt mục tiêu
+                                         tím; mục tiêu trống màu trung tính. --}}
+                                    <span class="ml-auto text-right tabular-nums @if ($spendingTime['amount_state'] === 'need') text-emerald-600 @elseif ($spendingTime['amount_state'] === 'short') text-red-600 @elseif ($spendingTime['amount_state'] === 'met') text-purple-600 @else text-gray-500 @endif"
+                                          data-testid="card-spending-remaining">
+                                        @if ($spendingTime['amount_state'] === 'no_goal')
+                                            Chưa đặt mục tiêu
+                                        @elseif ($spendingTime['amount_state'] === 'met')
+                                            Đã đạt mục tiêu
+                                        @elseif ($spendingTime['amount_state'] === 'short')
+                                            Còn thiếu <x-credit-card.money :value="$spendingTime['remaining_to_target']" />
+                                        @else
+                                            Còn cần chi <x-credit-card.money :value="$spendingTime['remaining_to_target']" />
+                                        @endif
+                                    </span>
+                                </div>
                             @endif
 
                             {{-- ═══ DÒNG CHI TIÊU ═══
@@ -969,7 +1041,7 @@
             const ccDisplayStorageKey = 'cc.overview.display';
 
             /**
-             * 5 tùy chọn độc lập; MẶC ĐỊNH bật hết.
+             * 6 tùy chọn độc lập; MẶC ĐỊNH bật hết.
              *
              * Danh sách khoá đóng ở đây để khi đọc từ `localStorage` không tin
              * bừa thuộc tính lạ trong JSON — nếu không, một giá trị rác sẽ tạo ra
@@ -981,11 +1053,11 @@
              * bật — không phá vỡ lựa chọn của người dùng đang dùng trang.
              */
             function ccDefaultDisplay() {
-                return { spend: true, cashback: true, quota: true, qualification: true, statement: true };
+                return { spend: true, cashback: true, quota: true, qualification: true, statement: true, spending_time: true };
             }
 
             /**
-             * Đọc lựa chọn đã lưu, chỉ nhận đúng 5 khoá boolean ở trên.
+             * Đọc lựa chọn đã lưu, chỉ nhận đúng 6 khoá boolean ở trên.
              *
              * Trả `null` khi chưa lưu, JSON hỏng, hoặc không còn khoá nào hợp lệ —
              * khi đó dùng mặc định bật hết. Mọi lỗi bị nuốt: `localStorage` có thể
