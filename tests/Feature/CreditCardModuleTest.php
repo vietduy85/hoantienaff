@@ -110,6 +110,13 @@ class CreditCardModuleTest extends TestCase
             'credit-cards.settings',
             'credit-cards.policies',
             'credit-cards.statements',
+            // Báo cáo chi tiêu (Phase 2): danh sách + CRUD cấu hình + trang kết quả.
+            'credit-cards.reports.create',
+            'credit-cards.reports.store',
+            'credit-cards.reports.show',
+            'credit-cards.reports.edit',
+            'credit-cards.reports.update',
+            'credit-cards.reports.destroy',
             // Trang lịch sử giao dịch của một thẻ (đọc + sửa nhanh). Thêm giao
             // dịch nằm ở Tổng quan nên không có route trang cho việc đó.
             'credit-cards.transactions',
@@ -141,6 +148,8 @@ class CreditCardModuleTest extends TestCase
             'credit-cards.api.statements.payment.update-period',
             // API thiết lập chung của user (nhắc thanh toán trước mấy ngày)
             'credit-cards.api.settings.payment-reminder.update',
+            // API thiết lập đơn vị tiền hiển thị (đơn vị + ký tự) của user
+            'credit-cards.api.settings.money-unit.update',
             // API cấu hình policy (Phase 1C)
             'credit-cards.api.policies.index',
             'credit-cards.api.policies.store',
@@ -673,8 +682,9 @@ class CreditCardModuleTest extends TestCase
     /**
      * TEST 9: Các trang placeholder hiển thị tên module + thông báo giai đoạn 2.
      *
-     * `/thetindung/quan-ly-the` KHÔNG còn nằm trong danh sách này — nó đã thành
-     * màn hình thật (xem `manage_page_offers_the_add_card_form`).
+     * `/thetindung/quan-ly-the`, `/thetindung/bao-cao` và `/thetindung/cai-dat`
+     * KHÔNG còn nằm trong danh sách này — chúng đã thành màn hình thật (xem
+     * `manage_page_offers_the_add_card_form`, CreditCardReportTest và trang Cài đặt).
      */
     #[Test]
     public function placeholder_pages_show_module_name_and_next_phase_notice(): void
@@ -682,9 +692,7 @@ class CreditCardModuleTest extends TestCase
         $user = User::factory()->create();
 
         $cases = [
-            '/thetindung/bao-cao' => 'Báo cáo',
             '/thetindung/so-sanh' => 'So sánh thẻ',
-            '/thetindung/cai-dat' => 'Cài đặt',
         ];
 
         foreach ($cases as $url => $moduleName) {

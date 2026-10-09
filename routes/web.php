@@ -22,6 +22,7 @@ use App\Http\Controllers\CreditCard\CategoryComboController;
 use App\Http\Controllers\CreditCard\CategoryController;
 use App\Http\Controllers\CreditCard\CategoryRuleController;
 use App\Http\Controllers\CreditCard\CreditCardController;
+use App\Http\Controllers\CreditCard\CreditCardReportController;
 use App\Http\Controllers\CreditCard\CreditCardSettingController;
 use App\Http\Controllers\CreditCard\PolicyController;
 use App\Http\Controllers\CreditCard\PolicyTemplateController;
@@ -121,7 +122,20 @@ Route::middleware('auth')->group(function () {
         Route::get('/', [CreditCardController::class, 'index'])->name('index');
         Route::get('/quan-ly-the', [CreditCardController::class, 'manage'])->name('manage');
         Route::get('/danh-muc', [CreditCardController::class, 'categories'])->name('categories');
-        Route::get('/bao-cao', [CreditCardController::class, 'reports'])->name('reports');
+        // Báo cáo chi tiêu: danh sách báo cáo đã lưu + tạo/sửa/xem kết quả.
+        // `{report}` ràng buộc SỐ để `/bao-cao/tao` và `/bao-cao/{id}/sua` không
+        // bị nhầm thành id. Quyền kiểm qua `ReportPolicy`, không lọc ở route.
+        Route::get('/bao-cao', [CreditCardReportController::class, 'index'])->name('reports');
+        Route::get('/bao-cao/tao', [CreditCardReportController::class, 'create'])->name('reports.create');
+        Route::post('/bao-cao', [CreditCardReportController::class, 'store'])->name('reports.store');
+        Route::get('/bao-cao/{report}', [CreditCardReportController::class, 'show'])
+            ->whereNumber('report')->name('reports.show');
+        Route::get('/bao-cao/{report}/sua', [CreditCardReportController::class, 'edit'])
+            ->whereNumber('report')->name('reports.edit');
+        Route::patch('/bao-cao/{report}', [CreditCardReportController::class, 'update'])
+            ->whereNumber('report')->name('reports.update');
+        Route::delete('/bao-cao/{report}', [CreditCardReportController::class, 'destroy'])
+            ->whereNumber('report')->name('reports.destroy');
         Route::get('/so-sanh', [CreditCardController::class, 'compare'])->name('compare');
         Route::get('/cai-dat', [CreditCardController::class, 'settings'])->name('settings');
         Route::get('/chinh-sach', [CreditCardController::class, 'policies'])->name('policies');

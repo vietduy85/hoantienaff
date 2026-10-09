@@ -412,12 +412,6 @@ class CreditCardController extends Controller
         return view('credit-card.categories');
     }
 
-    /** /thetindung/bao-cao — placeholder giai đoạn sau. */
-    public function reports(): View
-    {
-        return view('credit-card.reports');
-    }
-
     /** /thetindung/so-sanh — placeholder giai đoạn sau. */
     public function compare(): View
     {
