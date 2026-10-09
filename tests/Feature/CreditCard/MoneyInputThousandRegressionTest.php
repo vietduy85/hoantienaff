@@ -383,4 +383,45 @@ JS;
 
         $this->assertStringNotContainsString('390390', $history);
     }
+
+    #[Test]
+    public function editing_a_transaction_under_thousand_unit_keeps_the_stored_vnd_exact(): void
+    {
+        $card = $this->makeUserCard($this->owner->id);
+
+        // Tạo với đúng con số lẻ đã ghi trong regression: 4.237.500đ.
+        $this->actingAs($this->owner)
+            ->postJson(route('credit-cards.api.transactions.store'), [
+                'user_card_id' => $card->id,
+                'transaction_date' => '2026-09-20',
+                'amount' => '4237500',
+            ])
+            ->assertCreated();
+
+        $transactionId = DB::connection('creditcard')
+            ->table('credit_card_transactions')
+            ->where('user_card_id', $card->id)
+            ->value('id');
+
+        $this->switchUnit(CreditCardUserSetting::MONEY_UNIT_THOUSAND);
+
+        // Form sửa điền sẵn "4.237" (đã floor); client parse chuỗi hiển thị đó về
+        // 4.237.500 rồi gửi VND lên API — đúng cửa người dùng bấm Lưu.
+        $this->assertSame('4.237', CreditCardMoneyFormatter::input('4237500.00', $this->owner->id));
+
+        $this->actingAs($this->owner)
+            ->patchJson(route('credit-cards.api.transactions.update', $transactionId), [
+                'amount' => '4237500',
+            ])
+            ->assertOk();
+
+        $stored = DB::connection('creditcard')
+            ->table('credit_card_transactions')
+            ->where('id', $transactionId)
+            ->value('amount');
+
+        // Round-trip mở-dưới-nghìn → lưu: số trong DB phải là 4.237.500 — không
+        // nhân 1000, không chia 1000, không làm tròn thành 4.237.000.
+        $this->assertSame(4237500.0, (float) $stored);
+    }
 }

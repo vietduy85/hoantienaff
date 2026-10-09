@@ -207,7 +207,11 @@ class CashbackQuotaTest extends TestCase
         $this->assertNotNull($transaction->policy_tier_category_id);
         // …nhưng không được tính vào hạn mức chung.
         $this->assertSame('0.00', $quota['tier_cashback_used']);
-        $this->assertSame('1000000.00', $quota['tier_cashback_remaining']);
+        // 2tr Shopee đó, ở BẬC ĐÍCH (5%), sẽ dự kiến 100.000đ hoàn tiền — snapshot
+        // ghi cho fallback nên `used` = 0, nhưng phần "sắp bị ăn" này vẫn phải
+        // trừ khỏi tầng chung: 1.000.000 − 100.000 = 900.000.
+        $this->assertSame('100000.00', $quota['tier_cashback_projected']);
+        $this->assertSame('900000.00', $quota['tier_cashback_remaining']);
         // Rule quota của bậc đích vẫn xuất hiện, dù chưa dùng đồng nào.
         $this->assertSame('0.00', $this->ruleFor($quota, 'category_id', (int) $shopee->id)['cashback_used']);
     }
@@ -241,6 +245,8 @@ class CashbackQuotaTest extends TestCase
         $quota = $this->quotaOf($card);
 
         $this->assertSame('300000.00', $quota['tier_cashback_used']);
+        // Snapshot của cả hai danh mục khớp đúng tỷ lệ bậc đích ⇒ phần dự kiến
+        // chưa-snapshot = 0, nên remaining = max − used như thường.
         $this->assertSame('700000.00', $quota['tier_cashback_remaining']);
         $this->assertFalse($quota['is_exhausted']);
     }
@@ -969,6 +975,99 @@ class CashbackQuotaTest extends TestCase
     }
 
     // =====================================================================
+    // 12. Cashback DỰ KIẾN của tiền đã chi cũng ăn vào tầng chung
+    // =====================================================================
+
+    /**
+     * Cấu hình LPBank THẬT đã trace: mục tiêu 8tr ⇒ bậc đích "từ 8tr" trần
+     * 800.000đ, nhưng `min_total_spend` của policy cũng là 8tr nên engine chạy
+     * bậc dưới và ghi snapshot = 0 cho MỌI giao dịch (tổng chi 6.942.550 < 8tr).
+     * Tầng chung tự khai `used = 0`, và nếu chỉ đọc `used` thì các dòng quota
+     * tha hồ mời "Có thể chi thêm" dù "Cashback dự kiến" đã in 800/800.
+     */
+    #[Test]
+    public function projected_cashback_of_spent_money_exhausts_the_tier_even_when_engine_snapshots_are_zero(): void
+    {
+        $insurance = $this->makeSystemCategory(['name' => 'Bảo hiểm']);
+        $health = $this->makeSystemCategory(['name' => 'Y tế']);
+        $education = $this->makeSystemCategory(['name' => 'Giáo dục']);
+
+        $card = $this->cardWithTiersAndRules('8000000', [
+            ['name' => 'Bậc 1', 'min' => 0, 'max' => 7999999, 'cap_period' => '0.00'],
+            ['name' => 'Bậc 2', 'min' => 8000000, 'max' => null, 'cap_period' => '800000.00'],
+        ], [
+            $this->categoryRule($insurance, onlyTier: 1, percent: '15.000', capCategory: '400000.00', quota: true),
+            $this->categoryRule($health, onlyTier: 1, percent: '15.000', capCategory: '800000.00', quota: true),
+            $this->categoryRule($education, onlyTier: 1, percent: '15.000', capCategory: '800000.00', quota: true),
+        ], ['min_total_spend' => '8000000']);
+
+        $this->spend($card, $insurance, '3900000');
+        $this->spend($card, $health, '3042550');
+
+        $quota = $this->quotaOf($card);
+
+        // Snapshot thật = 0 cho mọi giao dịch (engine không chạy vì dưới min-spend).
+        $this->assertSame('0.00', $quota['tier_cashback_used']);
+
+        // Nhưng tiền đã chi dự kiến: 3.9tr × 15% = 585k (kẹp trần riêng 400k)
+        // + 3.042.550 × 15% = 456.382,50 ⇒ 856.382,50 > 800.000 ⇒ bậc hết.
+        $this->assertSame('856382.50', $quota['tier_cashback_projected']);
+        $this->assertSame('0.00', $quota['tier_cashback_remaining']);
+        $this->assertTrue($quota['is_exhausted']);
+
+        // Bảo hiểm: hết cả vì trần RIÊNG (dự kiến 585k > 400k), tử số 400k.
+        $insuranceRule = $this->ruleFor($quota, 'category_id', (int) $insurance->id);
+        $this->assertSame('400000.00', $insuranceRule['cashback_used_display']);
+        $this->assertSame('400000.00', $insuranceRule['cashback_available_for_rule']);
+        $this->assertSame('0.00', $insuranceRule['cashback_room_remaining']);
+        $this->assertTrue($insuranceRule['is_exhausted']);
+
+        // Y tế: trần RIÊNG còn nguyên 800k, nhưng pool chung đã bị 400k của Bảo
+        // hiểm + 456.382,50 của chính nó hút hết ⇒ không còn đồng nào.
+        $healthRule = $this->ruleFor($quota, 'category_id', (int) $health->id);
+        $this->assertSame('456382.50', $healthRule['cashback_used_display']);
+        $this->assertSame('456382.50', $healthRule['cashback_available_for_rule']);
+        $this->assertSame('0.00', $healthRule['cashback_room_remaining']);
+        $this->assertTrue($healthRule['is_exhausted']);
+
+        // Giáo dục: chưa chi gì, projection = 0 — vẫn hết vì chung đã cạn.
+        $educationRule = $this->ruleFor($quota, 'category_id', (int) $education->id);
+        $this->assertSame('0.00', $educationRule['cashback_used_display']);
+        $this->assertSame('0.00', $educationRule['cashback_available_for_rule']);
+        $this->assertSame('0.00', $educationRule['cashback_room_remaining']);
+        $this->assertTrue($educationRule['is_exhausted']);
+    }
+
+    #[Test]
+    public function a_tier_one_unit_away_from_its_cap_is_not_exhausted(): void
+    {
+        $health = $this->makeSystemCategory(['name' => 'Y tế']);
+        $card = $this->cardWithTiersAndRules('8000000', [[
+            'name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => '800000.00',
+        ]], [
+            $this->categoryRule($health, percent: '10.000', capCategory: '800000.00', quota: true),
+        ]);
+
+        // 7.999.990 × 10% = 799.999đ — snapshot thật, bậc còn đúng 1đ.
+        $this->spend($card, $health, '7999990');
+
+        $quota = $this->quotaOf($card);
+        $rule = $this->ruleFor($quota, 'category_id', (int) $health->id);
+
+        $this->assertSame('799999.00', $quota['tier_cashback_used']);
+        // Snapshot đã khớp tỷ lệ ⇒ không có phần dự kiến nào bị trừ hai lần.
+        $this->assertSame('0.00', $quota['tier_cashback_projected']);
+        $this->assertSame('1.00', $quota['tier_cashback_remaining']);
+        $this->assertFalse($quota['is_exhausted']);
+
+        // 1đ hoàn tiền còn lại ⇒ còn chi thêm 10đ (1đ / 10%) — không được tự
+        // phán "hết" chỉ vì display THOUSAND làm tròn 799.999/800.000 thành 799/800.
+        $this->assertSame('1.00', $rule['cashback_room_remaining']);
+        $this->assertFalse($rule['is_exhausted']);
+        $this->assertSame('10.00', $rule['spend_remaining_estimate']);
+    }
+
+    // =====================================================================
     // Fixture
     // =====================================================================
 
@@ -977,12 +1076,13 @@ class CashbackQuotaTest extends TestCase
      *
      * @param  array<int, array<string, mixed>>  $tiers
      * @param  array<int, array<string, mixed>>  $rules
+     * @param  array<string, mixed>  $policyAttributes  override cột policy (vd. `min_total_spend` của LPBank)
      */
-    private function cardWithTiersAndRules(?string $desiredSpend, array $tiers, array $rules): UserCard
+    private function cardWithTiersAndRules(?string $desiredSpend, array $tiers, array $rules, array $policyAttributes = []): UserCard
     {
         $card = $this->makeUserCard($this->owner->id, ['desired_spend' => $desiredSpend]);
 
-        $policy = Policy::create([
+        $policy = Policy::create(array_merge([
             'user_card_id' => $card->id,
             'version_no' => 1,
             'status' => Policy::STATUS_ACTIVE,
@@ -991,7 +1091,7 @@ class CashbackQuotaTest extends TestCase
             'effective_to' => null,
             'min_total_spend' => 0,
             'rounding_mode' => 'round',
-        ]);
+        ], $policyAttributes));
 
         // Root trỏ về chính nó ⇒ UNIQUE (root_policy_id, version_no) có hiệu lực.
         $policy->forceFill(['root_policy_id' => $policy->id])->save();

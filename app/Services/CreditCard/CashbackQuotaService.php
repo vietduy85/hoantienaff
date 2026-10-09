@@ -52,7 +52,8 @@ use Illuminate\Support\Collection;
  *                              `is_quota_category`.
  *   - `cashback_*` (rule)   = trần RIÊNG của từng danh mục/combo
  *                              (`max_cashback_per_category_per_period`).
- *   - `cashback_available_for_rule` = MIN của hai tầng trên.
+ *   - `cashback_available_for_rule` = MIN(trần riêng còn lại, chung còn lại
+ *     SAU KHI TRỪ phần dự kiến của tiền đã chi — xem mục dưới).
  *
  * Hai tầng dùng hai cột khác nhau nên KHÔNG chia trần chung cho các danh mục:
  * mỗi danh mục báo riêng khả năng của NÓ, dựa trên ngân sách chung còn lại.
@@ -75,6 +76,44 @@ use Illuminate\Support\Collection;
  * cùng một khoản khi engine đã trả đúng bằng tỷ lệ của bậc đích — lúc đó
  * `cashback_used` đã nằm trong `cashback_available_for_rule` và kết quả y hệt
  * trước. Rate lấy của CHÍNH rule này trong bậc đích, không phải max rate của bậc.
+ *
+ * ---------------------------------------------------------------------------
+ * DỰ KIẾN CỦA TIỀN ĐÃ CHI CŨNG ĂN VÀO TẦNG CHUNG
+ * ---------------------------------------------------------------------------
+ * `cashback_unaccounted_from_spend` của từng rule ở trên chỉ trừ vào phần PHÒNG
+ * RIÊNG của chính nó. Nhưng khoản tiền đó cũng sẽ ăn vào trần CHUNG của bậc
+ * đích — và khi engine chưa kịp ghi snapshot (giao dịch ineligible vì tổng chi
+ * tiêu dưới `min_total_spend`, hoặc policy gắn vào thẻ SAU khi giao dịch đã có),
+ * `tier_cashback_used` = 0 dù tiền đã chi. Bấy giờ tầng chung tự khai còn trọn
+ * `max`, các dòng quota tha hồ mời "Có thể chi thêm" — trong khi dòng "Cashback
+ * dự kiến" ngay phía trên đã in đủ `expected / max` = đã hết. Hai chỗ nói hai
+ * sự thật khác nhau.
+ *
+ * Ví dụ thật (LPBank, mục tiêu 8tr ⇒ bậc đích cap 800.000đ, nhưng engine chạy
+ * bậc dưới với min-spend 8tr nên MỌI snapshot = 0): Bảo hiểm 3.900.000 × 15% =
+ * 585.000 (bị trần riêng 400.000 chặn), Y tế 3.042.550 × 15% = 456.382,50.
+ * Tổng dự kiến 856.382,50 > 800.000 ⇒ bậc đã hết từ lâu, nên cả ba dòng phải
+ * `· HẾT QUOTA` với đúng tử số của từng dòng (400k, 456k, 0) — không một dòng
+ * được mời chi thêm.
+ *
+ * Vì vậy tầng chung có thêm MỘT LỚP DỰ KIẾN:
+ *
+ *   `tier_cashback_projected`     = Σ theo SCOPE của `MAX(0, min(dự kiến,
+ *                                    trần riêng) − snapshot)` — dedupe bằng MAX
+ *                                    khi nhiều dải rate tick quota cùng một
+ *                                    danh mục/combo, cộng dồn sẽ tính một khoản
+ *                                    chi nhiều lần.
+ *   `tier_cashback_remaining`     = trần chung − snapshot − dự kiến (clamp ≥ 0).
+ *   `is_exhausted` (tầng chung)   = đọc con số remaining SAU dự kiến này.
+ *
+ * `tier_cashback_used` KHÔNG đổi: nó vẫn là tiền engine đã trả — nguồn sự thật
+ * lịch sử. Dự kiến chỉ là phần "sắp bị ăn" mà snapshot chưa thấy, tính trên số
+ * tiền đã chi thật và rate của BẬC ĐÍCH, tuyệt đối không qua số hiển thị.
+ *
+ * Tự nó, từng rule nhận `sharedPool = remaining_sau_dự_kiến + projection của
+ * CHÍNH scope nó` — cộng lại phần của chính mình vì `room` đã tự trừ
+ * `cashback_unaccounted_from_spend` rồi. Nhờ đó scope chưa chi (projection = 0)
+ * vẫn thấy trọn phần chưa-dự-án của bậc, còn scope đã chi đủ thì pool về 0.
  *
  * ---------------------------------------------------------------------------
  * `is_quota_category` — CỜ CẤU HÌNH, ENGINE KHÔNG ĐỌC
@@ -201,6 +240,22 @@ class CashbackQuotaService
             ? null
             : Decimal::clampZero(Decimal::subtract($tierMax, $tierUsed));
 
+        // Dự kiến của TIỀN ĐÃ CHI — phần snapshot chưa phản ánh — cũng phải giữ
+        // chỗ ở TẦNG CHUNG, không chỉ ở từng dòng (xem docblock lớp: ví dụ
+        // LPBank). `tier_cashback_used` giữ nguyên nghĩa lịch sử; hai con số
+        // mới bên dưới là phần "sắp bị ăn" và phần chung còn lại sau đó.
+        $projectionByScope = $this->projectionByScope($quotaRules, $membersByCombo, $totals, $periodId);
+
+        $tierProjected = '0.00';
+
+        foreach ($projectionByScope as $projection) {
+            $tierProjected = Decimal::add($tierProjected, $projection);
+        }
+
+        $tierRemainingAfterProjection = $tierMax === null
+            ? null
+            : Decimal::clampZero(Decimal::subtract($tierRemaining, $tierProjected));
+
         $ruleRows = [];
 
         foreach ($quotaRules as $rule) {
@@ -212,7 +267,9 @@ class CashbackQuotaService
                 $periodId,
                 $tierMax,
                 $tierUsed,
-                $tierRemaining,
+                $tierRemainingAfterProjection,
+                $tierProjected,
+                $projectionByScope[$this->scopeKeyOf($rule)] ?? '0.00',
             );
         }
 
@@ -223,9 +280,14 @@ class CashbackQuotaService
             // Tầng CHUNG.
             'tier_cashback_max' => $tierMax,
             'tier_cashback_used' => $tierUsed,
-            'tier_cashback_remaining' => $tierRemaining,
+            // Phần dự kiến của TIỀN ĐÃ CHI mà snapshot chưa ghi — chỉ để giải
+            // thích khoảng cách giữa `used` và `remaining`.
+            'tier_cashback_projected' => $tierProjected,
+            // TRỪ phần dự kiến trên: đây là phần chung còn lại THẬT SỰ cho chi
+            // tiêu TƯƠI LAI, và `is_exhausted` đọc đúng nó.
+            'tier_cashback_remaining' => $tierRemainingAfterProjection,
             'has_tier_cashback_max' => $tierMax !== null,
-            'is_exhausted' => $tierRemaining !== null && Decimal::compare($tierRemaining, '0.00') <= 0,
+            'is_exhausted' => $tierRemainingAfterProjection !== null && Decimal::compare($tierRemainingAfterProjection, '0.00') <= 0,
 
             // Tầng RIÊNG, từng rule.
             'rules' => $ruleRows,
@@ -239,7 +301,7 @@ class CashbackQuotaService
             // -------------------------------------------------------------------------
             'limit' => $tierMax,
             'used' => $tierUsed,
-            'remaining' => $tierRemaining,
+            'remaining' => $tierRemainingAfterProjection,
             'has_limit' => $tierMax !== null,
         ];
     }
@@ -250,6 +312,9 @@ class CashbackQuotaService
      * @param  Collection<int, PolicyTierCategory>  $siblingRules  mọi rule đang bật của bậc đích
      * @param  array<int, array<int, int>>  $membersByCombo
      * @param  array{cashback: array<string, string>, spend: array<string, string>}  $totals
+     * @param  string  $tierRemainingAfterProjection  tầng chung SAU khi trừ dự kiến của mọi scope
+     * @param  string  $tierProjected  tổng dự kiến của mọi scope (chỉ để lặp lại ở payload)
+     * @param  string  $scopeProjection  dự kiến của CHÍNH scope rule này (phần sẽ cộng lại vào pool)
      * @return array<string, mixed>
      */
     private function quotaOfRule(
@@ -260,7 +325,9 @@ class CashbackQuotaService
         ?int $periodId,
         ?string $tierMax,
         string $tierUsed,
-        ?string $tierRemaining,
+        ?string $tierRemainingAfterProjection,
+        string $tierProjected,
+        string $scopeProjection,
     ): array {
         $categoryIds = $this->categoryIdsOf($rule, $membersByCombo);
 
@@ -291,16 +358,27 @@ class CashbackQuotaService
         // Suy ra số tiền chi thêm được: bị CHẶN bởi cả trần riêng lẫn ngân sách
         // chung còn lại. Không phân bổ ngân sách chung tuần tự cho các danh mục.
         //
-        // `tierRemaining === null` là trường hợp KHÁC: bậc không đặt trần chung, tức
+        // `sharedPool === null` là trường hợp KHÁC: bậc không đặt trần chung, tức
         // không có ngân sách chung nào để vi phạm — coi như vô hạn, giống hệt cách
         // `CashbackCalculator` xử lý `max_cashback_per_period = NULL`. Ở đây null
         // là "không có trần", nên vẫn ra được con số; chỉ khi rule VỪA không có
         // trần riêng VỪA nằm ở bậc không có trần chung thì mới không có trần nào
         // để tính ⇒ `null` là đúng.
+        //
+        // `sharedPool` = tầng chung SAU dự kiến của MỌI scope, CỘNG lại phần dự
+        // kiến của CHÍNH scope này: `room` phía dưới đã tự trừ
+        // `cashback_unaccounted_from_spend` của rule, nên nếu pool không cộng
+        // lại phần của chính nó thì scope này sẽ tự trừ hai lần. Scope khác đã
+        // chi (projection > 0) làm pool bé lại — đúng: tiền của họ cũng ăn vào
+        // cái chung.
+        $sharedPool = $tierRemainingAfterProjection === null
+            ? null
+            : Decimal::clampZero(Decimal::add($tierRemainingAfterProjection, $scopeProjection));
+
         $available = match (true) {
-            $tierRemaining === null => $max === null ? null : $remaining,
-            $remaining === null => $tierRemaining,
-            default => Decimal::min($remaining, $tierRemaining),
+            $sharedPool === null => $max === null ? null : $remaining,
+            $remaining === null => $sharedPool,
+            default => Decimal::min($remaining, $sharedPool),
         };
 
         // -----------------------------------------------------------------
@@ -411,7 +489,8 @@ class CashbackQuotaService
             // Tầng CHUNG, lặp lại ở từng rule để không phải tra cứu chéo.
             'tier_cashback_max' => $tierMax,
             'tier_cashback_used' => $tierUsed,
-            'tier_cashback_remaining' => $tierRemaining,
+            'tier_cashback_projected' => $tierProjected,
+            'tier_cashback_remaining' => $tierRemainingAfterProjection,
 
             // MIN của hai tầng trên.
             'cashback_available_for_rule' => $available,
@@ -818,6 +897,56 @@ class CashbackQuotaService
         }
 
         return $rule->category_id === null ? [] : [(int) $rule->category_id];
+    }
+
+    /**
+     * Khóa dedupe cho bảng dự kiến: một scope = một danh mục hoặc một combo.
+     *
+     * @return array<string, string>  scope key ⇒ cashback dự kiến chưa snapshot
+     */
+    private function projectionByScope(Collection $quotaRules, array $membersByCombo, array $totals, ?int $periodId): array
+    {
+        $projectionByScope = [];
+
+        foreach ($quotaRules as $rule) {
+            $categoryIds = $this->categoryIdsOf($rule, $membersByCombo);
+            $used = $this->sumOf($totals['cashback'], $periodId, $categoryIds);
+            $scopeSpend = Decimal::clampZero($this->sumOf($totals['spend'], $periodId, $categoryIds));
+
+            $rate = Decimal::money($rule->cashback_percent);
+            $expected = Decimal::isPositive($rate)
+                ? Decimal::cashbackForSpend($scopeSpend, $rate)
+                : '0.00';
+
+            // Kẹp theo TRẦN RIÊNG của chính rule: cashback dự kiến không bao giờ
+            // vượt trần mà dòng quota đang in — cũng là cách một dải rate cao
+            // (bị cap chặt) không khống chế projection của dải rate thấp hơn.
+            $cap = $rule->max_cashback_per_category_per_period === null
+                ? null
+                : Decimal::money($rule->max_cashback_per_category_per_period);
+
+            $projection = Decimal::clampZero(Decimal::subtract(
+                $cap === null ? $expected : Decimal::min($expected, $cap),
+                $used,
+            ));
+
+            // MAX trong scope, không cộng dồn: nhiều dải rate tick quota cùng
+            // một danh mục/combo thì mỗi đồng chi tiêu chỉ được dự kiến MỘT lần.
+            $key = $this->scopeKeyOf($rule);
+
+            if (! isset($projectionByScope[$key]) || Decimal::compare($projection, $projectionByScope[$key]) > 0) {
+                $projectionByScope[$key] = $projection;
+            }
+        }
+
+        return $projectionByScope;
+    }
+
+    private function scopeKeyOf(PolicyTierCategory $rule): string
+    {
+        return $rule->isComboSpecific()
+            ? 'combo:'.(int) $rule->combo_id
+            : 'category:'.(int) $rule->category_id;
     }
 
     /**

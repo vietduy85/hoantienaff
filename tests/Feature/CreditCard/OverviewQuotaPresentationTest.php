@@ -1393,6 +1393,214 @@ class OverviewQuotaPresentationTest extends TestCase
         CreditCardMoneyFormatter::flushAll();
     }
 
+    /** Đổi sang nghìn + CHỦ ĐỘNG XOÁ ký tự — không hậu tố, chỉ còn con số. */
+    private function switchToThousandUnitWithEmptySymbol(): void
+    {
+        $this->actingAs($this->owner)
+            ->patchJson(route('credit-cards.api.settings.money-unit.update'), [
+                'money_unit' => CreditCardUserSetting::MONEY_UNIT_THOUSAND,
+                'money_unit_symbol' => '',
+            ])
+            ->assertOk();
+
+        CreditCardMoneyFormatter::flushAll();
+    }
+
+    // =====================================================================
+    // Engine CHƯA ghi snapshot (ineligible dưới min-spend) nhưng tiền đã chi
+    // vẫn ăn tầng chung — lỗi LPBank: "Cashback dự kiến 800/800" mà các dòng
+    // quota vẫn mời "Có thể chi thêm".
+    // =====================================================================
+
+    #[Test]
+    public function an_unrun_engine_still_reads_exhausted_on_every_quota_line_with_the_true_numerators(): void
+    {
+        $this->makeLpbankStyleCard();
+
+        // VND + đ — số thô phải khớp đúng trace: snapshot 0, dự kiến 856.382,50.
+        $html = $this->overviewHtml();
+        $cardId = (string) $this->firstCard()->id;
+        $metrics = $this->metricsOf($html)[$cardId];
+        $quota = $metrics['quota'];
+
+        $this->assertSame('0.00', $quota['tier_cashback_used']);
+        $this->assertSame('856382.50', $quota['tier_cashback_projected']);
+        $this->assertSame('0.00', $quota['tier_cashback_remaining']);
+        $this->assertTrue($quota['is_exhausted']);
+
+        // "Cashback dự kiến" = 856.382,50 kẹp trần bậc ⇒ 800.000/800.000 — hai
+        // dòng đầu và dòng quota PHẢI nói cùng một sự thật.
+        $this->assertSame('800000.00', $metrics['expected_cashback']);
+
+        $insuranceRow = $this->visibleTextOf($this->quotaRowByLabel($html, 'Bảo hiểm'));
+        $this->assertStringContainsString('400.000 đ / 400.000 đ · HẾT QUOTA', $insuranceRow);
+
+        // 456.382,50 VND hiển thị làm tròn lên 456.383 (hợp đồng VND), nhưng
+        // hết quota thì phải là HẾT — không một dòng được mời chi thêm.
+        $healthRow = $this->visibleTextOf($this->quotaRowByLabel($html, 'Y tế'));
+        $this->assertStringContainsString('456.383 đ / 800.000 đ · HẾT QUOTA', $healthRow);
+
+        // Giáo dục: chưa chi gì ⇒ 0/800 — vẫn "HẾT QUOTA" vì bậc đã hết.
+        $educationRow = $this->visibleTextOf($this->quotaRowByLabel($html, 'Giáo dục'));
+        $this->assertStringContainsString('0 đ / 800.000 đ · HẾT QUOTA', $educationRow);
+
+        foreach ([$insuranceRow, $healthRow, $educationRow] as $row) {
+            $this->assertStringNotContainsString('Có thể chi thêm', $row);
+        }
+
+        // Đổi sang nghìn — đúng cái đơn vị người dùng thật đã thấy (456).
+        $this->switchToThousandUnit();
+        $html = $this->overviewHtml();
+
+        $this->assertStringContainsString(
+            '400 nghìn / 400 nghìn · HẾT QUOTA',
+            $this->visibleTextOf($this->quotaRowByLabel($html, 'Bảo hiểm')),
+        );
+        $this->assertStringContainsString(
+            '456 nghìn / 800 nghìn · HẾT QUOTA',
+            $this->visibleTextOf($this->quotaRowByLabel($html, 'Y tế')),
+        );
+        $this->assertStringContainsString(
+            '0 nghìn / 800 nghìn · HẾT QUOTA',
+            $this->visibleTextOf($this->quotaRowByLabel($html, 'Giáo dục')),
+        );
+
+        foreach (['Bảo hiểm', 'Y tế', 'Giáo dục'] as $label) {
+            $this->assertStringNotContainsString(
+                'Có thể chi thêm',
+                $this->visibleTextOf($this->quotaRowByLabel($html, $label)),
+            );
+        }
+    }
+
+    #[Test]
+    public function a_single_unit_of_room_left_still_invites_one_unit_of_spend(): void
+    {
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '8000000']);
+        $health = $this->makeSystemCategory(['name' => 'Y tế']);
+
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => '800000.00']],
+            [['category_id' => $health->id, 'percent' => '10.000', 'cap_cat' => '800000.00', 'quota' => true]],
+        );
+
+        // 7.999.990 × 10% = 799.999đ — bậc còn đúng 1đ.
+        $this->spend($card, $health, '7999990');
+
+        $html = $this->overviewHtml();
+        $quota = $this->metricsOf($html)[(string) $card->id]['quota'];
+
+        $this->assertSame('1.00', $quota['tier_cashback_remaining']);
+        $this->assertFalse($quota['is_exhausted']);
+
+        $row = $this->visibleTextOf($this->quotaRowByLabel($html, 'Y tế'));
+        $this->assertStringContainsString('799.999 đ / 800.000 đ', $row);
+        $this->assertStringContainsString('Có thể chi thêm ~10 đ', $row);
+        $this->assertStringNotContainsString('· HẾT QUOTA', $row);
+
+        // Đổi sang nghìn: display làm tròn thành "799 / 800" — TRÔNG như sắp hết
+        // nhưng 1đ vẫn còn thật, và logic KHÔNG được phán "hết" vì con số hiển thị.
+        $this->switchToThousandUnit();
+        $row = $this->visibleTextOf($this->quotaRowByLabel($this->overviewHtml(), 'Y tế'));
+
+        $this->assertStringContainsString('799 nghìn / 800 nghìn', $row);
+        $this->assertStringContainsString('Có thể chi thêm', $row);
+        $this->assertStringNotContainsString('· HẾT QUOTA', $row);
+    }
+
+    #[Test]
+    public function quota_exhaustion_logic_is_identical_across_every_money_unit(): void
+    {
+        $this->makeLpbankStyleCard();
+
+        $units = [
+            [
+                'label' => 'VND + đ',
+                'switch' => null,
+                'rows' => [
+                    'Bảo hiểm' => '400.000 đ / 400.000 đ',
+                    'Y tế' => '456.383 đ / 800.000 đ',
+                    'Giáo dục' => '0 đ / 800.000 đ',
+                ],
+            ],
+            [
+                'label' => 'nghìn + nghìn',
+                'switch' => fn () => $this->switchToThousandUnit(),
+                'rows' => [
+                    'Bảo hiểm' => '400 nghìn / 400 nghìn',
+                    'Y tế' => '456 nghìn / 800 nghìn',
+                    'Giáo dục' => '0 nghìn / 800 nghìn',
+                ],
+            ],
+            [
+                'label' => 'nghìn + ký tự rỗng',
+                'switch' => fn () => $this->switchToThousandUnitWithEmptySymbol(),
+                'rows' => [
+                    'Bảo hiểm' => '400 / 400',
+                    'Y tế' => '456 / 800',
+                    'Giáo dục' => '0 / 800',
+                ],
+            ],
+        ];
+
+        foreach ($units as $unit) {
+            if ($unit['switch'] !== null) {
+                ($unit['switch'])();
+            }
+
+            $html = $this->overviewHtml();
+            $quota = $this->metricsOf($html)[(string) $this->firstCard()->id]['quota'];
+
+            // Số liệu THÔ không bao giờ đổi theo đơn vị hiển thị.
+            $this->assertSame('0.00', $quota['tier_cashback_used'], $unit['label']);
+            $this->assertSame('856382.50', $quota['tier_cashback_projected'], $unit['label']);
+            $this->assertSame('0.00', $quota['tier_cashback_remaining'], $unit['label']);
+            $this->assertTrue($quota['is_exhausted'], $unit['label']);
+
+            // Cả ba dòng: hết quota, tử số đúng theo ĐƠN VỊ của lần lặp này.
+            foreach ($unit['rows'] as $label => $numeratorOverMax) {
+                $row = $this->visibleTextOf($this->quotaRowByLabel($html, $label));
+
+                $this->assertStringContainsString($numeratorOverMax, $row, "{$unit['label']} · {$label}");
+                $this->assertStringContainsString('· HẾT QUOTA', $row, "{$unit['label']} · {$label}");
+                $this->assertStringNotContainsString('Có thể chi thêm', $row, "{$unit['label']} · {$label}");
+            }
+        }
+    }
+
+    /**
+     * Thẻ LPBank THẬT đã trace: mục tiêu 8tr ⇒ bậc đích "từ 8tr" trần 800.000đ,
+     * `min_total_spend` của policy cũng 8tr nên engine chạy bậc dưới và ghi
+     * snapshot = 0 cho mọi giao dịch (tổng 6.942.550 < 8tr).
+     */
+    private function makeLpbankStyleCard(): UserCard
+    {
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '8000000']);
+        $insurance = $this->makeSystemCategory(['name' => 'Bảo hiểm']);
+        $health = $this->makeSystemCategory(['name' => 'Y tế']);
+        $education = $this->makeSystemCategory(['name' => 'Giáo dục']);
+
+        $this->makePolicyForCard(
+            $card,
+            [
+                ['name' => 'Bậc 1', 'min' => 0, 'max' => 7999999, 'cap_period' => '0.00'],
+                ['name' => 'Bậc 2', 'min' => 8000000, 'max' => null, 'cap_period' => '800000.00'],
+            ],
+            [
+                ['category_id' => $insurance->id, 'percent' => '15.000', 'cap_cat' => '400000.00', 'quota' => true, 'only_tier' => 1],
+                ['category_id' => $health->id, 'percent' => '15.000', 'cap_cat' => '800000.00', 'quota' => true, 'only_tier' => 1],
+                ['category_id' => $education->id, 'percent' => '15.000', 'cap_cat' => '800000.00', 'quota' => true, 'only_tier' => 1],
+            ],
+            ['min_total_spend' => '8000000'],
+        );
+
+        $this->spend($card, $insurance, '3900000');
+        $this->spend($card, $health, '3042550');
+
+        return $card->refresh();
+    }
+
     // =====================================================================
     // Typography của dòng "Có thể chi thêm" trên mobile
     // =====================================================================
