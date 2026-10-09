@@ -49,9 +49,58 @@ class TransactionController extends Controller
 
         $this->authorize('create', Transaction::class);
 
-        $transaction = $this->transactions->create($card, $request->payload());
+        $payload = $request->payload();
+        $submissionId = $request->submissionId();
 
-        return response()->json(['data' => $this->present($transaction)], 201);
+        // Chống double-submit: cùng thao tác lưu gửi hai lần (double click, retry
+        // mạng) trả lại kết quả lần đầu thay vì tạo thêm giao dịch.
+        if ($submissionId !== null) {
+            $existing = $this->transactions->findSubmission($card, $payload, $submissionId);
+
+            if ($existing !== null) {
+                return response()->json([
+                    'data' => $this->present($existing),
+                    'save_intent' => $request->saveIntent(),
+                    'duplicate_submission' => true,
+                ]);
+            }
+        }
+
+        // Cảnh báo trùng: chưa lưu, trả 409 kèm token của ĐÚNG tập trùng hiện tại.
+        // Chỉ khi client gửi lại đúng token (`duplicate_ack`) mới ghi — server
+        // tính lại tập trùng mỗi lần nên không "tin" cảnh báo cũ.
+        $duplicates = $this->transactions->findDuplicates($card, $payload);
+
+        if ($duplicates->isNotEmpty()) {
+            $token = $this->transactions->duplicateToken($card, $payload, $duplicates);
+            $ack = $request->duplicateAck();
+
+            if ($ack === null || ! hash_equals($token, $ack)) {
+                return response()->json([
+                    'message' => 'Có giao dịch nghi trùng. Vui lòng kiểm tra trước khi lưu.',
+                    'duplicate' => true,
+                    'duplicate_token' => $token,
+                    'duplicates' => $duplicates->map(fn (Transaction $t): array => [
+                        'id' => (int) $t->id,
+                        'transaction_date' => $t->transaction_date?->toDateString(),
+                        'amount' => (float) $t->amount,
+                        'category_id' => $t->category_id === null ? null : (int) $t->category_id,
+                        'category_name' => $t->category?->name,
+                        'note' => $t->note,
+                        'card_name' => $card->name ?: 'Thẻ tín dụng',
+                    ])->values()->all(),
+                ], 409);
+            }
+        }
+
+        $transaction = $this->transactions->create($card, $payload);
+
+        $this->transactions->rememberSubmission($card, $payload, $submissionId, $transaction);
+
+        return response()->json([
+            'data' => $this->present($transaction),
+            'save_intent' => $request->saveIntent(),
+        ], 201);
     }
 
     public function update(UpdateTransactionRequest $request, string $transaction): JsonResponse

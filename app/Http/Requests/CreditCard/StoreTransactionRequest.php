@@ -80,6 +80,17 @@ class StoreTransactionRequest extends FormRequest
             'amount' => ['required', 'numeric', 'gt:0'],
             'merchant' => ['nullable', 'string', 'max:191'],
             'note' => ['nullable', 'string', 'max:1000'],
+            // Ý định của nút bấm: `save_and_close` (mặc định, giữ luồng cũ) hay
+            // `save_and_continue` (giữ ngày + thẻ, xoá tiền/danh mục/ghi chú).
+            // KHÔNG ảnh hưởng dữ liệu lưu — chỉ để server trả lại cho client.
+            'save_intent' => ['nullable', 'string', Rule::in(['save_and_continue', 'save_and_close'])],
+            // Xác nhận "vẫn lưu" khi client đã thấy cảnh báo trùng. Là token HMAC
+            // của ĐÚNG tập giao dịch nghi trùng hiện tại; server so lại.
+            'duplicate_ack' => ['nullable', 'string', 'max:255'],
+            // Mã thao tác do client sinh MỘT LẦN khi mở form (đổi sau mỗi lần lưu
+            // thành công). Cùng `submission_id` + cùng payload gửi hai lần (double
+            // submit, retry mạng) chỉ tạo ĐÚNG một giao dịch.
+            'submission_id' => ['nullable', 'string', 'max:100'],
         ];
     }
 
@@ -111,5 +122,31 @@ class StoreTransactionRequest extends FormRequest
             'merchant' => $this->input('merchant'),
             'note' => $this->input('note'),
         ];
+    }
+
+    /**
+     * Ý định lưu của nút bấm. Giá trị lạ/rỗng rơi về `save_and_close` — luồng cũ.
+     */
+    public function saveIntent(): string
+    {
+        return $this->input('save_intent') === 'save_and_continue'
+            ? 'save_and_continue'
+            : 'save_and_close';
+    }
+
+    /** Token xác nhận trùng (rỗng ⇒ chưa xác nhận). */
+    public function duplicateAck(): ?string
+    {
+        $ack = $this->input('duplicate_ack');
+
+        return is_string($ack) && $ack !== '' ? $ack : null;
+    }
+
+    /** Mã thao tác chống double-submit (rỗng ⇒ không dùng). */
+    public function submissionId(): ?string
+    {
+        $id = $this->input('submission_id');
+
+        return is_string($id) && $id !== '' ? $id : null;
     }
 }

@@ -65,6 +65,24 @@
             'summary_url' => route('credit-cards.api.cards.index'),
         ];
 
+        // Dữ liệu cho ô chọn TÌM KIẾM ĐƯỢC của form (thẻ + danh mục). Tách khỏi
+        // `$overviewState` để shape state (đang bị test khoá) không đổi.
+        $cardOptions = $transactionCards->map(fn ($card): array => [
+            'id' => (int) $card->id,
+            'label' => $card->name ?: 'Thẻ tín dụng',
+            // Phụ: ngân hàng + 4 số cuối để phân biệt hai thẻ cùng tên.
+            'sublabel' => collect([
+                $card->bank?->name,
+                $card->card_number_last4 ? '•••• '.$card->card_number_last4 : null,
+            ])->filter()->implode(' · '),
+        ])->values()->all();
+
+        $categoryOptions = collect($transactionCategories)->map(fn (array $category): array => [
+            'id' => $category['id'],
+            'label' => $category['name'],
+            'sublabel' => $category['scope'] === 'user' ? 'Của tôi' : 'Hệ thống',
+        ])->values()->all();
+
         // Dòng hiển thị cho danh sách thẻ: gộp số liệu server đã tính với URL
         // lịch sử để Blade không phải tự chế ra gì.
         $cardRows = $userCreditCards->map(fn ($card) => [
@@ -264,7 +282,7 @@
 
                  Mobile: 1 cột, mọi input cao `h-12`, nút cao `h-14` để bấm được
                  bằng ngón cái; `<select>` native để hệ điều hành mở bảng chọn. --}}
-            <form x-show="formOpen" x-cloak @submit.prevent="submit()"
+            <form x-show="formOpen" x-cloak @submit.prevent="save('save_and_close')"
                   class="flex-1 min-h-0 flex flex-col" novalidate
                   data-testid="transaction-form">
                 {{-- VÙNG DUY NHẤT CHỊU TRÁCH NHIỆM CUỘN. `flex-1 min-h-0` để nó co
@@ -313,14 +331,14 @@
                          lập với thẻ nên đổi thẻ KHÔNG cần chỉnh lại ngày. --}}
                     <div class="space-y-1.5">
                         <label for="tx-card" class="block text-sm font-semibold text-gray-700">Thẻ tín dụng</label>
-                        <select id="tx-card" x-model="form.user_card_id" required
-                                class="w-full h-12 rounded-xl border-gray-300 text-base px-4 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
-                            <option value="">— Chọn thẻ —</option>
-                            <template x-for="card in cards" :key="card.id">
-                                <option :value="card.id"
-                                        x-text="cardLabel(card)"></option>
-                            </template>
-                        </select>
+                        <x-credit-card.searchable-select
+                            id="tx-card"
+                            x-model="form.user_card_id"
+                            :options="$cardOptions"
+                            placeholder="— Chọn thẻ —"
+                            search-placeholder="Tìm theo tên thẻ, ngân hàng, 4 số cuối…"
+                            empty-text="Không tìm thấy thẻ nào khớp."
+                            class="w-full" />
                         <p class="text-xs text-red-600" x-show="fieldErrors.user_card_id" x-cloak x-text="fieldErrors.user_card_id"></p>
                     </div>
 
@@ -328,14 +346,14 @@
                          (server đã lọc `selectableBy()`; form này chỉ hiển thị lại). --}}
                     <div class="space-y-1.5">
                         <label for="tx-category" class="block text-sm font-semibold text-gray-700">Danh mục</label>
-                        <select id="tx-category" x-model="form.category_id" required
-                                class="w-full h-12 rounded-xl border-gray-300 text-base px-4 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
-                            <option value="">— Chọn danh mục —</option>
-                            <template x-for="category in categories" :key="category.id">
-                                <option :value="category.id"
-                                        x-text="category.name + (category.scope === 'user' ? ' (của tôi)' : '')"></option>
-                            </template>
-                        </select>
+                        <x-credit-card.searchable-select
+                            id="tx-category"
+                            x-model="form.category_id"
+                            :options="$categoryOptions"
+                            placeholder="— Chọn danh mục —"
+                            search-placeholder="Tìm danh mục…"
+                            empty-text="Không tìm thấy danh mục nào khớp."
+                            class="w-full" />
                         <p class="text-xs text-red-600" x-show="fieldErrors.category_id" x-cloak x-text="fieldErrors.category_id"></p>
                     </div>
 
@@ -359,17 +377,65 @@
                      điều hướng dưới của Safari che — trên iPhone phần safe-area là
                      khoảng trống hệ thống, đệm vào đó nút nằm cao hơn mép màn
                      hình. `env(..., 0px)` để máy không có safe-area thì về 0. --}}
+                {{-- Hai lối lưu: "Lưu" giữ ngày + thẻ để nhập tiếp; "Lưu và đóng"
+                     giữ nguyên luồng cũ. Cả hai đều qua cùng một đường (cảnh báo
+                     trùng + chống double-submit). --}}
                 <div class="shrink-0 px-4 sm:px-6 pt-3 bg-white/95 backdrop-blur border-t border-gray-100"
                      style="padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));">
-                    <button type="submit"
-                            data-testid="save-transaction-button"
-                            :disabled="busy"
-                            class="w-full h-14 rounded-2xl bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 disabled:bg-emerald-300 disabled:cursor-not-allowed text-white text-base font-bold shadow-sm transition-colors">
-                        <span x-show="! busy">Lưu giao dịch</span>
-                        <span x-show="busy" x-cloak>Đang lưu…</span>
-                    </button>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <button type="button"
+                                data-testid="save-transaction-button"
+                                :disabled="busy"
+                                @click="save('save_and_continue')"
+                                class="w-full h-14 rounded-2xl bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 disabled:bg-emerald-300 disabled:cursor-not-allowed text-white text-base font-bold shadow-sm transition-colors">
+                            <span x-show="! busy">Lưu</span>
+                            <span x-show="busy" x-cloak>Đang lưu…</span>
+                        </button>
+                        <button type="submit"
+                                data-testid="save-and-close-button"
+                                :disabled="busy"
+                                class="w-full h-14 rounded-2xl bg-white border border-emerald-500 text-emerald-600 hover:bg-emerald-50 active:bg-emerald-100 disabled:opacity-60 disabled:cursor-not-allowed text-base font-bold shadow-sm transition-colors">
+                            Lưu và đóng
+                        </button>
+                    </div>
                 </div>
             </form>
+
+            {{-- Cảnh báo TRÙNG: lớp phủ trên chính overlay nhập giao dịch. Chỉ hiện
+                 khi server trả 409; "Vẫn lưu" gửi lại kèm token đã xác nhận. --}}
+            <div x-show="duplicateOpen" x-cloak
+                 class="absolute inset-0 z-30 bg-black/40 flex items-end sm:items-center justify-center p-4"
+                 role="dialog" aria-modal="true" aria-labelledby="tx-duplicate-title">
+                <div class="w-full sm:max-w-md bg-white rounded-2xl shadow-xl max-h-[80dvh] flex flex-col overflow-hidden">
+                    <div class="p-4 border-b border-gray-100">
+                        <h3 id="tx-duplicate-title" class="font-bold text-gray-800">Giao dịch có thể bị trùng</h3>
+                        <p class="text-xs text-gray-500 mt-1">
+                            Đã có giao dịch cùng thẻ, ngày, số tiền và danh mục. Kiểm tra trước khi lưu để tránh ghi trùng.
+                        </p>
+                    </div>
+
+                    <ul class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 space-y-2">
+                        <template x-for="item in duplicates" :key="item.id">
+                            <li class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                                <p class="text-sm font-semibold text-gray-800" x-text="duplicateSummary(item)"></p>
+                                <p class="text-xs text-gray-500 mt-0.5" x-text="item.card_name"></p>
+                            </li>
+                        </template>
+                    </ul>
+
+                    <div class="p-4 border-t border-gray-100 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+                        <button type="button" @click="cancelDuplicate()"
+                                class="w-full sm:w-auto inline-flex items-center justify-center h-12 px-4 rounded-xl bg-white border border-gray-200 text-gray-600 text-sm font-semibold">
+                            Hủy bỏ
+                        </button>
+                        <button type="button" :disabled="busy" @click="confirmDuplicateSave()"
+                                class="w-full sm:w-auto inline-flex items-center justify-center h-12 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 disabled:cursor-not-allowed text-white text-sm font-bold">
+                            <span x-show="! busy">Vẫn lưu giao dịch</span>
+                            <span x-show="busy" x-cloak>Đang lưu…</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>{{-- /màn hình nổi --}}
 
         {{-- ═══ SẮP XẾP THẺ ═══
@@ -1143,6 +1209,13 @@
                     fieldErrors: {},
                     form: ccBlankTransactionForm(state.today),
 
+                    // Cảnh báo trùng + chống double-submit.
+                    duplicateOpen: false,
+                    duplicates: [],
+                    duplicateToken: '',
+                    pendingIntent: 'save_and_close',
+                    submissionId: '',
+
                     // Trạng thái khoá cuộn trang phía sau + vị trí cuộn đã lưu, để
                     // đóng overlay lại trả nguyên trạng vị trí.
                     scrollLocked: false,
@@ -1332,8 +1405,28 @@
                         this.form.transaction_date = this.today;
                         this.formOpen = true;
 
+                        // Mã thao tác chống double-submit cho lần lưu tới. Sinh lại
+                        // sau MỖI lần lưu thành công và mỗi lần mở form.
+                        this.submissionId = this.newSubmissionId();
+                        this.duplicateOpen = false;
+                        this.duplicates = [];
+                        this.duplicateToken = '';
+
                         // Khoá cuộn trang phía sau (xem `lockPageScroll`).
                         this.lockPageScroll();
+                    },
+
+                    /** Mã thao tác duy nhất — ưu tiên `crypto.randomUUID()`. */
+                    newSubmissionId() {
+                        try {
+                            if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+                                return window.crypto.randomUUID();
+                            }
+                        } catch (e) {
+                            // Rơi về chuỗi thời gian bên dưới.
+                        }
+
+                        return 'sid-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
                     },
 
                     closeForm() {
@@ -1342,6 +1435,10 @@
                         this.fieldErrors = {};
                         this.error = '';
                         this.notice = '';
+                        this.duplicateOpen = false;
+                        this.duplicates = [];
+                        this.duplicateToken = '';
+                        this.submissionId = '';
                         this.unlockPageScroll();
                     },
 
@@ -1384,11 +1481,34 @@
                         return Object.keys(errors).length === 0;
                     },
 
-                    async submit() {
+                    /**
+                     * Lưu theo ý định của nút bấm.
+                     *
+                     * - `save_and_continue`: giữ NGÀY + THẺ, xoá tiền/danh mục/ghi chú
+                     *   rồi focus lại ô số tiền để nhập khoản kế tiếp.
+                     * - `save_and_close`: đóng overlay và thông báo như trước.
+                     *
+                     * Cả hai đi qua `sendTransaction()` — nơi xử lý cảnh báo trùng
+                     * (server trả 409) và chống double-submit (`submission_id`).
+                     */
+                    async save(intent) {
                         this.error = '';
                         this.notice = '';
+                        this.pendingIntent = intent === 'save_and_continue'
+                            ? 'save_and_continue'
+                            : 'save_and_close';
 
                         if (!this.validate()) return;
+
+                        await this.sendTransaction(null);
+                    },
+
+                    /**
+                     * Gửi giao dịch. `duplicateAck` là token đã xác nhận (null khi
+                     * chưa xác nhận). Khoá `busy` chặn double click/Enter hai lần.
+                     */
+                    async sendTransaction(duplicateAck) {
+                        if (this.busy) return;
 
                         // Khoá nút ngay trong lúc chờ: chặn double click tạo trùng
                         // giao dịch (tiền thật, không phải cái gì bỏ được).
@@ -1403,17 +1523,88 @@
                                     category_id: this.form.category_id,
                                     user_card_id: this.form.user_card_id,
                                     note: this.form.note || null,
+                                    save_intent: this.pendingIntent,
+                                    duplicate_ack: duplicateAck,
+                                    submission_id: this.submissionId || null,
                                 }),
                             });
 
+                            // Cảnh báo trùng: `request()` đã mở modal.
+                            if (payload === 'duplicate') return;
+
+                            // Lỗi (mạng/422/500): `request()` đã đặt thông báo.
                             if (!payload) return;
 
-                            this.closeForm();
-                            this.notice = 'Đã lưu giao dịch.';
-                            await this.refreshOverview();
+                            this.duplicateOpen = false;
+                            this.duplicates = [];
+                            this.duplicateToken = '';
+
+                            if (this.pendingIntent === 'save_and_continue') {
+                                this.continueAfterSave();
+                                await this.refreshOverview();
+                            } else {
+                                this.closeForm();
+                                this.notice = 'Đã lưu giao dịch.';
+                                await this.refreshOverview();
+                            }
                         } finally {
                             this.busy = false;
                         }
+                    },
+
+                    /** Reset cho khoản kế tiếp nhưng GIỮ ngày + thẻ đang chọn. */
+                    continueAfterSave() {
+                        this.form = {
+                            ...this.form,
+                            amount: '',
+                            category_id: '',
+                            note: '',
+                        };
+                        this.fieldErrors = {};
+                        this.error = '';
+                        this.notice = 'Đã lưu giao dịch. Nhập tiếp khoản khác hoặc bấm “Lưu và đóng”.';
+                        this.submissionId = this.newSubmissionId();
+
+                        this.$nextTick(() => {
+                            document.getElementById('tx-amount')?.focus();
+                        });
+                    },
+
+                    /** Người dùng chọn "Hủy bỏ" ở cảnh báo trùng. */
+                    cancelDuplicate() {
+                        this.duplicateOpen = false;
+                        this.duplicates = [];
+                        this.duplicateToken = '';
+                    },
+
+                    /** Người dùng chọn "Vẫn lưu giao dịch": gửi lại kèm token. */
+                    async confirmDuplicateSave() {
+                        const token = this.duplicateToken;
+
+                        this.duplicateOpen = false;
+
+                        await this.sendTransaction(token);
+                    },
+
+                    /** Một dòng mô tả giao dịch nghi trùng cho modal. */
+                    duplicateSummary(item) {
+                        const parts = [
+                            this.formatShortDate(item.transaction_date),
+                            ccMoneyVnd(item.amount),
+                        ];
+
+                        if (item.category_name) parts.push(item.category_name);
+
+                        return parts.filter(Boolean).join(' · ');
+                    },
+
+                    /** '2026-10-07' → '07/10/2026'. Tách chuỗi, KHÔNG qua Date(). */
+                    formatShortDate(value) {
+                        if (!value) return '';
+
+                        const parts = String(value).split('-');
+
+                        return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : String(value);
                     },
 
                     /**
@@ -1452,6 +1643,17 @@
                             const payload = await response.json().catch(() => ({}));
 
                             if (!response.ok) {
+                                // 409 + cờ `duplicate` ⇒ cảnh báo trùng: mở modal xác
+                                // nhận và trả sentinel để caller biết chưa lưu.
+                                if (response.status === 409 && payload.duplicate) {
+                                    this.duplicateToken = payload.duplicate_token ?? '';
+                                    this.duplicates = Array.isArray(payload.duplicates) ? payload.duplicates : [];
+                                    this.duplicateOpen = true;
+                                    this.error = '';
+
+                                    return 'duplicate';
+                                }
+
                                 // 422 ⇒ gắn lỗi đúng ô để người dùng biết sửa chỗ nào, và
                                 // KHÔNG in `message` mặc định của Laravel (tiếng Anh).
                                 if (payload.errors) {

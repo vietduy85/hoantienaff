@@ -43,6 +43,14 @@
             'categories' => $categories,
         ];
 
+        // Dữ liệu cho ô chọn TÌM KIẾM ĐƯỢC của form sửa (chỉ danh mục — KHÔNG có
+        // chọn thẻ, xem "CHỈ SỬA ĐƯỢC 4 Ô").
+        $categoryOptions = collect($categories)->map(fn (array $category): array => [
+            'id' => $category['id'],
+            'label' => $category['name'],
+            'sublabel' => $category['scope'] === 'user' ? 'Của tôi' : 'Hệ thống',
+        ])->values()->all();
+
         // Query string giữ nguyên khi đổi trang.
         $queryFor = fn (int $target): string => request()->fullUrlWithQuery(['page' => $target]);
     @endphp
@@ -210,13 +218,13 @@
 
                         <div class="space-y-1.5">
                             <label class="block text-xs font-semibold text-gray-600">Danh mục</label>
-                            <select x-model="form.category_id"
-                                    class="w-full h-12 rounded-xl border-gray-300 text-base px-4 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
-                                <option value="">— Chọn danh mục —</option>
-                                <template x-for="category in categories" :key="category.id">
-                                    <option :value="category.id" x-text="category.name"></option>
-                                </template>
-                            </select>
+                            <x-credit-card.searchable-select
+                                x-model="form.category_id"
+                                :options="$categoryOptions"
+                                placeholder="— Chọn danh mục —"
+                                search-placeholder="Tìm danh mục…"
+                                empty-text="Không tìm thấy danh mục nào khớp."
+                                class="w-full" />
                             <p class="text-xs text-red-600" x-show="errors.category_id" x-cloak x-text="errors.category_id"></p>
                         </div>
 

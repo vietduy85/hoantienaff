@@ -8,6 +8,7 @@ use App\Models\CreditCard\Transaction;
 use App\Models\CreditCard\UserCard;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use LogicException;
@@ -199,6 +200,140 @@ class CreditCardTransactionService
                 $this->records->calculatePeriod($userCard, $period);
             }
         });
+    }
+
+    /**
+     * Giao dịch đã tạo trước đó cho CÙNG một thao tác lưu (`submission_id`).
+     *
+     * Client sinh `submission_id` một lần khi mở form và giữ nguyên nó; nếu
+     * người dùng double-click, hoặc mạng chậm khiến trình duyệt gửi lại, lần gọi
+     * thứ hai sẽ trả chính giao dịch của lần đầu thay vì tạo thêm một giao dịch
+     * (tiền thật — không được phép nhân đôi).
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    public function findSubmission(UserCard $userCard, array $attributes, ?string $submissionId): ?Transaction
+    {
+        if ($submissionId === null) {
+            return null;
+        }
+
+        $cachedId = Cache::get($this->submissionCacheKey($userCard, $attributes, $submissionId));
+
+        if ($cachedId === null) {
+            return null;
+        }
+
+        return Transaction::query()
+            ->with(['category', 'statementPeriod'])
+            ->whereKey((int) $cachedId)
+            ->first();
+    }
+
+    /**
+     * Ghi nhớ giao dịch đã tạo cho một `submission_id` (TTL đủ ngắn để không phình
+     * cache, đủ dài để bắt mọi lần gửi lại của cùng một thao tác).
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    public function rememberSubmission(UserCard $userCard, array $attributes, ?string $submissionId, Transaction $transaction): void
+    {
+        if ($submissionId === null) {
+            return;
+        }
+
+        Cache::put(
+            $this->submissionCacheKey($userCard, $attributes, $submissionId),
+            $transaction->id,
+            now()->addMinutes(15),
+        );
+    }
+
+    /**
+     * Giao dịch CÓ KHẢ NĂNG TRÙNG với dữ liệu đang chuẩn bị lưu.
+     *
+     * Tiêu chí: CÙNG thẻ + CÙNG ngày + CÙNG số tiền (theo VND THÔ, không làm tròn
+     * theo đơn vị hiển thị) + CÙNG danh mục (null khớp null). Giao dịch đã xoá mềm
+     * KHÔNG tính. KHÔNG so ghi chú: người dùng có thể ghi chú khác nhau cho hai
+     * khoản chi giống nhau và vẫn là trùng tiền.
+     *
+     * @param  array<string, mixed>  $attributes
+     * @return Collection<int, Transaction>
+     */
+    public function findDuplicates(UserCard $userCard, array $attributes): Collection
+    {
+        $date = $this->parseDate($attributes['transaction_date'], 'transaction_date')->toDateString();
+        $amount = $this->normalizeAmount($attributes['amount']);
+        $categoryId = $this->comparableCategoryId($attributes['category_id'] ?? null);
+
+        return Transaction::query()
+            ->where('user_card_id', $userCard->id)
+            ->whereDate('transaction_date', $date)
+            ->where('amount', $amount)
+            ->when(
+                $categoryId === null,
+                fn ($query) => $query->whereNull('category_id'),
+                fn ($query) => $query->where('category_id', $categoryId),
+            )
+            ->with('category')
+            ->orderByDesc('id')
+            ->limit(10)
+            ->get();
+    }
+
+    /**
+     * Token HMAC gắn với ĐÚNG tập trùng hiện tại. Client phải gửi lại token này
+     * để xác nhận "vẫn lưu"; nếu dữ liệu đổi giữa chừng (một giao dịch bị xoá,
+     * thêm giao dịch mới…) token đổi và server yêu cầu xác nhận lại.
+     *
+     * @param  array<string, mixed>  $attributes
+     * @param  Collection<int, Transaction>  $duplicates
+     */
+    public function duplicateToken(UserCard $userCard, array $attributes, Collection $duplicates): string
+    {
+        $fingerprint = [
+            'card' => (int) $userCard->id,
+            'date' => $this->parseDate($attributes['transaction_date'], 'transaction_date')->toDateString(),
+            'amount' => $this->normalizeAmount($attributes['amount']),
+            'category_id' => $this->comparableCategoryId($attributes['category_id'] ?? null),
+            'duplicates' => $duplicates->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->sort()
+                ->values()
+                ->all(),
+        ];
+
+        return hash_hmac('sha256', json_encode($fingerprint), (string) config('app.key'));
+    }
+
+    /**
+     * Khoá cache chống double-submit: tách theo user + `submission_id` + vân tay
+     * payload, nên đổi bất kỳ field nào là một thao tác MỚI (không bị chặn nhầm).
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    private function submissionCacheKey(UserCard $userCard, array $attributes, string $submissionId): string
+    {
+        $fingerprint = json_encode([
+            'card' => (int) $userCard->id,
+            'date' => (string) ($attributes['transaction_date'] ?? ''),
+            'amount' => (string) ($attributes['amount'] ?? ''),
+            'category_id' => $this->comparableCategoryId($attributes['category_id'] ?? null),
+            'merchant' => $this->nullableTrim($attributes['merchant'] ?? null),
+            'note' => $this->nullableTrim($attributes['note'] ?? null),
+        ]);
+
+        return 'cc.tx.submit:'.$userCard->user_id.':'.$submissionId.':'.hash('sha256', (string) $fingerprint);
+    }
+
+    /** Danh mục so sánh: chuỗi rỗng/rỗng ⇒ `null` (khớp với giao dịch không danh mục). */
+    private function comparableCategoryId(mixed $categoryId): ?int
+    {
+        if ($categoryId === null || $categoryId === '') {
+            return null;
+        }
+
+        return (int) $categoryId;
     }
 
     /**
