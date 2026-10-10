@@ -16,10 +16,20 @@ $travelPlatforms = collect(config('travel.platforms'))
                  x-init="$nextTick(() => { const el = $el.querySelector('[aria-current=\"page\"]'); if (el && el.scrollIntoView) el.scrollIntoView({ inline: 'nearest', block: 'nearest' }); })">
 
                 <!-- Trang chủ -->
+                @php $pendingWithdrawCount = (int) ($pendingWithdrawCount ?? 0); @endphp
                 <a href="{{ route('dashboard') }}"
-                   class="shrink-0 font-semibold text-emerald-600 hover:text-emerald-700 active:text-emerald-800 transition-colors text-sm sm:text-base whitespace-nowrap"
-                   aria-label="Trang chủ">
+                   class="shrink-0 inline-flex items-center gap-1.5 font-semibold text-emerald-600 hover:text-emerald-700 active:text-emerald-800 transition-colors text-sm sm:text-base whitespace-nowrap"
+                   aria-label="Trang chủ{{ $pendingWithdrawCount > 0 ? ' ('.$pendingWithdrawCount.' yêu cầu rút tiền đang chờ xử lý)' : '' }}">
                     Trang chủ
+                    @can('withdrawals.view')
+                        @if ($pendingWithdrawCount > 0)
+                            <span data-testid="pending-withdraw-badge"
+                                  title="{{ $pendingWithdrawCount }} yêu cầu rút tiền đang chờ xử lý"
+                                  class="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] font-semibold leading-none tabular-nums">
+                                {{ $pendingWithdrawCount > 99 ? '99+' : $pendingWithdrawCount }}
+                            </span>
+                        @endif
+                    @endcan
                 </a>
 
                 <!-- Thẻ tín dụng -->

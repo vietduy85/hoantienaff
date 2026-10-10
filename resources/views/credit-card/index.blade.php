@@ -466,6 +466,30 @@
                 @endif
             </div>
 
+            {{-- ═══ TÌM KIẾM THẺ ═══
+                 Lọc CLIENT-SIDE trên danh sách thẻ server đã sắp (theo thứ tự đang
+                 chọn) — KHÔNG gọi mạng, KHÔNG đổi thứ tự, KHÔNG đụng 4 ô tổng hợp
+                 phía trên. Rỗng ⇒ hiện đủ như trước. Khớp tên HOẶC ngân hàng, bỏ
+                 dấu. Chỉ hiện khi có thẻ để tránh ô vô dụng khi danh sách rỗng. --}}
+            @if ($userCreditCards->isNotEmpty())
+                <div class="px-4 sm:px-5 pt-1 pb-3">
+                    <label class="relative block">
+                        <span class="sr-only">Tìm thẻ tín dụng</span>
+                        <span class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                            <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                <path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clip-rule="evenodd" />
+                            </svg>
+                        </span>
+                        <input type="search"
+                               inputmode="search"
+                               x-model="cardQuery"
+                               data-testid="card-search-input"
+                               placeholder="Tìm tên thẻ hoặc ngân hàng..."
+                               class="w-full h-11 pl-10 pr-3 rounded-xl border border-gray-200 bg-white text-base sm:text-sm text-gray-800 placeholder:text-gray-400 focus:border-emerald-500 focus:ring-emerald-500">
+                    </label>
+                </div>
+            @endif
+
             {{-- ═══ "Hiển thị" — 6 tùy chọn ĐỘC LẬP ═══
                  Một DẢI mảnh có đường kẻ, KHÔNG phải card lồng trong card. Chỉ ẩn/hiện
                  phần hiển thị phía dưới trên MỌI thẻ; dữ liệu và nghiệp vụ không đổi,
@@ -533,7 +557,7 @@
                     </a>
                 </div>
             @else
-                <ul class="divide-y divide-gray-100">
+                <ul class="divide-y divide-gray-100" x-ref="cardList">
                     @foreach ($cardRows as $row)
                         @php
                             $card = $row['card'];
@@ -570,7 +594,10 @@
 
                         <li class="px-4 sm:px-5 py-4 min-w-0 space-y-2"
                             data-testid="card-row"
-                            data-card-id="{{ $card->id }}">
+                            data-card-id="{{ $card->id }}"
+                            data-card-name="{{ $card->name ?: 'Thẻ tín dụng' }}"
+                            data-card-search="{{ mb_strtolower(\Illuminate\Support\Str::ascii(($card->name ?: 'Thẻ tín dụng').' '.($card->bank?->name ?? ''))) }}"
+                            x-show="cardMatches($el)">
 
                             {{-- ═══ HEADER: DẢI MÀU PASTEL ═══
                                  Tên thẻ là thứ user nhìn đầu tiên nên được tách riêng
@@ -927,17 +954,20 @@
                                                     <span class="text-gray-400"
                                                           x-text="' / ' + ccMoneyVnd(qualificationConditionValue(@js($cardKey), {{ $sqIndex }}, 'min_spend'))"> / <x-credit-card.money :value="$sqCondition['min_spend']" /></span>
 
-                                                    {{-- Trạng thái: ĐÃ ĐẠT khi actual >= min, còn lại
+                                                    {{-- Trạng thái: ĐÃ ĐẠT ĐIỀU KIỆN khi actual >= min, còn lại
                                                          "Còn thiếu <số>". KHÔNG hiện "Còn thiếu 0 đ"
-                                                         khi đã đạt (§7). --}}
-                                                    @if ($sqCondition['met'])
-                                                        <span class="font-semibold text-emerald-600"
-                                                              data-testid="card-qualification-met">→ ĐÃ ĐẠT</span>
-                                                    @else
-                                                        <span class="font-semibold text-rose-600"
-                                                              data-testid="card-qualification-remaining">→ Còn thiếu <span
-                                                                  x-text="ccMoneyVnd(qualificationConditionValue(@js($cardKey), {{ $sqIndex }}, 'remaining'))"><x-credit-card.money :value="$sqCondition['remaining']" /></span></span>
-                                                    @endif
+                                                         khi đã đạt (§7).
+
+                                                         Nhãn được Alpine vẽ lại bằng `x-text` từ ĐÚNG cờ
+                                                         `met` server tính (nguồn dùng CHUNG) nên khi
+                                                         `refreshOverview()` thay `card_metrics` sau lưu giao
+                                                         dịch, nhãn đổi theo actual/min thay vì giữ nhánh
+                                                         server đã render từ đầu phiên. Testid chỉ có MỘT
+                                                         nhánh theo `met` ban đầu để HTML tĩnh vẫn đọc được. --}}
+                                                    <span class="font-semibold"
+                                                          :class="qualificationConditionMet(@js($cardKey), {{ $sqIndex }}) ? 'text-emerald-600' : 'text-rose-600'"
+                                                          data-testid="{{ $sqCondition['met'] ? 'card-qualification-met' : 'card-qualification-remaining' }}"
+                                                          x-text="qualificationConditionStatus(@js($cardKey), {{ $sqIndex }})">@if ($sqCondition['met']) → ĐÃ ĐẠT ĐIỀU KIỆN @else → Còn thiếu <x-credit-card.money :value="$sqCondition['remaining']" /> @endif</span>
                                                 </span>
                                             </li>
                                         @endforeach
@@ -1067,6 +1097,15 @@
                             </div>
                         </li>
                     @endforeach
+
+                    {{-- Không có thẻ nào khớp từ khoá (chỉ hiện khi đang gõ từ khoá,
+                         không hiện lúc danh sách đầy đủ). --}}
+                    <li x-show="cardQuery.trim() !== '' && cardMatchCount === 0"
+                        x-cloak
+                        data-testid="card-search-empty"
+                        class="px-4 sm:px-5 py-8 text-center text-sm text-gray-500">
+                        Không tìm thấy thẻ phù hợp
+                    </li>
                 </ul>
             @endif
         </div>
@@ -1156,6 +1195,24 @@
             }
 
             /**
+             * Chuẩn hoá chuỗi để TÌM KIẾM: bỏ dấu, về chữ thường, gọn khoảng trắng.
+             *
+             * NFD tách dấu thanh khỏi nguyên âm rồi xoá khối combining marks; `đ`
+             * (U+0111) không tách được nên đổi tay, kể cả `Đ`. Nhờ vậy gõ "the vp"
+             * vẫn khớp "Thẻ VP" và gõ "ngan hang" khớp "Ngân hàng". Đây là nguồn
+             * DUY NHẤT cho ô tìm kiếm thẻ ở Tổng quan.
+             */
+            function ccNormalizeSearch(value) {
+                return String(value ?? '')
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .replace(/đ/g, 'd')
+                    .replace(/Đ/g, 'D')
+                    .toLowerCase()
+                    .trim();
+            }
+
+            /**
              * Tổng quan + nhập giao dịch.
              *
              * Controller KHÔNG orchestration gì ở đây: mọi quyết định nghiệp vụ
@@ -1174,6 +1231,12 @@
                     summary_url: state.summary_url ?? '',
 
                     display: ccDefaultDisplay(),
+
+                    // Ô tìm kiếm thẻ ở Tổng quan. Lọc CLIENT-SIDE trên danh sách
+                    // server đã sắp: rỗng ⇒ hiện tất cả, gõ ⇒ khớp tên HOẶC ngân
+                    // hàng (bỏ dấu, không phân biệt hoa/thường). Không đổi thứ tự,
+                    // không đổi số tổng hợp, không gọi mạng.
+                    cardQuery: '',
 
                     /**
                      * Khôi phục lựa chọn hiển thị đã lưu. `init()` là hook đặc biệt của
@@ -1200,6 +1263,33 @@
                             // Không lưu được thì chỉ mất lựa chọn sau khi tải lại
                             // trang, vẫn tốt hơn là báo lỗi.
                         }
+                    },
+
+                    /**
+                     * Dòng thẻ có khớp từ khoá tìm kiếm không.
+                     *
+                     * Đọc chuỗi tìm kiếm đã CHUẨN HOÁ sẵn ở `data-card-search`
+                     * (server in tên + ngân hàng), nên chỉ một phép `includes` —
+                     * không tự nối lại tên thẻ trong JS để khỏi lệch với HTML.
+                     * Từ khoá rỗng ⇒ luôn khớp (hiện tất cả như trước).
+                     */
+                    cardMatches(el) {
+                        const keyword = ccNormalizeSearch(this.cardQuery);
+
+                        if (keyword === '') return true;
+
+                        return ccNormalizeSearch(el?.dataset?.cardSearch).includes(keyword);
+                    },
+
+                    /** Số dòng thẻ đang khớp từ khoá — để hiện empty state. */
+                    get cardMatchCount() {
+                        const list = this.$refs?.cardList ?? null;
+
+                        if (list === null) return 0;
+
+                        return Array.from(list.querySelectorAll('[data-testid="card-row"]'))
+                            .filter((row) => this.cardMatches(row))
+                            .length;
                     },
 
                     formOpen: false,
@@ -1274,6 +1364,35 @@
                      */
                     qualificationConditionValue(id, index, key) {
                         return this.card_metrics?.[String(id)]?.spend_qualification?.conditions?.[index]?.[key] ?? null;
+                    },
+
+                    /**
+                     * Điều kiện đặc biệt đã ĐẠT chưa — đọc thẳng cờ `met` server đã
+                     * tính, KHÔNG so lại số đã format.
+                     *
+                     * Server và JS dùng CHUNG `spend_qualification.conditions[].met`
+                     * nên nhãn trạng thái không thể lệch với hai số actual/min bên
+                     * cạnh sau `refreshOverview()`. Thiếu dữ liệu ⇒ trả false, tuyệt
+                     * đối KHÔNG tự đánh dấu đạt.
+                     */
+                    qualificationConditionMet(id, index) {
+                        return this.qualificationConditionValue(id, index, 'met') === true;
+                    },
+
+                    /**
+                     * Nhãn trạng thái một dòng điều kiện, dựng từ cùng nguồn `met`:
+                     * "→ ĐÃ ĐẠT ĐIỀU KIỆN" khi đạt, ngược lại "→ Còn thiếu <số>".
+                     *
+                     * `x-text` thay nội dung server render nên nhãn cập nhật ngay khi
+                     * `refreshOverview()` đổi `met` (server KHÔNG re-render nhánh này
+                     * sau khi làm mới client-side).
+                     */
+                    qualificationConditionStatus(id, index) {
+                        if (this.qualificationConditionMet(id, index)) {
+                            return '→ ĐÃ ĐẠT ĐIỀU KIỆN';
+                        }
+
+                        return '→ Còn thiếu ' + ccMoneyVnd(this.qualificationConditionValue(id, index, 'remaining'));
                     },
 
                     /** Trần CHUNG của bậc đích — mẫu số của dòng "Cashback dự kiến". */

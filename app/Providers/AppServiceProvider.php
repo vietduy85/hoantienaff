@@ -25,10 +25,12 @@ use App\Services\Providers\PharmacityProvider;
 use App\Services\Providers\ShopeeProvider;
 use App\Services\Providers\TikTokProvider;
 use App\Services\Providers\TravelokaProvider;
+use App\View\Composers\PendingWithdrawBadgeComposer;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -91,6 +93,10 @@ class AppServiceProvider extends ServiceProvider
 
         $this->registerCreditCardApiRateLimiter();
         $this->registerCreditCardAdminApiRateLimiter();
+
+        // Badge số yêu cầu rút tiền đang chờ, hiển thị cạnh "Trang chủ" trong
+        // navigation dùng chung. Composer tự lọc theo quyền `withdrawals.view`.
+        View::composer('layouts.navigation', PendingWithdrawBadgeComposer::class);
     }
 
     /**

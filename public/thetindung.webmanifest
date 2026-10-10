@@ -5,7 +5,7 @@
     "description": "Quản lý thẻ tín dụng và hoàn tiền",
     "lang": "vi",
     "start_url": "/thetindung",
-    "scope": "/thetindung",
+    "scope": "/",
     "display": "standalone",
     "orientation": "portrait",
     "theme_color": "#0D9EF3",
@@ -13,13 +13,13 @@
     "categories": ["finance"],
     "icons": [
         {
-            "src": "/app-icons/the-tin-dung-192.png",
+            "src": "/icon-192.png",
             "sizes": "192x192",
             "type": "image/png",
             "purpose": "any"
         },
         {
-            "src": "/app-icons/the-tin-dung-512.png",
+            "src": "/icon-512.png",
             "sizes": "512x512",
             "type": "image/png",
             "purpose": "any"

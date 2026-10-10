@@ -6,7 +6,8 @@
     $pwaManifest = $isCreditCardApp ? '/thetindung.webmanifest' : '/manifest.webmanifest';
     $pwaAppName = $isCreditCardApp ? 'Thẻ tín dụng' : 'Hoan Tien';
     $pwaThemeColor = $isCreditCardApp ? '#0D9EF3' : '#FF6A00';
-    $pwaAppleIcon = $isCreditCardApp ? '/app-icons/the-tin-dung-180.png' : '/apple-touch-icon-180.png';
+    // Tạm thời dùng chung bộ icon của Dashboard cho cả hai PWA.
+    $pwaAppleIcon = '/apple-touch-icon-180.png';
 @endphp
 <script>
     window.__PWA_ENABLED = {{ config('pwa.enabled') ? 'true' : 'false' }};
@@ -20,11 +21,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="apple-touch-icon" sizes="180x180" href="{{ $pwaAppleIcon }}">
-@if($isCreditCardApp)
-<link rel="icon" href="/app-icons/the-tin-dung.ico" sizes="any">
-@else
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
-@endif
 @endif
