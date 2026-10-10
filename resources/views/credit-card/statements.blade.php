@@ -43,6 +43,9 @@
                     active="statements">
 
     @include('credit-card.partials.money-js')
+    {{-- `ccNormalizeSearch()` / `ccCardSearchMatchCount()` dùng chung với Tổng quan
+         và Quản lý thẻ — xem partial. --}}
+    @include('credit-card.partials.search-js')
 
     @include('credit-card.partials.sort-picker', [
         'sortModes' => $sortModes,
@@ -52,7 +55,10 @@
     ])
 
     <div x-data="creditCardStatements(@js(['urls' => $urls, 'reminderDays' => $reminderDays]))"
-         class="space-y-3 sm:space-y-4">
+         class="space-y-3 sm:space-y-4"
+         {{-- `x-ref="cardList"` là container `ccCardSearchMatchCount` đọc để đếm dòng
+              khớp — phải bọc đúng các dòng `data-testid="statement-row"`. --}}
+         x-ref="cardList">
 
         {{-- ═══ NHẮC THANH TOÁN TRƯỚC — THIẾT LẬP CHUNG ═══
              MỘT ô cho cả trang, đặt TRƯỚC danh sách thẻ vì nó quyết định cảnh báo
@@ -119,6 +125,30 @@
             <p class="text-sm text-red-700 break-words" x-text="error"></p>
         </div>
 
+        @if (count($rows) > 0)
+            {{-- ═══ TÌM KIẾM THẺ ═══
+                 Lọc CLIENT-SIDE trên danh sách thẻ server đã sắp (theo thứ tự đang
+                 chọn) — KHÔNG gọi mạng, KHÔNG đổi thứ tự. Rỗng ⇒ hiện đủ như trước.
+                 Khớp tên HOẶC ngân hàng, bỏ dấu — cùng `ccNormalizeSearch` với Tổng
+                 quan và Quản lý thẻ. --}}
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 min-w-0">
+                <label class="relative block">
+                    <span class="sr-only">Tìm thẻ tín dụng</span>
+                    <span class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                        <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                            <path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clip-rule="evenodd" />
+                        </svg>
+                    </span>
+                    <input type="search"
+                           inputmode="search"
+                           x-model="cardQuery"
+                           data-testid="card-search-input"
+                           placeholder="Tìm tên thẻ hoặc ngân hàng..."
+                           class="w-full h-11 pl-10 pr-3 rounded-xl border border-gray-200 bg-white text-base sm:text-sm text-gray-800 placeholder:text-gray-400 focus:border-emerald-500 focus:ring-emerald-500">
+                </label>
+            </div>
+        @endif
+
         @forelse ($rows as $row)
             @php
                 $statement = $row['statement'];
@@ -130,7 +160,11 @@
 
             <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-3 min-w-0"
                  data-testid="statement-row"
-                 data-card-id="{{ $row['id'] }}">
+                 data-card-id="{{ $row['id'] }}"
+                 {{-- `data-card-search` server in sẵn = `ccNormalizeSearch(name + ' ' + bank)`,
+                      `x-show` đọc chính attribute đó — không tự nối lại trong JS. --}}
+                 data-card-search="{{ mb_strtolower(\Illuminate\Support\Str::ascii(($row['name'] ?: 'Thẻ tín dụng').' '.($row['bank'] ?? ''))) }}"
+                 x-show="cardMatches($el)">
 
                 {{-- ═══ THẺ ═══
                      Chỉ 4 số cuối: module không lưu số thẻ đầy đủ ở đâu cả. --}}
@@ -535,6 +569,15 @@
                 </a>
             </div>
         @endforelse
+
+        {{-- Không có thẻ nào khớp từ khoá (chỉ hiện khi đang gõ từ khoá, không hiện
+             lúc danh sách đầy đủ). Cùng `x-show`/`cardMatchCount` như Tổng quan. --}}
+        <div x-show="cardQuery.trim() !== '' && cardMatchCount === 0"
+             x-cloak
+             data-testid="card-search-empty"
+             class="bg-white rounded-2xl shadow-sm border border-gray-100 px-4 py-10 text-center">
+            <p class="text-sm text-gray-500">Không tìm thấy thẻ phù hợp</p>
+        </div>
     </div>
 </x-credit-card.layout>
 
@@ -559,6 +602,26 @@
                 busyId: null,
                 error: '',
                 errors: {},
+
+                // Ô tìm kiếm thẻ ở Sao kê. Lọc CLIENT-SIDE trên danh sách thẻ server
+                // đã sắp (xem `CreditCardCardSortService`): rỗng ⇒ hiện tất cả, gõ ⇒
+                // khớp tên HOẶC ngân hàng, bỏ dấu, không đổi thứ tự, không gọi mạng.
+                // Cùng convention với Tổng quan (`index.blade.php`) và Quản lý thẻ.
+                cardQuery: '',
+
+                /** Dòng thẻ có khớp từ khoá không — dùng chung `ccNormalizeSearch`. */
+                cardMatches(el) {
+                    const keyword = ccNormalizeSearch(this.cardQuery);
+
+                    if (keyword === '') return true;
+
+                    return ccNormalizeSearch(el?.dataset?.cardSearch).includes(keyword);
+                },
+
+                /** Số dòng thẻ đang khớp từ khoá — để hiện empty state. */
+                get cardMatchCount() {
+                    return ccCardSearchMatchCount(this, 'statement-row');
+                },
 
                 /**
                  * Trạng thái lưu thanh toán, khoá theo id thẻ.

@@ -125,8 +125,9 @@ class CreditCardOverviewService
      *                chỉ gom theo thẻ thay vì gộp tất cả).
      *   - `cashback`= SUM(`cashback_amount_snapshot`) giao dịch của kỳ hiện tại —
      *                tiền THỰC TẾ engine đã ghi. KHÔNG tính lại ở đây.
-     *   - `expected_cashback` = theo BẬC ĐÍCH (quyết định bởi `desired_spend`) nhưng
-     *                nhân với CHI TIÊU THỰC TẾ: `spent` → rate của bậc đích →
+     *   - `expected_cashback` = theo BẬC ĐÍCH (quyết định bởi `desired_spend`; thẻ
+     *                chưa đặt mục tiêu lấy bậc phủ 0 — cùng bậc mà `quota` chọn)
+     *                nhưng nhân với CHI TIÊU THỰC TẾ: `spent` → rate của bậc đích →
      *                tiền, kẹp theo trần của bậc đích. Đây là con số "dự kiến"
      *                mà Tổng quan hiển thị.
      *   - `quota`   = {@see CashbackQuotaService} (trần toàn kỳ của bậc theo
@@ -256,7 +257,6 @@ class CreditCardOverviewService
                 // "Cashback DỰ KIẾN": bậc ĐÍCH (theo `desired_spend`) nhưng áp rate
                 // và cap CỦA TỪNG RULE trên từng giao dịch thật của kỳ hiện tại.
                 'expected_cashback' => $this->expectedCashbackFor(
-                    $card,
                     $quotas[$cardId] ?? null,
                     $linesByCard[$cardId] ?? [],
                 ),
@@ -499,16 +499,15 @@ class CreditCardOverviewService
      * chạy; và mỗi giao dịch lấy rate của rule KHỚP CHÍNH MÌNH nó — xem
      * {@see expectedCashbackFor()}.
      *
-     * Thẻ chưa đặt mục tiêu, hoặc mục tiêu chưa chạm bậc nào ⇒ `0.00`.
+     * Thẻ CHƯA đặt mục tiêu ⇒ bậc phủ 0 (đúng bậc mà
+     * {@see CashbackQuotaService::tiersByCard()} chọn cho dòng quota), KHÔNG trả
+     * `0.00` chỉ vì `desired_spend` trống: nếu trả 0, tử số "Cashback dự kiến" sẽ
+     * lệch khỏi mẫu số `tier_cashback_max` — vốn lấy từ CHÍNH bậc đó. Chỉ `0.00`
+     * khi thẻ không có policy/bậc (`quota.tier_id` NULL) hoặc kỳ hiện tại không
+     * có giao dịch.
      */
-    private function expectedCashbackFor(UserCard $card, ?array $quota, array $lines): string
+    private function expectedCashbackFor(?array $quota, array $lines): string
     {
-        $desiredSpend = Decimal::money($card->desired_spend);
-
-        if (! Decimal::isPositive($desiredSpend)) {
-            return '0.00';
-        }
-
         if ($lines === []) {
             return '0.00';
         }

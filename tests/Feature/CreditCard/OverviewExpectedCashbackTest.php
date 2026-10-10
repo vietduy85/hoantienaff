@@ -430,6 +430,107 @@ class OverviewExpectedCashbackTest extends TestCase
     }
 
     // =====================================================================
+    // Thẻ CHƯA đặt mục tiêu: vẫn phải ra "dự kiến" ở bậc phủ 0
+    // =====================================================================
+
+    /**
+     * Thẻ chưa đặt mục tiêu (`desired_spend` NULL) mà kỳ hiện tại có giao dịch
+     * phải ra "dự kiến" KHÁC 0.
+     *
+     * Bậc đích là bậc PHỦ 0 — đúng bậc mà dòng quota chọn (xem
+     * {@see \App\Services\CreditCard\CashbackQuotaService}). Trước đây
+     * `expectedCashbackFor()` thoát sớm `0.00` khi `desired_spend` không dương,
+     * làm tử số lệch khỏi mẫu số `tier_cashback_max` in ngay cạnh nó.
+     */
+    #[Test]
+    public function a_card_without_a_goal_still_expects_cashback_at_the_default_tier(): void
+    {
+        $insurance = $this->category('Bảo hiểm');
+        $card = $this->noGoalCard(15, [
+            ['category' => $insurance, 'percent' => '10.000', 'cap_cat' => '400000'],
+        ]);
+
+        $this->seedTransaction($card, self::LATER, $insurance, '9000000.00');
+
+        $overview = $this->overview();
+        $metrics = $overview['cards'][$card->id];
+
+        // 9.000.000 × 10% = 900.000 → kẹp trần danh mục 400.000.
+        $this->assertSame('400000.00', Decimal::money($metrics['expected_cashback']));
+
+        // "Thực nhận" giữ nguyên nghĩa: snapshot chưa có ⇒ 0 — KHÔNG kéo dự kiến về 0.
+        $this->assertSame('0.00', Decimal::money($metrics['cashback']));
+
+        // Tử số và mẫu số lấy cùng một bậc đích.
+        $this->assertNotNull($metrics['quota']['tier_id']);
+        $this->assertSame('1000000.00', Decimal::money($metrics['quota']['tier_cashback_max']));
+
+        $this->assertSame('400000.00', Decimal::money($overview['summary']['expected_cashback']));
+    }
+
+    /** `desired_spend = 0` xử sự y hệt NULL — vẫn ra dự kiến theo bậc phủ 0. */
+    #[Test]
+    public function a_zero_goal_is_treated_like_no_goal(): void
+    {
+        $insurance = $this->category('Bảo hiểm');
+        $card = $this->makeUserCard($this->owner->id, [
+            'name' => 'MB Ultimate JCB',
+            'statement_day' => 15,
+            'payment_due_day' => 5,
+            'desired_spend' => '0',
+        ]);
+        $this->attachSingleTier($card, [
+            ['category' => $insurance, 'percent' => '10.000'],
+        ], '1000000');
+
+        $this->seedTransaction($card, self::LATER, $insurance, '2000000.00');
+
+        $this->assertSame('200000.00', $this->cardNumber($card->id, 'expected_cashback'));
+    }
+
+    /**
+     * Giao dịch ngoài kỳ hiện tại KHÔNG được cộng vào dự kiến của thẻ chưa có
+     * mục tiêu — giống hệt thẻ có mục tiêu.
+     */
+    #[Test]
+    public function a_goalless_card_excludes_out_of_period_transactions(): void
+    {
+        $insurance = $this->category('Bảo hiểm');
+        $card = $this->noGoalCard(1, [
+            ['category' => $insurance, 'percent' => '10.000'],
+        ]);
+
+        // 16/09 nằm ở kỳ ĐÃ KẾT THÚC (statement_day = 1) ⇒ không đóng góp.
+        $this->seedTransaction($card, self::EARLIER, $insurance, '9000000.00');
+        $this->assertSame('0.00', $this->cardNumber($card->id, 'expected_cashback'));
+
+        // 04/10 thuộc kỳ hiện tại: 4.000.000 × 10% = 400.000 (dưới trần bậc).
+        $this->seedTransaction($card, self::LATER, $insurance, '4000000.00');
+        $this->assertSame('400000.00', $this->cardNumber($card->id, 'expected_cashback'));
+    }
+
+    /**
+     * Trần tổng của thẻ chưa có mục tiêu vẫn đọc từ POLICY, không hardcode
+     * `1.000.000`.
+     */
+    #[Test]
+    public function a_goalless_card_takes_its_total_limit_from_the_policy(): void
+    {
+        $insurance = $this->category('Bảo hiểm');
+        $card = $this->noGoalCard(15, [
+            ['category' => $insurance, 'percent' => '10.000'],
+        ], '1000000');
+
+        // 20.000.000 × 10% = 2.000.000 → kẹp trần bậc của policy 1.000.000.
+        $this->seedTransaction($card, self::LATER, $insurance, '20000000.00');
+        $this->assertSame('1000000.00', $this->cardNumber($card->id, 'expected_cashback'));
+
+        // Đổi trần policy ⇒ đổi trần dự kiến ⇒ chứng minh không hardcode.
+        $this->setTierCap($card, '250000.00');
+        $this->assertSame('250000.00', $this->cardNumber($card->id, 'expected_cashback'));
+    }
+
+    // =====================================================================
     // Fixture
     // =====================================================================
 
@@ -456,18 +557,7 @@ class OverviewExpectedCashbackTest extends TestCase
             'desired_spend' => '8000000',
         ]);
 
-        $this->makePolicyForCard(
-            $card,
-            [['name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => $tierCap]],
-            array_map(
-                fn (array $rule): array => array_filter([
-                    'category_id' => $rule['category']->id,
-                    'percent' => $rule['percent'],
-                    'cap_cat' => $rule['cap_cat'] ?? null,
-                ], fn ($value): bool => $value !== null),
-                $rules,
-            ),
-        );
+        $this->attachSingleTier($card, $rules, $tierCap);
 
         // Fallback 0% cho mọi danh mục còn lại, đúng như policy thật.
         $tier = $card->currentPolicy->tiers()->orderBy('sort_order')->firstOrFail();
@@ -484,6 +574,46 @@ class OverviewExpectedCashbackTest extends TestCase
         ]);
 
         return $card;
+    }
+
+    /**
+     * Thẻ chưa đặt mục tiêu: KHÔNG truyền `desired_spend` (NULL). Bậc đích sẽ là
+     * bậc phủ 0, y như dòng quota của thẻ này.
+     *
+     * @param  array<int, array{category: Category, percent: string, cap_cat?: string|null}>  $rules
+     */
+    private function noGoalCard(int $statementDay, array $rules = [], ?string $tierCap = '1000000'): UserCard
+    {
+        $card = $this->makeUserCard($this->owner->id, [
+            'name' => 'MB Ultimate JCB',
+            'statement_day' => $statementDay,
+            'payment_due_day' => 5,
+        ]);
+
+        $this->attachSingleTier($card, $rules, $tierCap);
+
+        return $card;
+    }
+
+    /**
+     * Gắn MỘT bậc duy nhất (`min 0 → max null`) cùng các rule danh mục cho thẻ.
+     *
+     * @param  array<int, array{category: Category, percent: string, cap_cat?: string|null}>  $rules
+     */
+    private function attachSingleTier(UserCard $card, array $rules, ?string $tierCap): void
+    {
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => $tierCap]],
+            array_map(
+                fn (array $rule): array => array_filter([
+                    'category_id' => $rule['category']->id,
+                    'percent' => $rule['percent'],
+                    'cap_cat' => $rule['cap_cat'] ?? null,
+                ], fn ($value): bool => $value !== null),
+                $rules,
+            ),
+        );
     }
 
     /** Đúng hai giao dịch trong báo cáo, mỗi giao dịch vào kỳ của chính nó. */

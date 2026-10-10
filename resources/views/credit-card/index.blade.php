@@ -1114,6 +1114,7 @@
 
     @once
         @include('credit-card.partials.money-js')
+        @include('credit-card.partials.search-js')
 
         <script>
             /**
@@ -1195,24 +1196,6 @@
             }
 
             /**
-             * Chuẩn hoá chuỗi để TÌM KIẾM: bỏ dấu, về chữ thường, gọn khoảng trắng.
-             *
-             * NFD tách dấu thanh khỏi nguyên âm rồi xoá khối combining marks; `đ`
-             * (U+0111) không tách được nên đổi tay, kể cả `Đ`. Nhờ vậy gõ "the vp"
-             * vẫn khớp "Thẻ VP" và gõ "ngan hang" khớp "Ngân hàng". Đây là nguồn
-             * DUY NHẤT cho ô tìm kiếm thẻ ở Tổng quan.
-             */
-            function ccNormalizeSearch(value) {
-                return String(value ?? '')
-                    .normalize('NFD')
-                    .replace(/[\u0300-\u036f]/g, '')
-                    .replace(/đ/g, 'd')
-                    .replace(/Đ/g, 'D')
-                    .toLowerCase()
-                    .trim();
-            }
-
-            /**
              * Tổng quan + nhập giao dịch.
              *
              * Controller KHÔNG orchestration gì ở đây: mọi quyết định nghiệp vụ
@@ -1281,15 +1264,12 @@
                         return ccNormalizeSearch(el?.dataset?.cardSearch).includes(keyword);
                     },
 
-                    /** Số dòng thẻ đang khớp từ khoá — để hiện empty state. */
+                    /** Số dòng thẻ đang khớp từ khoá — để hiện empty state. Đếm qua
+                     *  `ccCardSearchMatchCount` dùng chung với Quản lý thẻ và Sao kê
+                     *  (testid dòng `card-row`), bọc `this` để helper gọi `cardMatches`
+                     *  của chính component này. */
                     get cardMatchCount() {
-                        const list = this.$refs?.cardList ?? null;
-
-                        if (list === null) return 0;
-
-                        return Array.from(list.querySelectorAll('[data-testid="card-row"]'))
-                            .filter((row) => this.cardMatches(row))
-                            .length;
+                        return ccCardSearchMatchCount(this, 'card-row');
                     },
 
                     formOpen: false,

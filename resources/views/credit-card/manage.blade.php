@@ -147,9 +147,39 @@
                     <p class="text-xs text-gray-400 mt-1">Bấm nút “+ Thêm thẻ” để bắt đầu.</p>
                 </div>
             @else
-                <ul class="space-y-3">
+                {{-- ═══ TÌM KIẾM THẺ ═══
+                     Lọc CLIENT-SIDE trên danh sách thẻ server đã sắp (theo thứ tự đang
+                     chọn) — KHÔNG gọi mạng, KHÔNG đổi thứ tự. Rỗng ⇒ hiện đủ như trước.
+                     Khớp tên HOẶC ngân hàng, bỏ dấu — cùng `ccNormalizeSearch` với Tổng
+                     quan và Sao kê. Chỉ hiện khi có thẻ để tránh ô vô dụng khi rỗng. --}}
+                <div class="pb-3">
+                    <label class="relative block">
+                        <span class="sr-only">Tìm thẻ tín dụng</span>
+                        <span class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                            <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                <path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clip-rule="evenodd" />
+                            </svg>
+                        </span>
+                        <input type="search"
+                               inputmode="search"
+                               x-model="cardQuery"
+                               data-testid="card-search-input"
+                               placeholder="Tìm tên thẻ hoặc ngân hàng..."
+                               class="w-full h-11 pl-10 pr-3 rounded-xl border border-gray-200 bg-white text-base sm:text-sm text-gray-800 placeholder:text-gray-400 focus:border-emerald-500 focus:ring-emerald-500">
+                    </label>
+                </div>
+
+                {{-- `x-ref="cardList"` là container `ccCardSearchMatchCount` đọc để
+                     đếm dòng khớp — phải bọc đúng danh sách dòng thẻ (`data-testid`
+                     "card-row"), nếu không empty state đếm nhầm. --}}
+                <ul class="space-y-3" x-ref="cardList">
                     @foreach ($userCreditCards as $card)
-                        <li class="rounded-xl border border-gray-200 p-4 space-y-3">
+                        {{-- `data-card-search` server in sẵn = `ccNormalizeSearch(name + ' ' + bank)`,
+                             `x-show` đọc chính attribute đó — không tự nối lại trong JS. --}}
+                        <li data-testid="card-row"
+                            data-card-search="{{ mb_strtolower(\Illuminate\Support\Str::ascii(($card->name ?: 'Thẻ tín dụng').' '.($card->bank?->name ?? ''))) }}"
+                            x-show="cardMatches($el)"
+                            class="rounded-xl border border-gray-200 p-4 space-y-3">
                             {{-- Tên + ngân hàng --}}
                             <div class="flex items-start justify-between gap-2 min-w-0">
                                 <div class="min-w-0">
@@ -239,6 +269,15 @@
                             </dl>
                         </li>
                     @endforeach
+
+                    {{-- Không có thẻ nào khớp từ khoá (chỉ hiện khi đang gõ từ khoá,
+                         không hiện lúc danh sách đầy đủ). --}}
+                    <li x-show="cardQuery.trim() !== '' && cardMatchCount === 0"
+                        x-cloak
+                        data-testid="card-search-empty"
+                        class="px-4 py-8 text-center text-sm text-gray-500">
+                        Không tìm thấy thẻ phù hợp
+                    </li>
                 </ul>
             @endif
 
@@ -697,6 +736,9 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
     @once
         {{-- `ccMoney()` / `ccNumber()` dùng chung với Tổng quan — xem partial. --}}
         @include('credit-card.partials.money-js')
+        {{-- `ccNormalizeSearch()` / `ccCardSearchMatchCount()` dùng chung với
+             Tổng quan và Sao kê — xem partial. --}}
+        @include('credit-card.partials.search-js')
 
         <script>
             /**
@@ -837,6 +879,26 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                     busy: false,
                     error: '',
                     notice: '',
+
+                    // Ô tìm kiếm thẻ ở Quản lý thẻ. Lọc CLIENT-SIDE trên danh sách server
+                    // đã sắp (xem `CreditCardCardSortService`): rỗng ⇒ hiện tất cả, gõ ⇒
+                    // khớp tên HOẶC ngân hàng, bỏ dấu, không đổi thứ tự, không gọi mạng.
+                    // Cùng convention với Tổng quan (`index.blade.php`) và Sao kê.
+                    cardQuery: '',
+
+                    /** Dòng thẻ có khớp từ khoá không — dùng chung `ccNormalizeSearch`. */
+                    cardMatches(el) {
+                        const keyword = ccNormalizeSearch(this.cardQuery);
+
+                        if (keyword === '') return true;
+
+                        return ccNormalizeSearch(el?.dataset?.cardSearch).includes(keyword);
+                    },
+
+                    /** Số dòng thẻ đang khớp từ khoá — để hiện empty state. */
+                    get cardMatchCount() {
+                        return ccCardSearchMatchCount(this, 'card-row');
+                    },
 
                     isFirst(cardId) {
                         return this.cardsIndex(cardId) === 0;
