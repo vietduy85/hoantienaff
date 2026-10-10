@@ -114,6 +114,8 @@ class OverviewCardSearchAndQualificationStatusTest extends TestCase
     #[Test]
     public function the_refresh_payload_carries_the_met_flag_so_the_label_can_flip(): void
     {
+        $this->actingAs($this->owner);
+
         $card = $this->makeUserCard($this->owner->id);
         $this->makePolicy($card);
         $this->makeOpenPeriod($card);
@@ -251,8 +253,8 @@ class OverviewCardSearchAndQualificationStatusTest extends TestCase
 
         // Lọc là việc của trình duyệt: server LUÔN render đủ mọi thẻ và bốn chỉ
         // số tổng hợp không được lọc theo từ khoá.
-        preg_match_all('/data-testid="card-row"/', $html, $rows);
-        $this->assertCount(2, $rows[0]);
+        preg_match_all('/data-testid="card-row"\s+data-card-id="(\d+)"/', $html, $rows);
+        $this->assertCount(2, $rows[1]);
 
         $summary = $this->metricsOf($html);
         $this->assertCount(2, $summary);

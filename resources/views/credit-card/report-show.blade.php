@@ -19,9 +19,31 @@
     ---------------------------------------------------------------------------
     BẢNG THEO DANH MỤC: THANH CUỘN RIÊNG
     ---------------------------------------------------------------------------
-    Bảng có 1 + 2×N cột (N = số thẻ) nên rộng hơn màn hình điện thoại. Nó nằm
-    trong khung `overflow-x-auto` riêng để cuộn ngang mà không kéo cả trang, và cột
-    "Danh mục" dính bên trái để vẫn đọc được tên khi cuộn tới cột thẻ cuối.
+    Bảng có 4 + 2×N cột (N = số thẻ) — 4 cột tổng hợp (Danh mục, Tổng chi tiêu,
+    Tổng cashback, Tỷ lệ) rồi tới từng cặp cột của mỗi thẻ. Rộng hơn màn hình
+    điện thoại nên nằm trong khung `overflow-x-auto` riêng để cuộn ngang mà không
+    kéo cả trang, và cột "Danh mục" dính bên trái để vẫn đọc được tên khi cuộn
+    tới cột thẻ cuối.
+
+    Cột "Danh mục" lấy độ rộng từ MỘT chỗ duy nhất: `<colgroup>` với cột tên
+    `min-w-[180px] sm:min-w-[240px]` (để lại ít nhất ~1.5 từ nếu tên dài, như
+    "Đi lại & di chuyển" chỉ xuống dòng 1 lần thay vì bẻ vụn) và các cột còn lại
+    `min-w-[110px]` để không bao giờ nén mạnh. Nhờ đặt ở cấp `<col>` nên header
+    (rowspan=2), từng dòng và cả hai dòng tổng thẳng cột mà KHÔNG cần lặp class
+    trên mỗi ô; các ô tiền/tỷ lệ vẫn `whitespace-nowrap` nên số không dính vào
+    nhau hay bị ép bé. Tên danh mục được `break-words` để xuống dòng tại khoảng
+    trắng thay vì vỡ từ. Nhãn dòng tổng ("Tổng theo thẻ"/"Tổng tất cả") thêm
+    `whitespace-nowrap` để giữ trên một dòng khi khung hẹp.
+
+    ---------------------------------------------------------------------------
+    SẮP XẾP CỘT (THEO THẺ LẪN THEO DANH MỤC)
+    ---------------------------------------------------------------------------
+    Header "Chi tiêu"/"Cashback"/"Tỷ lệ" (x. `sortable-header-cell`) gửi
+    `?sort=&dir=`; controller `CreditCardSort::applyRows()` chỉ đổi THỨ TỰ dòng
+    trên chính `rows` của service rồi truyền xuống — nên trang xem và file Excel
+    xuất ra luôn cùng thứ tự. Nhấn lại cột đang active thì đảo chiều, nhấn cột mới
+    mặc định asc; "—" (chi tiêu 0) luôn cuối. Dòng tổng nằm ở `tfoot` nên không
+    bao giờ bị đảo.
 --}}
 @php
     $isByCategory = $data['mode'] === 'by_category';
@@ -35,12 +57,29 @@
         <div class="flex flex-wrap items-center justify-between gap-2">
             <a href="{{ route('credit-cards.reports') }}"
                class="text-sm text-gray-500 hover:text-gray-700">← Danh sách báo cáo</a>
-            <a href="{{ route('credit-cards.reports.edit', ['report' => $report->id]) }}"
-               data-testid="report-edit-link"
-               class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50">
-                Sửa báo cáo
-            </a>
+            <div class="flex items-center gap-2">
+                @if ($cards->isNotEmpty())
+                    <a href="{{ route('credit-cards.reports.export', ['report' => $report->id, 'period' => $periodKey] + ($sortKey ? ['sort' => $sortKey, 'dir' => $sortDir] : [])) }}"
+                       data-testid="report-export-link"
+                       onclick="this.classList.add('pointer-events-none','opacity-60'); this.textContent='Đang tạo…';"
+                       class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100">
+                        Xuất Excel
+                    </a>
+                @endif
+                <a href="{{ route('credit-cards.reports.edit', ['report' => $report->id]) }}"
+                   data-testid="report-edit-link"
+                   class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50">
+                    Sửa báo cáo
+                </a>
+            </div>
         </div>
+
+        @if (session('error'))
+            <div class="rounded-2xl bg-rose-50 border border-rose-200 p-4 text-sm text-rose-700" role="alert"
+                 data-testid="report-export-error">
+                {{ session('error') }}
+            </div>
+        @endif
 
         @if ($errors->any())
             <div class="rounded-2xl bg-rose-50 border border-rose-200 p-4 text-sm text-rose-700" role="alert">
@@ -88,6 +127,10 @@
                                 </button>
                             </noscript>
                         </div>
+                        @if ($sortKey)
+                            <input type="hidden" name="sort" value="{{ $sortKey }}">
+                            <input type="hidden" name="dir" value="{{ $sortDir }}">
+                        @endif
                     </form>
                 @endif
             </div>
@@ -117,10 +160,11 @@
                     <table class="w-full text-sm">
                         <thead>
                             <tr class="text-left text-xs uppercase tracking-wide text-gray-500 border-b border-gray-100">
-                                <th class="px-4 sm:px-5 py-2.5 font-semibold">Thẻ</th>
-                                <th class="px-4 sm:px-5 py-2.5 font-semibold whitespace-nowrap">Kỳ sao kê</th>
-                                <th class="px-4 sm:px-5 py-2.5 font-semibold text-right whitespace-nowrap">Chi tiêu</th>
-                                <th class="px-4 sm:px-5 py-2.5 font-semibold text-right whitespace-nowrap">Cashback</th>
+                                <th data-testid="by-card-col-card" class="px-4 sm:px-5 py-2.5 font-semibold">Thẻ</th>
+                                @include('credit-card.partials.sortable-header-cell', ['label' => 'Chi tiêu', 'key' => 'spend', 'prefix' => 'by-card', 'right' => true])
+                                @include('credit-card.partials.sortable-header-cell', ['label' => 'Cashback', 'key' => 'cashback', 'prefix' => 'by-card', 'right' => true])
+                                @include('credit-card.partials.sortable-header-cell', ['label' => 'Tỷ lệ', 'key' => 'percent', 'prefix' => 'by-card', 'right' => true])
+                                <th data-testid="by-card-col-period" class="px-4 sm:px-5 py-2.5 font-semibold whitespace-nowrap">Kỳ sao kê</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-50">
@@ -135,6 +179,18 @@
                                             @endif
                                         </p>
                                     </td>
+                                    <td class="px-4 sm:px-5 py-3 text-right font-semibold text-gray-800 whitespace-nowrap"
+                                        data-testid="by-card-spend-{{ $row['card_id'] }}">
+                                        <x-credit-card.money :value="$row['spend']" />
+                                    </td>
+                                    <td class="px-4 sm:px-5 py-3 text-right font-semibold text-emerald-600 whitespace-nowrap"
+                                        data-testid="by-card-cashback-{{ $row['card_id'] }}">
+                                        <x-credit-card.money :value="$row['cashback']" />
+                                    </td>
+                                    <td class="px-4 sm:px-5 py-3 text-right font-medium text-gray-600 whitespace-nowrap"
+                                        data-testid="by-card-percent-{{ $row['card_id'] }}">
+                                        <x-credit-card.percent :value="$row['percent']" />
+                                    </td>
                                     <td class="px-4 sm:px-5 py-3 text-gray-600 whitespace-nowrap">
                                         @if ($row['has_period'])
                                             <span data-testid="by-card-period-{{ $row['card_id'] }}">{{ $row['period_label'] }}</span>
@@ -145,26 +201,22 @@
                                             <span class="text-gray-400">Kỳ này không nằm trong khoảng của thẻ</span>
                                         @endif
                                     </td>
-                                    <td class="px-4 sm:px-5 py-3 text-right font-semibold text-gray-800 whitespace-nowrap"
-                                        data-testid="by-card-spend-{{ $row['card_id'] }}">
-                                        <x-credit-card.money :value="$row['spend']" />
-                                    </td>
-                                    <td class="px-4 sm:px-5 py-3 text-right font-semibold text-emerald-600 whitespace-nowrap"
-                                        data-testid="by-card-cashback-{{ $row['card_id'] }}">
-                                        <x-credit-card.money :value="$row['cashback']" />
-                                    </td>
                                 </tr>
                             @endforeach
                         </tbody>
                         <tfoot>
                             <tr class="border-t border-gray-200 bg-gray-50 font-bold text-gray-800">
-                                <td class="px-4 sm:px-5 py-3" colspan="2">Tổng tất cả thẻ đã chọn</td>
+                                <td class="px-4 sm:px-5 py-3">Tổng tất cả thẻ đã chọn</td>
                                 <td class="px-4 sm:px-5 py-3 text-right whitespace-nowrap" data-testid="by-card-total-spend">
                                     <x-credit-card.money :value="$data['total_spend']" />
                                 </td>
                                 <td class="px-4 sm:px-5 py-3 text-right text-emerald-700 whitespace-nowrap" data-testid="by-card-total-cashback">
                                     <x-credit-card.money :value="$data['total_cashback']" />
                                 </td>
+                                <td class="px-4 sm:px-5 py-3 text-right whitespace-nowrap" data-testid="by-card-total-percent">
+                                    <x-credit-card.percent :value="$data['total_percent']" />
+                                </td>
+                                <td></td>
                             </tr>
                         </tfoot>
                     </table>
@@ -184,15 +236,23 @@
 
                 <div class="overflow-x-auto">
                     <table class="w-full text-sm">
+                        <colgroup>
+                            <col class="min-w-[180px] sm:min-w-[240px]">
+                            <col span="{{ 3 + count($data['columns']) * 2 }}" class="min-w-[110px]">
+                        </colgroup>
                         <thead>
-                            {{-- Hàng 1: tên thẻ, mỗi thẻ trải 2 cột --}}
+                            {{-- Hàng 1: 3 cột tổng hợp + tên thẻ (mỗi thẻ trải 2 cột) --}}
                             <tr class="text-left text-xs uppercase tracking-wide text-gray-500 border-b border-gray-100">
-                                <th rowspan="2"
-                                    class="sticky left-0 z-10 bg-white px-4 sm:px-5 py-2.5 font-semibold text-left align-bottom">
+                                <th rowspan="2" data-testid="category-col-name"
+                                    class="sticky left-0 z-10 bg-white px-4 sm:px-5 py-2.5 font-semibold text-left align-bottom whitespace-nowrap">
                                     Danh mục
                                 </th>
+                                @include('credit-card.partials.sortable-header-cell', ['label' => 'Tổng chi tiêu', 'key' => 'spend', 'prefix' => 'category', 'right' => true, 'tight' => true, 'rowspan' => 2])
+                                @include('credit-card.partials.sortable-header-cell', ['label' => 'Tổng cashback', 'key' => 'cashback', 'prefix' => 'category', 'right' => true, 'tight' => true, 'rowspan' => 2])
+                                @include('credit-card.partials.sortable-header-cell', ['label' => 'Tỷ lệ', 'key' => 'percent', 'prefix' => 'category', 'right' => true, 'tight' => true, 'rowspan' => 2])
                                 @foreach ($data['columns'] as $column)
-                                    <th colspan="2" class="px-3 py-2 font-semibold text-center border-l border-gray-100 min-w-[180px]">
+                                    <th colspan="2" data-testid="category-card-col-{{ $column['card_id'] }}"
+                                        class="px-3 py-2 font-semibold text-center border-l border-gray-100 min-w-[180px]">
                                         <span class="block text-gray-700 normal-case">{{ $column['name'] }}</span>
                                         <span class="block text-[10px] font-normal normal-case text-gray-400">
                                             {{ $column['bank'] ?? 'Không rõ ngân hàng' }}@if ($column['last4']) · •••• {{ $column['last4'] }}@endif
@@ -218,8 +278,20 @@
                                 @php $rowKey = $row['category_id'] ?? 'uncategorized'; @endphp
                                 <tr data-testid="category-row-{{ $rowKey }}"
                                     class="{{ $row['is_uncategorized'] ? 'bg-gray-50/60' : '' }}">
-                                    <td class="sticky left-0 z-10 {{ $row['is_uncategorized'] ? 'bg-gray-50' : 'bg-white' }} px-4 sm:px-5 py-3">
-                                        <span class="font-medium text-gray-800">{{ $row['name'] }}</span>
+<td class="sticky left-0 z-10 {{ $row['is_uncategorized'] ? 'bg-gray-50' : 'bg-white' }} px-4 sm:px-5 py-3">
+                                            <span class="font-medium text-gray-800 break-words">{{ $row['name'] }}</span>
+                                        </td>
+                                    <td class="px-3 py-3 text-right font-semibold text-gray-800 whitespace-nowrap border-l border-gray-100"
+                                        data-testid="category-row-{{ $rowKey }}-spend-total">
+                                        <x-credit-card.money :value="$row['spend_total']" />
+                                    </td>
+                                    <td class="px-3 py-3 text-right font-semibold text-emerald-600 whitespace-nowrap"
+                                        data-testid="category-row-{{ $rowKey }}-cashback-total">
+                                        <x-credit-card.money :value="$row['cashback_total']" />
+                                    </td>
+                                    <td class="px-3 py-3 text-right font-medium text-gray-600 whitespace-nowrap"
+                                        data-testid="category-row-{{ $rowKey }}-percent">
+                                        <x-credit-card.percent :value="$row['percent']" />
                                     </td>
                                     @foreach ($data['columns'] as $column)
                                         @php
@@ -238,7 +310,7 @@
                             @empty
                                 <tr>
                                     <td class="px-4 sm:px-5 py-6 text-sm text-gray-500"
-                                        colspan="{{ 1 + count($data['columns']) * 2 }}">
+                                        colspan="{{ 4 + count($data['columns']) * 2 }}">
                                         Kỳ này chưa có giao dịch nào.
                                     </td>
                                 </tr>
@@ -248,7 +320,16 @@
                         <tfoot>
                             {{-- Tổng theo cột (mỗi thẻ) — cộng cả dòng "Chưa phân loại" --}}
                             <tr class="border-t border-gray-200 bg-gray-50 font-semibold text-gray-800">
-                                <td class="sticky left-0 z-10 bg-gray-50 px-4 sm:px-5 py-3">Tổng theo thẻ</td>
+                                <td class="sticky left-0 z-10 bg-gray-50 px-4 sm:px-5 py-3 whitespace-nowrap">Tổng theo thẻ</td>
+                                <td class="px-3 py-3 text-right whitespace-nowrap border-l border-gray-100" data-testid="card-total-spend">
+                                    <x-credit-card.money :value="$data['grand']['spend']" />
+                                </td>
+                                <td class="px-3 py-3 text-right text-emerald-700 whitespace-nowrap" data-testid="card-total-cashback">
+                                    <x-credit-card.money :value="$data['grand']['cashback']" />
+                                </td>
+                                <td class="px-3 py-3 text-right whitespace-nowrap" data-testid="card-total-percent">
+                                    <x-credit-card.percent :value="$data['grand']['percent']" />
+                                </td>
                                 @foreach ($data['columns'] as $column)
                                     @php $t = $data['card_totals'][$column['card_id']] ?? ['spend' => '0.00', 'cashback' => '0.00']; @endphp
                                     <td class="px-3 py-3 text-right whitespace-nowrap border-l border-gray-100"
@@ -263,15 +344,24 @@
                             </tr>
                             {{-- Tổng tất cả: gộp mọi thẻ và mọi danh mục --}}
                             <tr class="bg-gray-100 font-bold text-gray-900">
-                                <td class="sticky left-0 z-10 bg-gray-100 px-4 sm:px-5 py-3">
-                                    Tổng tất cả: <span class="text-emerald-700"><x-credit-card.money :value="$data['grand']['spend']" /></span> chi tiêu
+                                <td class="sticky left-0 z-10 bg-gray-100 px-4 sm:px-5 py-3 whitespace-nowrap">Tổng tất cả</td>
+                                <td class="px-3 py-3 text-right whitespace-nowrap border-l border-gray-100" data-testid="grand-row-spend">
+                                    <x-credit-card.money :value="$data['grand']['spend']" />
+                                </td>
+                                <td class="px-3 py-3 text-right text-emerald-700 whitespace-nowrap" data-testid="grand-row-cashback">
+                                    <x-credit-card.money :value="$data['grand']['cashback']" />
+                                </td>
+                                <td class="px-3 py-3 text-right whitespace-nowrap" data-testid="grand-row-percent">
+                                    <x-credit-card.percent :value="$data['grand']['percent']" />
                                 </td>
                                 @foreach ($data['columns'] as $column)
                                     @php $t = $data['card_totals'][$column['card_id']] ?? ['spend' => '0.00', 'cashback' => '0.00']; @endphp
-                                    <td class="px-3 py-3 text-right whitespace-nowrap border-l border-gray-100">
+                                    <td class="px-3 py-3 text-right whitespace-nowrap border-l border-gray-100"
+                                        data-testid="grand-card-{{ $column['card_id'] }}-spend">
                                         <x-credit-card.money :value="$t['spend']" />
                                     </td>
-                                    <td class="px-3 py-3 text-right text-emerald-700 whitespace-nowrap">
+                                    <td class="px-3 py-3 text-right text-emerald-700 whitespace-nowrap"
+                                        data-testid="grand-card-{{ $column['card_id'] }}-cashback">
                                         <x-credit-card.money :value="$t['cashback']" />
                                     </td>
                                 @endforeach
@@ -289,6 +379,10 @@
                     <p class="text-sm text-gray-600">
                         Tổng cashback:
                         <span class="font-bold text-emerald-700" data-testid="grand-cashback"><x-credit-card.money :value="$data['grand']['cashback']" /></span>
+                    </p>
+                    <p class="text-sm text-gray-600">
+                        Tỷ lệ Cashback/Chi tiêu:
+                        <span class="font-bold text-gray-900" data-testid="grand-percent"><x-credit-card.percent :value="$data['grand']['percent']" /></span>
                     </p>
                 </div>
             </div>

@@ -16,6 +16,7 @@ use App\Services\CreditCard\CategoryRuleService;
 use App\Services\CreditCard\CreditCardOverviewService;
 use App\Services\CreditCard\CreditCardTransactionService;
 use App\Services\CreditCard\StatementPeriodService;
+use App\Services\CreditCard\TierService;
 use Carbon\CarbonImmutable;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Concerns\InteractsWithCreditCardDatabase;
@@ -1068,6 +1069,169 @@ class CashbackQuotaTest extends TestCase
     }
 
     // =====================================================================
+    // 8. SỐ ĐÃ LƯU (snapshot) là chân lý khi engine đã trả thật — không dự kiến
+    //    lại theo tỷ lệ bậc đích. Ca siêu thị: 138.300đ bị trần MỖI GIAO DỊCH
+    //    10.000đ ⇒ phải báo 10.000đ, KHÔNG phải 27.660đ (138.300 × 20%).
+    // =====================================================================
+
+    #[Test]
+    public function a_transaction_capped_below_the_target_rate_is_counted_as_the_saved_cashback(): void
+    {
+        $supermarket = $this->makeSystemCategory(['name' => 'Siêu thị']);
+
+        $card = $this->cardWithTiersAndRules('1000000', [[
+            'name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => '1000000.00',
+            'transaction_caps' => [
+                ['min_transaction_amount' => '0', 'max_transaction_amount' => null, 'max_cashback_per_transaction' => '10000.00'],
+            ],
+        ]], [
+            $this->categoryRule($supermarket, percent: '20.000', capCategory: '200000.00', quota: true),
+        ]);
+
+        $this->spend($card, $supermarket, '138300');
+
+        $quota = $this->quotaOf($card);
+        $rule = $this->ruleFor($quota, 'category_id', (int) $supermarket->id);
+
+        // Đọc số engine ĐÃ GHI (10.000), không dự kiến lại 138.300 × 20% = 27.660.
+        $this->assertSame('10000.00', $rule['cashback_used']);
+        $this->assertSame('10000.00', $rule['cashback_used_display']);
+        $this->assertSame('138300.00', $rule['scope_spend']);
+    }
+
+    #[Test]
+    public function used_and_remaining_follow_the_saved_cashback_on_a_capped_transaction(): void
+    {
+        $supermarket = $this->makeSystemCategory(['name' => 'Siêu thị']);
+
+        $card = $this->cardWithTiersAndRules('1000000', [[
+            'name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => '1000000.00',
+            'transaction_caps' => [
+                ['min_transaction_amount' => '0', 'max_transaction_amount' => null, 'max_cashback_per_transaction' => '10000.00'],
+            ],
+        ]], [
+            $this->categoryRule($supermarket, percent: '20.000', capCategory: '200000.00', quota: true),
+        ]);
+
+        $this->spend($card, $supermarket, '138300');
+
+        $quota = $this->quotaOf($card);
+        $rule = $this->ruleFor($quota, 'category_id', (int) $supermarket->id);
+
+        $this->assertSame('10000.00', $quota['tier_cashback_used']);
+        $this->assertSame('990000.00', $quota['tier_cashback_remaining']);
+        // Snapshot đã phản ánh đủ ⇒ không còn phần dự kiến nào bị trừ hai lần.
+        $this->assertSame('0.00', $quota['tier_cashback_projected']);
+
+        // MIN(trần riêng còn 190.000, trần chung còn 990.000) = 190.000 ⇒ 20% ra 950.000.
+        $this->assertSame('190000.00', $rule['cashback_available_for_rule']);
+        $this->assertSame('950000.00', $rule['spend_remaining_estimate']);
+        $this->assertFalse($rule['is_exhausted']);
+    }
+
+    #[Test]
+    public function the_quota_scope_covers_the_same_current_period_as_the_overview(): void
+    {
+        $shopee = $this->makeSystemCategory(['name' => 'Shopee']);
+        $card = $this->singleTierCard($shopee, '10.000');
+
+        $this->spend($card, $shopee, '500000');
+
+        $overview = app(CreditCardOverviewService::class)->forPage($this->owner->id);
+        $cardOverview = $overview['cards'][(int) $card->id];
+        $rule = $this->ruleFor($cardOverview['quota'], 'category_id', (int) $shopee->id);
+
+        // Cùng một định nghĩa "kỳ hiện tại" (suy từ anchor, lọc `transaction_date`).
+        $this->assertSame('500000.00', $rule['scope_spend']);
+        $this->assertSame($cardOverview['spent'], $rule['scope_spend']);
+    }
+
+    #[Test]
+    public function a_card_without_a_matching_statement_period_record_still_reports_its_quota(): void
+    {
+        $shopee = $this->makeSystemCategory(['name' => 'Shopee']);
+        $card = $this->singleTierCard($shopee, '10.000');
+
+        $transaction = $this->spend($card, $shopee, '500000');
+
+        // Mô phỏng bản ghi `statement_periods` thiếu/lệch ranh giới: giao dịch
+        // không gắn kỳ nào. Quota vẫn phải tính theo khoảng NGÀY, không theo id kỳ.
+        $transaction->forceFill(['statement_period_id' => null])->save();
+
+        $rule = $this->ruleFor($this->quotaOf($card), 'category_id', (int) $shopee->id);
+
+        $this->assertSame('500000.00', $rule['scope_spend']);
+        $this->assertSame('50000.00', $rule['cashback_used']);
+    }
+
+    #[Test]
+    public function two_transactions_in_the_same_category_are_summed_exactly_once(): void
+    {
+        $shopee = $this->makeSystemCategory(['name' => 'Shopee']);
+        $card = $this->singleTierCard($shopee, '10.000');
+
+        $this->spend($card, $shopee, '100000');
+        $this->spend($card, $shopee, '100000');
+
+        $rule = $this->ruleFor($this->quotaOf($card), 'category_id', (int) $shopee->id);
+
+        $this->assertSame('200000.00', $rule['scope_spend']);
+        $this->assertSame('20000.00', $rule['cashback_used']);
+        $this->assertSame('20000.00', $rule['cashback_used_display']);
+    }
+
+    #[Test]
+    public function a_transaction_outside_the_current_period_is_not_counted_in_the_quota(): void
+    {
+        $shopee = $this->makeSystemCategory(['name' => 'Shopee']);
+        $card = $this->singleTierCard($shopee, '10.000');
+
+        $this->spend($card, $shopee, '500000');
+
+        [$start] = app(StatementPeriodService::class)->currentBoundaries($card, CarbonImmutable::now());
+
+        app(CreditCardTransactionService::class)->create($card, [
+            'transaction_date' => $start->subDays(10)->toDateString(),
+            'amount' => '300000',
+            'category_id' => $shopee->id,
+        ]);
+
+        $rule = $this->ruleFor($this->quotaOf($card), 'category_id', (int) $shopee->id);
+
+        // Chỉ giao dịch trong kỳ hiện tại vào quota; giao dịch kỳ trước bị loại.
+        $this->assertSame('500000.00', $rule['scope_spend']);
+        $this->assertSame('50000.00', $rule['cashback_used']);
+    }
+
+    #[Test]
+    public function other_quota_categories_keep_their_own_used_and_limits(): void
+    {
+        $shopee = $this->makeSystemCategory(['name' => 'Shopee']);
+        $lazada = $this->makeSystemCategory(['name' => 'Lazada']);
+
+        $card = $this->cardWithTiersAndRules('1000000', [[
+            'name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => '1000000.00',
+        ]], [
+            $this->categoryRule($shopee, percent: '10.000', capCategory: '100000.00', quota: true, sortOrder: 0),
+            $this->categoryRule($lazada, percent: '5.000', capCategory: '50000.00', quota: true, sortOrder: 1),
+        ]);
+
+        $this->spend($card, $shopee, '500000');
+
+        $quota = $this->quotaOf($card);
+        $shopeeRule = $this->ruleFor($quota, 'category_id', (int) $shopee->id);
+        $lazadaRule = $this->ruleFor($quota, 'category_id', (int) $lazada->id);
+
+        $this->assertSame('50000.00', $shopeeRule['cashback_used']);
+        $this->assertSame('50000.00', $shopeeRule['cashback_used_display']);
+
+        // Danh mục chưa chi giữ nguyên 0 đã dùng và trần riêng của chính nó.
+        $this->assertSame('0.00', $lazadaRule['cashback_used']);
+        $this->assertSame('0.00', $lazadaRule['scope_spend']);
+        $this->assertSame('50000.00', $lazadaRule['cashback_max']);
+    }
+
+    // =====================================================================
     // Fixture
     // =====================================================================
 
@@ -1105,6 +1269,10 @@ class CashbackQuotaTest extends TestCase
                 'max_total_spend' => $tier['max'] ?? null,
                 'max_cashback_per_period' => $tier['cap_period'] ?? null,
             ]);
+
+            if (! empty($tier['transaction_caps'])) {
+                app(TierService::class)->syncTransactionCaps($tierModel, $tier['transaction_caps']);
+            }
 
             foreach (array_values($rules) as $sortOrder => $rule) {
                 if (isset($rule['only_tier']) && $rule['only_tier'] !== $index) {

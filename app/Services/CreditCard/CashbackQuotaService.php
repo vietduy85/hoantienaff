@@ -144,10 +144,11 @@ class CashbackQuotaService
      * Quota của nhiều thẻ, khoá theo `user_card_id`.
      *
      * @param  Collection<int, UserCard>  $cards
-     * @param  Collection<int, StatementPeriod>  $periods  kỳ hiện tại, đã lọc `open` + chứa hôm nay
+     * @param  Collection<int, StatementPeriod>  $periods  kỳ hiện tại (có thể rỗng đối với thẻ không có record khớp)
+     * @param  array<int, array{0: CarbonImmutable, 1: CarbonImmutable}>  $boundsByCard  ranh giới [start, end] theo anchor từng thẻ
      * @return array<int, array<string, mixed>>
      */
-    public function forCards(Collection $cards, Collection $periods): array
+    public function forCards(Collection $cards, Collection $periods, array $boundsByCard = []): array
     {
         if ($cards->isEmpty()) {
             return [];
@@ -168,7 +169,7 @@ class CashbackQuotaService
 
         $rulesByTier = $this->rulesByTier($tierIds);
         $membersByCombo = $this->comboMembers($rulesByTier);
-        $totals = $this->periodTotals($periods->pluck('id')->map(fn ($id): int => (int) $id)->all());
+        $totals = $this->periodTotals($periods->pluck('id')->map(fn ($id): int => (int) $id)->all(), $boundsByCard);
 
         $result = [];
 
@@ -177,11 +178,11 @@ class CashbackQuotaService
             $tier = $tiersByCard[$cardId] ?? null;
 
             $result[$cardId] = $this->quotaOfCard(
-                $periodByCard->get($cardId),
                 $tier,
                 $tier === null ? collect() : ($rulesByTier[(int) $tier->id] ?? collect()),
                 $membersByCombo,
                 $totals,
+                $cardId,
             );
         }
 
@@ -192,6 +193,14 @@ class CashbackQuotaService
     // Quota của MỘT thẻ
     // =====================================================================
 
+    /** Thẻ đang được dựng quota — khoá để tra `$totals` gom theo THẺ (không theo kỳ). */
+    private ?int $contextCardId = null;
+
+    private function getContextCardId(): ?int
+    {
+        return $this->contextCardId;
+    }
+
     /**
      * @param  Collection<int, PolicyTierCategory>  $rules  rule đang bật của bậc đích
      * @param  array<int, array<int, int>>  $membersByCombo
@@ -199,13 +208,13 @@ class CashbackQuotaService
      * @return array<string, mixed>
      */
     private function quotaOfCard(
-        ?StatementPeriod $period,
         ?PolicyTier $tier,
         Collection $rules,
         array $membersByCombo,
         array $totals,
+        ?int $cardId = null,
     ): array {
-        $periodId = $period === null ? null : (int) $period->id;
+        $this->contextCardId = $cardId;
 
         $quotaRules = $rules
             ->filter(fn (PolicyTierCategory $rule): bool => $rule->isQuotaCategory())
@@ -232,7 +241,7 @@ class CashbackQuotaService
 
         $tierUsed = $this->sumOf(
             $totals['cashback'],
-            $periodId,
+            $this->getContextCardId(),
             array_map('intval', array_keys($quotaCategoryIds)),
         );
 
@@ -244,7 +253,7 @@ class CashbackQuotaService
         // chỗ ở TẦNG CHUNG, không chỉ ở từng dòng (xem docblock lớp: ví dụ
         // LPBank). `tier_cashback_used` giữ nguyên nghĩa lịch sử; hai con số
         // mới bên dưới là phần "sắp bị ăn" và phần chung còn lại sau đó.
-        $projectionByScope = $this->projectionByScope($quotaRules, $membersByCombo, $totals, $periodId);
+        $projectionByScope = $this->projectionByScope($quotaRules, $membersByCombo, $totals);
 
         $tierProjected = '0.00';
 
@@ -264,7 +273,6 @@ class CashbackQuotaService
                 $rules,
                 $membersByCombo,
                 $totals,
-                $periodId,
                 $tierMax,
                 $tierUsed,
                 $tierRemainingAfterProjection,
@@ -272,6 +280,8 @@ class CashbackQuotaService
                 $projectionByScope[$this->scopeKeyOf($rule)] ?? '0.00',
             );
         }
+
+        $this->contextCardId = null;
 
         return [
             'tier_id' => $tier === null ? null : (int) $tier->id,
@@ -322,7 +332,6 @@ class CashbackQuotaService
         Collection $siblingRules,
         array $membersByCombo,
         array $totals,
-        ?int $periodId,
         ?string $tierMax,
         string $tierUsed,
         ?string $tierRemainingAfterProjection,
@@ -331,8 +340,8 @@ class CashbackQuotaService
     ): array {
         $categoryIds = $this->categoryIdsOf($rule, $membersByCombo);
 
-        $used = $this->sumOf($totals['cashback'], $periodId, $categoryIds);
-        $scopeSpend = Decimal::clampZero($this->sumOf($totals['spend'], $periodId, $categoryIds));
+        $used = $this->sumOf($totals['cashback'], $this->getContextCardId(), $categoryIds);
+        $scopeSpend = Decimal::clampZero($this->sumOf($totals['spend'], $this->getContextCardId(), $categoryIds));
 
         // -----------------------------------------------------------------
         // Trần RIÊNG của rule.
@@ -404,11 +413,20 @@ class CashbackQuotaService
             ? Decimal::cashbackForSpend($scopeSpend, $rate)
             : '0.00';
 
-        // KHÔNG double-count: `available` đã trừ `used` rồi, nên chỉ trừ thêm
-        // phần cashback dự kiến mà snapshot CHƯA phản ánh. Khi `used` đã bằng
-        // (hoặc lớn hơn) dự kiến — tức engine đã trả đúng bằng tỷ lệ bậc đích —
-        // phần này là 0 và kết quả y hệt trước đây.
-        $unaccounted = Decimal::clampZero(Decimal::subtract($expectedFromSpend, $used));
+        // Engine đã THẬT SỰ trả cashback cho phạm vi này (snapshot > 0): lúc đó
+        // số ĐÃ LƯU là chân lý, không được dự kiến thêm — nếu không, giới hạn theo
+        // giao dịch của engine (vd siêu thị 138.300đ bị trần 10.000đ) sẽ bị tính
+        // lại thành 27.660đ và dòng quota nói sai số tiền thật.
+        //
+        // Chỉ khi engine CHƯA trả đồng nào (`used` = 0, người dùng đặt mục tiêu bậc
+        // cao nhưng engine còn chạy bậc thấp trả 0) mới phải dự kiến phần cashback
+        // đã ăn vào bậc đích mà snapshot không thấy. Khi đó `expected - used` là
+        // phần chưa phản ánh; mọi trường hợp còn lại bằng 0 và giữ nguyên kết quả cũ.
+        $hasRealCashback = Decimal::isPositive($used);
+
+        $unaccounted = $hasRealCashback
+            ? '0.00'
+            : Decimal::clampZero(Decimal::subtract($expectedFromSpend, $used));
 
         $room = $available === null
             ? null
@@ -436,9 +454,11 @@ class CashbackQuotaService
             default => $max ?? $tierMax,
         };
 
-        $usedForDisplay = $displayCap === null
-            ? $expectedFromSpend
-            : Decimal::min($expectedFromSpend, $displayCap);
+        $usedForDisplay = $hasRealCashback ? $used : $expectedFromSpend;
+
+        if ($displayCap !== null) {
+            $usedForDisplay = Decimal::min($usedForDisplay, $displayCap);
+        }
 
         $walk = $room === null
             ? ['spend' => null, 'reachable' => null]
@@ -834,27 +854,46 @@ class CashbackQuotaService
      * có tiền bằng 0 nên không ảnh hưởng.
      *
      * @param  array<int, int>  $periodIds
+     * @param  array<int, array{0: CarbonImmutable, 1: CarbonImmutable}>  $boundsByCard
      * @return array{cashback: array<string, string>, spend: array<string, string>}
      */
-    private function periodTotals(array $periodIds): array
+    private function periodTotals(array $periodIds, array $boundsByCard = []): array
     {
-        if ($periodIds === []) {
+        $useBounds = ! empty($boundsByCard);
+
+        if (! $useBounds && $periodIds === []) {
             return ['cashback' => [], 'spend' => []];
         }
 
         $transactions = (new Transaction)->getTable();
         $rules = (new PolicyTierCategory)->getTable();
 
-        $rows = Transaction::query()
+        $query = Transaction::query()
             ->leftJoin($rules.' as cc_rule', 'cc_rule.id', '=', $transactions.'.policy_tier_category_id')
-            ->whereIn($transactions.'.statement_period_id', $periodIds)
-            ->whereNotNull($transactions.'.category_id')
-            ->groupBy($transactions.'.statement_period_id', $transactions.'.category_id')
-            // MỘT lần gọi `select()` với mảng: gọi hai lần sẽ khiến lần sau GHI ĐÈ
-            // lần trước, và `statement_period_id` biến mất khỏi danh sách cột ⇒ mọi
-            // khoá tổng hoá thành `0:categoryId` và không khớp giao dịch nào.
+            ->whereNotNull($transactions.'.category_id');
+
+        if ($useBounds) {
+            $query->where(function ($q) use ($boundsByCard, $transactions): void {
+                foreach ($boundsByCard as $cardId => [$start, $end]) {
+                    $q->orWhere(function ($q) use ($transactions, $cardId, $start, $end): void {
+                        $q->where($transactions.'.user_card_id', (int) $cardId)
+                            ->whereDate($transactions.'.transaction_date', '>=', $start->toDateString())
+                            ->whereDate($transactions.'.transaction_date', '<=', $end->toDateString());
+                    });
+                }
+            });
+        } else {
+            $query->whereIn($transactions.'.statement_period_id', $periodIds);
+        }
+
+        // Gom theo THẺ + DANH MỤC (không theo `statement_period_id`): "kỳ hiện tại"
+        // được xác định bằng ranh giới `transaction_date` suy ra từ anchor của thẻ
+        // — cùng định nghĩa với Tổng quan/Báo cáo. Thẻ thiếu bản ghi kỳ khớp ranh
+        // giới vẫn ra đúng số vì không còn phụ thuộc bản ghi kỳ.
+        $rows = $query
+            ->groupBy($transactions.'.user_card_id', $transactions.'.category_id')
             ->select([
-                $transactions.'.statement_period_id',
+                $transactions.'.user_card_id',
                 $transactions.'.category_id',
             ])
             ->selectRaw('SUM('.$transactions.'.amount) as spend')
@@ -869,7 +908,7 @@ class CashbackQuotaService
         $spend = [];
 
         foreach ($rows as $row) {
-            $key = $this->periodCategoryKey((int) $row->statement_period_id, (int) $row->category_id);
+            $key = $this->cardCategoryKey((int) $row->user_card_id, (int) $row->category_id);
 
             $cashback[$key] = Decimal::money($row->cashback);
             $spend[$key] = Decimal::money($row->spend);
@@ -904,14 +943,14 @@ class CashbackQuotaService
      *
      * @return array<string, string>  scope key ⇒ cashback dự kiến chưa snapshot
      */
-    private function projectionByScope(Collection $quotaRules, array $membersByCombo, array $totals, ?int $periodId): array
+    private function projectionByScope(Collection $quotaRules, array $membersByCombo, array $totals): array
     {
         $projectionByScope = [];
 
         foreach ($quotaRules as $rule) {
             $categoryIds = $this->categoryIdsOf($rule, $membersByCombo);
-            $used = $this->sumOf($totals['cashback'], $periodId, $categoryIds);
-            $scopeSpend = Decimal::clampZero($this->sumOf($totals['spend'], $periodId, $categoryIds));
+            $used = $this->sumOf($totals['cashback'], $this->getContextCardId(), $categoryIds);
+            $scopeSpend = Decimal::clampZero($this->sumOf($totals['spend'], $this->getContextCardId(), $categoryIds));
 
             $rate = Decimal::money($rule->cashback_percent);
             $expected = Decimal::isPositive($rate)
@@ -925,10 +964,14 @@ class CashbackQuotaService
                 ? null
                 : Decimal::money($rule->max_cashback_per_category_per_period);
 
-            $projection = Decimal::clampZero(Decimal::subtract(
-                $cap === null ? $expected : Decimal::min($expected, $cap),
-                $used,
-            ));
+            // Engine đã trả thật cho scope này ⇒ phần dự kiến bằng 0: số ĐÃ LƯU đã
+            // ăn vào bậc đích, dự kiến thêm nữa là double-count.
+            $projection = Decimal::isPositive($used)
+                ? '0.00'
+                : Decimal::clampZero(Decimal::subtract(
+                    $cap === null ? $expected : Decimal::min($expected, $cap),
+                    $used,
+                ));
 
             // MAX trong scope, không cộng dồn: nhiều dải rate tick quota cùng
             // một danh mục/combo thì mỗi đồng chi tiêu chỉ được dự kiến MỘT lần.
@@ -949,29 +992,23 @@ class CashbackQuotaService
             : 'category:'.(int) $rule->category_id;
     }
 
-    /**
-     * Cộng một bảng tổng sẵn gom trên các danh mục của phạm vi.
-     *
-     * @param  array<string, string>  $table
-     * @param  array<int, int>  $categoryIds
-     */
-    private function sumOf(array $table, ?int $periodId, array $categoryIds): string
+    private function sumOf(array $table, ?int $cardId, array $categoryIds): string
     {
-        if ($periodId === null || $categoryIds === []) {
+        if ($cardId === null || $categoryIds === []) {
             return '0.00';
         }
 
         $total = '0.00';
 
         foreach ($categoryIds as $categoryId) {
-            $total = Decimal::add($total, $table[$this->periodCategoryKey($periodId, $categoryId)] ?? '0.00');
+            $total = Decimal::add($total, $table[$this->cardCategoryKey($cardId, $categoryId)] ?? '0.00');
         }
 
         return $total;
     }
 
-    private function periodCategoryKey(int $periodId, int $categoryId): string
+    private function cardCategoryKey(int $cardId, int $categoryId): string
     {
-        return $periodId.':'.$categoryId;
+        return $cardId.':'.$categoryId;
     }
 }

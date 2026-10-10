@@ -20,38 +20,41 @@ use Illuminate\Support\Collection;
  * Service này chỉ TỔNG HỢP, không tính cashback và không quyết định nghiệp vụ:
  *
  *   - `total_spend`       = SUM(`credit_card_transactions.amount`) của KỲ SAO KẾ
- *                           HIỆN TẢI. Không lấy từ hạn mức, không lấy từ
- *                           `desired_spend`, không lấy từ cashback.
- *   - `expected_cashback` = SUM(`credit_card_statement_periods.total_cashback`).
+ *                           HIỆN TẠI (lọc theo `transaction_date`). Không lấy từ
+ *                           hạn mức, không lấy từ `desired_spend`, không lấy từ
+ *                           cashback.
+ *   - `expected_cashback` = tổng "Cashback dự kiến" của từng thẻ (bậc đích theo
+ *                           `desired_spend`, nhân với chi tiêu thực tế) — xem
+ *                           {@see expectedCashbackFor()}.
  *
- * `total_cashback` là SỐ ĐÃ DO ENGINE GHI, không phải công thức mới:
- * `CashbackRecordService::calculatePeriod()` → `writePeriodTotals()` chạy mỗi
- * kỳ còn `open`, nên đọc cột này chính là đọc kết quả của
- * Policy → Version → Tier → Rule (kèm cap). Ở đây tuyệt đối không viết lại
- * `amount * rate`, không chọn rule, không tính cap — như vậy Tổng quan KHÔNG
- * BAO GIỜ lệch với lịch sử giao dịch, và việc mở trang không recalculate gì.
+ * Số liệu từng thẻ đọc `credit_card_transactions.cashback_amount_snapshot` — SỐ ĐÃ
+ * DO ENGINE GHI, không phải công thức mới: `CashbackRecordService::calculatePeriod()`
+ * ghi snapshot cho từng giao dịch. Ở đây tuyệt đối không viết lại `amount * rate`,
+ * không chọn rule, không tính cap — như vậy Tổng quan KHÔNG BAO GIỜ lệch với lịch
+ * sử giao dịch, và việc mở trang không recalculate gì.
  *
  * Số tiền qua {@see Decimal} (chuỗi + `bcmath`), không đi qua `float` — xem
  * docblock lớp đó về lý do.
  *
  * ---------------------------------------------------------------------------
- * PHẠM VI THỜI GIAN = KỲ SAO KẾ HIỆN TẠI (DERIVE THEO ANCHOR, KHÔNG ĐỌC BỊCỘT)
+ * PHẠM VI THỜI GIAN = KỲ SAO KẾ HIỆN TẠI (DERIVE THEO ANCHOR, LỌC THEO NGÀY)
  * ---------------------------------------------------------------------------
  * "Kỳ hiện tại" = ranh giới [period_start, period_end] SUY RA từ anchor của thẻ
  * qua {@see StatementPeriodService::currentBoundaries()} — cùng một nguồn với
  * `CreditCardController::periodBounds()` in trên ô ngày của từng thẻ, nên ngày
  * và số liệu không thể lệch nhau.
  *
- * KHÔNG dùng câu truy vấn "hôm nay nằm trong [period_start, period_end]" để
- * CHỌN kỳ: record lưu trong DB có thể là bản ghi thời kỳ cấu hình cũ (vd. anchor
- * mặc định sinh 02/10→01/11 trong khi anchor hiện tại của thẻ là 6 ⇒ kỳ đúng là
- * 06/10→05/11). Record sai ranh giới đó vẫn "chứa" hôm nay ⇒ đọc theo cách cũ
- * là đọc nhầm kỳ. Thay vào đó derive ranh giới đúng rồi TRA record khớp ĐÚNG
- * `(user_card_id, period_start, period_end)` — record không khớp ⇒ không có kỳ
- * (`has_period=false`), tuyệt đối KHÔNG tạo bản ghi chỉ vì mở trang.
+ * Mọi aggregate lọc giao dịch theo `transaction_date` nằm trong khoảng đó, KHÔNG
+ * theo `statement_period_id`: record lưu trong DB có thể là bản ghi thời kỳ cấu
+ * hình cũ (vd. anchor mặc định sinh 02/10→01/11 trong khi anchor hiện tại của thẻ
+ * là 6 ⇒ kỳ đúng là 06/10→05/11). Lọc theo ngày bảo đảm giao dịch đã nhập trong
+ * kỳ đúng vẫn được tính, thay vì để tổng về 0 chỉ vì thiếu bản ghi khớp ranh giới.
+ * Record lệch ranh giới tuy vẫn "chứa" hôm nay nhưng KHÔNG bao giờ được dùng để
+ * cộng tiền. Việc mở trang KHÔNG tạo bản ghi kỳ nào (`has_period` chỉ phản ánh
+ * việc có record khớp, dùng cho các phần khác của giao diện).
  *
  * Thẻ có `statement_day` khác nhau thì mỗi thẻ một kỳ — mỗi thẻ một bộ ranh
- * giới, vẫn gộp tất cả kỳ hiện tại vào một query duy nhất (không N+1).
+ * giới, và mọi thẻ gộp vào một query với nhánh `WHERE` riêng (không N+1).
  *
  * ---------------------------------------------------------------------------
  * TOÀN BỘ TRUY VẤN SCOPE THEO `user_id`
@@ -96,16 +99,16 @@ class CreditCardOverviewService
      */
     public function forPage(int $userId): array
     {
-        [$cards, $currentPeriods] = $this->scope($userId);
+        [$cards, $currentPeriods, $boundsByCard] = $this->scope($userId);
 
         // Quota gom một lần rồi chia ra cho cả `summary` lẫn `cards`: "Cashback dự
         // kiến" ở CẢ HAI chỗ đều dùng BẬC ĐÍCH mà quota đã resolve, nên gọi
         // `forCards()` hai lần vừa tốn truy vấn vừa dễ lệch số giữa hai chỗ.
-        $quotas = $this->quotas->forCards($cards, $currentPeriods);
-        $perCard = $this->perCardFrom($cards, $currentPeriods, $quotas);
+        $quotas = $this->quotas->forCards($cards, $currentPeriods, $boundsByCard);
+        $perCard = $this->perCardFrom($cards, $currentPeriods, $boundsByCard, $quotas);
 
         return [
-            'summary' => $this->metrics($cards, $currentPeriods, $perCard),
+            'summary' => $this->metrics($cards, $perCard),
             'current_periods' => $currentPeriods,
             'cards' => $perCard,
         ];
@@ -120,9 +123,8 @@ class CreditCardOverviewService
      * ---------------------------------------------------------------------------
      *   - `spent`   = SUM giao dịch của kỳ hiện tại (đồng nguồn `total_spend`,
      *                chỉ gom theo thẻ thay vì gộp tất cả).
-     *   - `cashback`= `StatementPeriod.total_cashback` mà engine đã ghi. KHÔNG
-     *                cộng lại từ giao dịch ở đây — đó là việc của
-     *                `CashbackRecordService`. Đây là tiền THỰC TẾ.
+     *   - `cashback`= SUM(`cashback_amount_snapshot`) giao dịch của kỳ hiện tại —
+     *                tiền THỰC TẾ engine đã ghi. KHÔNG tính lại ở đây.
      *   - `expected_cashback` = theo BẬC ĐÍCH (quyết định bởi `desired_spend`) nhưng
      *                nhân với CHI TIÊU THỰC TẾ: `spent` → rate của bậc đích →
      *                tiền, kẹp theo trần của bậc đích. Đây là con số "dự kiến"
@@ -137,6 +139,7 @@ class CreditCardOverviewService
      *
      * @param  Collection<int, UserCard>  $cards
      * @param  Collection<int, StatementPeriod>  $currentPeriods
+     * @param  array<int, array{0: CarbonImmutable, 1: CarbonImmutable}>  $boundsByCard
      * @return array<int, array{
      *     desired_spend: string,
      *     spent: string,
@@ -153,25 +156,21 @@ class CreditCardOverviewService
      *     spend_qualification: array<string, mixed>|null
      * }>
      */
-    private function perCardFrom(Collection $cards, Collection $currentPeriods, array $quotas): array
+    private function perCardFrom(Collection $cards, Collection $currentPeriods, array $boundsByCard, array $quotas): array
     {
         if ($cards->isEmpty()) {
             return [];
         }
 
-        $spentByCard = $this->spentByCard(
-            // `pluck()` thay vì `modelKeys()`: `$cards` là `Support\Collection`
-            // (không phải Eloquent) nên `modelKeys()` không tồn tại.
-            $cards->pluck('id')->map(fn ($id): int => (int) $id)->all(),
-            $currentPeriods->pluck('id')->map(fn ($id): int => (int) $id)->all(),
-        );
+        // Chi tiêu + cashback thực tế gom theo thẻ, PHẠM VI = [period_start, period_end]
+        // suy ra từ anchor của CHÍNH thẻ (theo `transaction_date`), không phụ thuộc
+        // việc có bản ghi `statement_periods` khớp ranh giới hay không.
+        $totalsByCard = $this->totalsByCard($boundsByCard);
 
-        // Giao dịch TẤT CẢ kỳ hiện tại, gom theo thẻ. "Cashback dự kiến" cần
+        // Giao dịch kỳ hiện tại của từng thẻ, gom theo thẻ. "Cashback dự kiến" cần
         // TỪNG giao dịch để áp rule/cap của đúng danh mục của nó — chỉ có tổng
         // `spent` thì không tính được.
-        $linesByCard = $this->transactionLinesByCard(
-            $currentPeriods->pluck('id')->map(fn ($id): int => (int) $id)->all(),
-        );
+        $linesByCard = $this->transactionLinesByCard($boundsByCard);
 
         $periodByCard = $currentPeriods->keyBy('user_card_id');
 
@@ -185,7 +184,7 @@ class CreditCardOverviewService
             $cardId = (int) $card->id;
             $period = $periodByCard->get($cardId);
 
-            $spent = $spentByCard[$cardId] ?? '0.00';
+            $spent = $totalsByCard[$cardId]['spent'] ?? '0.00';
             $desiredSpend = Decimal::money($card->desired_spend);
 
             // -------------------------------------------------------------------------
@@ -253,13 +252,13 @@ class CreditCardOverviewService
             $result[$cardId] = [
                 'desired_spend' => $desiredSpend,
                 'spent' => $spent,
-                'cashback' => $period === null ? '0.00' : Decimal::money($period->total_cashback),
+                'cashback' => $totalsByCard[$cardId]['cashback'] ?? '0.00',
                 // "Cashback DỰ KIẾN": bậc ĐÍCH (theo `desired_spend`) nhưng áp rate
                 // và cap CỦA TỪNG RULE trên từng giao dịch thật của kỳ hiện tại.
                 'expected_cashback' => $this->expectedCashbackFor(
                     $card,
                     $quotas[$cardId] ?? null,
-                    $period === null ? [] : ($linesByCard[$cardId] ?? []),
+                    $linesByCard[$cardId] ?? [],
                 ),
                 'progress_percent' => Decimal::percent($spent, $desiredSpend),
                 // Mục tiêu bằng 0/NULL ⇒ thanh tiến độ không có ý nghĩa, hiển thị
@@ -298,7 +297,7 @@ class CreditCardOverviewService
      * `anchorDay()` fallback về `null` ⇒ cả tập kỳ khớp nhầm bounds). Không
      * eager-load quan hệ nào ở đây — controller lo phần hiển thị thẻ.
      *
-     * @return array{0: Collection<int, UserCard>, 1: Collection<int, StatementPeriod>}
+     * @return array{0: Collection<int, UserCard>, 1: Collection<int, StatementPeriod>, 2: array<int, array{0: CarbonImmutable, 1: CarbonImmutable}>}
      */
     private function scope(int $userId): array
     {
@@ -314,12 +313,13 @@ class CreditCardOverviewService
             ->get(['id', 'desired_spend', 'current_policy_id', 'statement_day', 'statement_period_start']);
 
         if ($cards->isEmpty()) {
-            return [new Collection, new Collection];
+            return [new Collection, new Collection, []];
         }
 
         // Mỗi thẻ một bộ ranh giới derive theo anchor của CHÍNH thẻ đó — cùng
         // nguồn với `CreditCardController::periodBounds()` (ô ngày hiển thị).
         $branches = [];
+        $boundsByCard = [];
 
         foreach ($cards as $card) {
             [$start, $end] = $this->periods->currentBoundaries($card, $today);
@@ -329,6 +329,8 @@ class CreditCardOverviewService
                 'start' => $start->toDateString(),
                 'end' => $end->toDateString(),
             ];
+
+            $boundsByCard[(int) $card->id] = [$start, $end];
         }
 
         // Một query duy nhất: WHERE (card A ∧ start A ∧ end A) ∨ (card B ∧ …).
@@ -348,7 +350,7 @@ class CreditCardOverviewService
             ->orderBy('user_card_id')
             ->get();
 
-        return [$cards, $currentPeriods];
+        return [$cards, $currentPeriods, $boundsByCard];
     }
 
     /**
@@ -393,10 +395,9 @@ class CreditCardOverviewService
      * @param  array<int, array<string, mixed>>  $perCard
      * @return array{total_cards: int, total_credit_limit: string, total_spend: string, expected_cashback: string}
      */
-    private function metrics(Collection $cards, Collection $currentPeriods, array $perCard = []): array
+    private function metrics(Collection $cards, array $perCard): array
     {
         $cardIds = $cards->pluck('id')->map(fn ($id): int => (int) $id)->all();
-        $periodIds = $currentPeriods->pluck('id')->map(fn ($id): int => (int) $id)->all();
 
         return [
             // Tuân thủ `status` sẵn có của UserCard: đếm MỌI thẻ thuộc user
@@ -410,15 +411,10 @@ class CreditCardOverviewService
                 UserCard::query()->whereIn('id', $cardIds)->sum('credit_limit')
             ),
 
-            // `SUM(amount)` nên hoàn tiền âm tự bù trừ — đó là chi tiêu thực.
-            'total_spend' => $periodIds === []
-                ? '0.00'
-                : Decimal::money(
-                    Transaction::query()
-                        ->whereIn('user_card_id', $cardIds)
-                        ->whereIn('statement_period_id', $periodIds)
-                        ->sum('amount')
-                ),
+            // Tổng chi tiêu kỳ hiện tại = cộng chi tiêu của TỪNG thẻ (mỗi thẻ đã
+            // gom theo [period_start, period_end] suy ra từ anchor). Cộng bằng
+            // `Decimal::add()` chứ không `array_sum` trên float.
+            'total_spend' => $this->sumSpend($perCard),
 
             // "Cashback dự kiến" = TỔNG số dự kiến của từng thẻ, mỗi thẻ đã tính
             // theo bậc đích (do `desired_spend` quyết định) nhưng nhân với chi
@@ -429,6 +425,22 @@ class CreditCardOverviewService
             // ở đây là chuỗi bcmath, float làm mất chữ số ở số lớn.
             'expected_cashback' => $this->sumExpectedCashback($perCard),
         ];
+    }
+
+    /**
+     * Cộng "Chi tiêu" của các thẻ — cộng DẤU chứ không phải `array_sum`.
+     *
+     * @param  array<int, array<string, mixed>>  $perCard
+     */
+    private function sumSpend(array $perCard): string
+    {
+        $total = '0.00';
+
+        foreach ($perCard as $row) {
+            $total = Decimal::add($total, Decimal::money($row['spent'] ?? '0'));
+        }
+
+        return $total;
     }
 
     /**
@@ -592,51 +604,67 @@ class CreditCardOverviewService
     }
 
     /**
-     * Chi tiêu kỳ hiện tại, gom theo thẻ trong MỘT query `GROUP BY`.
+     * Chi tiêu + cashback thực tế kỳ hiện tại, gom theo thẻ trong MỘT query
+     * `GROUP BY`.
      *
-     * @param  array<int, int>  $cardIds
-     * @param  array<int, int>  $periodIds
-     * @return array<int, string>
+     * PHẠM VI = [period_start, period_end] suy ra từ anchor của TỪNG thẻ, lọc
+     * theo `transaction_date`, KHÔNG theo `statement_period_id`: một kỳ lưu trong
+     * DB có thể là bản ghi thời kỳ cấu hình cũ (ranh giới lệch) nhưng giao dịch
+     * đã nhập vẫn phải được tính, không được để tổng về 0.
+     *
+     * @param  array<int, array{0: CarbonImmutable, 1: CarbonImmutable}>  $boundsByCard
+     * @return array<int, array{spent: string, cashback: string}>
      */
-    private function spentByCard(array $cardIds, array $periodIds): array
+    private function totalsByCard(array $boundsByCard): array
     {
-        if ($cardIds === [] || $periodIds === []) {
+        if ($boundsByCard === []) {
             return [];
         }
 
         $transactions = (new Transaction)->getTable();
 
         $rows = Transaction::query()
-            ->whereIn($transactions.'.user_card_id', $cardIds)
-            ->whereIn($transactions.'.statement_period_id', $periodIds)
+            ->where(function ($query) use ($boundsByCard, $transactions): void {
+                foreach ($boundsByCard as $cardId => [$start, $end]) {
+                    $query->orWhere(function ($query) use ($transactions, $cardId, $start, $end): void {
+                        $query->where($transactions.'.user_card_id', (int) $cardId)
+                            ->whereDate($transactions.'.transaction_date', '>=', $start->toDateString())
+                            ->whereDate($transactions.'.transaction_date', '<=', $end->toDateString());
+                    });
+                }
+            })
             ->groupBy($transactions.'.user_card_id')
             ->select($transactions.'.user_card_id')
             ->selectRaw('SUM('.$transactions.'.amount) as spent')
+            ->selectRaw('SUM(COALESCE('.$transactions.'.cashback_amount_snapshot, 0)) as cashback')
             ->get();
 
-        $spent = [];
+        $out = [];
 
         foreach ($rows as $row) {
-            $spent[(int) $row->user_card_id] = Decimal::money($row->spent);
+            $out[(int) $row->user_card_id] = [
+                'spent' => Decimal::money($row->spent),
+                'cashback' => Decimal::money($row->cashback),
+            ];
         }
 
-        return $spent;
+        return $out;
     }
 
     /**
      * Giao dịch của các kỳ hiện tại, dựng sẵn thành `TransactionLine` và gom theo
      * thẻ, để `expectedCashbackFor()` chạy lại đúng hàm của engine.
      *
-     * Dùng CHUNG danh sách `periodIds` với `spentByCard()` — cùng một tập kỳ
-     * hiện tại, nên "Chi tiêu" và "Cashback dự kiến" không thể lệch nhau vì một
-     * trong hai lọc theo tiêu chí khác.
+     * Dùng CHUNG phạm vi ranh giới với `totalsByCard()` — cùng một tập kỳ hiện
+     * tại, nên "Chi tiêu" và "Cashback dự kiến" không thể lệch nhau vì một trong
+     * hai lọc theo tiêu chí khác.
      *
-     * @param  array<int, int>  $periodIds
+     * @param  array<int, array{0: CarbonImmutable, 1: CarbonImmutable}>  $boundsByCard
      * @return array<int, array<int, TransactionLine>> khóa = `user_card_id`
      */
-    private function transactionLinesByCard(array $periodIds): array
+    private function transactionLinesByCard(array $boundsByCard): array
     {
-        if ($periodIds === []) {
+        if ($boundsByCard === []) {
             return [];
         }
 
@@ -646,7 +674,15 @@ class CreditCardOverviewService
         // danh mục có nhiều giao dịch thì khoản nào bị "hết chỗ" là nhất quán
         // với những gì engine sẽ ghi vào snapshot.
         $rows = Transaction::query()
-            ->whereIn($transactions.'.statement_period_id', $periodIds)
+            ->where(function ($query) use ($boundsByCard, $transactions): void {
+                foreach ($boundsByCard as $cardId => [$start, $end]) {
+                    $query->orWhere(function ($query) use ($transactions, $cardId, $start, $end): void {
+                        $query->where($transactions.'.user_card_id', (int) $cardId)
+                            ->whereDate($transactions.'.transaction_date', '>=', $start->toDateString())
+                            ->whereDate($transactions.'.transaction_date', '<=', $end->toDateString());
+                    });
+                }
+            })
             ->chronological()
             ->get(['id', 'user_card_id', 'category_id', 'amount', 'transaction_date']);
 

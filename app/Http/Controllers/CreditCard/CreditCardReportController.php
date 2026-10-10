@@ -7,12 +7,16 @@ use App\Http\Requests\CreditCard\StoreReportRequest;
 use App\Http\Requests\CreditCard\UpdateReportRequest;
 use App\Models\CreditCard\Report;
 use App\Models\CreditCard\UserCard;
+use App\Services\CreditCard\CreditCardReportExporter;
 use App\Services\CreditCard\CreditCardReportService;
+use App\Support\CreditCard\CreditCardSort;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 /**
  * Báo cáo chi tiêu — /thetindung/bao-cao
@@ -37,6 +41,7 @@ class CreditCardReportController extends Controller
 
     public function __construct(
         private readonly CreditCardReportService $reports,
+        private readonly CreditCardReportExporter $exporter,
     ) {}
 
     /** Danh sách báo cáo đã lưu của user. */
@@ -94,13 +99,73 @@ class CreditCardReportController extends Controller
             ? $this->reports->byCategory($cards, $periodKey)
             : $this->reports->byCard($cards, $periodKey);
 
+        // Sắp xếp (chỉ đổi thứ tự dòng, không đổi số): key/chiều qua allowlist,
+        // chiều mặc định asc khi chọn tiêu chí mới, tỷ lệ "—" luôn cuối.
+        $sortKey = CreditCardSort::normalizeSort(
+            $request->query('sort') === null ? null : (string) $request->query('sort'),
+        );
+        $sortDir = CreditCardSort::normalizeDirection(
+            $request->query('dir') === null ? null : (string) $request->query('dir'),
+        );
+
+        $data['rows'] = CreditCardSort::applyRows($data['rows'], (string) $data['mode'], $sortKey, $sortDir);
+
         return view('credit-card.report-show', [
             'report' => $report,
             'cards' => $cards,
             'periodKey' => $periodKey,
             'periodOptions' => $this->reports->periodOptions($cards),
             'data' => $data,
+            'sortKey' => $sortKey,
+            'sortDir' => $sortDir,
         ]);
+    }
+
+    /**
+     * Xuất file `.xlsx` của báo cáo đang xem.
+     *
+     * Chỉ đọc: policy `view` (chủ sở hữu), kỳ qua `normalizePeriodKey()` và dữ
+     * liệu do `CreditCardReportService` tính — y hệt trang kết quả, không tạo
+     * kỳ/giao dịch. Nếu lỗi tạo file thì quay về trang báo cáo kèm thông báo.
+     */
+    public function export(Request $request, Report $report): BinaryFileResponse|RedirectResponse
+    {
+        $this->authorize('view', $report);
+
+        $cards = $report->cards()->with('bank')->get();
+
+        $periodKey = $this->reports->normalizePeriodKey(
+            $request->query('period') === null ? null : (string) $request->query('period'),
+            $cards,
+        );
+
+        $sortKey = CreditCardSort::normalizeSort(
+            $request->query('sort') === null ? null : (string) $request->query('sort'),
+        );
+        $sortDir = CreditCardSort::normalizeDirection(
+            $request->query('dir') === null ? null : (string) $request->query('dir'),
+        );
+
+        try {
+            $tempPath = $this->exporter->export($report, $cards, $periodKey, $sortKey, $sortDir);
+        } catch (\Throwable $e) {
+            Log::error('Report export failed', [
+                'report_id' => $report->id,
+                'user_id' => $report->user_id,
+                'period_key' => $periodKey,
+                'exception' => get_class($e).': '.$e->getMessage(),
+                'file' => $e->getFile().':'.$e->getLine(),
+            ]);
+
+            return redirect()
+                ->route('credit-cards.reports.show', ['report' => $report->id, 'period' => $periodKey])
+                ->with('error', 'Không thể tạo file Excel. Vui lòng thử lại sau giây lát.');
+        }
+
+        return response()->download($tempPath, $this->exporter->downloadFilename($report, $periodKey), [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Cache-Control' => 'no-cache, no-store, must-revalidate',
+        ])->deleteFileAfterSend(true);
     }
 
     /** Form sửa báo cáo. */

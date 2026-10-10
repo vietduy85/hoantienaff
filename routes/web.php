@@ -130,6 +130,8 @@ Route::middleware('auth')->group(function () {
         Route::post('/bao-cao', [CreditCardReportController::class, 'store'])->name('reports.store');
         Route::get('/bao-cao/{report}', [CreditCardReportController::class, 'show'])
             ->whereNumber('report')->name('reports.show');
+        Route::get('/bao-cao/{report}/export', [CreditCardReportController::class, 'export'])
+            ->whereNumber('report')->name('reports.export');
         Route::get('/bao-cao/{report}/sua', [CreditCardReportController::class, 'edit'])
             ->whereNumber('report')->name('reports.edit');
         Route::patch('/bao-cao/{report}', [CreditCardReportController::class, 'update'])

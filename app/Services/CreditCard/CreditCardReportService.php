@@ -21,7 +21,8 @@ use Illuminate\Support\Collection;
  * Báo cáo chỉ lưu "xem gì" (bảng `credit_card_reports` + thẻ trong
  * `credit_card_report_cards`). Mọi con số được tính lại tại đây, mỗi lần mở:
  *
- *   - Chi tiêu = SUM(`credit_card_transactions.amount`) của (thẻ, kỳ) đang chọn.
+ *   - Chi tiêu = SUM(`credit_card_transactions.amount`) của giao dịch NẰM TRONG
+ *     kỳ đang chọn (theo `transaction_date`).
  *   - Cashback = SUM(`credit_card_transactions.cashback_amount_snapshot`).
  *
  * ---------------------------------------------------------------------------
@@ -33,13 +34,14 @@ use Illuminate\Support\Collection;
  * sửa policy hôm nay không làm đổi số của kỳ đã qua.
  *
  * ---------------------------------------------------------------------------
- * PHẠM VI = GIAO DỊCH GẮN VÀO KỲ (statement_period_id), KHÔNG JOIN
+ * PHẠM VI = NGÀY GIAO DỊCH TRONG [period_start, period_end] CỦA TỪNG THẺ
  * ---------------------------------------------------------------------------
- * Mỗi giao dịch đã có `statement_period_id` (gắn lúc nhập, có thể chỉnh tay). Báo
- * cáo lọc thẳng theo cột này nên KHÔNG join `statement_periods` vào
- * `transactions` — join sẽ nhân dòng khi một kỳ có nhiều giao dịch và làm tổng
- * phồng lên. Kỳ của mỗi thẻ được suy ra từ anchor (chỉ TÍNH TOÁN, không tạo bản
- * ghi), rồi tra record khớp ĐÚNG `(user_card_id, period_start, period_end)`.
+ * Kỳ của mỗi thẻ được suy ra từ anchor (chỉ TÍNH TOÁN, không tạo bản ghi), rồi
+ * lọc giao dịch theo `transaction_date` nằm trong khoảng đó. KHÔNG join
+ * `statement_periods` vào `transactions` (join sẽ nhân dòng khi một kỳ có nhiều
+ * giao dịch và làm tổng phồng lên), và KHÔNG phụ thuộc việc có bản ghi kỳ khớp
+ * ranh giới hay không — record lệch ranh giới chỉ ảnh hưởng nhãn `has_record`,
+ * không ảnh hưởng con số.
  *
  * ---------------------------------------------------------------------------
  * MỞ BÁO CÁO KHÔNG GHI
@@ -306,10 +308,7 @@ class CreditCardReportService
     public function byCard(Collection $cards, string $periodKey, ?CarbonInterface $today = null): array
     {
         $resolved = $this->resolveCardPeriods($cards, $periodKey, $today);
-        $sums = $this->sumsByCard(
-            array_keys($resolved),
-            $this->periodIds($resolved),
-        );
+        $sums = $this->sumsByCard($this->rangesOf($resolved));
 
         $rows = [];
         $totalSpend = '0.00';
@@ -334,6 +333,7 @@ class CreditCardReportService
                 'has_record' => $entry['has_record'],
                 'spend' => $spend,
                 'cashback' => $cashback,
+                'percent' => self::ratio($cashback, $spend),
             ];
         }
 
@@ -342,6 +342,7 @@ class CreditCardReportService
             'rows' => $rows,
             'total_spend' => $totalSpend,
             'total_cashback' => $totalCashback,
+            'total_percent' => self::ratio($totalCashback, $totalSpend),
         ];
     }
 
@@ -361,10 +362,9 @@ class CreditCardReportService
     public function byCategory(Collection $cards, string $periodKey, ?CarbonInterface $today = null): array
     {
         $resolved = $this->resolveCardPeriods($cards, $periodKey, $today);
-        $cardIds = array_keys($resolved);
 
         // (card_id => category_id => [spend, cashback]); category `0` = chưa phân loại.
-        $cells = $this->sumsByCardCategory($cardIds, $this->periodIds($resolved));
+        $cells = $this->sumsByCardCategory($this->rangesOf($resolved));
 
         $usedCategories = [];
 
@@ -407,6 +407,7 @@ class CreditCardReportService
                 'cells' => $cellValues,
                 'spend_total' => $spendTotal,
                 'cashback_total' => $cashbackTotal,
+                'percent' => self::ratio($cashbackTotal, $spendTotal),
             ];
         }
 
@@ -434,7 +435,11 @@ class CreditCardReportService
                 $cashback = Decimal::add($cashback, $row['cells'][$id]['cashback']);
             }
 
-            $cardTotals[$id] = ['spend' => $spend, 'cashback' => $cashback];
+            $cardTotals[$id] = [
+                'spend' => $spend,
+                'cashback' => $cashback,
+                'percent' => self::ratio($cashback, $spend),
+            ];
 
             $grandSpend = Decimal::add($grandSpend, $spend);
             $grandCashback = Decimal::add($grandCashback, $cashback);
@@ -465,7 +470,11 @@ class CreditCardReportService
             'columns' => $columns,
             'rows' => $rows,
             'card_totals' => $cardTotals,
-            'grand' => ['spend' => $grandSpend, 'cashback' => $grandCashback],
+            'grand' => [
+                'spend' => $grandSpend,
+                'cashback' => $grandCashback,
+                'percent' => self::ratio($grandCashback, $grandSpend),
+            ],
             'periods' => $periods,
         ];
     }
@@ -475,40 +484,73 @@ class CreditCardReportService
     // =====================================================================
 
     /**
-     * @param  array<int, array<string, mixed>>  $resolved
-     * @return list<int>
+     * Tỷ lệ cashback / chi tiêu (%), hoặc `null` khi chi tiêu không dương.
+     *
+     * Tính trên VND thô bằng `Decimal::percent` (bcmath), KHÔNG qua `float` để
+     * tỷ lệ ở các trường hợp biên không bị sai số.
+     *
+     * Trả `null` (view in `—`) khi chi tiêu bằng 0 — không có mẫu số để chia,
+     * khác hẳn `0%`. Khi chi tiêu > 0 mà cashback = 0 thì `Decimal::percent`
+     * trả `0.00` ⇒ hiển thị `0,00%`.
      */
-    private function periodIds(array $resolved): array
+    private static function ratio(string $cashback, string $spend): ?string
     {
-        $ids = [];
-
-        foreach ($resolved as $entry) {
-            if (($entry['period_id'] ?? null) !== null) {
-                $ids[] = (int) $entry['period_id'];
-            }
+        if (! Decimal::isPositive($spend)) {
+            return null;
         }
 
-        return array_values(array_unique($ids));
+        return Decimal::percent($cashback, $spend);
     }
 
     /**
-     * Chi tiêu + cashback gom theo thẻ trong MỘT query `GROUP BY`.
+     * Ranh giới [start, end] đã resolve của từng thẻ; bỏ qua thẻ không có kỳ
+     * trong cửa sổ đang chọn (`[null, null]`).
      *
-     * @param  list<int>  $cardIds
-     * @param  list<int>  $periodIds
+     * @param  array<int, array<string, mixed>>  $resolved
+     * @return array<int, array{0: CarbonImmutable, 1: CarbonImmutable}>
+     */
+    private function rangesOf(array $resolved): array
+    {
+        $ranges = [];
+
+        foreach ($resolved as $cardId => $entry) {
+            if (($entry['start'] ?? null) !== null && ($entry['end'] ?? null) !== null) {
+                $ranges[(int) $cardId] = [$entry['start'], $entry['end']];
+            }
+        }
+
+        return $ranges;
+    }
+
+    /**
+     * Chi tiêu + cashback gom theo thẻ trong MỘT query `GROUP BY`, phạm vi lọc
+     * theo `transaction_date` trong [period_start, period_end] của từng thẻ.
+     *
+     * Lọc theo NGÀY chứ không theo `statement_period_id`: một kỳ lưu trong DB có
+     * thể là bản ghi thời kỳ cấu hình cũ (ranh giới lệch) nhưng giao dịch đã nhập
+     * vẫn phải vào báo cáo, không được để tổng về 0.
+     *
+     * @param  array<int, array{0: CarbonImmutable, 1: CarbonImmutable}>  $ranges
      * @return array<int, array{spend: string, cashback: string}>
      */
-    private function sumsByCard(array $cardIds, array $periodIds): array
+    private function sumsByCard(array $ranges): array
     {
-        if ($cardIds === [] || $periodIds === []) {
+        if ($ranges === []) {
             return [];
         }
 
         $table = (new Transaction)->getTable();
 
         $rows = Transaction::query()
-            ->whereIn($table.'.user_card_id', $cardIds)
-            ->whereIn($table.'.statement_period_id', $periodIds)
+            ->where(function ($query) use ($ranges, $table): void {
+                foreach ($ranges as $cardId => [$start, $end]) {
+                    $query->orWhere(function ($query) use ($table, $cardId, $start, $end): void {
+                        $query->where($table.'.user_card_id', (int) $cardId)
+                            ->whereDate($table.'.transaction_date', '>=', $start->toDateString())
+                            ->whereDate($table.'.transaction_date', '<=', $end->toDateString());
+                    });
+                }
+            })
             ->groupBy($table.'.user_card_id')
             ->select($table.'.user_card_id')
             ->selectRaw('SUM('.$table.'.amount) as spend')
@@ -533,21 +575,27 @@ class CreditCardReportService
      * Không join danh mục/kỳ — chỉ group trên bảng giao dịch, nên không có nguy cơ
      * nhân dòng làm phồng tổng.
      *
-     * @param  list<int>  $cardIds
-     * @param  list<int>  $periodIds
+     * @param  array<int, array{0: CarbonImmutable, 1: CarbonImmutable}>  $ranges
      * @return array<int, array<int, array{spend: string, cashback: string}>> card_id => category_id (0 = NULL) => tiền
      */
-    private function sumsByCardCategory(array $cardIds, array $periodIds): array
+    private function sumsByCardCategory(array $ranges): array
     {
-        if ($cardIds === [] || $periodIds === []) {
+        if ($ranges === []) {
             return [];
         }
 
         $table = (new Transaction)->getTable();
 
         $rows = Transaction::query()
-            ->whereIn($table.'.user_card_id', $cardIds)
-            ->whereIn($table.'.statement_period_id', $periodIds)
+            ->where(function ($query) use ($ranges, $table): void {
+                foreach ($ranges as $cardId => [$start, $end]) {
+                    $query->orWhere(function ($query) use ($table, $cardId, $start, $end): void {
+                        $query->where($table.'.user_card_id', (int) $cardId)
+                            ->whereDate($table.'.transaction_date', '>=', $start->toDateString())
+                            ->whereDate($table.'.transaction_date', '<=', $end->toDateString());
+                    });
+                }
+            })
             ->groupBy($table.'.user_card_id', $table.'.category_id')
             ->select($table.'.user_card_id', $table.'.category_id')
             ->selectRaw('SUM('.$table.'.amount) as spend')
