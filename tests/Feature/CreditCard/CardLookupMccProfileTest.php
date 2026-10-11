@@ -4,10 +4,13 @@ namespace Tests\Feature\CreditCard;
 
 use App\Models\CreditCard\CardPolicyMccMapping;
 use App\Models\CreditCard\MccCode;
+use App\Models\CreditCard\Policy;
 use App\Models\CreditCard\PolicyMccProfile;
 use App\Models\CreditCard\PolicyMccProfileRow;
 use App\Models\CreditCard\PolicyMccProfileRowCode;
 use App\Models\CreditCard\PolicyTemplate;
+use App\Models\CreditCard\PolicyTier;
+use App\Models\CreditCard\PolicyTierCategory;
 use App\Models\User;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Concerns\InteractsWithCreditCardDatabase;
@@ -87,6 +90,172 @@ class CardLookupMccProfileTest extends TestCase
         $response->assertJsonPath('data.mcc_profiles.0.name', 'MCC Hoàn tiền A');
         $response->assertJsonPath('data.mcc_profiles.0.included.0.codes', ['5411']);
         $response->assertJsonPath('data.mcc_profiles.0.excluded.0.codes', ['7995']);
+    }
+
+    /**
+     * Hồ sơ MCC có MỘT nhóm included mang tên danh mục cụ thể — dùng để kiểm tra
+     * việc khớp tên nhóm hồ sơ với rule danh mục trong blueprint.
+     *
+     * @param  array<int, string>  $codes
+     */
+    private function makeIncludedProfile(PolicyTemplate $template, string $categoryName, array $codes): PolicyMccProfile
+    {
+        $profile = PolicyMccProfile::create([
+            'policy_template_id' => $template->id,
+            'name' => 'Hồ sơ '.$template->name,
+        ]);
+
+        $row = PolicyMccProfileRow::create([
+            'policy_mcc_profile_id' => $profile->id,
+            'row_type' => PolicyMccProfileRow::TYPE_INCLUDED,
+            'category_name' => $categoryName,
+        ]);
+
+        foreach ($codes as $code) {
+            PolicyMccProfileRowCode::create([
+                'policy_mcc_row_id' => $row->id,
+                'mcc' => $code,
+            ]);
+        }
+
+        return $profile;
+    }
+
+    /**
+     * Blueprint nhiều bậc + rule danh mục / fallback để kiểm tra phần hiển thị
+     * tỷ lệ hoàn tiền. Mỗi rule `category_id = null` là rule fallback.
+     *
+     * @param  array<int, array{name:string, min:float, max:float|null, rules:array<int, array{category_id?:int|null, percent:string, cap?:string|null}>}>  $tiers
+     */
+    private function makeBlueprintWithTiers(PolicyTemplate $template, array $tiers): Policy
+    {
+        $blueprint = Policy::create([
+            'user_card_id' => null,
+            'template_id' => $template->id,
+            'version_no' => 1,
+            'status' => Policy::STATUS_ACTIVE,
+            'name' => $template->name,
+            'effective_from' => '2026-01-01',
+            'effective_to' => null,
+            'min_total_spend' => 0,
+            'max_cashback_total_per_period' => 800000,
+            'rounding_mode' => 'round',
+        ]);
+
+        $blueprint->forceFill(['root_policy_id' => $blueprint->id])->save();
+
+        foreach ($tiers as $tierIndex => $tierData) {
+            $tier = PolicyTier::create([
+                'policy_id' => $blueprint->id,
+                'name' => $tierData['name'],
+                'sort_order' => $tierIndex,
+                'min_total_spend' => $tierData['min'],
+                'max_total_spend' => $tierData['max'],
+            ]);
+
+            foreach ($tierData['rules'] as $ruleIndex => $rule) {
+                $categoryId = $rule['category_id'] ?? null;
+
+                PolicyTierCategory::create([
+                    'tier_id' => $tier->id,
+                    'category_id' => $categoryId,
+                    'scope_type' => $categoryId === null
+                        ? PolicyTierCategory::SCOPE_OTHER
+                        : PolicyTierCategory::SCOPE_CATEGORY,
+                    'name' => $rule['name'] ?? null,
+                    'sort_order' => $ruleIndex,
+                    'spend_from' => 0,
+                    'cashback_percent' => $rule['percent'],
+                    'max_cashback_per_category_per_period' => $rule['cap'] ?? null,
+                    'is_enabled' => true,
+                    'counts_toward_tier_cap' => true,
+                ]);
+            }
+        }
+
+        return $blueprint;
+    }
+
+    #[Test]
+    public function lookup_mcc_shows_real_blueprint_rate_for_included_category(): void
+    {
+        $user = User::factory()->create();
+        $this->seedMcc('6300');
+        $template = $this->makeSystemTemplate(['name' => 'Thẻ bảo hiểm']);
+        $category = $this->makeSystemCategory(['name' => 'Bảo hiểm']);
+
+        // Bậc 1 (dưới 8tr): chỉ có fallback 0%. Bậc 2 (từ 8tr): Bảo hiểm 15%,
+        // trần 400.000/kỳ — đúng cấu hình thật của template LPBank JCB Ultimate.
+        $this->makeBlueprintWithTiers($template, [
+            ['name' => 'Bậc 1 - Dưới 8tr', 'min' => 0, 'max' => 8000000, 'rules' => [
+                ['percent' => '0.000'],
+            ]],
+            ['name' => 'Bậc 2 - Từ 8tr', 'min' => 8000000, 'max' => null, 'rules' => [
+                ['category_id' => $category->id, 'percent' => '15.000', 'cap' => '400000'],
+                ['percent' => '0.000'],
+            ]],
+        ]);
+
+        // Hồ sơ MCC nhập tay: nhóm "Bảo hiểm" khớp theo TÊN với danh mục blueprint.
+        $this->makeIncludedProfile($template, 'Bảo hiểm', ['6300']);
+
+        $response = $this->actingAs($user)
+            ->getJson(route('credit-cards.lookup.mcc', ['mcc' => '6300']))
+            ->assertOk();
+
+        $response->assertJsonPath('data.matches.0.cashback.status', 'available');
+        $response->assertJsonPath('data.matches.0.cashback.category_name', 'Bảo hiểm');
+
+        // Bậc 1 không áp dụng cho danh mục này…
+        $response->assertJsonPath('data.matches.0.cashback.tiers.0.has_rule', false);
+
+        // …bậc 2 áp dụng đúng 15% + trần 400.000.
+        $response->assertJsonPath('data.matches.0.cashback.tiers.1.has_rule', true);
+        $response->assertJsonPath('data.matches.0.cashback.tiers.1.cashback_percent', '15.000');
+        $response->assertJsonPath('data.matches.0.cashback.tiers.1.max_cashback_per_category_per_period', '400000.00');
+    }
+
+    #[Test]
+    public function lookup_mcc_marks_excluded_profile_row_as_not_refundable(): void
+    {
+        $user = User::factory()->create();
+        $this->seedMcc('9311');
+        $template = $this->makeSystemTemplate(['name' => 'Thẻ loại trừ']);
+
+        $this->makeProfile($template, [], ['9311']);
+
+        $response = $this->actingAs($user)
+            ->getJson(route('credit-cards.lookup.mcc', ['mcc' => '9311']))
+            ->assertOk();
+
+        $response->assertJsonPath('data.matches.0.relation', 'excluded');
+        $response->assertJsonPath('data.matches.0.cashback.status', 'excluded');
+        $response->assertJsonPath('data.matches.0.cashback.tiers', []);
+    }
+
+    #[Test]
+    public function lookup_mcc_does_not_fabricate_a_rate_when_category_not_in_blueprint(): void
+    {
+        $user = User::factory()->create();
+        $this->seedMcc('5411');
+        $template = $this->makeSystemTemplate(['name' => 'Thẻ siêu thị']);
+        $category = $this->makeSystemCategory(['name' => 'Siêu thị']);
+
+        $this->makeBlueprintWithTiers($template, [
+            ['name' => 'Bậc 1', 'min' => 0, 'max' => null, 'rules' => [
+                ['category_id' => $category->id, 'percent' => '3.000'],
+            ]],
+        ]);
+
+        // Nhóm trong hồ sơ ("Mua sắm khác") KHÔNG khớp danh mục nào của blueprint.
+        $this->makeIncludedProfile($template, 'Mua sắm khác', ['5411']);
+
+        $response = $this->actingAs($user)
+            ->getJson(route('credit-cards.lookup.mcc', ['mcc' => '5411']))
+            ->assertOk();
+
+        $response->assertJsonPath('data.matches.0.cashback.status', 'missing');
+        $response->assertJsonPath('data.matches.0.cashback.tiers', []);
     }
 
     #[Test]

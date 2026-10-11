@@ -211,3 +211,67 @@ combo → fallback) **không** theo `sort_order` nên kết quả hoàn tiền K
 
 Không có thẻ nào đang gắn 5 template này trên DB live (chỉ blueprint), nên không có kỳ mở /
 transaction bị ảnh hưởng engine.
+
+---
+
+## 11. Chính sách hệ thống VIB One Card Visa (Gold / Platinum / Signature)
+
+### 11.1 Số cước & nguồn
+
+Theo **PDF gốc `Chuong_trinh_diem_thuong_hoan_tien_the_tin_dung_VIB.pdf` (mục 2.12 — "Ưu đãi 1: Điểm thưởng")**,
+thẻ tín dụng VIB One Card: khách hàng được **đăng ký max N Danh Mục Chi Tiêu (DMCT)** theo hạng (Gold 01,
+Platinum 02, Signature 03), mọi DMCT đã đăng ký cùng nhận tỷ lệ của hạng, đổi DMCT tối đa 01 lượt/kỳ
+(hiệu lực ngay, không truy thu). Nguồn PDF đã được extract nguyên văn (`2.12`), không phỏng đoán.
+
+| Hạng | Slug | Tỷ lệ DMCT đã đăng ký | Ngoài DMCT đăng ký | Trần Điểm/kỳ (VND) | DMCT khởi tạo (blueprint) |
+|---|---|---|---|---|---|
+| Gold | `vib-one-card-visa-gold` | 3,000% | 0,100% | 500.000 | Mua sắm (1) |
+| Platinum | `vib-one-card-visa-platinum` | 6,000% | 0,100% | 1.000.000 | Mua sắm + Bảo hiểm (2) |
+| Signature | `vib-one-card-visa-signature` | 9,000% | 0,100% | 1.500.000 | Mua sắm + Giáo dục + Bảo hiểm (3) |
+
+5 combo "kho" DMCT (`scope=system`, tách rời nhau hoàn toàn):
+
+- `vib-one-card-mua-sam` = **Mua sắm — Shopping**: sieu-thi-tien-loi, thoi-trang, dien-may,
+  cua-hang-tien-loi, nha-sach, cham-soc-sac-dep.
+- `vib-one-card-du-lich` = **Du lịch — Travel**: ve-may-bay-du-lich, khach-san-luu-tru.
+- `vib-one-card-giao-duc` = **Giáo dục — Education**: giao-duc-hoc-phi.
+- `vib-one-card-bao-hiem` = **Bảo hiểm — Insurance**: bao-hiem.
+- `vib-one-card-nuoc-ngoai` = **Chi tiêu nước ngoài — Overseas Spending**: chi-tieu-nuoc-ngoai.
+
+Biểu diễn nghiệp vụ: blueprint mỗi hạng **CHỈ gắn rule combo cho DMCT trong cấu hình khởi tạo** +
+1 fallback `scope_type=other` 0,100% (`counts_toward_tier_cap=1`). DMCT khác trong "kho" không có rule
+trong blueprint ⇒ rơi về nền 0,1% cho tới khi được đăng ký (đổi DMCT = đổi bộ rule combo của bản sao
+thẻ, KHÔNG phải việc seeder). `applicable_bank_id` = VIB, `applicable_product_match = 'one card'`
+(One Card Visa / Mastercard dùng chung chương trình nên bỏ qua hậu tố thương hiệu). Không có điều kiện
+chi tiêu tối thiểu (PDF không quy định ⇒ `min_total_spend=0`).
+
+### 11.2 Quyết định mapping (đã xác nhận với user)
+
+1. **Không cấu hình trần "Giao dịch đặc biệt" 10.000 điểm/kỳ** — engine chưa có khái niệm này (giống
+   báo cáo Max Card §8/mục "Special cap"); ghi nhận giới hạn thay vì refactor engine.
+2. **Dùng lại 19 danh mục hệ thống hiện có** (combo = nhóm các danh mục có sẵn, chỉ bảo thủ) — không
+   đụng pipeline import MCC đang sửa song song; "Chi tiêu nước ngoài" (PDF định nghĩa theo kênh POS +
+   ngoại tệ, không có MCC) ánh xạ sang danh mục `chi-tieu-nuoc-ngoai` là xấp xỉ gần nhất.
+
+### 11.3 Files / Test
+
+| File | Nội dung |
+|---|---|
+| `database/seeders/CreditCardSeeder.php` | `seedVibOneCardCombos()` (5 combo) + `seedVibOneCardTemplates()` (3 hạng) — idempotent, bỏ qua slug thiếu, `normaliseRuleOrder` cuối template |
+| `tests/Feature/CreditCard/VibOneCardVisaPolicyTest.php` | **14 test / 187 assertions** — seeder structure/applicability/lịch sử/engine |
+| `tests/Feature/CreditCard/ShinhanSupremePolicyTemplateTest.php` | cập nhật count hệ thống 6 → **9 template** (đúng thông điệp) |
+
+Suite module (`tests/Feature/CreditCard`, 1327 tests): trước 1 fail thuộc MCC (route `policies.history`,
+xem §6), sau bổ sung 14 test One Card còn lại **all green**. Toàn bộ Feature (2318 tests) có **4 fail,
+đều pre-exist/ngoài phạm vi**: `policies.history` route (MCC workstream), `Auth\RegistrationTest`,
+`PromotionNewsHomepageTest`, `ShopeeFoodOrderSyncServiceTest`. `git diff --check` sạch; không BOM; Pint sạch.
+
+### 11.4 Xác minh DB LIVE (`hoantien_creditcard`)
+
+- Trước: 18 template system / 7 combo system, chưa có slug One Card. Sau seed: **21 template / 12 combo**.
+- Mỗi hạng: 1 blueprint v1, 1 tier (`cap` 500k/1M/1.5M), rule = số DMCT khởi tạo + fallback 0,1% **cuối**;
+  rate 3/6/9%; `counts_cap=1`; `bank=6` (VIB), `match='one card'`, `builtin=1`, `sort` 40–42.
+- Combo members live: Mua sắm 6 (có dien-may/nha-sach/cham-soc-sac-dep đã tồn tại trên live), Du lịch 2,
+  Giáo dục 1, Bảo hiểm 1, Nước ngoài 1.
+- Chạy lại idempotent: blueprint/rule/combos không nhân bản; `fallback_not_last_tiers=0`;
+  Shinhan + 4 Max Card giữ nguyên blueprint.

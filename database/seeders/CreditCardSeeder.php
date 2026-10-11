@@ -177,6 +177,8 @@ class CreditCardSeeder extends Seeder
             $this->seedShinhanSupremeTemplate($categories);
             $combos = $this->seedVibCombos($categories);
             $this->seedVibMaxCardVisaTemplates($banks, $categories, $combos);
+            $oneCardCombos = $this->seedVibOneCardCombos($categories);
+            $this->seedVibOneCardTemplates($banks, $oneCardCombos);
         });
     }
 
@@ -607,7 +609,7 @@ class CreditCardSeeder extends Seeder
      * qua module quản lý combo — bộ seed chỉ đảm bảo bộ gốc có mặt.
      *
      * @param  array<string, Category>  $categories  (slug ⇒ Category)
-     * @return array<string, CategoryCombo>  (combo slug ⇒ CategoryCombo)
+     * @return array<string, CategoryCombo> (combo slug ⇒ CategoryCombo)
      */
     private function seedVibCombos(array $categories): array
     {
@@ -818,6 +820,297 @@ class CreditCardSeeder extends Seeder
 
             // Thứ tự hiển thị chuẩn: 5 rule combo trước, fallback cuối. Fallback
             // được tạo TRƯỚC ở trên (sort_order gốc = 1) nên phải chuẩn hoá ở cuối.
+            $rulesService->normaliseRuleOrder($tier);
+        }
+    }
+
+    // =====================================================================
+    // VIB One Card Visa — 3 chính sách hệ thống (Gold / Platinum / Signature)
+    // =====================================================================
+
+    /**
+     * 5 Combo "Danh Mục Chi Tiêu (DMCT) đăng ký" của VIB One Card (PDF mục 2.12).
+     *
+     * Đặc trưng One Card khác Max Card Visa: KHÔNG phải bộ danh mục cố định —
+     * khách hàng quyền CHỌN tối đa N DMCT theo hạng (Gold 01 / Platinum 02 /
+     * Signature 03), các DMCT đã chọn cùng nhận tỷ lệ ưu đãi theo hạng, mọi chi
+     * tiêu không nằm trong DMCT đã chọn rơi về nền 0,1%. Vì vậy:
+     *   - 5 combo dưới là "kho danh mục để chọn" — blueprint của từng hạng CHỈ
+     *     gắn rule cho các DMCT theo cấu hình khởi tạo (xem `seedVibOneCardTemplates`);
+     *   - admin chuyển DMCT cho một thẻ = clone policy rồi đổi membership của bộ
+     *     DMCT (thêm/bớt rule combo), không phải sửa chung trong seeder.
+     *
+     * Ánh xạ sang danh mục hệ thống CÓ SẴN (chỉ bảo thủ, không sinh danh mục mới),
+     * giống cách `seedVibCombos` của Max Card Visa:
+     *   - Mua sắm          : siêu thị, thời trang, điện máy, cửa hàng tiện lợi,
+     *                          nhà sách, chăm sóc sắc đẹp (nhóm MCC mua sắm chung).
+     *   - Du lịch          : vé máy bay & du lịch, khách sạn & lưu trú
+     *                          (nhóm MCC 3000-3999 + 4511 + 4722 trong PDF).
+     *   - Giáo dục         : giáo dục & học phí (MCC 8211/8220/8241/8244/8249/8299).
+     *   - Bảo hiểm         : bảo hiểm (MCC 6300).
+     *   - Chi tiêu nước ngoài : POS/Contactless ngoài lãnh thổ, ngoại tệ.
+     *
+     * "Chi tiêu nước ngoài" trong PDF xác định theo kênh POS + ngoại tệ chứ KHÔNG
+     * theo MCC ⇒ danh mục hệ thống `chi-tieu-nuoc-ngoai` là phép xấp xỉ gần nhất;
+     * cùng giới hạn như báo cáo Max Card (danh mục hiện có không phân biệt được
+     * kênh point-of-sale ngoài lãnh thổ).
+     *
+     * 5 combo rời nhau hoàn toàn (một danh mục chỉ thuộc MỘT nhóm) nên trong cùng
+     * một bậc không bao giờ có hai rule combo cùng khớp một giao dịch.
+     *
+     * Seeder CHỈ THÊM membership, KHÔNG gỡ — admin có thể đã bổ sung danh mục
+     * qua module quản lý combo (đồng bộ cách `seedVibCombos`).
+     *
+     * @param  array<string, Category>  $categories  (slug ⇒ Category)
+     * @return array<string, CategoryCombo> (combo slug ⇒ CategoryCombo)
+     */
+    private function seedVibOneCardCombos(array $categories): array
+    {
+        $combos = [];
+
+        $definition = [
+            [
+                'slug' => 'vib-one-card-mua-sam',
+                'name' => 'Mua sắm — Shopping',
+                'description' => 'DMCT "Mua sắm" của VIB One Card (PDF mục 2.12): siêu thị, thời trang, điện máy, cửa hàng tiện lợi, nhà sách, chăm sóc sắc đẹp.',
+                'sort_order' => 60,
+                'category_slugs' => ['sieu-thi-tien-loi', 'thoi-trang', 'dien-may', 'cua-hang-tien-loi', 'nha-sach', 'cham-soc-sac-dep'],
+            ],
+            [
+                'slug' => 'vib-one-card-du-lich',
+                'name' => 'Du lịch — Travel',
+                'description' => 'DMCT "Du lịch" của VIB One Card (PDF mục 2.12): vé máy bay, khách sạn & lưu trú.',
+                'sort_order' => 70,
+                'category_slugs' => ['ve-may-bay-du-lich', 'khach-san-luu-tru'],
+            ],
+            [
+                'slug' => 'vib-one-card-giao-duc',
+                'name' => 'Giáo dục — Education',
+                'description' => 'DMCT "Giáo dục" của VIB One Card (PDF mục 2.12): học phí, khóa học.',
+                'sort_order' => 80,
+                'category_slugs' => ['giao-duc-hoc-phi'],
+            ],
+            [
+                'slug' => 'vib-one-card-bao-hiem',
+                'name' => 'Bảo hiểm — Insurance',
+                'description' => 'DMCT "Bảo hiểm" của VIB One Card (PDF mục 2.12).',
+                'sort_order' => 90,
+                'category_slugs' => ['bao-hiem'],
+            ],
+            [
+                'slug' => 'vib-one-card-nuoc-ngoai',
+                'name' => 'Chi tiêu nước ngoài — Overseas Spending',
+                'description' => 'DMCT "Chi tiêu nước ngoài" của VIB One Card (PDF mục 2.12): POS/Contactless ngoài lãnh thổ, ngoại tệ.',
+                'sort_order' => 100,
+                'category_slugs' => ['chi-tieu-nuoc-ngoai'],
+            ],
+        ];
+
+        foreach ($definition as $row) {
+            $slug = $row['slug'];
+            $categorySlugs = $row['category_slugs'];
+            unset($row['slug'], $row['category_slugs']);
+
+            $combo = CategoryCombo::updateOrCreate(
+                [
+                    'scope' => CategoryCombo::SCOPE_SYSTEM,
+                    'owner_user_id' => CategoryCombo::SYSTEM_OWNER_ID,
+                    'slug' => $slug,
+                ],
+                $row
+            );
+
+            $existingIds = $combo->items()->pluck('category_id')->all();
+            $already = array_flip(array_map('intval', $existingIds));
+            $sortOrder = count($existingIds);
+
+            foreach ($categorySlugs as $categorySlug) {
+                // Danh mục đã biết từ seeder hoặc được admin tạo trước — đọc theo
+                // slug để DB live có đủ, DB test (mới) chỉ có bộ danh mục gốc ⇒
+                // bỏ qua những cái thiếu (đồng bộ cách seedVibCombos).
+                $category = $categories[$categorySlug] ?? Category::query()
+                    ->where('scope', Category::SCOPE_SYSTEM)
+                    ->where('owner_user_id', Category::SYSTEM_OWNER_ID)
+                    ->where('slug', $categorySlug)
+                    ->first();
+
+                if ($category === null || isset($already[(int) $category->id])) {
+                    continue;
+                }
+
+                CategoryComboItem::create([
+                    'combo_id' => $combo->id,
+                    'category_id' => $category->id,
+                    'sort_order' => $sortOrder++,
+                ]);
+            }
+
+            $combos[$slug] = $combo;
+        }
+
+        return $combos;
+    }
+
+    /**
+     * 3 chính sách hệ thống VIB One Card Visa (Gold / Platinum / Signature).
+     *
+     * Trạng thái của One Card (PDF mục 2.12 "Ưu đãi 1 — Điểm thưởng"):
+     *   - khách hàng được quyền đăng ký tối đa N DMCT theo hạng: Gold 01,
+     *     Platinum 02, Signature 03; mọi DMCT đã đăng ký cùng nhận tỷ lệ theo
+     *     hạng (Gold 3% / Platinum 6% / Signature 9%);
+     *   - chi tiêu KHÔNG nằm trong DMCT đã đăng ký: nền 0,1% mọi hạng;
+     *   - trần Điểm thưởng/kỳ sao kê: Gold 500k / Platinum 1M / Signature 1,5M;
+     *   - đổi DMCT: 01 lượt/kỳ, hiệu lực ngay — không truy thu điểm cũ;
+     *   - đăng ký/đổi qua website hoặc MyVIB.
+     *
+     * Blueprint của mỗi hạng = các rule combo của DMCT theo CẤU HÌNH KHỞI TẠO
+     * (Gold: Mua sắm; Platinum: Mua sắm, Bảo hiểm; Signature: Mua sắm, Giáo dục,
+     * Bảo hiểm) + fallback 0,1%. DMCT không nằm trong cấu hình khởi tạo không có
+     * rule trong blueprint ⇒ được tính nền 0,1% cho tới khi admin/thẻ đổi DMCT.
+     *
+     * GIAN GIỚI (báo cáo): trần riêng "Giao dịch đặc biệt" 10.000 điểm/kỳ và
+     * khái niệm "DMCT được ĐĂNG KÝ / ĐƯỢC CHỌN" (tối đa N per thẻ) không có cơ
+     * chế trong engine — chỉ có trần TOÀN BẬC (`max_cashback_per_period`) và rule
+     * danh mục/combo cố định trong blueprint. KHÔNG cấu hình trần đặc biệt, ghi
+     * nhận trong báo cáo (đồng bộ với Max Card Visa báo cáo X.7).
+     *
+     * Cờ `counts_toward_tier_cap = true` cho CẢ rule DMCT lẫn fallback: đồng nào
+     * hoàn cũng tiêu thụ ngân sách trần của bậc — đúng nghĩa "hoàn tối đa/kỳ".
+     *
+     * @param  array<string, Bank>  $banks  (slug ⇒ Bank)
+     * @param  array<string, CategoryCombo>  $combos
+     */
+    private function seedVibOneCardTemplates(array $banks, array $combos): void
+    {
+        $vib = $banks['vib'];
+
+        $plans = [
+            [
+                'slug' => 'vib-one-card-visa-gold',
+                'label' => 'Gold',
+                'sort_order' => 40,
+                'percent' => '3.000',
+                'cap' => '500000.00',
+                'default_combos' => ['vib-one-card-mua-sam'],
+                'description' => 'VIB One Card Visa Gold: chi tiêu tại DMCT đã đăng ký (mặc định: Mua sắm) được hoàn 3%, ngoài DMCT đăng ký 0,1%; tối đa 500.000đ/kỳ sao kê. Đăng ký tối đa 1 DMCT, đổi 1 lần/kỳ.',
+            ],
+            [
+                'slug' => 'vib-one-card-visa-platinum',
+                'label' => 'Platinum',
+                'sort_order' => 41,
+                'percent' => '6.000',
+                'cap' => '1000000.00',
+                'default_combos' => ['vib-one-card-mua-sam', 'vib-one-card-bao-hiem'],
+                'description' => 'VIB One Card Visa Platinum: chi tiêu tại DMCT đã đăng ký (mặc định: Mua sắm, Bảo hiểm) được hoàn 6%, ngoài DMCT đăng ký 0,1%; tối đa 1.000.000đ/kỳ sao kê. Đăng ký tối đa 2 DMCT, đổi 1 lần/kỳ.',
+            ],
+            [
+                'slug' => 'vib-one-card-visa-signature',
+                'label' => 'Signature',
+                'sort_order' => 42,
+                'percent' => '9.000',
+                'cap' => '1500000.00',
+                'default_combos' => ['vib-one-card-mua-sam', 'vib-one-card-giao-duc', 'vib-one-card-bao-hiem'],
+                'description' => 'VIB One Card Visa Signature: chi tiêu tại DMCT đã đăng ký (mặc định: Mua sắm, Giáo dục, Bảo hiểm) được hoàn 9%, ngoài DMCT đăng ký 0,1%; tối đa 1.500.000đ/kỳ sao kê. Đăng ký tối đa 3 DMCT, đổi 1 lần/kỳ.',
+            ],
+        ];
+
+        foreach ($plans as $plan) {
+            $name = 'VIB One Card '.$plan['label'];
+
+            $template = PolicyTemplate::updateOrCreate(
+                [
+                    'scope' => PolicyTemplate::SCOPE_SYSTEM,
+                    'owner_user_id' => PolicyTemplate::SYSTEM_OWNER_ID,
+                    'slug' => $plan['slug'],
+                ],
+                [
+                    'name' => $name,
+                    'description' => $plan['description'],
+                    'is_builtin' => true,
+                    'is_active' => true,
+                    'sort_order' => $plan['sort_order'],
+                    // Chỉ áp dụng cho thẻ VIB có tên chứa "one card" (logical
+                    // reference bank id — không FK, bank không bị khoá theo vòng
+                    // đời). One Card Visa / One Card Mastercard dùng chung chương
+                    // trình (PDF chỉ ghi "Thẻ tín dụng VIB One Card") nên bỏ qua
+                    // hậu tố thương hiệu trong từ khoá.
+                    'applicable_bank_id' => (int) $vib->id,
+                    'applicable_product_match' => 'one card',
+                ]
+            );
+
+            // Đã seed trước đó ⇒ giữ nguyên blueprint để không phá cấu hình đã chỉnh.
+            if ($template->blueprint()->exists()) {
+                continue;
+            }
+
+            $blueprint = Policy::create([
+                'user_card_id' => null,
+                'template_id' => $template->id,
+                'version_no' => 1,
+                'status' => Policy::STATUS_ACTIVE,
+                'name' => $name,
+                'effective_from' => now()->toDateString(),
+                'effective_to' => null,
+                // Không điều kiện chi tiêu tối thiểu (bậc phủ từ 0đ).
+                'min_total_spend' => 0,
+                // Trần toàn kỳ nằm ở TỪNG BẬC (Cap toàn bậc), cột policy legacy bỏ trống.
+                'max_cashback_total_per_period' => null,
+                'rounding_mode' => 'round',
+                'note' => 'Chính sách hệ thống '.$name.' ('.$plan['label'].').',
+            ]);
+            $blueprint->forceFill(['root_policy_id' => $blueprint->id])->save();
+
+            $tier = PolicyTier::create([
+                'policy_id' => $blueprint->id,
+                'name' => 'Toàn bộ chi tiêu hợp lệ',
+                'sort_order' => 1,
+                'min_total_spend' => 0,
+                'max_total_spend' => null,
+                // Cap toàn bậc — trần Điểm thưởng/kỳ sao kê của hạng thẻ.
+                'max_cashback_per_period' => $plan['cap'],
+            ]);
+
+            // Fallback 0,1% cho chi tiêu ngoài DMCT đã đăng ký. TÍNH vào trần toàn
+            // bậc (cờ true) — đồng bộ cách seed Max Card / Shinhan: đồng hoàn nào
+            // cũng tiêu thụ ngân sách trần.
+            $rulesService = app(CategoryRuleService::class);
+            $rulesService->ensureSingleFallback($tier, [
+                'cashback_percent' => '0.100',
+                'counts_toward_tier_cap' => true,
+            ]);
+
+            // Chỉ DMCT trong CẤU HÌNH KHỞI TẠO có rule combo ở tỷ lệ ưu đãi; DMCT
+            // còn lại trong "kho" không có rule ở blueprint ⇒ rơi về nền 0,1% cho
+            // tới khi được đăng ký (đổi DMCT = đổi bộ rule combo của bản sao thẻ).
+            $sortOrder = 0;
+
+            foreach ($plan['default_combos'] as $comboSlug) {
+                $combo = $combos[$comboSlug];
+
+                PolicyTierCategory::updateOrCreate(
+                    [
+                        'tier_id' => $tier->id,
+                        'combo_id' => $combo->id,
+                        'spend_from' => 0,
+                    ],
+                    [
+                        'spend_to' => null,
+                        'scope_type' => PolicyTierCategory::SCOPE_CATEGORY,
+                        'counts_toward_tier_cap' => true,
+                        'cashback_percent' => $plan['percent'],
+                        'max_cashback_per_transaction' => null,
+                        'max_cashback_per_category_per_period' => null,
+                        'min_transaction_amount' => null,
+                        'is_enabled' => true,
+                        'sort_order' => $sortOrder++,
+                    ]
+                );
+            }
+
+            // Thứ tự hiển thị chuẩn: rule DMCT trước, fallback "📦 Các danh mục
+            // còn lại" cuối. Fallback được tạo TRƯỚC (sort_order gốc = 1) nên phải
+            // chuẩn hoá ở cuối.
             $rulesService->normaliseRuleOrder($tier);
         }
     }

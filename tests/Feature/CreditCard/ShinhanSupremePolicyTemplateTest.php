@@ -14,6 +14,7 @@ use App\Services\CreditCard\PolicyCloneService;
 use App\Services\CreditCard\StatementPeriodService;
 use Carbon\CarbonImmutable;
 use Database\Seeders\CreditCardSeeder;
+use Illuminate\Support\Collection;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Concerns\InteractsWithCreditCardDatabase;
 use Tests\TestCase;
@@ -206,9 +207,9 @@ class ShinhanSupremePolicyTemplateTest extends TestCase
         );
 
         $this->assertSame(
-            6,
+            9,
             PolicyTemplate::query()->system()->count(),
-            'Đúng 6 template hệ thống: Cashback phổ thông + Shinhan Supreme + 4 bậc VIB Max Card Visa.'
+            'Đúng 9 template hệ thống: Cashback phổ thông + Shinhan Supreme + 4 bậc VIB Max Card Visa + 3 hạng VIB One Card Visa.'
         );
     }
 
@@ -392,7 +393,7 @@ class ShinhanSupremePolicyTemplateTest extends TestCase
     }
 
     /**
-     * @return \Illuminate\Support\Collection<int, PolicyTier>
+     * @return Collection<int, PolicyTier>
      */
     private function tiersOf(PolicyTemplate $template)
     {

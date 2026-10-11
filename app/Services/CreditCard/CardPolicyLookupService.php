@@ -8,6 +8,7 @@ use App\Models\CreditCard\PolicyMccProfile;
 use App\Models\CreditCard\PolicyMccProfileRow;
 use App\Models\CreditCard\PolicyTemplate;
 use App\Models\CreditCard\PolicyTierCategory;
+use App\Models\CreditCard\PolicyVersion;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
@@ -196,6 +197,10 @@ class CardPolicyLookupService
             return $rank !== 0 ? $rank : strcmp((string) $a['policy_name'], (string) $b['policy_name']);
         });
 
+        // Gắn tỷ lệ/bậc hoàn tiền THỰC TẾ của danh mục, lấy từ blueprint của
+        // chính sách liên kết (KHÔNG suy diễn từ tên danh mục hay ghi chú tự do).
+        $matches = $this->attachCashback($matches);
+
         $known = $master !== null || $matches !== [];
 
         return [
@@ -369,8 +374,10 @@ class CardPolicyLookupService
             'group_reference_name' => $row->category_name,
             'mcc' => $code,
             'match_type' => 'profile',
+            'category_id' => null,
             'category_name' => $row->category_name,
-            'note' => $row->note !== null && $row->note !== '' ? $row->note : $profile->note,
+            'note' => $row->note,
+            'profile_note' => $profile->note,
             'verification_status' => null,
         ];
     }
@@ -408,6 +415,7 @@ class CardPolicyLookupService
             'mcc' => $mapping->mcc,
             'mcc_group' => $mapping->mcc_group,
             'mcc_codes' => array_values($mapping->mcc_codes ?? []),
+            'category_id' => $mapping->category_id,
             'category_name' => $mapping->category?->name,
             'cashback_percent' => $mapping->cashback_percent,
             'condition_note' => $mapping->condition_note,
@@ -417,6 +425,194 @@ class CardPolicyLookupService
             'verification_status' => $mapping->verification_status,
             'verified_at' => $mapping->verified_at?->toDateString(),
         ];
+    }
+
+    /**
+     * Gắn tỷ lệ hoàn tiền lấy từ blueprint vào từng kết quả tra cứu MCC.
+     *
+     * @param  array<int, array<string, mixed>>  $matches
+     * @return array<int, array<string, mixed>>
+     */
+    private function attachCashback(array $matches): array
+    {
+        if ($matches === []) {
+            return $matches;
+        }
+
+        $templateIds = [];
+
+        foreach ($matches as $match) {
+            $id = (int) ($match['policy_template_id'] ?? 0);
+
+            if ($id > 0) {
+                $templateIds[$id] = true;
+            }
+        }
+
+        $templates = $templateIds === []
+            ? collect()
+            : PolicyTemplate::query()->whereIn('id', array_keys($templateIds))->get()->keyBy('id');
+
+        foreach ($matches as $index => $match) {
+            $template = $templates->get((int) ($match['policy_template_id'] ?? 0));
+
+            $matches[$index]['cashback'] = $this->cashbackSummary(
+                $template,
+                $match['category_id'] ?? null,
+                $match['category_name'] ?? null,
+                ($match['relation'] ?? null) === 'excluded',
+            );
+        }
+
+        return $matches;
+    }
+
+    /**
+     * Tóm tắt bậc + tỷ lệ hoàn tiền của MỘT danh mục, đọc từ blueprint đang áp
+     * dụng của chính sách (`credit_card_policy_tier_categories`).
+     *
+     * KHÔNG suy diễn tỷ lệ từ tên danh mục: nếu blueprint không có quy tắc danh
+     * mục tương ứng thì trả `status = missing` để view ghi rõ "chưa có dữ liệu".
+     *
+     * @return array{status:string, category_name:?string, tiers:array<int, array<string, mixed>>, reason:?string}
+     */
+    private function cashbackSummary(?PolicyTemplate $template, ?int $categoryId, ?string $categoryName, bool $excluded): array
+    {
+        if ($excluded) {
+            return ['status' => 'excluded', 'category_name' => $categoryName, 'tiers' => [], 'reason' => 'excluded'];
+        }
+
+        $missing = ['status' => 'missing', 'category_name' => $categoryName, 'tiers' => [], 'reason' => null];
+
+        if ($template === null) {
+            $missing['reason'] = 'no_template';
+
+            return $missing;
+        }
+
+        $blueprint = $template->defaultBlueprint();
+
+        if ($blueprint === null) {
+            $missing['reason'] = 'no_blueprint';
+
+            return $missing;
+        }
+
+        $blueprint->load(['tiers.tierCategoryRules.category:id,name']);
+
+        $targetCategoryId = $categoryId;
+
+        if ($targetCategoryId === null && $categoryName !== null) {
+            $targetCategoryId = $this->resolveCategoryIdByName($blueprint, $categoryName);
+        }
+
+        $tiers = [];
+        $matched = false;
+        $resolvedName = $categoryName;
+
+        foreach ($blueprint->tiers as $tier) {
+            $rule = null;
+
+            foreach ($tier->tierCategoryRules as $candidate) {
+                if (! $candidate->is_enabled || $candidate->isFallback()) {
+                    continue;
+                }
+
+                if ($targetCategoryId !== null && (int) $candidate->category_id === (int) $targetCategoryId) {
+                    $rule = $candidate;
+                    break;
+                }
+            }
+
+            if ($rule !== null) {
+                $matched = true;
+                $resolvedName = $rule->category?->name ?? $resolvedName;
+            }
+
+            $tiers[] = [
+                'name' => $tier->name,
+                'min_total_spend' => $tier->min_total_spend,
+                'max_total_spend' => $tier->max_total_spend,
+                'has_rule' => $rule !== null,
+                'cashback_percent' => $rule?->cashback_percent,
+                'spend_from' => $rule?->spend_from,
+                'spend_to' => $rule?->spend_to,
+                'max_cashback_per_transaction' => $rule?->max_cashback_per_transaction,
+                'max_cashback_per_category_per_period' => $rule?->max_cashback_per_category_per_period,
+                'min_transaction_amount' => $rule?->min_transaction_amount,
+                'note' => $rule?->note,
+            ];
+        }
+
+        if (! $matched) {
+            $missing['reason'] = 'not_found';
+
+            return $missing;
+        }
+
+        return ['status' => 'available', 'category_name' => $resolvedName, 'tiers' => $tiers, 'reason' => null];
+    }
+
+    /**
+     * Tìm `category_id` trong blueprint khớp nhất với tên danh mục tự do của hồ
+     * sơ MCC. Ưu tiên khớp CHÍNH XÁC, rồi tới tiền tố (ví dụ "Y tế" khớp
+     * "Y tế & Bệnh viện"). Không khớp được thì trả null (không suy diễn).
+     */
+    private function resolveCategoryIdByName(PolicyVersion $blueprint, string $categoryName): ?int
+    {
+        $needle = $this->normalizeName($categoryName);
+
+        if ($needle === '') {
+            return null;
+        }
+
+        $bestId = null;
+        $bestScore = 0;
+
+        foreach ($blueprint->tiers as $tier) {
+            foreach ($tier->tierCategoryRules as $rule) {
+                if (! $rule->is_enabled || $rule->isFallback() || $rule->category === null) {
+                    continue;
+                }
+
+                $score = $this->nameMatchScore($needle, $this->normalizeName((string) $rule->category->name));
+
+                if ($score > $bestScore) {
+                    $bestScore = $score;
+                    $bestId = (int) $rule->category_id;
+                }
+            }
+        }
+
+        return $bestScore > 0 ? $bestId : null;
+    }
+
+    private function normalizeName(string $value): string
+    {
+        $value = mb_strtolower(trim($value));
+
+        return preg_replace('/\s+/u', ' ', $value) ?? $value;
+    }
+
+    private function nameMatchScore(string $needle, string $haystack): int
+    {
+        if ($needle === '' || $haystack === '') {
+            return 0;
+        }
+
+        if ($needle === $haystack) {
+            return 3;
+        }
+
+        if (str_starts_with($haystack, $needle)) {
+            return 2;
+        }
+
+        if (str_contains($haystack, $needle) || str_starts_with($needle, $haystack)) {
+            return 1;
+        }
+
+        return 0;
     }
 
     private function relationLabel(string $relation): string

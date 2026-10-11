@@ -52,6 +52,17 @@ class CardLookupTest extends TestCase
         $response->assertOk();
         $response->assertSee('Tra cứu thẻ');
         $response->assertSee('Tra cứu MCC');
+
+        // Tab "Tra cứu thẻ": tiêu đề "Chọn thẻ", nhãn "Thẻ", nút "Xem thẻ".
+        $response->assertSee('Chọn thẻ');
+        $response->assertSee('>Thẻ</label>', false);
+        $response->assertSee('Xem thẻ');
+
+        // Không còn dòng mô tả dài dòng / nhãn cũ "chính sách".
+        $response->assertDontSee('Tra cứu thông tin chính sách và các MCC liên quan đã trích xuất từ tài liệu của thẻ.');
+        $response->assertDontSee('Chọn chính sách hoàn tiền');
+        $response->assertDontSee('Xem chính sách');
+
         $response->assertSee('cc-lookup-policy-select', false);
         $response->assertSee('cc-lookup-mcc-input', false);
     }
