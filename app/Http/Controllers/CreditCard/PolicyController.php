@@ -63,6 +63,55 @@ class PolicyController extends Controller
     }
 
     /**
+     * Lịch sử chính sách hoàn tiền của thẻ — CHỈ ĐỌC.
+     *
+     * Nguồn duy nhất là các bản ghi `credit_card_policies` (một thẻ một chuỗi
+     * version, append-only). "Đổi chính sách" tạo version mới + hook
+     * `current_policy_id`; "dùng lại đúng mẫu đang chạy" KHÔNG tạo dòng mới
+     * (xem `CardPolicySaveService::applyPolicySelection`).
+     *
+     * Thứ tự mới → cũ. Mỗi dòng: chính sách đã dùng, template nguồn (nếu có),
+     * số version, hiệu lực, trạng thái, ai là người đặt (`recorded_by_user_id`
+     * = chủ thẻ), và `previous_name` = tên chính sách LIỀN TRƯỚC trong dòng
+     * đổi chính sách (mẫu mới → mẫu cũ đang chạy), giúp UI "Đổi từ X" không
+     * phải đọc ngược DB. Dòng đang hiệu lực đánh dấu `is_current`.
+     */
+    public function history(Request $request, string $userCard): JsonResponse
+    {
+        $card = $this->cardFor($request, $userCard);
+
+        $rows = PolicyVersion::query()
+            ->with('template:id,name')
+            ->forCard($card->id)
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->get();
+
+        $items = [];
+
+        // Danh sách sắp MỚI → CŨ. `previous_name` = chính sách chạy TRƯỚC đó
+        // (dòng kế tiếp — cũ hơn), giúp UI "Đổi từ X" không phải đọc ngược DB.
+        foreach ($rows->values() as $i => $row) {
+            $items[] = [
+                'policy_id' => $row->id,
+                'template_id' => $row->template_id,
+                'template_name' => $row->template?->name,
+                'version_no' => $row->version_no,
+                'name' => $row->name,
+                'effective_from' => $row->effective_from?->toDateString(),
+                'effective_to' => $row->effective_to?->toDateString(),
+                'status' => $row->status,
+                'recorded_at' => $row->created_at?->toIso8601String(),
+                'recorded_by_user_id' => $row->recorded_by_user_id,
+                'is_current' => $card->currentPolicy?->id === $row->id,
+                'previous_name' => $rows->get($i + 1)?->name,
+            ];
+        }
+
+        return response()->json(['data' => $items]);
+    }
+
+    /**
      * Tạo version 1 theo một trong ba đường vào: `scratch`, `clone_system`,
      * `clone_user`. Phân nhánh nằm ở service, không ở controller.
      */

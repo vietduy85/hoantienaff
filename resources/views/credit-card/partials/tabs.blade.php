@@ -1,7 +1,10 @@
 {{--
     Navigation module Thẻ tín dụng: 1 nguồn cho Desktop & Mobile.
 
-    Thanh chính (5 mục): 🏠 Tổng quan · 🧾 Sao kê · 📊 Báo cáo · 🔎 Lựa chọn thẻ · ⚙️ Cài đặt.
+    Thanh chính (6 mục): 🏠 Tổng quan · 🧾 Sao kê · 📊 Báo cáo · 🔎 Lựa chọn thẻ · 📖 Tra cứu · ⚙️ Cài đặt.
+
+    "Tra cứu" nằm NGAY SAU "Lựa chọn thẻ": tra thông tin chính sách hoàn tiền và
+    MCC liên quan (chỉ đọc) — xem `credit-cards.lookup`.
 
     "Quản lý thẻ", "Chính sách hoàn tiền" và "Danh mục" đã rời thanh chính; cả ba
     nằm trong menu xổ xuống của "Cài đặt" cùng với "Đơn vị tiền" (chính là trang
@@ -25,6 +28,7 @@
         ['key' => 'statements', 'label' => 'Sao kê', 'icon' => '🧾', 'route' => 'credit-cards.statements'],
         ['key' => 'reports', 'label' => 'Báo cáo', 'icon' => '📊', 'route' => 'credit-cards.reports'],
         ['key' => 'compare', 'label' => 'Lựa chọn thẻ', 'icon' => '🔎', 'route' => 'credit-cards.compare'],
+        ['key' => 'lookup', 'label' => 'Tra cứu', 'icon' => '📖', 'route' => 'credit-cards.lookup'],
     ];
 
     $ccSettingsMenu = [

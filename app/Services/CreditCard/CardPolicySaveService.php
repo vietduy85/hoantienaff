@@ -132,10 +132,30 @@ class CardPolicySaveService
         $qualificationOverrides = $spendQualification;
 
         if ($templateId !== null) {
+            // Lưu thẻ lần nữa "re-chọn đúng mẫu đang chạy" mà không đổi cấu hình
+            // gì thì KHÔNG được sinh history row mới (append-only đã tạo chuỗi
+            // newest-root mỗi lần clone). Điều kiện chặt: cùng template, không
+            // mang tiers/min-spend/spend-qualification nào, cùng ngày hiệu lực.
+            // Mọi trường hợp còn lại vẫn clone như trước.
+            if (! $creating && $tiers === null && $minTotalSpend === [] && $spendQualification === []) {
+                $current = $card->unsetRelation('currentPolicy')->currentPolicy;
+
+                if ($current !== null
+                    && $current->template_id !== null
+                    && (int) $current->template_id === (int) $templateId
+                    && $current->effective_from !== null
+                    && $current->effective_from->toDateString() === CarbonImmutable::instance($effectiveFrom)->toDateString()) {
+                    // Re-chọn đúng template đang chạy ⇒ không đổi gì.
+                    return;
+                }
+            }
+
             // `cloneUserTemplate` tự phân nhánh system/own-user và từ chối
             // template của user khác — nhận luôn id client nhưng không tin nó.
             // `$tiers === null` ⇒ chỉ chọn mẫu, KHÔNG đụng blueprint; có tiers ⇒
             // clone rồi ghi đè cấu hình đã sửa, vẫn ra đúng MỘT version.
+            // Guard applicability (bank/sản phẩm) nằm ở `PolicyService::cloneTemplate`
+            // — điểm chung duy nhất, API không bypass được.
             $this->policies->cloneUserTemplate(
                 $card,
                 (int) $templateId,

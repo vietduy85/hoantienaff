@@ -733,18 +733,20 @@ class SystemCategoryAdminTest extends TestCase
         $seeder = app(CreditCardSeeder::class);
 
         $seeder->run();
-        $tikiBefore = Category::query()->system()->where('slug', 'tiki')->firstOrFail();
+        $xangDauBefore = Category::query()->system()->where('slug', 'xang-dau')->firstOrFail();
 
-        $tikiBefore->forceFill(['name' => 'Tiki (admin)'])->save();
+        $xangDauBefore->forceFill(['name' => 'Xăng dầu (admin)'])->save();
 
-        // Giả lập ai đó xoá mất một danh mục gốc.
-        Category::query()->system()->where('slug', 'tiki')->delete();
+        // Giả lập ai đó xoá mất một danh mục gốc. Chọn danh mục KHÔNG bị combo
+        // hệ thống (VIB Max Card Visa) tham chiếu — nếu không FK sẽ chặn việc
+        // xoá như đúng hành vi sản phẩm (phải gỡ khỏi combo trước khi xoá).
+        Category::query()->system()->where('slug', 'xang-dau')->delete();
 
         $seeder->run();
 
-        $tiki = Category::query()->system()->where('slug', 'tiki')->first();
-        $this->assertNotNull($tiki, 'Seeder phải tạo lại danh mục gốc còn thiếu.');
-        $this->assertSame('Tiki', $tiki->name);
+        $xangDau = Category::query()->system()->where('slug', 'xang-dau')->first();
+        $this->assertNotNull($xangDau, 'Seeder phải tạo lại danh mục gốc còn thiếu.');
+        $this->assertSame('Xăng dầu', $xangDau->name);
         $this->assertSame(19, Category::query()->system()->count());
     }
 

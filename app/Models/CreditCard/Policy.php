@@ -55,6 +55,7 @@ class Policy extends CreditCardModel
         'rounding_mode',
         'note',
         'is_locked',
+        'recorded_by_user_id',
     ];
 
     protected function casts(): array
@@ -67,6 +68,7 @@ class Policy extends CreditCardModel
             'min_total_spend' => 'decimal:2',
             'max_cashback_total_per_period' => 'decimal:2',
             'is_locked' => 'boolean',
+            'recorded_by_user_id' => 'integer',
         ];
     }
 

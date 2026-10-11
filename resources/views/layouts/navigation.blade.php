@@ -145,6 +145,12 @@ $travelPlatforms = collect(config('travel.platforms'))
                             </x-dropdown-link>
                         @endcan
 
+                        @can('credit-cards.view')
+                            <x-dropdown-link :href="route('admin.credit-card.mcc.index')" :active="request()->routeIs('admin.credit-card.mcc.*')">
+                                🧩 {{ __('Quản lý MCC') }}
+                            </x-dropdown-link>
+                        @endcan
+
                         <x-dropdown-link :href="route('referrals.index')">
                             {{ __('Giới thiệu bạn bè') }}
                         </x-dropdown-link>
@@ -252,6 +258,12 @@ $travelPlatforms = collect(config('travel.platforms'))
             @can('credit-cards.view')
                 <x-responsive-nav-link :href="route('admin.credit-card-policies.index')" :active="request()->routeIs('admin.credit-card-policies.*')">
                     🎯 {{ __('Quản lý chính sách hoàn tiền') }}
+                </x-responsive-nav-link>
+            @endcan
+
+            @can('credit-cards.view')
+                <x-responsive-nav-link :href="route('admin.credit-card.mcc.index')" :active="request()->routeIs('admin.credit-card.mcc.*')">
+                    🧩 {{ __('Quản lý MCC') }}
                 </x-responsive-nav-link>
             @endcan
         </div>

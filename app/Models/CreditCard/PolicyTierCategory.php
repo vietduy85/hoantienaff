@@ -142,6 +142,42 @@ class PolicyTierCategory extends CreditCardModel
     }
 
     /**
+     * NHÓM hiển thị của rule — cơ sở thứ tự chuẩn của CÁC QUY TẮC TRONG MỘT BẬC:
+     *   0. danh mục cụ thể,  1. combo danh mục,  2. fallback (luôn CUỐI).
+     *
+     * Thứ tự này độc lập với `sort_order` (chỉ phân định trong từng nhóm), nên bậc
+     * có dữ liệu cũ bị để sai thứ tự vẫn hiển thị đúng, và mọi đường chuẩn hoá dùng
+     * chung một định nghĩa.
+     */
+    public static function displayGroup(self $rule): int
+    {
+        if ($rule->isFallback()) {
+            return 2;
+        }
+
+        return $rule->isComboSpecific() ? 1 : 0;
+    }
+
+    /**
+     * Thứ tự hiển thị chuẩn: danh mục cụ thể → combo danh mục → fallback cuối;
+     * trong từng nhóm phân định bằng `sort_order` (tăng dần) rồi `id`.
+     *
+     * `reorder()` trước: quan hệ `tierCategoryRules()` gắn sẵn
+     * `orderBy('sort_order')` — nếu không xoá, ORDER BY đó đứng trước CASE này và
+     * làm thứ tự nhóm trở thành vô hiệu khi dữ liệu cũ để sai `sort_order`.
+     */
+    public function scopeOrdered(Builder $query): Builder
+    {
+        return $query->reorder()
+            ->orderByRaw(
+                'CASE WHEN scope_type = ? THEN 2 WHEN combo_id IS NOT NULL THEN 1 ELSE 0 END',
+                [self::SCOPE_OTHER]
+            )
+            ->orderBy('sort_order')
+            ->orderBy('id');
+    }
+
+    /**
      * Rule này CÓ được phép tick "Tính hạn mức chi tiêu còn lại" không?
      *
      * Chỉ danh mục và combo. Fallback "📦 Các danh mục còn lại" không phải một mục

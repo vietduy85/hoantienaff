@@ -94,6 +94,8 @@ class PolicyCloneService
                 'rounding_mode' => $overrides['rounding_mode'] ?? $blueprint->rounding_mode,
                 'status' => Policy::STATUS_ACTIVE,
                 'note' => "Sao chép từ template \"{$template->name}\" (#{$template->id}).",
+                // Lịch sử chính sách của thẻ: ai đã CHO THẺ dùng template này.
+                'recorded_by_user_id' => (int) $userCard->user_id,
             ]);
 
             if (isset($overrides['tiers'])) {
@@ -243,6 +245,8 @@ class PolicyCloneService
                 'note' => $overrides['note'] ?? "Version {$nextVersionNo} tạo từ version ".(int) $previous?->version_no.'.',
                 'root_policy_id' => $root->id,
                 'version_no' => $nextVersionNo,
+                // Lịch sử chính sách của thẻ: ai đã tạo version N+1.
+                'recorded_by_user_id' => (int) $userCard->user_id,
             ]);
 
             // Sửa business rule của version mới (version cũ bất biến).
@@ -634,9 +638,12 @@ class PolicyCloneService
                     'category_id' => $rule->category_id,
                     'combo_id' => $this->mapComboForClone($rule, $targetUserId, $comboCache),
                     'scope_type' => $rule->scope_type ?? PolicyTierCategory::SCOPE_CATEGORY,
-                    'counts_toward_tier_cap' => $rule->scope_type === PolicyTierCategory::SCOPE_OTHER
-                        ? false
-                        : (bool) ($rule->counts_toward_tier_cap ?? true),
+                    // Clone phải giữ NGUYÊN cấu hình rule (same principle as
+                    // is_quota_category bên trên): fallback "tính vào trần bậc"
+                    // (`counts_toward_tier_cap = true`, ví dụ Shinhan Supreme) phải
+                    // sang được thẻ đúng như nguồn. Fallback cũ (mặc định false)
+                    // vẫn giữ false — không đổi hành vi dữ liệu hiện có.
+                    'counts_toward_tier_cap' => (bool) ($rule->counts_toward_tier_cap ?? true),
                     // Cờ quota là CẤU HÌNH của policy version nên clone phải mang
                     // nguyên (§1.7). `isQuotaCategory()` ép false cho fallback kể cả
                     // khi cột bị bẩn — clone không được nhân bản dữ liệu sai.
@@ -653,6 +660,12 @@ class PolicyCloneService
                     'note' => $rule->note,
                 ]);
             }
+
+            // Clone phải ra cấu hình với thứ tự hiển thị CHUẨN (danh mục → combo →
+            // fallback cuối), kể cả khi bản nguồn mang dữ liệu sắp xếp cũ đã sai.
+            // `copyChildren` ghi thẳng bằng model (không qua `CategoryRuleService`),
+            // nên phải gọi chuẩn hoá tường minh cho từng bậc mới.
+            $this->rules->normaliseRuleOrder($newTier);
         }
     }
 

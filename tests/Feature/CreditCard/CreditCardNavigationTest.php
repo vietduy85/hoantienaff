@@ -5,7 +5,6 @@ namespace Tests\Feature\CreditCard;
 use App\Models\User;
 use DOMDocument;
 use DOMXPath;
-use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Concerns\InteractsWithCreditCardDatabase;
@@ -14,7 +13,7 @@ use Tests\TestCase;
 /**
  * Điều hướng module Thẻ tín dụng sau khi tái cấu trúc.
  *
- * Thanh chính đúng 5 mục: 🏠 Tổng quan · 🧾 Sao kê · 📊 Báo cáo · 🔎 Lựa chọn thẻ · ⚙️ Cài đặt.
+ * Thanh chính đúng 6 mục: 🏠 Tổng quan · 🧾 Sao kê · 📊 Báo cáo · 🔎 Lựa chọn thẻ · 📖 Tra cứu · ⚙️ Cài đặt.
  * Ba mục cũ (Quản lý thẻ / Chính sách hoàn tiền / Danh mục) rời thanh chính và nằm
  * trong menu xổ xuống của "Cài đặt" cùng "Đơn vị tiền" (trang cài đặt hiện tại):
  * 💳 Quản lý thẻ · 💱 Đơn vị tiền · 🎯 Chính sách hoàn tiền · 📁 Danh mục.
@@ -39,7 +38,7 @@ class CreditCardNavigationTest extends TestCase
     // =====================================================================
 
     #[Test]
-    public function main_nav_has_exactly_five_items_in_expected_order(): void
+    public function main_nav_has_exactly_six_items_in_expected_order(): void
     {
         $xpath = $this->xpath($this->getContent(route('credit-cards.index')));
 
@@ -51,14 +50,14 @@ class CreditCardNavigationTest extends TestCase
         }
 
         $this->assertSame(
-            ['Tổng quan', 'Sao kê', 'Báo cáo', 'Lựa chọn thẻ', 'Cài đặt'],
+            ['Tổng quan', 'Sao kê', 'Báo cáo', 'Lựa chọn thẻ', 'Tra cứu', 'Cài đặt'],
             $labels,
-            'Thanh chính phải có đúng 5 mục theo thứ tự.'
+            'Thanh chính phải có đúng 6 mục theo thứ tự.'
         );
     }
 
     #[Test]
-    public function main_nav_contains_only_the_four_primary_links(): void
+    public function main_nav_contains_only_the_primary_links(): void
     {
         $xpath = $this->xpath($this->getContent(route('credit-cards.index')));
 
@@ -72,6 +71,7 @@ class CreditCardNavigationTest extends TestCase
             route('credit-cards.statements'),
             route('credit-cards.reports'),
             route('credit-cards.compare'),
+            route('credit-cards.lookup'),
         ], $hrefs);
 
         // Ba mục cũ KHÔNG còn là link trên thanh chính.
@@ -144,7 +144,7 @@ class CreditCardNavigationTest extends TestCase
         $xpath = $this->xpath($this->getContent(route('credit-cards.index')));
 
         $links = $xpath->query("//nav[@aria-label='Menu module Thẻ tín dụng']//a");
-        $this->assertGreaterThanOrEqual(8, $links->length, 'Nav phải có đủ 4 link chính + 4 link menu Cài đặt.');
+        $this->assertGreaterThanOrEqual(9, $links->length, 'Nav phải có đủ 5 link chính + 4 link menu Cài đặt.');
 
         foreach ($links as $link) {
             $href = $link->getAttribute('href');
@@ -170,6 +170,8 @@ class CreditCardNavigationTest extends TestCase
             'danh sách báo cáo' => ['credit-cards.reports', 'Báo cáo', false, null],
             'tạo báo cáo' => ['credit-cards.reports.create', 'Báo cáo', false, null],
             'so sánh / lựa chọn thẻ' => ['credit-cards.compare', 'Lựa chọn thẻ', false, null],
+            'tra cứu' => ['credit-cards.lookup', 'Tra cứu', false, null],
+            'tra cứu' => ['credit-cards.lookup', 'Tra cứu', false, null],
             'quản lý thẻ' => ['credit-cards.manage', null, true, 'Quản lý thẻ'],
             'đơn vị tiền' => ['credit-cards.settings', null, true, 'Đơn vị tiền'],
             'chính sách hoàn tiền' => ['credit-cards.policies', null, true, 'Chính sách hoàn tiền'],

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\AffiliateConfigController;
 use App\Http\Controllers\Admin\AffiliateShortLinkController;
+use App\Http\Controllers\Admin\CreditCard\PolicyMccAdminController;
 use App\Http\Controllers\Admin\CreditCard\SpendQualificationAdminController;
 use App\Http\Controllers\Admin\CreditCard\SpendQualificationTemplateApiController;
 use App\Http\Controllers\Admin\CreditCard\SystemCategoryAdminController;
@@ -22,6 +23,7 @@ use App\Http\Controllers\CreditCard\CategoryComboController;
 use App\Http\Controllers\CreditCard\CategoryController;
 use App\Http\Controllers\CreditCard\CategoryRuleController;
 use App\Http\Controllers\CreditCard\CreditCardController;
+use App\Http\Controllers\CreditCard\CreditCardLookupController;
 use App\Http\Controllers\CreditCard\CreditCardReportController;
 use App\Http\Controllers\CreditCard\CreditCardSettingController;
 use App\Http\Controllers\CreditCard\PolicyController;
@@ -140,6 +142,10 @@ Route::middleware('auth')->group(function () {
             ->whereNumber('report')->name('reports.destroy');
         Route::get('/so-sanh', [CreditCardController::class, 'compare'])->name('compare');
         Route::get('/so-sanh/de-xuat', [CreditCardController::class, 'recommendations'])->name('compare.recommend');
+        // "Tra cứu" — chỉ đọc: tra chính sách hoàn tiền + MCC từ dữ liệu đã nhập.
+        Route::get('/tra-cuu', [CreditCardLookupController::class, 'index'])->name('lookup');
+        Route::get('/tra-cuu/chinh-sach', [CreditCardLookupController::class, 'policy'])->name('lookup.policy');
+        Route::get('/tra-cuu/mcc', [CreditCardLookupController::class, 'mcc'])->name('lookup.mcc');
         Route::get('/cai-dat', [CreditCardController::class, 'settings'])->name('settings');
         Route::get('/chinh-sach', [CreditCardController::class, 'policies'])->name('policies');
         Route::get('/sao-ke', [StatementController::class, 'index'])->name('statements');
@@ -190,7 +196,7 @@ Route::middleware('auth')->group(function () {
             Route::get('/sao-ke', [StatementController::class, 'apiIndex'])->name('statements.index');
             Route::post('/the/{userCard}/sao-ke', [StatementController::class, 'store'])->name('statements.store');
             Route::patch('/sao-ke/{statement}', [StatementController::class, 'update'])->name('statements.update');
-// Trạng thái thanh toán: action RIÊNG, không nhét vào `statements.update`.
+            // Trạng thái thanh toán: action RIÊNG, không nhét vào `statements.update`.
             // Sửa tiền chặn kỳ đã chốt còn đánh dấu "đã trả" thì không (xem
             // `CreditCardStatementPolicy::updatePayment()`) — dùng chung endpoint sẽ
             // phải nới lỏng luôn quyền sửa tiền.
@@ -225,6 +231,9 @@ Route::middleware('auth')->group(function () {
             Route::patch('/the/{userCard}/chinh-sach/{policy}', [PolicyController::class, 'update'])->name('policies.update');
             Route::post('/the/{userCard}/chinh-sach/phien-ban', [PolicyController::class, 'storeVersion'])->name('policies.versions.store');
             Route::post('/the/{userCard}/chinh-sach/mau', [PolicyController::class, 'storeTemplate'])->name('policies.templates.store');
+            // Lịch sử chính sách hoàn tiền của thẻ (chỉ đọc). Đặt TRƯỚC
+            // `chinh-sach/{policy}` để không bị nhầm `/thu-tu`/`/phien-ban`... thành id.
+            Route::get('/the/{userCard}/lich-su-chinh-sach', [PolicyController::class, 'history'])->name('policies.history');
 
             // Mẫu chính sách: chỉ đọc. Mẫu mới tạo bằng `policies.templates.store`.
             Route::get('/mau-chinh-sach', [PolicyTemplateController::class, 'index'])->name('templates.index');
@@ -483,6 +492,43 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
                 ->middleware('permission:credit-cards.manage')
                 ->name('destroy');
         });
+
+    // === Quản trị "Quản lý MCC" (Credit Card) — HỒ SƠ MCC chính sách ===
+    // Hồ sơ MCC admin nhập tay cho từng chính sách hệ thống (bảng included/excluded
+    // + tài liệu ngân hàng đính kèm). Đọc dùng `credit-cards.view`, ghi dùng
+    // `credit-cards.manage`. KHÔNG có route xoá hồ sơ (spec chỉ yêu cầu xem/sửa).
+    // Thứ tự route: các đường TĨNH (`create`, `master`) đặt TRƯỚC `{profile}`;
+    // `{profile}`/`{document}` ràng buộc SỐ để không nuốt các đường tĩnh.
+    Route::get('/credit-card/mcc', [PolicyMccAdminController::class, 'index'])
+        ->middleware('permission:credit-cards.view')
+        ->name('credit-card.mcc.index');
+    Route::get('/credit-card/mcc/create', [PolicyMccAdminController::class, 'create'])
+        ->middleware('permission:credit-cards.manage')
+        ->name('credit-card.mcc.create');
+    Route::post('/credit-card/mcc', [PolicyMccAdminController::class, 'store'])
+        ->middleware('permission:credit-cards.manage')
+        ->name('credit-card.mcc.store');
+    Route::get('/credit-card/mcc/master', [PolicyMccAdminController::class, 'masterSearch'])
+        ->middleware('permission:credit-cards.view')
+        ->name('credit-card.mcc.master');
+    // Tài liệu ngân hàng: file nằm trên disk private, tải qua route kiểm tra quyền.
+    Route::get('/credit-card/mcc/{profile}/documents/{document}', [PolicyMccAdminController::class, 'downloadDocument'])
+        ->whereNumber('profile')
+        ->whereNumber('document')
+        ->middleware('permission:credit-cards.view')
+        ->name('credit-card.mcc.documents.download');
+    Route::get('/credit-card/mcc/{profile}/edit', [PolicyMccAdminController::class, 'edit'])
+        ->whereNumber('profile')
+        ->middleware('permission:credit-cards.manage')
+        ->name('credit-card.mcc.edit');
+    Route::get('/credit-card/mcc/{profile}', [PolicyMccAdminController::class, 'show'])
+        ->whereNumber('profile')
+        ->middleware('permission:credit-cards.view')
+        ->name('credit-card.mcc.show');
+    Route::patch('/credit-card/mcc/{profile}', [PolicyMccAdminController::class, 'update'])
+        ->whereNumber('profile')
+        ->middleware('permission:credit-cards.manage')
+        ->name('credit-card.mcc.update');
 });
 
 // Static pages - explicit routes

@@ -117,7 +117,50 @@ class CategoryRuleService
     {
         // `combo` eager-load: presenter trả `combo_name` cho từng rule, không có
         // eager-load thì mỗi rule một query (N+1) trên màn cấu hình.
-        return $tier->tierCategoryRules()->with('combo')->orderBy('sort_order')->orderBy('id')->get();
+        //
+        // `ordered()` áp thứ tự chuẩn (danh mục → combo → fallback cuối) NGAY cả
+        // khi cột `sort_order` của dữ liệu cũ bị để sai (vd. fallback chen giữa) —
+        // hiển thị không bao giờ phụ thuộc vào dữ liệu chưa được chuẩn hoá.
+        return $tier->tierCategoryRules()->with('combo')->ordered()->get();
+    }
+
+    /**
+     * Ép thứ tự hiển thị chuẩn của CÁC QUY TẮC TRONG MỘT BẬC: danh mục cụ thể →
+     * combo danh mục → fallback "📦 Các danh mục còn lại" (luôn CUỐI). Trong từng
+     * nhóm giữ thứ tự `sort_order` (rồi `id`) hiện có; gán lại `sort_order = 1..n`.
+     *
+     * Idempotent: bậc đã đúng thứ tự chạy lại không đổi dòng nào. CHỈ sửa cột
+     * `sort_order` — không đụng tỷ lệ, hạn mức, target, cờ, lịch sử giao dịch.
+     *
+     * @return int  số rule đã bị đổi `sort_order`
+     */
+    public function normaliseRuleOrder(PolicyTier $tier): int
+    {
+        // Một closure trả về MẢNG khóa: so sánh tuần tự như `ORDER BY a, b, c`.
+        // KHÔNG dùng mảng nhiều closure — Laravel `sortByMany` gọi mỗi closure như
+        // comparator `($a, $b)` với giá trị thô, sinh thứ tự sai (thấy rõ ở seeder).
+        $rules = $tier->tierCategoryRules()
+            ->orderBy('id')
+            ->get()
+            ->sortBy(fn (PolicyTierCategory $rule): array => [
+                PolicyTierCategory::displayGroup($rule),
+                (int) $rule->sort_order,
+                (int) $rule->id,
+            ])
+            ->values();
+
+        $changed = 0;
+
+        foreach ($rules as $index => $rule) {
+            $sortOrder = $index + 1;
+
+            if ((int) $rule->sort_order !== $sortOrder) {
+                $rule->forceFill(['sort_order' => $sortOrder])->save();
+                $changed++;
+            }
+        }
+
+        return $changed;
     }
 
     /**
@@ -332,6 +375,8 @@ class CategoryRuleService
 
             $this->assertBandIsSane($rule);
 
+            $this->normaliseRuleOrder($tier);
+
             return $rule->refresh();
         });
     }
@@ -438,6 +483,8 @@ class CategoryRuleService
 
             $rule->save();
 
+            $this->normaliseRuleOrder($tier);
+
             return $rule->refresh();
         });
     }
@@ -462,7 +509,11 @@ class CategoryRuleService
         }
 
         DB::connection('creditcard')->transaction(function () use ($rule): void {
+            $tier = PolicyTier::query()->whereKey($rule->tier_id)->firstOrFail();
+
             $rule->delete();
+
+            $this->normaliseRuleOrder($tier);
         });
     }
 
@@ -546,6 +597,10 @@ class CategoryRuleService
                 ])->save();
             }
 
+            // Fallback LUÔN đứng cuối danh sách rule của bậc — bất kể payload
+            // editor có gửi `sort_order` chèn giữa chăng nữa (bất biến thứ tự).
+            $this->normaliseRuleOrder($tier);
+
             return $kept->refresh();
         });
     }
@@ -594,9 +649,9 @@ class CategoryRuleService
                 'category_id' => $source->category_id,
                 'combo_id' => $source->combo_id,
                 'scope_type' => $source->scope_type ?? PolicyTierCategory::SCOPE_CATEGORY,
-                'counts_toward_tier_cap' => $source->scope_type === PolicyTierCategory::SCOPE_OTHER
-                    ? false
-                    : (bool) ($source->counts_toward_tier_cap ?? true),
+                // Giữ nguyên cờ tính-into-cap (fallback có thể được cấu hình
+                // `counts_toward_tier_cap = true` — ví dụ Shinhan Supreme).
+                'counts_toward_tier_cap' => (bool) ($source->counts_toward_tier_cap ?? true),
                 'is_quota_category' => $isQuotaCategory,
                 'name' => $source->name,
                 'sort_order' => $sortOrder ?? $this->nextSortOrder($targetTier->id),
@@ -609,6 +664,8 @@ class CategoryRuleService
                 'is_enabled' => $source->is_enabled,
                 'note' => $source->note,
             ]);
+
+            $this->normaliseRuleOrder($targetTier);
 
             return $copy->refresh();
         });
@@ -642,7 +699,7 @@ class CategoryRuleService
             }
 
             $config = $sourceFallback === null ? null : [
-                'counts_toward_tier_cap' => false,
+                'counts_toward_tier_cap' => (bool) $sourceFallback->counts_toward_tier_cap,
                 'is_quota_category' => false,
                 'cashback_percent' => $sourceFallback->cashback_percent,
                 'max_cashback_per_transaction' => $sourceFallback->max_cashback_per_transaction,

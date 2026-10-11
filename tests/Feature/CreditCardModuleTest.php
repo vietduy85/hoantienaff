@@ -53,6 +53,9 @@ class CreditCardModuleTest extends TestCase
             'credit-cards.reports' => 'thetindung/bao-cao',
             'credit-cards.compare' => 'thetindung/so-sanh',
             'credit-cards.settings' => 'thetindung/cai-dat',
+            'credit-cards.lookup' => 'thetindung/tra-cuu',
+            'credit-cards.lookup.policy' => 'thetindung/tra-cuu/chinh-sach',
+            'credit-cards.lookup.mcc' => 'thetindung/tra-cuu/mcc',
             'credit-cards.policies' => 'thetindung/chinh-sach',
         ];
 
@@ -111,6 +114,10 @@ class CreditCardModuleTest extends TestCase
             'credit-cards.settings',
             'credit-cards.policies',
             'credit-cards.statements',
+            // "Tra cứu" — tra chính sách hoàn tiền + MCC (chỉ đọc).
+            'credit-cards.lookup',
+            'credit-cards.lookup.policy',
+            'credit-cards.lookup.mcc',
             // Báo cáo chi tiêu (Phase 2): danh sách + CRUD cấu hình + trang kết quả.
             'credit-cards.reports.create',
             'credit-cards.reports.store',
@@ -221,6 +228,7 @@ class CreditCardModuleTest extends TestCase
             '/thetindung/bao-cao',
             '/thetindung/so-sanh',
             '/thetindung/cai-dat',
+            '/thetindung/tra-cuu',
         ];
 
         foreach ($urls as $url) {
@@ -239,6 +247,7 @@ class CreditCardModuleTest extends TestCase
             '/thetindung/bao-cao',
             '/thetindung/so-sanh',
             '/thetindung/cai-dat',
+            '/thetindung/tra-cuu',
         ] as $url) {
             $this->get($url)->assertRedirect('/login');
         }
@@ -258,8 +267,8 @@ class CreditCardModuleTest extends TestCase
         // Header hero (💳 + title + subtitle) đã BỎ theo yêu cầu UI: không hiển thị mô tả marketing.
         $response->assertDontSee('Quản lý và theo dõi các thẻ tín dụng của bạn');
 
-        // Thanh chính đúng 5 mục.
-        foreach (['Tổng quan', 'Sao kê', 'Báo cáo', 'Lựa chọn thẻ', 'Cài đặt'] as $label) {
+        // Thanh chính đúng 6 mục.
+        foreach (['Tổng quan', 'Sao kê', 'Báo cáo', 'Lựa chọn thẻ', 'Tra cứu', 'Cài đặt'] as $label) {
             $response->assertSee($label);
         }
 
@@ -662,6 +671,7 @@ class CreditCardModuleTest extends TestCase
             '/thetindung/danh-muc' => 'credit-cards.categories',
             '/thetindung/bao-cao' => 'credit-cards.reports',
             '/thetindung/so-sanh' => 'credit-cards.compare',
+            '/thetindung/tra-cuu' => 'credit-cards.lookup',
             '/thetindung/cai-dat' => 'credit-cards.settings',
         ];
 

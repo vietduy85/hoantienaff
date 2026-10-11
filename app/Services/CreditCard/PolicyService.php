@@ -108,6 +108,8 @@ class PolicyService
                 'max_cashback_total_per_period' => $this->money($attributes['max_cashback_total_per_period'] ?? null),
                 'rounding_mode' => $this->rounding($attributes['rounding_mode'] ?? 'round'),
                 'note' => $attributes['note'] ?? null,
+                // Lịch sử chính sách của thẻ: ai đã dựng policy riêng đầu tiên.
+                'recorded_by_user_id' => (int) $userCard->user_id,
             ]);
             $policy->save();
 
@@ -760,6 +762,14 @@ class PolicyService
 
         if (! $template->is_active) {
             throw new InvalidArgumentException('Template này đã bị vô hiệu hoá.');
+        }
+
+        // Chính sách hệ thống XÁC ĐỊNH bank/sản phẩm (vd. VIB Max Card Visa):
+        // template chỉ áp dụng cho thẻ khớp ràng buộc. Chặn ở điểm chung này để
+        // mọi đường clone (chọn mẫu qua form Thẻ, `versions.store`, ...) đều lọt
+        // qua một cửa — UI lọc sẵn nhưng API không được dựa vào client.
+        if ($template->restrictedToBankOrProduct() && ! $template->applicableToCard($userCard)) {
+            throw new InvalidArgumentException('Chính sách đã chọn không áp dụng cho thẻ này (sản phẩm/ngân hàng không khớp).');
         }
 
         if ($template->defaultBlueprint() === null) {

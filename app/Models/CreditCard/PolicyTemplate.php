@@ -26,6 +26,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property bool $is_active
  * @property int|null $default_version_id
  * @property int $sort_order
+ * @property int|null $applicable_bank_id
+ * @property string|null $applicable_product_match
  */
 class PolicyTemplate extends CreditCardModel
 {
@@ -47,6 +49,8 @@ class PolicyTemplate extends CreditCardModel
         'is_active',
         'default_version_id',
         'sort_order',
+        'applicable_bank_id',
+        'applicable_product_match',
     ];
 
     protected function casts(): array
@@ -57,7 +61,43 @@ class PolicyTemplate extends CreditCardModel
             'is_active' => 'boolean',
             'default_version_id' => 'integer',
             'sort_order' => 'integer',
+            'applicable_bank_id' => 'integer',
         ];
+    }
+
+    /**
+     * Template có bị giới hạn bank/sản phẩm không?
+     */
+    public function restrictedToBankOrProduct(): bool
+    {
+        return $this->applicable_bank_id !== null || $this->applicable_product_match !== null;
+    }
+
+    /**
+     * Template này có áp dụng được cho `$userCard` không?
+     *
+     * Cả hai ràng buộc đều phải thoả khi được đặt (AND):
+     *   - `applicable_bank_id` ≠ null ⇒ thẻ phải thuộc đúng bank.
+     *   - `applicable_product_match` ≠ null ⇒ `name` của thẻ phải chứa keyword
+     *     (không phân biệt hoa/thường). Chuỗi rỗng được coi là không đặt ràng buộc.
+     *
+     * Template không giới hạn (cả hai null) luôn áp dụng được — đúng hành vi cũ.
+     */
+    public function applicableToCard(UserCard $userCard): bool
+    {
+        if ($this->applicable_bank_id !== null
+            && (int) $userCard->bank_id !== (int) $this->applicable_bank_id) {
+            return false;
+        }
+
+        $keyword = trim((string) $this->applicable_product_match);
+
+        if ($keyword !== ''
+            && ! str_contains(mb_strtolower((string) $userCard->name), mb_strtolower($keyword))) {
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -130,6 +170,34 @@ class PolicyTemplate extends CreditCardModel
     {
         return $this->hasMany(Policy::class, 'template_id')
             ->whereNotNull('user_card_id');
+    }
+
+    /**
+     * Các nhóm MCC do admin nhập cho chính sách này (module "Quản lý MCC").
+     */
+    public function mccGroups(): HasMany
+    {
+        return $this->hasMany(PolicyMccGroup::class, 'policy_template_id')
+            ->orderBy('display_order')
+            ->orderBy('id');
+    }
+
+    /**
+     * MCC loại trừ chung của cả chính sách.
+     */
+    public function mccCommonExclusions(): HasMany
+    {
+        return $this->hasMany(PolicyMccCommonExclusion::class, 'policy_template_id');
+    }
+
+    /**
+     * Hồ sơ MCC chính sách ({@see PolicyMccProfile}) — nguồn dữ liệu do admin nhập
+     * tay cho module "Quản lý MCC".
+     */
+    public function mccProfiles(): HasMany
+    {
+        return $this->hasMany(PolicyMccProfile::class, 'policy_template_id')
+            ->orderBy('name');
     }
 
     /**

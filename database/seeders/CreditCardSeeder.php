@@ -4,6 +4,8 @@ namespace Database\Seeders;
 
 use App\Models\CreditCard\Bank;
 use App\Models\CreditCard\Category;
+use App\Models\CreditCard\CategoryCombo;
+use App\Models\CreditCard\CategoryComboItem;
 use App\Models\CreditCard\Policy;
 use App\Models\CreditCard\PolicyTemplate;
 use App\Models\CreditCard\PolicyTier;
@@ -169,9 +171,12 @@ class CreditCardSeeder extends Seeder
             // KHÔNG seed `credit_card_products` nữa (Phase 1B): luồng chính là
             // Bank + tên thẻ gợi nhớ. Bảng vẫn còn nguyên trong DB, chỉ không
             // được đẩy dữ liệu vào nữa — xem migration 000011.
-            $this->seedBanks();
+            $banks = $this->seedBanks();
             $categories = $this->seedCategories();
             $this->seedBuiltinTemplate($categories);
+            $this->seedShinhanSupremeTemplate($categories);
+            $combos = $this->seedVibCombos($categories);
+            $this->seedVibMaxCardVisaTemplates($banks, $categories, $combos);
         });
     }
 
@@ -414,6 +419,407 @@ class CreditCardSeeder extends Seeder
             ['slug' => 'ung-dung-so-dich-vu-giai-tri', 'from' => 0, 'to' => null, 'percent' => '2.000', 'cap_tx' => null, 'cap_cat' => null],
             ['slug' => 'shopee', 'from' => 0, 'to' => null, 'percent' => '4.000', 'cap_tx' => '200000.00', 'cap_cat' => '2500000.00'],
         ]);
+    }
+
+    /**
+     * Chính sách hệ thống "Shinhan Supreme Visa" — theo PDF hoàn tiền
+     * "Shinhan Supreme Card_VN".
+     *
+     * Cấu trúc (RETROACTIVE theo TỔNG chi tiêu hợp lệ của kỳ sao kê):
+     *   - Bậc 1  [0, 3 triệu):   MỌI danh mục 0,3%. Bậc này CHỈ có fallback,
+     *                             KHÔNG có rule danh mục nào ⇒ danh mục đặc biệt
+     *                             tự động về 0,3% theo engine khi chi tiêu dưới
+     *                             3 triệu. Không trần hoàn tiền.
+     *   - Bậc 2  [3, 15 triệu):  TMĐT 12%, Giáo dục 12%, Y tế 6%, Bảo hiểm 6%,
+     *                             còn lại 0,3%; trần TOÀN BẬC 300.000đ/kỳ.
+     *   - Bậc 3  [≥ 15 triệu):   cùng tỷ lệ Bậc 2; trần TOÀN BẬC 1.000.000đ/kỳ.
+     *
+     * Trần toàn bậc do engine giữ ở `credit_card_policy_tiers.max_cashback_per_period`
+     * (Cap 3), áp cho MỌI rule có `counts_toward_tier_cap = true`. Fallback 0,3%
+     * CỦA SHINHAN cũng được seed với cờ `true` để nó TIÊU THỤ ngân sách trần của
+     * bậc giống hệt danh mục đặc biệt — đúng nghĩa "hoàn tiền tối đa của bậc"
+     * (PDF). Các đường clone/copy rule đều giữ nguyên cờ này (xem
+     * `PolicyCloneService::copyChildren`, `CategoryRuleService::cloneRuleTo`).
+     *
+     * Ánh xạ danh mục (chỉ dùng danh mục hệ thống CÓ SẴN):
+     *   - "Thương mại điện tử" → `san-thuong-mai-dien-tu`
+     *     (Sàn thương mại điện tử — danh mục "hệ thống" cho TMĐT không thuộc
+     *     sàn cụ thể nào; sàn cụ thể Shopee/Tiki/... vẫn do admin own).
+     *   - "Giáo dục & Học phí" → `giao-duc-hoc-phi`.
+     *   - "Bệnh viện/Y tế"     → `y-te-benh-vien`.
+     *   - "Bảo hiểm"           → `bao-hiem`.
+     *   - "Điện máy" / "Nhà sách": KHÔNG có danh mục hệ thống tương ứng ⇒ KHÔNG
+     *     gán tỷ lệ (giữ fallback 0,3%), không gán lệch sang danh mục gần nghĩa.
+     *   - Netflix/Spotify/ChatGPT 50% (trần 50.000đ/kỳ): engine KHÔNG khớp theo
+     *     tên merchant ⇒ KHÔNG cấu hình ở đây. Ưu đãi sinh nhật / về thẻ / trả
+     *     góp 0% không phải hoàn tiền định kỳ ⇒ KHÔNG cấu hình. Cả hai phần này
+     *     được liệt kê trong báo cáo như "chưa hỗ trợ cấu hình".
+     *
+     * @param  array<string, Category>  $categories
+     */
+    private function seedShinhanSupremeTemplate(array $categories): void
+    {
+        $template = PolicyTemplate::updateOrCreate(
+            [
+                'scope' => PolicyTemplate::SCOPE_SYSTEM,
+                'owner_user_id' => PolicyTemplate::SYSTEM_OWNER_ID,
+                'slug' => 'shinhan-supreme-visa',
+            ],
+            [
+                'name' => 'Shinhan Supreme Visa',
+                'description' => 'Hoàn tiền 3 bậc theo tổng chi tiêu kỳ sao kê: TMĐT & Giáo dục 12%, Y tế & Bảo hiểm 6%, còn lại 0,3%.',
+                'is_builtin' => true,
+                'is_active' => true,
+                'sort_order' => 2,
+            ]
+        );
+
+        $blueprint = $template->blueprint()->first();
+
+        if ($blueprint !== null) {
+            // Đã seed trước đó ⇒ giữ nguyên để không phá cấu hình đã chỉnh.
+            return;
+        }
+
+        $blueprint = Policy::create([
+            'user_card_id' => null,
+            'template_id' => $template->id,
+            'version_no' => 1,
+            'status' => Policy::STATUS_ACTIVE,
+            'name' => 'Shinhan Supreme Visa',
+            'effective_from' => now()->toDateString(),
+            'effective_to' => null,
+            // Không có điều kiện chi tiêu tối thiểu (Bậc 1 phủ từ 0đ).
+            'min_total_spend' => 0,
+            // Không dùng cột legacy: trần toàn bậc nằm ở TỪNG BẬC (Cap 3).
+            'max_cashback_total_per_period' => null,
+            'rounding_mode' => 'round',
+            'note' => 'Chính sách hệ thống Shinhan Supreme Visa.',
+        ]);
+        $blueprint->forceFill(['root_policy_id' => $blueprint->id])->save();
+
+        $tiersData = [
+            ['name' => 'Bậc 1 – Dưới 3 triệu', 'min' => 0, 'max' => '3000000.00', 'cap' => null],
+            ['name' => 'Bậc 2 – Từ 3 đến 15 triệu', 'min' => '3000000.00', 'max' => '15000000.00', 'cap' => '300000.00'],
+            ['name' => 'Bậc 3 – Trên 15 triệu', 'min' => '15000000.00', 'max' => null, 'cap' => '1000000.00'],
+        ];
+
+        $rulesService = app(CategoryRuleService::class);
+        $tiers = [];
+
+        foreach ($tiersData as $index => $data) {
+            $tier = PolicyTier::create([
+                'policy_id' => $blueprint->id,
+                'name' => $data['name'],
+                'sort_order' => $index + 1,
+                'min_total_spend' => $data['min'],
+                'max_total_spend' => $data['max'],
+                'max_cashback_per_period' => $data['cap'],
+            ]);
+
+            // Fallback 0,3% cho MỌI bậc, TÍNH VÀO trần toàn bậc (cờ true).
+            $rulesService->ensureSingleFallback($tier, [
+                'cashback_percent' => '0.300',
+                'counts_toward_tier_cap' => true,
+            ]);
+
+            $tiers[] = $tier;
+        }
+
+        // Bậc 1: CHỈ fallback — danh mục đặc biệt rơi về 0,3% khi tổng dưới 3tr.
+
+        // Bậc 2 & 3: cùng bộ tỷ lệ đặc biệt (PDF: cùng tỷ lệ, khác trần).
+        foreach ([1, 2] as $index) {
+            $this->seedShinhanRules($tiers[$index], $categories, [
+                ['slug' => 'san-thuong-mai-dien-tu', 'percent' => '12.000'],
+                ['slug' => 'giao-duc-hoc-phi', 'percent' => '12.000'],
+                ['slug' => 'y-te-benh-vien', 'percent' => '6.000'],
+                ['slug' => 'bao-hiem', 'percent' => '6.000'],
+            ]);
+        }
+
+        // Thứ tự hiển thị chuẩn của TỪNG BẬC: danh mục cụ thể trước, fallback
+        // "📦 Các danh mục còn lại" cuối cùng. `ensureSingleFallback` phía trên tạo
+        // fallback TRƯỚC khi có rule ⇒ nếu không chuẩn hoá cuối hàm, fallback sẽ
+        // chen giữa danh sách (sort_order = 1).
+        foreach ($tiers as $tier) {
+            $rulesService->normaliseRuleOrder($tier);
+        }
+    }
+
+    /**
+     * Rule danh mục của Shinhan: một mức duy nhất "từ 0, không trần giá trị hóa
+     * đơn", cashback TÍNH vào trần toàn bậc.
+     *
+     * @param  array<string, Category>  $categories
+     * @param  array<int, array{slug: string, percent: string}>  $rules
+     */
+    private function seedShinhanRules(PolicyTier $tier, array $categories, array $rules): void
+    {
+        $sortOrder = 0;
+
+        foreach ($rules as $rule) {
+            PolicyTierCategory::updateOrCreate(
+                [
+                    'tier_id' => $tier->id,
+                    'category_id' => $categories[$rule['slug']]->id,
+                    'spend_from' => 0,
+                ],
+                [
+                    'spend_to' => null,
+                    'counts_toward_tier_cap' => true,
+                    'cashback_percent' => $rule['percent'],
+                    'max_cashback_per_transaction' => null,
+                    'max_cashback_per_category_per_period' => null,
+                    'min_transaction_amount' => null,
+                    'is_enabled' => true,
+                    'sort_order' => $sortOrder++,
+                ]
+            );
+        }
+    }
+
+    // =====================================================================
+    // VIB Max Card Visa — 4 chính sách hệ thống (Starter / Plus / Pro / Elite)
+    // =====================================================================
+
+    /**
+     * 5 Category Combo "bộ danh mục" của VIB Max Card Visa.
+     *
+     * Mỗi combo là MỘT nhóm của chính sách (Shopping / Travel / Dining /
+     * Entertainment / Online Transactions). Rule của chính sách trỏ combo bằng
+     * `combo_id` — một rule, nhiều danh mục (migration 000020).
+     *
+     * Membership (ánh xạ sang danh mục hệ thống CÓ SẴN, chỉ bảo thủ):
+     *   - Mua sắm   : siêu thị, thời trang, cửa hàng tiện lợi, điện máy,
+     *                 nhà sách, chăm sóc sắc đẹp.
+     *   - Du lịch   : vé máy bay & du lịch, khách sạn & lưu trú, chi tiêu
+     *                 nước ngoài / ngoại tệ.
+     *   - Ẩm thực   : ẩm thực & ăn uống.
+     *   - Giải trí  : ứng dụng số & dịch vụ giải trí trực tuyến.
+     *   - Online    : mua sắm trực tuyến, sàn TMĐT, Shopee, Tiki, Lazada, Tiktok.
+     *
+     * Các combo rời nhau hoàn toàn (một danh mục chỉ thuộc MỘT nhóm) nên engine
+     * không bao giờ khớp một giao dịch vào hai rule combo trong cùng bậc. Danh
+     * mục ngoài 5 nhóm rơi về fallback 0,1% của chính sách.
+     *
+     * Seeder CHỈ THÊM membership, KHÔNG gỡ: admin có thể đã bổ sung danh mục
+     * qua module quản lý combo — bộ seed chỉ đảm bảo bộ gốc có mặt.
+     *
+     * @param  array<string, Category>  $categories  (slug ⇒ Category)
+     * @return array<string, CategoryCombo>  (combo slug ⇒ CategoryCombo)
+     */
+    private function seedVibCombos(array $categories): array
+    {
+        $combos = [];
+
+        $definition = [
+            [
+                'slug' => 'vib-shopping',
+                'name' => 'Mua sắm — Shopping',
+                'description' => 'Nhóm "Mua sắm" của VIB Max Card Visa: siêu thị, thời trang, cửa hàng tiện lợi, điện máy, nhà sách, chăm sóc sắc đẹp.',
+                'sort_order' => 10,
+                'category_slugs' => ['sieu-thi-tien-loi', 'thoi-trang', 'cua-hang-tien-loi', 'dien-may', 'nha-sach', 'cham-soc-sac-dep'],
+            ],
+            [
+                'slug' => 'vib-travel',
+                'name' => 'Du lịch — Travel',
+                'description' => 'Nhóm "Du lịch" của VIB Max Card Visa: vé máy bay, khách sạn & lưu trú, chi tiêu nước ngoài.',
+                'sort_order' => 20,
+                'category_slugs' => ['ve-may-bay-du-lich', 'khach-san-luu-tru', 'chi-tieu-nuoc-ngoai'],
+            ],
+            [
+                'slug' => 'vib-dining',
+                'name' => 'Ẩm thực — Dining',
+                'description' => 'Nhóm "Ẩm thực" của VIB Max Card Visa.',
+                'sort_order' => 30,
+                'category_slugs' => ['am-thuc-an-uong'],
+            ],
+            [
+                'slug' => 'vib-entertainment',
+                'name' => 'Giải trí — Entertainment',
+                'description' => 'Nhóm "Giải trí" của VIB Max Card Visa: ứng dụng số & dịch vụ giải trí trực tuyến.',
+                'sort_order' => 40,
+                'category_slugs' => ['ung-dung-so-dich-vu-giai-tri'],
+            ],
+            [
+                'slug' => 'vib-online',
+                'name' => 'Giao dịch trực tuyến — Online Transactions',
+                'description' => 'Nhóm "Giao dịch trực tuyến" của VIB Max Card Visa: mua sắm trực tuyến, sàn TMĐT, Shopee, Tiki, Lazada, Tiktok.',
+                'sort_order' => 50,
+                'category_slugs' => ['mua-sam-truc-tuyen', 'san-thuong-mai-dien-tu', 'shopee', 'tiki', 'lazada', 'tiktok'],
+            ],
+        ];
+
+        foreach ($definition as $row) {
+            $slug = $row['slug'];
+            $categorySlugs = $row['category_slugs'];
+            unset($row['slug'], $row['category_slugs']);
+
+            $combo = CategoryCombo::updateOrCreate(
+                [
+                    'scope' => CategoryCombo::SCOPE_SYSTEM,
+                    'owner_user_id' => CategoryCombo::SYSTEM_OWNER_ID,
+                    'slug' => $slug,
+                ],
+                $row
+            );
+
+            $existingIds = $combo->items()->pluck('category_id')->all();
+            $already = array_flip(array_map('intval', $existingIds));
+            $sortOrder = count($existingIds);
+
+            foreach ($categorySlugs as $categorySlug) {
+                // Danh mục đã biết từ seeder hoặc được admin tạo trước (vd.
+                // "Điện máy", "Nhà sách"...) — đọc theo slug để DB live có đủ,
+                // DB test (mới) chỉ có bộ danh mục gốc ⇒ bỏ qua những cái thiếu.
+                $category = $categories[$categorySlug] ?? Category::query()
+                    ->where('scope', Category::SCOPE_SYSTEM)
+                    ->where('owner_user_id', Category::SYSTEM_OWNER_ID)
+                    ->where('slug', $categorySlug)
+                    ->first();
+
+                if ($category === null || isset($already[(int) $category->id])) {
+                    continue;
+                }
+
+                CategoryComboItem::create([
+                    'combo_id' => $combo->id,
+                    'category_id' => $category->id,
+                    'sort_order' => $sortOrder++,
+                ]);
+            }
+
+            $combos[$slug] = $combo;
+        }
+
+        return $combos;
+    }
+
+    /**
+     * 4 chính sách hệ thống VIB Max Card Visa (Starter / Plus / Pro / Elite).
+     *
+     * Mỗi chính sách MỘT bậc chi tiêu duy nhất, toàn bộ chi tiêu hợp lệ:
+     *   - 5 nhóm (combo) ở TỶ LỆ ƯU ĐÃI CAO của hạng thẻ;
+     *   - mọi danh mục còn lại ở TỶ LỆ NỀN 0,1%;
+     *   - trần hoàn tiền/THÁNG = hạn mức riêng theo hạng (Cap 3: trần TOÀN BẬC).
+     *
+     * Starter 0,5% / Plus 5% / Pro 8% / Elite 10%; trần 500k / 500k / 1M / 1,5M.
+     *
+     * Cờ `counts_toward_tier_cap = true` cho CẢ rule nhóm lẫn fallback: đồng nào
+     * hoàn cũng tiêu thụ ngân sách trần của bậc — đúng nghĩa "hoàn tối đa/kỳ".
+     *
+     * GIAN GIỚI (báo cáo X.7): chính sách gốc cho CHỌN MỘT nhóm ưu tiên, engine
+     * không có khái niệm "1 nhóm được chọn" per-card ⇒ 5 nhóm đều nhận tỷ lệ cao.
+     * Trần theo danh mục (Cap 2) và trần giao dịch đặc biệt 10k/kỳ: nguồn chưa có
+     * số liệu / engine chưa có khái niệm ⇒ KHÔNG cấu hình (ghi trong báo cáo).
+     *
+     * @param  array<string, Bank>  $banks  (slug ⇒ Bank)
+     * @param  array<string, Category>  $categories
+     * @param  array<string, CategoryCombo>  $combos
+     */
+    private function seedVibMaxCardVisaTemplates(array $banks, array $categories, array $combos): void
+    {
+        $vib = $banks['vib'];
+
+        $plans = [
+            ['slug' => 'vib-max-card-visa-starter', 'label' => 'Starter', 'sort_order' => 30, 'percent' => '0.500', 'cap' => '500000.00', 'description' => 'VIB Max Card Visa Starter: các nhóm mua sắm, du lịch, ẩm thực, giải trí, giao dịch trực tuyến được hoàn 0,5%, các danh mục còn lại 0,1%; tối đa 500.000đ/tháng.'],
+            ['slug' => 'vib-max-card-visa-plus', 'label' => 'Plus', 'sort_order' => 31, 'percent' => '5.000', 'cap' => '500000.00', 'description' => 'VIB Max Card Visa Plus: các nhóm mua sắm, du lịch, ẩm thực, giải trí, giao dịch trực tuyến được hoàn 5%, các danh mục còn lại 0,1%; tối đa 500.000đ/tháng.'],
+            ['slug' => 'vib-max-card-visa-pro', 'label' => 'Pro', 'sort_order' => 32, 'percent' => '8.000', 'cap' => '1000000.00', 'description' => 'VIB Max Card Visa Pro: các nhóm mua sắm, du lịch, ẩm thực, giải trí, giao dịch trực tuyến được hoàn 8%, các danh mục còn lại 0,1%; tối đa 1.000.000đ/tháng.'],
+            ['slug' => 'vib-max-card-visa-elite', 'label' => 'Elite', 'sort_order' => 33, 'percent' => '10.000', 'cap' => '1500000.00', 'description' => 'VIB Max Card Visa Elite: các nhóm mua sắm, du lịch, ẩm thực, giải trí, giao dịch trực tuyến được hoàn 10%, các danh mục còn lại 0,1%; tối đa 1.500.000đ/tháng.'],
+        ];
+
+        foreach ($plans as $plan) {
+            $name = 'VIB Max Card Visa - '.$plan['label'];
+
+            $template = PolicyTemplate::updateOrCreate(
+                [
+                    'scope' => PolicyTemplate::SCOPE_SYSTEM,
+                    'owner_user_id' => PolicyTemplate::SYSTEM_OWNER_ID,
+                    'slug' => $plan['slug'],
+                ],
+                [
+                    'name' => $name,
+                    'description' => $plan['description'],
+                    'is_builtin' => true,
+                    'is_active' => true,
+                    'sort_order' => $plan['sort_order'],
+                    // Chỉ áp dụng cho thẻ VIB có tên chứa "max card visa" (logical
+                    // reference bank id — không FK, bank không bị khoá theo vòng đời).
+                    'applicable_bank_id' => (int) $vib->id,
+                    'applicable_product_match' => 'max card visa',
+                ]
+            );
+
+            // Đã seed trước đó ⇒ giữ nguyên blueprint để không phá cấu hình đã chỉnh.
+            if ($template->blueprint()->exists()) {
+                continue;
+            }
+
+            $blueprint = Policy::create([
+                'user_card_id' => null,
+                'template_id' => $template->id,
+                'version_no' => 1,
+                'status' => Policy::STATUS_ACTIVE,
+                'name' => $name,
+                'effective_from' => now()->toDateString(),
+                'effective_to' => null,
+                // Không điều kiện chi tiêu tối thiểu (bậc phủ từ 0đ).
+                'min_total_spend' => 0,
+                // Trần toàn kỳ nằm ở TỪNG BẬC (Cap 3), cột policy legacy bỏ trống.
+                'max_cashback_total_per_period' => null,
+                'rounding_mode' => 'round',
+                'note' => 'Chính sách hệ thống '.$name.'.',
+            ]);
+            $blueprint->forceFill(['root_policy_id' => $blueprint->id])->save();
+
+            $tier = PolicyTier::create([
+                'policy_id' => $blueprint->id,
+                'name' => 'Toàn bộ chi tiêu hợp lệ',
+                'sort_order' => 1,
+                'min_total_spend' => 0,
+                'max_total_spend' => null,
+                // Cap 3 — trần hoàn tiền TOÀN KỲ của hạng thẻ.
+                'max_cashback_per_period' => $plan['cap'],
+            ]);
+
+            // Fallback 0,1% cho MỌI danh mục ngoài 5 nhóm. TÍNH vào trần toàn bậc
+            // (cờ true) — giống cách Shinhan seed fallback: đồng hoàn nào cũng
+            // tiêu thụ ngân sách trần, đúng nghĩa "hoàn tối đa/kỳ" của chính sách.
+            $rulesService = app(CategoryRuleService::class);
+            $rulesService->ensureSingleFallback($tier, [
+                'cashback_percent' => '0.100',
+                'counts_toward_tier_cap' => true,
+            ]);
+
+            // 5 nhóm (combo) — mỗi nhóm MỘT rule combo ở tỷ lệ ưu đãi cao.
+            $sortOrder = 0;
+
+            foreach (array_keys($combos) as $comboSlug) {
+                PolicyTierCategory::updateOrCreate(
+                    [
+                        'tier_id' => $tier->id,
+                        'combo_id' => $combos[$comboSlug]->id,
+                        'spend_from' => 0,
+                    ],
+                    [
+                        'spend_to' => null,
+                        'scope_type' => PolicyTierCategory::SCOPE_CATEGORY,
+                        'counts_toward_tier_cap' => true,
+                        'cashback_percent' => $plan['percent'],
+                        'max_cashback_per_transaction' => null,
+                        'max_cashback_per_category_per_period' => null,
+                        'min_transaction_amount' => null,
+                        'is_enabled' => true,
+                        'sort_order' => $sortOrder++,
+                    ]
+                );
+            }
+
+            // Thứ tự hiển thị chuẩn: 5 rule combo trước, fallback cuối. Fallback
+            // được tạo TRƯỚC ở trên (sort_order gốc = 1) nên phải chuẩn hoá ở cuối.
+            $rulesService->normaliseRuleOrder($tier);
+        }
     }
 
     /**

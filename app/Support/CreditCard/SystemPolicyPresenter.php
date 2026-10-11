@@ -178,7 +178,7 @@ class SystemPolicyPresenter
                         'max_cashback_per_transaction' => (float) $cap->max_cashback_per_transaction,
                     ])
                     ->all(),
-                'rules' => $tier->tierCategoryRules()->orderBy('sort_order')->orderBy('id')->with(['category', 'combo'])->get()->map(
+                'rules' => $tier->tierCategoryRules()->with(['category', 'combo'])->ordered()->get()->map(
                     fn (PolicyTierCategory $rule): array => [
                         'id' => $rule->id,
                         // Target: danh mục | combo | fallback. `category_id` và

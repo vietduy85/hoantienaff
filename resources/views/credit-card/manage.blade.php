@@ -79,6 +79,11 @@
                     'id' => $template->id,
                     'name' => $template->name,
                     'is_system' => $template->isSystemScope(),
+                    // Ràng buộc áp dụng cho chính sách hệ thống (vd. VIB Max Card
+                    // Visa): kèm vào client để UI lọc sẵn theo ngân hàng + tên thẻ
+                    // đang nhập. Server vẫn là tầng chặn cuối (PolicyService guard).
+                    'applicable_bank_id' => $template->applicable_bank_id,
+                    'applicable_product_match' => $template->applicable_product_match,
                 ])
                 ->values(),
             // Danh sách target cho Policy Editor chính thức. Render SẴN từ server
@@ -668,6 +673,22 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                                 <p class="text-xs text-gray-500">
                                     Chọn mẫu khác sẽ nạp cấu hình của mẫu đó để sửa. Mẫu gốc không bị đổi.
                                 </p>
+
+                                {{-- Mẫu hệ thống có ràng buộc ngân hàng/tên sản phẩm trong khi
+                                     thẻ đang nhập không khớp (vd. VIB Max Card Visa). Đổi ngân
+                                     hàng/tên sau khi chọn mẫu ⇒ mẫu biến mất khỏi dropdown nhưng
+                                     vẫn đang được chọn — phải nói rõ kẻo lưu thẻ khi không ngờ
+                                     (server chặn 422, nhưng báo sớm đỡ sốc hơn). --}}
+                                <div x-show="selectedTemplateHidden" x-cloak
+                                     class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800"
+                                     data-testid="template-inapplicable-warning">
+                                    Chính sách hệ thống “<span x-text="selectedTemplateHidden.name"></span>” chỉ áp dụng
+                                    cho thẻ đúng ngân hàng và đúng tên sản phẩm.
+                                    <span x-show="selectedTemplateHidden.applicable_product_match">
+                                        Tên thẻ phải chứa “<span x-text="selectedTemplateHidden.applicable_product_match"></span>”.
+                                    </span>
+                                    Thẻ này đang không khớp — nếu lưu, máy chủ sẽ từ chối. Hãy chọn mẫu khác hoặc sửa ngân hàng/tên thẻ.
+                                </div>
                             </div>
                         </div>
 
@@ -704,6 +725,50 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                                 Huỷ chỉnh sửa
                             </button>
                         </div>
+                    </div>
+
+                    {{-- Lịch sử chính sách của thẻ — CHỈ ĐỌC. Luôn hiện khi sửa thẻ
+                         (cả chế độ chỉ đọc lẫn chỉnh sửa): người dùng cần thấy thẻ
+                         đang chạy chính sách nào và "đổi chính sách" tạo dòng mới
+                         như thế nào. Dữ liệu nạp riêng lúc `openEdit`, không phụ
+                         thuộc cấu hình đang sửa. --}}
+                    <div x-show="form.id" class="rounded-xl border border-gray-200 p-4 space-y-3 min-w-0"
+                         data-testid="policy-history">
+                        <h3 class="text-sm font-bold text-gray-800">Lịch sử chính sách</h3>
+
+                        <p x-show="policyHistory.length === 0" class="text-xs text-gray-600" data-testid="policy-history-empty">
+                            Thẻ chưa có lịch sử chính sách hoàn tiền.
+                        </p>
+
+                        <ol x-show="policyHistory.length > 0" class="space-y-2">
+                            <template x-for="row in policyHistory" :key="row.policy_id">
+                                <li class="rounded-lg bg-gray-50 px-3 py-2 text-sm"
+                                    :data-testid="'policy-history-row-' + row.policy_id">
+                                    <div class="flex items-start justify-between gap-2">
+                                        <div class="min-w-0">
+                                            <p class="truncate font-semibold text-gray-800" x-text="row.name"></p>
+                                            <p class="text-xs text-gray-500">
+                                                <span x-show="row.template_name" x-text="'Mẫu: ' + row.template_name"></span>
+                                                <span x-show="row.previous_name" x-text="' · Đổi từ: ' + row.previous_name"></span>
+                                            </p>
+                                            <p class="text-xs text-gray-500">
+                                                Hiệu lực <span x-text="row.effective_from ?? '—'"></span>
+                                                <span x-show="row.effective_to" x-text="' → ' + row.effective_to"></span>
+                                                <span> · Version <span x-text="row.version_no"></span></span>
+                                            </p>
+                                        </div>
+                                        <span x-show="row.is_current"
+                                              class="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
+                                            Đang chạy
+                                        </span>
+                                    </div>
+                                    <p class="mt-1 text-[11px] text-gray-400">
+                                        <span x-show="row.recorded_at"
+                                              x-text="'Ghi nhận ' + new Date(row.recorded_at).toLocaleString('vi-VN')"></span>
+                                    </p>
+                                </li>
+                            </template>
+                        </ol>
                     </div>
                 </section>
                 </div>{{-- /vùng cuộn --}}
@@ -990,6 +1055,13 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                     policySnapshot: null,
 
                     /**
+                     * Lịch sử chính sách hoàn tiền của thẻ (mới → cũ), nạp khi mở
+                     * form sửa thẻ từ `/the/{card}/lich-su-chinh-sach`. CHỈ ĐỌC —
+                     * lịch sử là append-only, form không sửa được nó.
+                     */
+                    policyHistory: [],
+
+                    /**
                      * Thẻ đang có + chưa vào chế độ sửa ⇒ khu vực chính sách ở chế độ
                      * chỉ đọc. Thêm thẻ luôn vào chế độ sửa (chưa có policy để xem).
                      */
@@ -998,11 +1070,62 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                     },
 
                     get systemTemplates() {
-                        return this.templates.filter((t) => t.is_system);
+                        return this.templates.filter((t) => t.is_system && this.templateUsable(t));
                     },
 
                     get userTemplates() {
-                        return this.templates.filter((t) => !t.is_system);
+                        return this.templates.filter((t) => !t.is_system && this.templateUsable(t));
+                    },
+
+                    /**
+                     * Ngân hàng đã chọn trên thẻ (số, hay `null` khi chưa chọn).
+                     * Lọc mẫu theo ĐÚNG ngân hàng này chứ không theo chuỗi tìm.
+                     */
+                    get applicableBankId() {
+                        if (this.form.bank_id === '' || this.form.bank_id === null || this.form.bank_id === undefined) {
+                            return null;
+                        }
+
+                        return Number(this.form.bank_id);
+                    },
+
+                    /**
+                     * Từ khoá sản phẩm từ TÊN THẺ đang nhập (vd. "max card visa").
+                     */
+                    get cardNameKeyword() {
+                        return (this.form.name || '').trim().toLowerCase();
+                    },
+
+                    /**
+                     * Mẫu hệ thống có ràng buộc "chỉ áp dụng cho ngân hàng/tên sản
+                     * phẩm X" (vd. VIB Max Card Visa) thì chỉ khả dụng khi thẻ đang
+                     * nhập khớp: đúng ngân hàng + tên thẻ chứa từ khoá sản phẩm.
+                     * Mẫu không ràng buộc hoặc mẫu riêng của user ⇒ luôn khả dụng.
+                     */
+                    templateUsable(t) {
+                        if (t.applicable_bank_id == null) return true;
+
+                        if (this.applicableBankId === null) return false;
+                        if (Number(t.applicable_bank_id) !== this.applicableBankId) return false;
+
+                        if (!t.applicable_product_match) return true;
+                        const keyword = String(t.applicable_product_match).trim().toLowerCase();
+
+                        return keyword === '' || this.cardNameKeyword.includes(keyword);
+                    },
+
+                    /**
+                     * Mẫu ĐANG CHỌN nhưng không còn khớp thẻ đang nhập (đổi ngân
+                     * hàng/tên sau khi chọn). Trả mẫu đó để UI cảnh báo — nếu lưu,
+                     * server chặn 422; người dùng nên biết sớm thay vì chờ submit.
+                     */
+                    get selectedTemplateHidden() {
+                        if (!this.policy.template_id) return null;
+
+                        const t = this.templates.find((x) => Number(x.id) === Number(this.policy.template_id));
+                        if (!t) return null;
+
+                        return this.templateUsable(t) ? null : t;
                     },
 
                     /**
@@ -1220,6 +1343,7 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                         this.policySnapshot = null;
 
                         this.loadPolicy(card);
+                        this.loadPolicyHistory(card.id);
                     },
 
                     closeForm() {
@@ -1228,6 +1352,7 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                         this.policyEditor = null;
                         this.policyEditMode = true;
                         this.policySnapshot = null;
+                        this.policyHistory = [];
                         this.closeBankPicker();
                         this.error = '';
                         this.notice = '';
@@ -1539,6 +1664,22 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
 
                         this.policy.current_version_no = detail.data.version_no ?? null;
                         this.mountPolicyEditor(detail.data);
+                    },
+
+                    /**
+                     * Nạp lịch sử chính sách của thẻ (mới → cũ). Lỗi mạng không nên
+                     * cản mở form — lịch sử là thông tin phụ, rỗng cũng hiện "chưa
+                     * có lịch sử".
+                     */
+                    async loadPolicyHistory(cardId) {
+                        this.policyHistory = [];
+
+                        try {
+                            const payload = await this.request(`/thetindung/api/the/${cardId}/lich-su-chinh-sach`);
+                            this.policyHistory = payload?.data ?? [];
+                        } catch (e) {
+                            this.policyHistory = [];
+                        }
                     },
 
                     /**
