@@ -23,6 +23,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
  * @property int $user_id
  * @property string $name
  * @property string $type
+ * @property array<int, int>|null $excluded_category_ids
  */
 class Report extends CreditCardModel
 {
@@ -38,12 +39,14 @@ class Report extends CreditCardModel
         'user_id',
         'name',
         'type',
+        'excluded_category_ids',
     ];
 
     protected function casts(): array
     {
         return [
             'user_id' => 'integer',
+            'excluded_category_ids' => 'array',
         ];
     }
 
@@ -66,6 +69,22 @@ class Report extends CreditCardModel
             self::TYPE_BY_CATEGORY => 'Chi tiêu theo danh mục',
             default => 'Chi tiêu theo thẻ',
         };
+    }
+
+    /**
+     * ID các danh mục bị LOẠI TRỪ khi tính báo cáo theo danh mục.
+     *
+     * Chuẩn hoá thành danh sách int duy nhất, sẵn sàng để so với `category_id`
+     * của giao dịch. Báo cáo cũ (cột `excluded_category_ids` chưa có / chưa ghi)
+     * đọc ra `NULL` ⇒ coi như không loại trừ danh mục nào.
+     *
+     * @return array<int, int>
+     */
+    public function excludedCategoryIds(): array
+    {
+        $ids = $this->excluded_category_ids ?? [];
+
+        return array_values(array_unique(array_map('intval', (array) $ids)));
     }
 
     /**

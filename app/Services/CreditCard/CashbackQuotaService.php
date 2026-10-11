@@ -169,7 +169,14 @@ class CashbackQuotaService
 
         $rulesByTier = $this->rulesByTier($tierIds);
         $membersByCombo = $this->comboMembers($rulesByTier);
-        $totals = $this->periodTotals($periods->pluck('id')->map(fn ($id): int => (int) $id)->all(), $boundsByCard);
+        $totals = $this->periodTotals(
+            $periods->pluck('id')->map(fn ($id): int => (int) $id)->all(),
+            $boundsByCard,
+            collect($tiersByCard)
+                ->filter()
+                ->mapWithKeys(fn (PolicyTier $tier, int $cardId): array => [$cardId => (int) $tier->id])
+                ->all(),
+        );
 
         $result = [];
 
@@ -204,7 +211,7 @@ class CashbackQuotaService
     /**
      * @param  Collection<int, PolicyTierCategory>  $rules  rule đang bật của bậc đích
      * @param  array<int, array<int, int>>  $membersByCombo
-     * @param  array{cashback: array<string, string>, spend: array<string, string>}  $totals
+     * @param  array{cashback: array<string, string>, spend: array<string, string>, cashback_target: array<string, string>}  $totals
      * @return array<string, mixed>
      */
     private function quotaOfCard(
@@ -321,7 +328,7 @@ class CashbackQuotaService
      *
      * @param  Collection<int, PolicyTierCategory>  $siblingRules  mọi rule đang bật của bậc đích
      * @param  array<int, array<int, int>>  $membersByCombo
-     * @param  array{cashback: array<string, string>, spend: array<string, string>}  $totals
+     * @param  array{cashback: array<string, string>, spend: array<string, string>, cashback_target: array<string, string>}  $totals
      * @param  string  $tierRemainingAfterProjection  tầng chung SAU khi trừ dự kiến của mọi scope
      * @param  string  $tierProjected  tổng dự kiến của mọi scope (chỉ để lặp lại ở payload)
      * @param  string  $scopeProjection  dự kiến của CHÍNH scope rule này (phần sẽ cộng lại vào pool)
@@ -341,6 +348,9 @@ class CashbackQuotaService
         $categoryIds = $this->categoryIdsOf($rule, $membersByCombo);
 
         $used = $this->sumOf($totals['cashback'], $this->getContextCardId(), $categoryIds);
+        // Phần snapshot ghi bởi rule thuộc ĐÚNG bậc đích — xem `periodTotals()`.
+        // Dùng để biết số ĐÃ LƯU có phải chân lý của bậc đích hay của bậc khác.
+        $usedAtTargetTier = $this->sumOf($totals['cashback_target'], $this->getContextCardId(), $categoryIds);
         $scopeSpend = Decimal::clampZero($this->sumOf($totals['spend'], $this->getContextCardId(), $categoryIds));
 
         // -----------------------------------------------------------------
@@ -413,18 +423,25 @@ class CashbackQuotaService
             ? Decimal::cashbackForSpend($scopeSpend, $rate)
             : '0.00';
 
-        // Engine đã THẬT SỰ trả cashback cho phạm vi này (snapshot > 0): lúc đó
-        // số ĐÃ LƯU là chân lý, không được dự kiến thêm — nếu không, giới hạn theo
-        // giao dịch của engine (vd siêu thị 138.300đ bị trần 10.000đ) sẽ bị tính
-        // lại thành 27.660đ và dòng quota nói sai số tiền thật.
+        // Engine đã THẬT SỰ trả cashback cho phạm vi này Ở ĐÚNG BẬC ĐÍCH
+        // (`cashback_target` > 0): lúc đó số ĐÃ LƯU là chân lý, không được dự kiến
+        // thêm — nếu không, giới hạn theo giao dịch của engine (vd siêu thị
+        // 138.300đ bị trần 10.000đ) sẽ bị tính lại thành 27.660đ và dòng quota nói
+        // sai số tiền thật.
         //
-        // Chỉ khi engine CHƯA trả đồng nào (`used` = 0, người dùng đặt mục tiêu bậc
-        // cao nhưng engine còn chạy bậc thấp trả 0) mới phải dự kiến phần cashback
-        // đã ăn vào bậc đích mà snapshot không thấy. Khi đó `expected - used` là
-        // phần chưa phản ánh; mọi trường hợp còn lại bằng 0 và giữ nguyên kết quả cũ.
-        $hasRealCashback = Decimal::isPositive($used);
+        // Ngược lại phải dự kiến phần cashback đã ăn vào bậc đích mà snapshot
+        // không thấy. Có HAI tình huống, cùng xử lý:
+        //   - engine chạy bậc thấp trả 0đ (`used` = 0);
+        //   - engine chạy bậc KHÁC bậc đích và đã trả >0đ theo tỷ lệ của CHÍNH bậc
+        //     đó (StepUp: bậc 1 @6% ghi 300.000đ, bậc đích @15% ⇒ 700.000đ). Số đã
+        //     trả ấy KHÔNG phải "đã dùng" của bậc đích nên phải tính lại theo bậc
+        //     đích; nếu không, tử số "đã dùng / max" trộn hai bậc (300k của bậc 1
+        //     trên mẫu số 700k của bậc 2).
+        // Khi đó `expected - used` là phần chưa phản ánh. Nếu snapshot đến từ ĐÚNG
+        // bậc đích thì `cashback_target` > 0 và giữ nguyên kết quả cũ.
+        $hasTargetTierCashback = Decimal::isPositive($usedAtTargetTier);
 
-        $unaccounted = $hasRealCashback
+        $unaccounted = $hasTargetTierCashback
             ? '0.00'
             : Decimal::clampZero(Decimal::subtract($expectedFromSpend, $used));
 
@@ -442,8 +459,10 @@ class CashbackQuotaService
         // Nhưng dòng "Quota hoàn tiền" trên Tổng quan đứng trước "/ max" thì phải
         // là cashback MÀ SỐ TIỀN ĐÃ CHI TẠO RA Ở TỶ LỆ CỦA BẬC ĐÍCH. Engine chạy
         // bậc theo CHI TIÊU THỰC TẾ nên có thể đã trả 0đ cho các giao dịch sẵn
-        // có; in "0 đ / 400.000 đ" trong khi 365.500đ cashback đã ăn vào trần là
-        // dòng quota nói dối người dùng.
+        // có; hoặc đã trả >0đ nhưng theo tỷ lệ của bậc KHÁC bậc đích (StepUp:
+        // 300.000đ của bậc 1 @6% không được lên mẫu số 700.000đ của bậc 2 @15%).
+        // In "0 đ / 400.000 đ" hay "300.000 đ / 700.000 đ" khi tiền đã chi tạo ra
+        // 700.000đ hoàn tiền là dòng quota nói dối người dùng.
         //
         // Kẹp theo ĐÚNG trần mà dòng đó đang in, để không bao giờ hiện
         // "410.000 đ / 400.000 đ". Không suy ra mẫu số: dòng in `/ max` khi
@@ -454,7 +473,10 @@ class CashbackQuotaService
             default => $max ?? $tierMax,
         };
 
-        $usedForDisplay = $hasRealCashback ? $used : $expectedFromSpend;
+        // Snapshot đến từ ĐÚNG bậc đích ⇒ nó đã là cashback của bậc đích (kèm trần
+        // giao dịch engine đã áp); dùng nguyên số ĐÃ LƯU. Ngược lại dùng dự kiến
+        // theo tỷ lệ bậc đích (bị kẹp theo trần phía dưới).
+        $usedForDisplay = $hasTargetTierCashback ? $used : $expectedFromSpend;
 
         if ($displayCap !== null) {
             $usedForDisplay = Decimal::min($usedForDisplay, $displayCap);
@@ -844,6 +866,18 @@ class CashbackQuotaService
      *     engine đang làm với tổng chi tiêu.
      *
      * ---------------------------------------------------------------------------
+     * CỘT THỨ BA: CASHBACK ĐÃ GHI Ở ĐÚNG BẬC ĐÍCH
+     * ---------------------------------------------------------------------------
+     * Engine chọn bậc theo TỔNG CHI TIÊU THỰC TẾ, còn quota nói về bậc đích
+     * (`desired_spend`). Khi hai bậc khác nhau, snapshot có thể DƯƠNG nhưng đến
+     * từ bậc KHÁC bậc đích — không được coi là "đã dùng" của bậc đích (ví dụ thật
+     * StepUp: bậc 1 @6% đã ghi 300.000đ cho một giao dịch, bậc đích @15% thì số
+     * ấy phải là 700.000đ). `cashback_target` chỉ cộng snapshot mà rule của nó
+     * thuộc CHÍNH bậc đích (`cc_rule.tier_id` = bậc đó); phần còn lại vẫn ở
+     * `cashback`. Nhờ đó phân biệt được "snapshot = chân lý của bậc đích" với
+     * "snapshot = chân lý của một bậc khác".
+     *
+     * ---------------------------------------------------------------------------
      * VÌ SAO LOẠI FALLBACK Ở TẦNG NÀY
      * ---------------------------------------------------------------------------
      * Một giao dịch rơi vào fallback VẪN có `category_id` thật và vẫn sinh hoàn
@@ -855,14 +889,15 @@ class CashbackQuotaService
      *
      * @param  array<int, int>  $periodIds
      * @param  array<int, array{0: CarbonImmutable, 1: CarbonImmutable}>  $boundsByCard
-     * @return array{cashback: array<string, string>, spend: array<string, string>}
+     * @param  array<int, int>  $targetTierByCard  `user_card_id` ⇒ bậc đích mà quota đã resolve
+     * @return array{cashback: array<string, string>, spend: array<string, string>, cashback_target: array<string, string>}
      */
-    private function periodTotals(array $periodIds, array $boundsByCard = []): array
+    private function periodTotals(array $periodIds, array $boundsByCard = [], array $targetTierByCard = []): array
     {
         $useBounds = ! empty($boundsByCard);
 
         if (! $useBounds && $periodIds === []) {
-            return ['cashback' => [], 'spend' => []];
+            return ['cashback' => [], 'spend' => [], 'cashback_target' => []];
         }
 
         $transactions = (new Transaction)->getTable();
@@ -886,6 +921,21 @@ class CashbackQuotaService
             $query->whereIn($transactions.'.statement_period_id', $periodIds);
         }
 
+        // Cột thứ ba chỉ cần khi có thẻ với bậc đích rõ ràng. CASE gán bậc đích
+        // theo thẻ rồi so với `cc_rule.tier_id` — thẻ ngoài danh sách ⇒ NULL,
+        // so sánh NULL = tier_id ra NULL (không đếm), đúng.
+        $targetTierExpr = null;
+
+        if ($targetTierByCard !== []) {
+            $targetTierExpr = 'CASE '.$transactions.'.user_card_id';
+
+            foreach ($targetTierByCard as $cardId => $tierId) {
+                $targetTierExpr .= ' WHEN '.(int) $cardId.' THEN '.(int) $tierId;
+            }
+
+            $targetTierExpr .= ' ELSE NULL END';
+        }
+
         // Gom theo THẺ + DANH MỤC (không theo `statement_period_id`): "kỳ hiện tại"
         // được xác định bằng ranh giới `transaction_date` suy ra từ anchor của thẻ
         // — cùng định nghĩa với Tổng quan/Báo cáo. Thẻ thiếu bản ghi kỳ khớp ranh
@@ -901,20 +951,36 @@ class CashbackQuotaService
                 "SUM(CASE WHEN {$transactions}.policy_tier_category_id IS NOT NULL"
                 ." AND COALESCE(cc_rule.scope_type, '".PolicyTierCategory::SCOPE_CATEGORY."') <> '"
                 .PolicyTierCategory::SCOPE_OTHER."' THEN {$transactions}.cashback_amount_snapshot ELSE 0 END) as cashback"
-            )
-            ->get();
+            );
+
+        if ($targetTierExpr !== null) {
+            $query->selectRaw(
+                "SUM(CASE WHEN {$transactions}.policy_tier_category_id IS NOT NULL"
+                ." AND COALESCE(cc_rule.scope_type, '".PolicyTierCategory::SCOPE_CATEGORY."') <> '"
+                .PolicyTierCategory::SCOPE_OTHER."'"
+                ." AND {$targetTierExpr} = cc_rule.tier_id"
+                ." THEN {$transactions}.cashback_amount_snapshot ELSE 0 END) as cashback_target"
+            );
+        }
+
+        $rows = $query->get();
 
         $cashback = [];
         $spend = [];
+        $cashbackTarget = [];
 
         foreach ($rows as $row) {
             $key = $this->cardCategoryKey((int) $row->user_card_id, (int) $row->category_id);
 
             $cashback[$key] = Decimal::money($row->cashback);
             $spend[$key] = Decimal::money($row->spend);
+
+            if ($targetTierExpr !== null) {
+                $cashbackTarget[$key] = Decimal::money($row->cashback_target);
+            }
         }
 
-        return ['cashback' => $cashback, 'spend' => $spend];
+        return ['cashback' => $cashback, 'spend' => $spend, 'cashback_target' => $cashbackTarget];
     }
 
     // =====================================================================
@@ -950,6 +1016,7 @@ class CashbackQuotaService
         foreach ($quotaRules as $rule) {
             $categoryIds = $this->categoryIdsOf($rule, $membersByCombo);
             $used = $this->sumOf($totals['cashback'], $this->getContextCardId(), $categoryIds);
+            $usedAtTargetTier = $this->sumOf($totals['cashback_target'], $this->getContextCardId(), $categoryIds);
             $scopeSpend = Decimal::clampZero($this->sumOf($totals['spend'], $this->getContextCardId(), $categoryIds));
 
             $rate = Decimal::money($rule->cashback_percent);
@@ -964,9 +1031,11 @@ class CashbackQuotaService
                 ? null
                 : Decimal::money($rule->max_cashback_per_category_per_period);
 
-            // Engine đã trả thật cho scope này ⇒ phần dự kiến bằng 0: số ĐÃ LƯU đã
-            // ăn vào bậc đích, dự kiến thêm nữa là double-count.
-            $projection = Decimal::isPositive($used)
+            // Engine đã trả thật cho scope này Ở ĐÚNG BẬC ĐÍCH ⇒ phần dự kiến bằng
+            // 0: số ĐÃ LƯU đã ăn vào bậc đích, dự kiến thêm nữa là double-count.
+            // Snapshot đến từ bậc KHÁC (dù >0) thì KHÔNG tính là đã ăn bậc đích —
+            // vẫn dự kiến phần `expected (kẹp trần riêng) − đã lưu`.
+            $projection = Decimal::isPositive($usedAtTargetTier)
                 ? '0.00'
                 : Decimal::clampZero(Decimal::subtract(
                     $cap === null ? $expected : Decimal::min($expected, $cap),

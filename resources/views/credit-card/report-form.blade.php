@@ -143,6 +143,62 @@
                     @endif
                 </div>
 
+                {{-- Loại trừ danh mục: chỉ áp dụng cho báo cáo theo danh mục --}}
+                @if ($categories->isNotEmpty())
+                    <div id="report-excluded-section" data-testid="report-excluded-categories">
+                        <label class="block text-sm font-medium text-gray-700">
+                            Loại trừ các danh mục
+                            <span class="font-normal text-gray-400">(bỏ trống = tính trên tất cả danh mục)</span>
+                        </label>
+                        <p class="mt-1 text-xs text-gray-500">
+                            Các danh mục được chọn sẽ không xuất hiện trong báo cáo và không được tính vào
+                            tổng chi tiêu, cashback hoặc tỷ lệ.
+                        </p>
+
+                        {{-- Chọn/bỏ chọn TẤT CẢ danh mục để loại trừ. Đây là điều khiển UI
+                             thuần tuý: KHÔNG có `name` nên không được gửi lên server; chỉ
+                             tác động lên từng checkbox chip phía dưới. --}}
+                        <label for="exclude-all-categories"
+                               class="mt-2 inline-flex items-center gap-2 cursor-pointer select-none">
+                            <input type="checkbox"
+                                   id="exclude-all-categories"
+                                   data-testid="exclude-all-toggle"
+                                   aria-label="Chọn tất cả danh mục để loại trừ"
+                                   class="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500">
+                            <span class="text-sm font-medium text-gray-700"
+                                  data-testid="exclude-all-label"
+                                  data-role="exclude-all-label">
+                                Chọn tất cả danh mục để loại trừ
+                            </span>
+                        </label>
+
+                        <div class="mt-2 flex flex-wrap gap-1.5" data-role="excluded-chips">
+                            @foreach ($categories as $category)
+                                {{-- `<label>` bao quanh checkbox THẬT: nhấp vào bất kỳ đâu
+                                     trên chip (nhãn) cũng chuyển trạng thái checkbox theo
+                                     cơ chế gốc của trình duyệt. Checkbox là nguồn chân lý;
+                                     JS chỉ đồng bộ màu chip + nút chọn tất cả từ đó. --}}
+                                <label class="inline-flex cursor-pointer select-none" data-role="excluded-chip">
+                                    <input type="checkbox"
+                                           name="excluded_category_ids[]"
+                                           value="{{ $category->id }}"
+                                           @checked(in_array((int) $category->id, $selectedExclusions, true))
+                                           data-testid="exclude-category-{{ $category->id }}"
+                                           class="sr-only">
+                                    <span data-role="chip-label"
+                                          class="inline-flex items-center px-3 h-9 rounded-full border text-xs font-medium transition-colors
+                                                 bg-white text-gray-600 border-gray-200 hover:border-emerald-300">
+                                        {{ $category->name }}
+                                        @unless ($category->is_active)
+                                            <span class="ml-1 text-[10px] opacity-75">(đã ẩn)</span>
+                                        @endunless
+                                    </span>
+                                </label>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
+
                 <div class="flex flex-wrap items-center justify-end gap-2 pt-1">
                     <a href="{{ $isEdit ? route('credit-cards.reports.show', ['report' => $report->id]) : route('credit-cards.reports') }}"
                        class="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
@@ -158,5 +214,110 @@
             </form>
         </div>
     </div>
+
+    {{-- Ẩn/hiện mục loại trừ theo kiểu báo cáo + đồng bộ chip / nút chọn tất cả.
+
+     1. Dùng `hidden` chứ KHÔNG `disabled`: khi chọn "theo thẻ" các checkbox vẫn
+        được gửi lên và được lưu, nên đổi qua lại kiểu báo cáo không làm mất lựa
+        chọn trước khi lưu.
+     2. Trạng thái màu của chip do JS bật/tắt TRỰC TIẾP các class tiện ích
+        (`bg-emerald-600 text-white border-emerald-600` / nền trắng) — không phụ
+        thuộc variant `peer-checked` có được compile trong bản CSS hay không.
+        Checkbox là nguồn chân lý DUY NHẤT: màu và "chọn tất cả" luôn bám theo
+        `input.checked`.
+     3. Nút "Chọn tất cả / Bỏ chọn tất cả" là control UI thuần tuý, không submit;
+        hiển thị trạng thái ba trạng thái (rỗng / một phần / tất cả). --}}
+<script>
+    (function () {
+        var section = document.getElementById('report-excluded-section');
+        if (!section) {
+            return;
+        }
+
+        // --- Hiện/ẩn theo kiểu báo cáo ---
+        var radios = Array.prototype.slice.call(document.querySelectorAll('input[name="type"]'));
+
+        var syncTypeVisibility = function () {
+            var checked = document.querySelector('input[name="type"]:checked');
+            section.hidden = !checked || checked.value !== 'by_category';
+        };
+
+        radios.forEach(function (radio) {
+            radio.addEventListener('change', syncTypeVisibility);
+        });
+        syncTypeVisibility();
+
+        // --- Đồng bộ chip + Chọn tất cả ---
+        var inputs = Array.prototype.slice.call(
+            section.querySelectorAll('input[name="excluded_category_ids[]"]')
+        );
+        var selectAll = document.getElementById('exclude-all-categories');
+        var selectAllLabel = section.querySelector('[data-testid="exclude-all-label"]');
+
+        var chipFor = function (input) {
+            var label = input.closest('label');
+            return label ? label.querySelector('[data-role="chip-label"]') : null;
+        };
+
+        // Hai trạng thái màu của chip. Các class ở đây là utility thông dụng
+        // (đã có sẵn trong CSS build), nên tác dụng nhìn thấy ngay mà không cần
+        // biên dịch lại variant `peer-checked`.
+        var CHIP_ON = ['bg-emerald-600', 'text-white', 'border-emerald-600'];
+        var CHIP_OFF = ['bg-white', 'text-gray-600', 'border-gray-200'];
+
+        var refreshChip = function (input) {
+            var chip = chipFor(input);
+            if (!chip) {
+                return;
+            }
+            chip.classList.remove.apply(chip.classList, CHIP_OFF);
+            chip.classList.remove.apply(chip.classList, CHIP_ON);
+            chip.classList.add.apply(chip.classList, input.checked ? CHIP_ON : CHIP_OFF);
+            chip.setAttribute('data-chosen', input.checked ? '1' : '0');
+        };
+
+        var refreshSelectAll = function () {
+            if (!selectAll) {
+                return;
+            }
+
+            var total = inputs.length;
+            var chosen = inputs.filter(function (input) {
+                return input.checked;
+            }).length;
+            var all = total > 0 && chosen === total;
+
+            selectAll.checked = all;
+            selectAll.indeterminate = chosen > 0 && !all;
+
+            if (selectAllLabel) {
+                selectAllLabel.textContent = all
+                    ? 'Bỏ chọn tất cả danh mục để loại trừ'
+                    : 'Chọn tất cả danh mục để loại trừ';
+            }
+        };
+
+        inputs.forEach(function (input) {
+            refreshChip(input);
+            input.addEventListener('change', function () {
+                refreshChip(input);
+                refreshSelectAll();
+            });
+        });
+
+        if (selectAll) {
+            selectAll.addEventListener('change', function () {
+                var wanted = selectAll.checked;
+                inputs.forEach(function (input) {
+                    input.checked = wanted;
+                    refreshChip(input);
+                });
+                refreshSelectAll();
+            });
+        }
+
+        refreshSelectAll();
+    })();
+</script>
 
 </x-credit-card.layout>

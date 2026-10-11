@@ -71,7 +71,7 @@ class CreditCardReportExporter
         $isByCategory = $report->type === Report::TYPE_BY_CATEGORY;
 
         $data = $isByCategory
-            ? $this->reports->byCategory($cards, $periodKey)
+            ? $this->reports->byCategory($cards, $periodKey, $report->excludedCategoryIds())
             : $this->reports->byCard($cards, $periodKey);
 
         $data['rows'] = CreditCardSort::applyRows(

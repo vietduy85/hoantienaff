@@ -1154,6 +1154,46 @@ class OverviewQuotaPresentationTest extends TestCase
     }
 
     #[Test]
+    public function a_stepup_quota_whose_snapshot_came_from_a_lower_tier_reads_the_target_tier_used(): void
+    {
+        // Sự cố thật (StepUp): engine chạy bậc 1 @6% nên ghi snapshot 300.000đ,
+        // nhưng bậc ĐÍCH theo mục tiêu 10tr là bậc 2 @15%, trần riêng 700.000đ.
+        // Dòng quota phải in số của BẬC ĐÍCH — 5.084.000 × 15% = 762.600 kẹp trần
+        // riêng 700.000 — chứ KHÔNG lấy 300.000đ của bậc 1 lên mẫu số 700.000đ.
+        $shopping = $this->makeSystemCategory(['name' => 'Mua sắm']);
+        $card = $this->makeUserCard($this->owner->id, ['desired_spend' => '10000000']);
+
+        $this->makePolicyForCard(
+            $card,
+            [
+                ['name' => 'Bậc 1', 'min' => 0, 'max' => 9999999, 'cap_period' => '400000.00'],
+                ['name' => 'Bậc 2', 'min' => 10000000, 'max' => null, 'cap_period' => '900000.00'],
+            ],
+            [
+                ['category_id' => $shopping->id, 'percent' => '6.000', 'cap_cat' => '300000.00', 'only_tier' => 0],
+                ['category_id' => $shopping->id, 'percent' => '15.000', 'cap_cat' => '700000.00', 'quota' => true, 'only_tier' => 1],
+            ]
+        );
+
+        $this->spend($card, $shopping, '5084000');
+
+        $html = $this->overviewHtml();
+        $rule = $this->metricsOf($html)[(string) $card->id]['quota']['rules'][0];
+
+        // Lịch sử là 300.000 của bậc 1; số IN RA là 700.000 của bậc đích.
+        $this->assertSame('300000.00', $rule['cashback_used']);
+        $this->assertSame('700000.00', $rule['cashback_used_display']);
+        $this->assertSame('700000.00', $rule['cashback_max']);
+        $this->assertTrue($rule['is_exhausted']);
+
+        $row = $this->visibleTextOf($this->quotaRowByLabel($html, 'Mua sắm'));
+
+        $this->assertStringContainsString('700.000 đ / 700.000 đ · HẾT QUOTA', $row);
+        $this->assertStringNotContainsString('300.000 đ / 700.000 đ', $row);
+        $this->assertStringNotContainsString('Có thể chi thêm', $row);
+    }
+
+    #[Test]
     public function an_uncapped_rule_that_runs_out_of_tier_room_says_exhausted_with_no_denominator(): void
     {
         // Nhánh C khi hết phòng: `[đã dùng] · HẾT QUOTA` — nhất quán với nhánh B

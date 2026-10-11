@@ -9,6 +9,7 @@ use App\Models\CreditCard\PolicyTemplate;
 use App\Models\CreditCard\SpendQualificationTemplate;
 use App\Models\CreditCard\UserCard;
 use App\Services\CreditCard\BankService;
+use App\Services\CreditCard\CardRecommendationService;
 use App\Services\CreditCard\CategoryService;
 use App\Services\CreditCard\CreditCardCardSortService;
 use App\Services\CreditCard\CreditCardOverviewService;
@@ -16,10 +17,13 @@ use App\Services\CreditCard\CreditCardStatementService;
 use App\Services\CreditCard\CreditCardUserSettingService;
 use App\Services\CreditCard\SpendQualificationService;
 use App\Services\CreditCard\StatementPeriodService;
+use App\Support\CreditCard\CategoryIcon;
 use App\Support\CreditCard\Decimal;
 use Carbon\CarbonImmutable;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 /**
@@ -42,6 +46,7 @@ class CreditCardController extends Controller
         private readonly CreditCardCardSortService $sort,
         private readonly CreditCardStatementService $statements,
         private readonly CreditCardUserSettingService $settings,
+        private readonly CardRecommendationService $recommendations,
     ) {}
 
     /**
@@ -412,10 +417,60 @@ class CreditCardController extends Controller
         return view('credit-card.categories');
     }
 
-    /** /thetindung/so-sanh — placeholder giai đoạn sau. */
+    /** /thetindung/so-sanh — "Lựa chọn thẻ": gợi ý thẻ theo nhu cầu chi tiêu. */
     public function compare(): View
     {
-        return view('credit-card.compare');
+        $userId = (int) auth()->id();
+
+        return view('credit-card.compare', [
+            // Danh mục người dùng được phép chọn — CHỈ hệ thống + riêng của
+            // user đang đăng nhập (`Category::scopeSelectableBy`), để form không
+            // hiện danh mục của người khác (quyền cũng được kiểm lại ở endpoint).
+            // Shape khớp `x-credit-card.searchable-select` (id / label / sublabel).
+            'categories' => $this->categories->selectableFor($userId)
+                ->map(fn (Category $category): array => [
+                    'id' => (int) $category->id,
+                    'label' => CategoryIcon::for($category).' '.$category->name,
+                    'sublabel' => $category->isSystem() ? 'Hệ thống' : 'Của tôi',
+                ])
+                ->values()
+                ->all(),
+        ]);
+    }
+
+    /**
+     * GET /thetindung/so-sanh/de-xuat — JSON đề xuất thẻ cho một nhu cầu.
+     *
+     * CHỈ ĐỌC: `CardRecommendationService` mô phỏng trên dữ liệu hiện có, không
+     * tạo kỳ sao kê và không ghi snapshot. Mọi truy vấn scope theo `auth()->id()`.
+     */
+    public function recommendations(Request $request): JsonResponse
+    {
+        $userId = (int) auth()->id();
+
+        $validated = $request->validate([
+            'amount' => ['required', 'numeric', 'gt:0', 'max:1000000000000'],
+            'category_id' => ['required', 'integer'],
+        ]);
+
+        $categoryId = (int) $validated['category_id'];
+
+        // Danh mục phải thuộc phạm vi sử dụng của user: hệ thống đang hoạt động
+        // hoặc danh mục riêng của chính họ. Không dùng danh mục của người khác.
+        $usable = Category::query()
+            ->selectableBy($userId)
+            ->whereKey($categoryId)
+            ->exists();
+
+        if (! $usable) {
+            throw ValidationException::withMessages([
+                'category_id' => 'Danh mục không hợp lệ hoặc không thuộc quyền sử dụng của bạn.',
+            ]);
+        }
+
+        return response()->json([
+            'data' => $this->recommendations->recommend($userId, (string) $validated['amount'], $categoryId),
+        ]);
     }
 
     /** /thetindung/cai-dat — tuỳ chọn hiển thị của module. */

@@ -139,6 +139,7 @@ Route::middleware('auth')->group(function () {
         Route::delete('/bao-cao/{report}', [CreditCardReportController::class, 'destroy'])
             ->whereNumber('report')->name('reports.destroy');
         Route::get('/so-sanh', [CreditCardController::class, 'compare'])->name('compare');
+        Route::get('/so-sanh/de-xuat', [CreditCardController::class, 'recommendations'])->name('compare.recommend');
         Route::get('/cai-dat', [CreditCardController::class, 'settings'])->name('settings');
         Route::get('/chinh-sach', [CreditCardController::class, 'policies'])->name('policies');
         Route::get('/sao-ke', [StatementController::class, 'index'])->name('statements');

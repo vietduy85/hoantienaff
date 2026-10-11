@@ -10,6 +10,7 @@ use App\Models\CreditCard\UserCard;
 use App\Support\CreditCard\Decimal;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
 /**
@@ -95,9 +96,10 @@ class CreditCardReportService
 
     /**
      * Tạo báo cáo mới. Thẻ được lọc theo chủ sở hữu trước khi gắn — không tin id
-     * do client gửi lên.
+     * do client gửi lên. Danh mục loại trừ cũng được lọc về đúng tập danh mục user
+     * được phép dùng (hệ thống hoặc của chính user).
      *
-     * @param  array{name: string, type: string, card_ids: array<int, int>}  $data
+     * @param  array{name: string, type: string, card_ids: array<int, int>, excluded_category_ids?: array<int, int>}  $data
      */
     public function create(int $userId, array $data): Report
     {
@@ -105,6 +107,10 @@ class CreditCardReportService
             'user_id' => $userId,
             'name' => $data['name'],
             'type' => $data['type'],
+            'excluded_category_ids' => $this->allowedExcludedCategoryIds(
+                $userId,
+                $data['excluded_category_ids'] ?? [],
+            ),
         ]);
 
         $this->syncCards($report, $userId, $data['card_ids'] ?? []);
@@ -113,15 +119,19 @@ class CreditCardReportService
     }
 
     /**
-     * Cập nhật cấu hình báo cáo (tên / kiểu / danh sách thẻ).
+     * Cập nhật cấu hình báo cáo (tên / kiểu / danh sách thẻ / danh mục loại trừ).
      *
-     * @param  array{name: string, type: string, card_ids: array<int, int>}  $data
+     * @param  array{name: string, type: string, card_ids: array<int, int>, excluded_category_ids?: array<int, int>}  $data
      */
     public function update(Report $report, int $userId, array $data): Report
     {
         $report->fill([
             'name' => $data['name'],
             'type' => $data['type'],
+            'excluded_category_ids' => $this->allowedExcludedCategoryIds(
+                $userId,
+                $data['excluded_category_ids'] ?? [],
+            ),
         ])->save();
 
         $this->syncCards($report, $userId, $data['card_ids'] ?? []);
@@ -161,6 +171,42 @@ class CreditCardReportService
             ->all();
 
         $report->cards()->sync($owned);
+    }
+
+    /**
+     * Giữ lại CHỈ danh mục USER ĐƯỢC PHÉP loại trừ: hệ thống hoặc của chính user.
+     *
+     * Lớp phòng thủ thứ hai sau validation: id danh mục riêng của người khác hoặc
+     * id không tồn tại (đã bị xoá cứng) bị bỏ im lặng, không để lọt xuống DB. Danh
+     * mục đã bị ẩn (`is_active = false`) vẫn được giữ vì báo cáo cũ đang tham
+     * chiếu và user cần thấy nó để gỡ bỏ khi sửa.
+     *
+     * @param  array<int, int>  $categoryIds
+     * @return array<int, int>
+     */
+    private function allowedExcludedCategoryIds(int $userId, array $categoryIds): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $categoryIds)));
+
+        if ($ids === []) {
+            return [];
+        }
+
+        $allowed = Category::query()
+            ->whereIn('id', $ids)
+            ->where(function (Builder $query) use ($userId): void {
+                $query->where('scope', Category::SCOPE_SYSTEM)
+                    ->orWhere(function (Builder $user) use ($userId): void {
+                        $user->where('scope', Category::SCOPE_USER)
+                            ->where('owner_user_id', $userId);
+                    });
+            })
+            ->pluck('id')
+            ->map(fn ($id): int => (int) $id)
+            ->all();
+
+        // `array_intersect` giữ đúng thứ tự user chọn.
+        return array_values(array_intersect($ids, $allowed));
     }
 
     // =====================================================================
@@ -356,20 +402,43 @@ class CreditCardReportService
      * Danh mục của thẻ nào thì cộng vào ô của thẻ đó; dòng "Chưa phân loại" gom
      * giao dịch `category_id = NULL` — tiền không bị bỏ khỏi tổng.
      *
+     * Loại trừ: `$excludedCategoryIds` là danh sách ID danh mục BỊ BỎ khỏi bảng và
+     * khỏi MỌI tổng (tổng theo thẻ / tổng tất cả đều tính lại trên tập còn lại).
+     * "Chưa phân loại" không có id nên không bao giờ bị loại bằng bộ lọc này.
+     *
      * @param  Collection<int, UserCard>  $cards
+     * @param  array<int, int>  $excludedCategoryIds
      * @return array<string, mixed>
      */
-    public function byCategory(Collection $cards, string $periodKey, ?CarbonInterface $today = null): array
-    {
+    public function byCategory(
+        Collection $cards,
+        string $periodKey,
+        array $excludedCategoryIds = [],
+        ?CarbonInterface $today = null,
+    ): array {
         $resolved = $this->resolveCardPeriods($cards, $periodKey, $today);
 
         // (card_id => category_id => [spend, cashback]); category `0` = chưa phân loại.
         $cells = $this->sumsByCardCategory($this->rangesOf($resolved));
 
+        $excluded = [];
+
+        foreach ($excludedCategoryIds as $id) {
+            $excluded[(int) $id] = true;
+        }
+
         $usedCategories = [];
 
         foreach ($cells as $byCategory) {
             foreach (array_keys($byCategory) as $categoryId) {
+                $categoryId = (int) $categoryId;
+
+                // Chỉ danh mục THẬT (id > 0) được loại trừ — "Chưa phân loại" (0)
+                // không nằm trong danh sách chip nên luôn được giữ nguyên.
+                if ($categoryId > 0 && isset($excluded[$categoryId])) {
+                    continue;
+                }
+
                 $usedCategories[$categoryId] = true;
             }
         }
@@ -476,6 +545,9 @@ class CreditCardReportService
                 'percent' => self::ratio($grandCashback, $grandSpend),
             ],
             'periods' => $periods,
+            // Có giao dịch trong kỳ (trước khi loại trừ) hay không — để trang kết
+            // quả phân biệt "kỳ chưa có giao dịch nào" với "đã bị loại trừ hết".
+            'had_data' => $cells !== [],
         ];
     }
 

@@ -5,11 +5,14 @@ namespace App\Http\Controllers\CreditCard;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\CreditCard\StoreReportRequest;
 use App\Http\Requests\CreditCard\UpdateReportRequest;
+use App\Models\CreditCard\Category;
 use App\Models\CreditCard\Report;
 use App\Models\CreditCard\UserCard;
+use App\Services\CreditCard\CategoryService;
 use App\Services\CreditCard\CreditCardReportExporter;
 use App\Services\CreditCard\CreditCardReportService;
 use App\Support\CreditCard\CreditCardSort;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -42,6 +45,7 @@ class CreditCardReportController extends Controller
     public function __construct(
         private readonly CreditCardReportService $reports,
         private readonly CreditCardReportExporter $exporter,
+        private readonly CategoryService $categories,
     ) {}
 
     /** Danh sách báo cáo đã lưu của user. */
@@ -68,6 +72,8 @@ class CreditCardReportController extends Controller
             'method' => 'POST',
             'selected' => array_map('intval', (array) old('card_ids', [])),
             'selectedType' => (string) old('type', Report::TYPE_BY_CARD),
+            'categories' => $this->categoryOptions(null, $userId),
+            'selectedExclusions' => array_map('intval', (array) old('excluded_category_ids', [])),
         ]);
     }
 
@@ -95,8 +101,11 @@ class CreditCardReportController extends Controller
             $cards,
         );
 
+        $userId = (int) $request->user()->id;
+        $excluded = $report->excludedCategoryIds();
+
         $data = $report->type === Report::TYPE_BY_CATEGORY
-            ? $this->reports->byCategory($cards, $periodKey)
+            ? $this->reports->byCategory($cards, $periodKey, $excluded)
             : $this->reports->byCard($cards, $periodKey);
 
         // Sắp xếp (chỉ đổi thứ tự dòng, không đổi số): key/chiều qua allowlist,
@@ -118,6 +127,7 @@ class CreditCardReportController extends Controller
             'data' => $data,
             'sortKey' => $sortKey,
             'sortDir' => $sortDir,
+            'excludedCategoryNames' => $this->excludedCategoryNames($excluded, $userId),
         ]);
     }
 
@@ -173,14 +183,23 @@ class CreditCardReportController extends Controller
     {
         $this->authorize('update', $report);
 
+        $userId = (int) $request->user()->id;
+
         return view('credit-card.report-form', [
             'report' => $report,
-            'cards' => $this->selectableCards((int) $request->user()->id),
+            'cards' => $this->selectableCards($userId),
             'types' => $this->types(),
             'action' => route('credit-cards.reports.update', ['report' => $report->id]),
             'method' => 'PATCH',
             'selected' => array_map('intval', (array) old('card_ids', $report->cards->pluck('id')->all())),
             'selectedType' => (string) old('type', $report->type),
+            // Ưu tiên dữ liệu vừa submit (validation lỗi); ngược lại dùng cấu hình
+            // đang lưu — kể cả danh mục đã bị ẩn, để user nhìn thấy và gỡ bỏ.
+            'categories' => $this->categoryOptions($report, $userId),
+            'selectedExclusions' => array_map(
+                'intval',
+                (array) old('excluded_category_ids', $report->excludedCategoryIds()),
+            ),
         ]);
     }
 
@@ -229,5 +248,72 @@ class CreditCardReportController extends Controller
             ['value' => Report::TYPE_BY_CARD, 'label' => 'Chi tiêu theo thẻ'],
             ['value' => Report::TYPE_BY_CATEGORY, 'label' => 'Chi tiêu theo danh mục'],
         ];
+    }
+
+    /**
+     * Danh mục để render chip "Loại trừ": danh mục hệ thống đang hoạt động + danh
+     * mục riêng của user đang hoạt động, VẪN kèm danh mục đang được báo cáo loại
+     * trừ dù đã bị ẩn (để user nhìn thấy chip và gỡ bỏ khi sửa).
+     *
+     * @return Collection<int, Category>
+     */
+    private function categoryOptions(?Report $report, int $userId): Collection
+    {
+        $allowed = $this->categories->selectableFor($userId)
+            ->keyBy('id');
+
+        if ($report !== null) {
+            foreach ($report->excludedCategoryIds() as $excludedId) {
+                if ($allowed->has($excludedId)) {
+                    continue;
+                }
+
+                $stored = Category::query()
+                    ->whereKey($excludedId)
+                    ->where(function (Builder $query) use ($userId): void {
+                        $query->where('scope', Category::SCOPE_SYSTEM)
+                            ->orWhere(function (Builder $user) use ($userId): void {
+                                $user->where('scope', Category::SCOPE_USER)
+                                    ->where('owner_user_id', $userId);
+                            });
+                    })
+                    ->get(['id', 'name', 'scope', 'owner_user_id', 'is_active'])
+                    ->first();
+
+                if ($stored instanceof Category) {
+                    $allowed->put($stored->id, $stored);
+                }
+            }
+        }
+
+        return $allowed
+            ->sortBy('name', SORT_NATURAL | SORT_FLAG_CASE)
+            ->values();
+    }
+
+    /**
+     * Tên các danh mục đang bị loại trừ (để hiển thị dòng tóm tắt trên trang kết
+     * quả). ID không còn tồn tại được lược bỏ — không hiển thị ID trần.
+     *
+     * @param  array<int, int>  $excludedIds
+     * @return Collection<int, string>
+     */
+    private function excludedCategoryNames(array $excludedIds, int $userId): Collection
+    {
+        if ($excludedIds === []) {
+            return collect();
+        }
+
+        return Category::query()
+            ->whereIn('id', $excludedIds)
+            ->where(function (Builder $query) use ($userId): void {
+                $query->where('scope', Category::SCOPE_SYSTEM)
+                    ->orWhere(function (Builder $user) use ($userId): void {
+                        $user->where('scope', Category::SCOPE_USER)
+                            ->where('owner_user_id', $userId);
+                    });
+            })
+            ->orderBy('name')
+            ->pluck('name');
     }
 }

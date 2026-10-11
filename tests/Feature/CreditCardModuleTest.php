@@ -107,6 +107,7 @@ class CreditCardModuleTest extends TestCase
             'credit-cards.categories',
             'credit-cards.reports',
             'credit-cards.compare',
+            'credit-cards.compare.recommend',
             'credit-cards.settings',
             'credit-cards.policies',
             'credit-cards.statements',
@@ -117,6 +118,7 @@ class CreditCardModuleTest extends TestCase
             'credit-cards.reports.edit',
             'credit-cards.reports.update',
             'credit-cards.reports.destroy',
+            'credit-cards.reports.export',
             // Trang lịch sử giao dịch của một thẻ (đọc + sửa nhanh). Thêm giao
             // dịch nằm ở Tổng quan nên không có route trang cho việc đó.
             'credit-cards.transactions',
@@ -263,7 +265,7 @@ class CreditCardModuleTest extends TestCase
             'Chính sách',
             'Danh mục chi tiêu',
             'Báo cáo',
-            'So sánh thẻ',
+            'Lựa chọn thẻ',
             'Cài đặt',
         ] as $label) {
             $response->assertSee($label);
@@ -680,28 +682,22 @@ class CreditCardModuleTest extends TestCase
     }
 
     /**
-     * TEST 9: Các trang placeholder hiển thị tên module + thông báo giai đoạn 2.
-     *
-     * `/thetindung/quan-ly-the`, `/thetindung/bao-cao` và `/thetindung/cai-dat`
-     * KHÔNG còn nằm trong danh sách này — chúng đã thành màn hình thật (xem
-     * `manage_page_offers_the_add_card_form`, CreditCardReportTest và trang Cài đặt).
+     * TEST 9: `/thetindung/so-sanh` là màn hình THẬT "Lựa chọn thẻ" — không còn
+     * placeholder. Mọi trang module nay đều là màn hình hoạt động, nên bất biến
+     * được khóa ở đây là: trang render UI nhập nhu cầu chi tiêu và KHÔNG còn in
+     * thông báo "giai đoạn tiếp theo".
      */
     #[Test]
-    public function placeholder_pages_show_module_name_and_next_phase_notice(): void
+    public function compare_page_renders_the_card_recommendation_ui(): void
     {
         $user = User::factory()->create();
 
-        $cases = [
-            '/thetindung/so-sanh' => 'So sánh thẻ',
-        ];
+        $response = $this->actingAs($user)->get('/thetindung/so-sanh');
 
-        foreach ($cases as $url => $moduleName) {
-            $response = $this->actingAs($user)->get($url);
-
-            $response->assertOk();
-            $response->assertSee($moduleName);
-            $response->assertSee('Module này sẽ được triển khai ở giai đoạn tiếp theo.');
-        }
+        $response->assertOk();
+        $response->assertSee('Lựa chọn thẻ');
+        $response->assertSee('Nhu cầu chi tiêu');
+        $response->assertDontSee('Module này sẽ được triển khai ở giai đoạn tiếp theo.');
     }
 
     /**

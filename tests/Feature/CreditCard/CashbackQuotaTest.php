@@ -136,6 +136,51 @@ class CashbackQuotaTest extends TestCase
         );
     }
 
+    /**
+     * Ca thật StepUp: engine chạy bậc 1 @6% và ghi snapshot 300.000đ (dương!), mục
+     * tiêu 10.000.000 ⇒ bậc ĐÍCH là bậc 2 @15%. Snapshot DƯƠNG mà KHÔNG thuộc bậc
+     * đích, nên không được lấy làm tử số "đã dùng / max" của bậc đích: phải tính
+     * lại theo tỷ lệ bậc đích (5.084.000 × 15% = 762.600, kẹp trần riêng 700.000).
+     */
+    #[Test]
+    public function a_positive_snapshot_of_another_tier_still_prints_the_target_tier_used(): void
+    {
+        $shopping = $this->makeSystemCategory(['name' => 'Mua sắm']);
+
+        $card = $this->cardWithTiersAndRules('10000000', [
+            ['name' => 'Bậc 1', 'min' => 0, 'max' => 9999999, 'cap_period' => '400000.00'],
+            ['name' => 'Bậc 2', 'min' => 10000000, 'max' => null, 'cap_period' => '900000.00'],
+        ], [
+            // Bậc 1: engine chạy khi tổng chi < 10tr, trả 6% (không tick quota).
+            $this->categoryRule($shopping, onlyTier: 0, percent: '6.000', capCategory: '300000.00'),
+            // Bậc 2: bậc ĐÍCH theo mục tiêu, 15%, trần riêng 700.000.
+            $this->categoryRule($shopping, onlyTier: 1, percent: '15.000', capCategory: '700000.00', quota: true),
+        ]);
+
+        // 5.084.000 < 10.000.000 ⇒ engine chạy bậc 1: 5.084.000 × 6% = 305.040,
+        // kẹp trần riêng 300.000 ⇒ snapshot 300.000 (bậc KHÁC bậc đích).
+        $this->spend($card, $shopping, '5084000');
+
+        $quota = $this->quotaOf($card);
+        $rule = $this->ruleFor($quota, 'category_id', (int) $shopping->id);
+
+        // Lịch sử giữ nguyên: số engine ĐÃ trả theo bậc 1.
+        $this->assertSame('300000.00', $rule['cashback_used']);
+        $this->assertSame('300000.00', $quota['tier_cashback_used']);
+
+        // Tử số in ra theo bậc ĐÍCH, KHÔNG lấy 300.000 của bậc 1.
+        $this->assertSame('700000.00', $rule['cashback_used_display']);
+        $this->assertSame('700000.00', $rule['cashback_max']);
+
+        // Tiền đã chi tạo đủ 700.000 ở bậc đích ⇒ dòng này hết quota, không mời
+        // chi thêm dù snapshot của bậc 1 mới chỉ 300.000.
+        $this->assertSame('400000.00', $quota['tier_cashback_projected']);
+        $this->assertSame('200000.00', $quota['tier_cashback_remaining']);
+        $this->assertTrue($rule['is_exhausted']);
+        $this->assertSame('0.00', $rule['cashback_room_remaining']);
+        $this->assertSame('0.00', $rule['spend_remaining_estimate']);
+    }
+
     // =====================================================================
     // 2. Chỉ rule is_quota_category mới vào quota
     // =====================================================================

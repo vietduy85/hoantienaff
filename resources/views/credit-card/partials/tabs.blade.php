@@ -1,7 +1,7 @@
 {{--
     Navigation module Thẻ tín dụng: 1 nguồn cho Desktop & Mobile.
     + 3 tab chính (🏠 Tổng quan / 💳 Quản lý thẻ / 🧾 Sao kê): pill nổi bật.
-    + Menu phụ nhỏ (Chính sách / Danh mục / Báo cáo / So sánh thẻ / Cài đặt) bên phải.
+    + Menu phụ nhỏ (Chính sách / Danh mục / Báo cáo / Lựa chọn thẻ / Cài đặt) bên phải.
     Cuộn ngang khi không đủ chỗ (không wrap, không tự render lại title module).
 --}}
 @php
@@ -15,7 +15,7 @@
         ['key' => 'policies', 'label' => 'Chính sách hoàn tiền', 'icon' => '🎯', 'route' => 'credit-cards.policies'],
         ['key' => 'categories', 'label' => 'Danh mục chi tiêu', 'icon' => '📁', 'route' => 'credit-cards.categories'],
         ['key' => 'reports', 'label' => 'Báo cáo', 'icon' => '📊', 'route' => 'credit-cards.reports'],
-        ['key' => 'compare', 'label' => 'So sánh thẻ', 'icon' => '🔍', 'route' => 'credit-cards.compare'],
+        ['key' => 'compare', 'label' => 'Lựa chọn thẻ', 'icon' => '🔍', 'route' => 'credit-cards.compare'],
         ['key' => 'settings', 'label' => 'Cài đặt', 'icon' => '⚙️', 'route' => 'credit-cards.settings'],
     ];
 @endphp

@@ -232,6 +232,13 @@
                     <p class="text-[11px] text-gray-500 mt-1">
                         Mỗi danh mục một dòng, mỗi thẻ hai cột chi tiêu / cashback. Dòng "Chưa phân loại" gom giao dịch không gắn danh mục.
                     </p>
+                    @if (($excludedCategoryNames ?? collect())->isNotEmpty())
+                        <p class="mt-1.5 text-[11px] text-amber-700" data-testid="report-excluded-summary">
+                            Đã loại trừ:
+                            <span class="font-medium">{{ $excludedCategoryNames->implode(', ') }}</span>
+                            — các danh mục này không được tính vào bất kỳ tổng nào bên dưới.
+                        </p>
+                    @endif
                 </div>
 
                 <div class="overflow-x-auto">
@@ -310,8 +317,13 @@
                             @empty
                                 <tr>
                                     <td class="px-4 sm:px-5 py-6 text-sm text-gray-500"
-                                        colspan="{{ 4 + count($data['columns']) * 2 }}">
-                                        Kỳ này chưa có giao dịch nào.
+                                        colspan="{{ 4 + count($data['columns']) * 2 }}"
+                                        data-testid="category-empty">
+                                        @if ($data['had_data'] ?? false)
+                                            Không có danh mục phù hợp với bộ lọc loại trừ.
+                                        @else
+                                            Kỳ này chưa có giao dịch nào.
+                                        @endif
                                     </td>
                                 </tr>
                             @endforelse
