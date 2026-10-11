@@ -244,7 +244,7 @@ class CreditCardModuleTest extends TestCase
         }
     }
 
-    /** TEST 6: Trang tổng quan có module nav (3 tab chính + menu phụ nhỏ) và placeholder. */
+    /** TEST 6: Trang tổng quan có thanh điều hướng 5 mục + menu Cài đặt 4 mục con. */
     #[Test]
     public function index_page_renders_module_nav_and_placeholder(): void
     {
@@ -258,16 +258,13 @@ class CreditCardModuleTest extends TestCase
         // Header hero (💳 + title + subtitle) đã BỎ theo yêu cầu UI: không hiển thị mô tả marketing.
         $response->assertDontSee('Quản lý và theo dõi các thẻ tín dụng của bạn');
 
-        // Sidebar / module menu đủ 7 mục
-        foreach ([
-            'Tổng quan',
-            'Quản lý thẻ',
-            'Chính sách',
-            'Danh mục chi tiêu',
-            'Báo cáo',
-            'Lựa chọn thẻ',
-            'Cài đặt',
-        ] as $label) {
+        // Thanh chính đúng 5 mục.
+        foreach (['Tổng quan', 'Sao kê', 'Báo cáo', 'Lựa chọn thẻ', 'Cài đặt'] as $label) {
+            $response->assertSee($label);
+        }
+
+        // Menu Cài đặt đúng 4 mục con.
+        foreach (['Quản lý thẻ', 'Đơn vị tiền', 'Chính sách hoàn tiền', 'Danh mục'] as $label) {
             $response->assertSee($label);
         }
 
@@ -712,7 +709,9 @@ class CreditCardModuleTest extends TestCase
         $response = $this->actingAs($user)->get('/thetindung/danh-muc');
 
         $response->assertOk();
-        $response->assertSee('Danh mục chi tiêu');
+        // Menu đổi nhãn thành "Danh mục" (nằm trong menu Cài đặt) — trang vẫn là
+        // màn hình quản lý danh mục chi tiêu.
+        $response->assertSee('Danh mục');
         $response->assertSee('DANH MỤC HỆ THỐNG');
         $response->assertSee('DANH MỤC CỦA TÔI');
         $response->assertSee('Bạn chưa tạo danh mục chi tiêu riêng.');

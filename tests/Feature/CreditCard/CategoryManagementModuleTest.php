@@ -45,7 +45,9 @@ class CategoryManagementModuleTest extends TestCase
         $response = $this->actingAs($this->owner)->get(route('credit-cards.categories'));
 
         $response->assertOk();
-        $response->assertSee('Danh mục chi tiêu');
+        // Menu đổi nhãn thành "Danh mục" (nằm trong menu Cài đặt) — trang vẫn là
+        // màn hình quản lý danh mục chi tiêu.
+        $response->assertSee('Danh mục');
         $response->assertDontSee('Quản lý các nhóm chi tiêu dùng cho thẻ tín dụng và hoàn tiền');
         $response->assertSee('DANH MỤC HỆ THỐNG');
         $response->assertSee('DANH MỤC CỦA TÔI');
@@ -53,11 +55,11 @@ class CategoryManagementModuleTest extends TestCase
     }
 
     #[Test]
-    public function sidebar_labels_the_item_danh_muc_chi_tieu(): void
+    public function sidebar_labels_the_item_danh_muc(): void
     {
         $html = $this->actingAs($this->owner)->get(route('credit-cards.categories'))->getContent();
 
-        $this->assertStringContainsString('Danh mục chi tiêu', $html);
+        $this->assertStringContainsString('Danh mục', $html);
         $this->assertStringContainsString('href="'.route('credit-cards.categories').'"', $html);
     }
 

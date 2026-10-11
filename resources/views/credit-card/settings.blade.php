@@ -1,12 +1,12 @@
-{{-- /thetindung/cai-dat — tuỳ chọn hiển thị của module --}}
+{{-- /thetindung/cai-dat — Đơn vị tiền (trang cài đặt hiện tại; route/URL không đổi) --}}
 <x-credit-card.layout
-    title="Cài đặt"
-    subtitle="Tuỳ chọn hiển thị và thông báo của module"
+    title="Đơn vị tiền"
+    subtitle="Chọn đơn vị tiền và ký tự hiển thị cho toàn module"
     active="settings">
 
     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-5">
         <div>
-            <h4 class="font-semibold text-gray-800 text-sm">Tuỳ chọn module</h4>
+            <h4 class="font-semibold text-gray-800 text-sm">Đơn vị tiền</h4>
             <p class="text-sm text-gray-500">Đổi đơn vị tiền để mọi màn hình của module hiển thị theo cách bạn muốn.</p>
         </div>
 
@@ -67,7 +67,7 @@
                     .finally(() => { this.saving = false; });
             },
         }">
-            <p class="text-sm font-semibold text-gray-700">Đơn vị tiền</p>
+            <p class="text-sm font-semibold text-gray-700">Đơn vị hiển thị</p>
             <p class="mt-1 text-xs text-gray-500">Số tiền được hiển thị theo đơn vị chọn — dữ liệu luôn được lưu theo Đồng. Ký tự đại diện có thể tuỳ chỉnh hoặc xoá hoàn toàn (để trống = không hiển thị hậu tố).</p>
 
             {{-- Ký tự đại diện CHỈ hiển thị cho đơn vị ĐANG CHỌN (x-if) — ô nhập

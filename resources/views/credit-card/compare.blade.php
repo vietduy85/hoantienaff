@@ -86,6 +86,10 @@
                 {{-- --- Thẻ của tôi --- --}}
                 <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-3">
                     <h4 class="font-semibold text-gray-800 text-sm">💳 Thẻ của tôi</h4>
+                    <p class="text-xs text-gray-500">
+                        Tiền hoàn thực tế tính theo quota còn lại của thẻ. Chỉ hiển thị bậc có tỷ lệ từ
+                        3% trở lên; bậc chưa đạt được ghi rõ là tiềm năng, không phải khoản chắc chắn.
+                    </p>
 
                     <p class="text-sm text-gray-500" x-show="result.my_cards.length === 0" x-cloak>
                         Bạn chưa có thẻ nào đang dùng.
@@ -104,10 +108,13 @@
                                             <template x-if="index === 0 && row.eligible && Number(row.cashback) > 0">
                                                 <span class="ms-1 text-xs font-semibold text-emerald-700">· tốt nhất</span>
                                             </template>
+                                            <template x-if="row.needs_spend">
+                                                <span class="ms-1 text-xs font-semibold text-sky-700">· giúp đạt mốc chi tiêu</span>
+                                            </template>
                                         </p>
                                         <p class="text-xs text-gray-500 truncate">
                                             <span x-show="row.bank_name" x-text="row.bank_name"></span>
-                                            <span x-show="row.tier_name" x-text="(row.bank_name ? ' · ' : '') + 'Bậc ' + row.tier_name"></span>
+                                            <span x-show="row.tier_label" x-text="(row.bank_name ? ' · ' : '') + row.tier_label"></span>
                                         </p>
                                     </div>
                                     <div class="text-right shrink-0">
@@ -126,6 +133,43 @@
                                 <p class="text-xs text-amber-700 mt-2"
                                    x-show="row.eligible && row.caps_applied.length"
                                    x-text="'Đã chạm giới hạn: ' + ccCapsLabel(row.caps_applied)"></p>
+
+                                {{-- "Nên chi tối đa": nhấn mạnh bằng khối lớn, đậm, có nền
+                                     tương phản tốt; cảnh báo vượt mức tách riêng bên dưới. --}}
+                                <div class="mt-3 rounded-xl border border-sky-200 bg-sky-50 p-3"
+                                     x-show="row.eligible && row.max_spend && row.max_spend.amount"
+                                     x-cloak>
+                                    <p class="text-[11px] font-semibold uppercase tracking-wide text-sky-700">
+                                        Nên chi tối đa
+                                    </p>
+                                    <p class="text-2xl font-extrabold leading-tight text-sky-900 mt-0.5"
+                                       x-text="ccMoneyVnd(row.max_spend.amount)"></p>
+                                    <p class="text-sm font-semibold text-sky-800 mt-0.5"
+                                       x-show="row.cashback_percent"
+                                       x-text="'để nhận ' + ccNumber(row.cashback_percent) + '% hoàn tiền cho khoản này'"></p>
+                                    <template x-if="row.max_spend && Number(row.max_spend.over_limit) > 0">
+                                        <p class="text-sm font-semibold text-amber-800 mt-2 pt-2 border-t border-amber-200"
+                                           x-text="'Cảnh báo: ' + ccMoneyVnd(row.max_spend.over_limit) + ' vượt mức sẽ không được hoàn.'"></p>
+                                    </template>
+                                </div>
+                                <p class="text-xs text-amber-700 mt-1"
+                                   x-show="row.eligible && row.max_spend && row.max_spend.reason === 'quota_exhausted'"
+                                   x-cloak
+                                   x-text="row.max_spend.message"></p>
+                                <p class="text-xs text-gray-500 mt-1"
+                                   x-show="row.eligible && row.max_spend && row.max_spend.amount === null && row.max_spend.reason !== 'quota_exhausted' && row.max_spend.message"
+                                   x-cloak
+                                   x-text="row.max_spend.message"></p>
+                                <p class="text-xs text-sky-700 mt-1"
+                                   x-show="row.spend_goal && row.spend_goal.status === 'short'"
+                                   x-cloak
+                                   x-text="row.spend_goal.message"></p>
+                                <p class="text-xs text-gray-500 mt-1"
+                                   x-show="row.spend_goal && row.spend_goal.status === 'not_counted'"
+                                   x-cloak
+                                   x-text="row.spend_goal.message"></p>
+
+                                @include('credit-card.partials.compare-tiers')
                             </li>
                         </template>
                     </ul>
@@ -134,6 +178,11 @@
                 {{-- --- Thẻ trên thị trường --- --}}
                 <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-3">
                     <h4 class="font-semibold text-gray-800 text-sm">🏦 Thẻ trên thị trường</h4>
+                    <p class="text-xs text-gray-500">
+                        Tiền hoàn tính độc lập cho từng bậc theo khoản chi bạn nhập; chỉ hiển thị bậc có tỷ lệ
+                        từ 3% trở lên. Hạn mức hiển thị là giới hạn theo chính sách của thẻ — không phải quota
+                        còn lại của bạn. Bậc chưa đạt được ghi rõ là tiềm năng.
+                    </p>
 
                     <p class="text-sm text-gray-500" x-show="result.market_cards.length === 0" x-cloak>
                         Không có thẻ nào trong danh mục mẫu hoàn tiền cho nhu cầu này.
@@ -142,7 +191,9 @@
                     <ul class="space-y-2">
                         <template x-for="(row, index) in result.market_cards" :key="row.template_id">
                             <li class="rounded-xl border p-3 sm:p-4"
-                                :class="index === 0 ? 'border-emerald-300 bg-emerald-50/60' : 'border-gray-100'">
+                                :class="index === 0 && row.applies && Number(row.cashback) > 0
+                                    ? 'border-emerald-300 bg-emerald-50/60'
+                                    : 'border-gray-100'">
                                 <div class="flex items-start justify-between gap-3">
                                     <div class="min-w-0">
                                         <p class="font-medium text-gray-800 truncate">
@@ -151,17 +202,25 @@
                                                 <span class="ms-1 text-xs font-semibold text-emerald-700">· tỷ lệ cao nhất</span>
                                             </template>
                                         </p>
-                                        <p class="text-xs text-gray-500 truncate" x-show="row.tier_name"
-                                           x-text="'Bậc ' + row.tier_name"></p>
+                                        <p class="text-xs text-gray-500 truncate" x-show="row.tier_label">
+                                            <span x-text="row.tier_label"></span>
+                                            <span x-show="row.applies" class="text-emerald-700 font-semibold"> · bậc đang áp dụng</span>
+                                        </p>
                                     </div>
                                     <div class="text-right shrink-0">
                                         <p class="font-bold text-emerald-700" x-text="ccMoneyVnd(row.cashback)"></p>
                                         <p class="text-xs text-gray-500" x-text="ccNumber(row.rate) + '% trên chi tiêu'"></p>
                                     </div>
                                 </div>
-                                <p class="text-xs text-amber-700 mt-2"
-                                   x-show="row.caps_applied.length"
-                                   x-text="'Đã chạm giới hạn: ' + ccCapsLabel(row.caps_applied)"></p>
+
+                                {{-- Liệt kê các bậc đạt ngưỡng cho danh mục — không gộp;
+                                     bậc đang áp dụng vs bậc tiềm năng được đánh dấu. --}}
+                                @include('credit-card.partials.compare-tiers')
+
+                                <p class="text-xs text-gray-400 mt-2" x-show="row.assumption" x-text="row.assumption"></p>
+                                <p class="text-xs text-amber-700 mt-1"
+                                   x-show="row.qualification_notice"
+                                   x-text="row.qualification_notice"></p>
                             </li>
                         </template>
                     </ul>
@@ -202,6 +261,35 @@
                 };
 
                 return (caps ?? []).map((cap) => labels[cap] ?? cap).join(', ');
+            }
+
+            /**
+             * Nhãn trạng thái đủ điều kiện của một bậc. Bậc chưa đạt kèm số tiền còn
+             * thiếu và luôn được nêu là TIỀM NĂNG, không phải khoản chắc chắn nhận.
+             */
+            function ccTierStatusLabel(status, shortfall) {
+                if (status === 'applied') {
+                    return 'Đang áp dụng cho khoản chi này.';
+                }
+
+                if (status === 'not_met') {
+                    return Number(shortfall) > 0
+                        ? 'Chưa đạt điều kiện — còn thiếu ' + ccMoneyVnd(shortfall) + ' chi tiêu nữa.'
+                        : 'Chưa đạt điều kiện của bậc này.';
+                }
+
+                if (status === 'passed') {
+                    return 'Khoản chi này đã vượt mốc của bậc.';
+                }
+
+                return 'Không xác định đủ điều kiện cho bậc này.';
+            }
+
+            /** Hạn mức chính sách của một bậc (loại + số tiền) để hiển thị. */
+            function ccCapDetailsLabel(caps) {
+                return (caps ?? [])
+                    .map((cap) => ccCapsLabel([cap.type]) + ': ' + ccMoneyVnd(cap.limit))
+                    .join(', ');
             }
 
             /**

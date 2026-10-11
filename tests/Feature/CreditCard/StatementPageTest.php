@@ -1009,25 +1009,50 @@ class StatementPageTest extends TestCase
     // =====================================================================
 
     #[Test]
-    public function the_menu_places_statements_right_after_card_management(): void
+    public function the_menu_lists_five_main_items_in_order_and_moves_the_rest_into_settings(): void
     {
         $html = $this->actingAs($this->owner)
             ->get(route('credit-cards.statements'))
             ->assertOk()
             ->getContent();
 
-        $manage = strpos($html, 'href="'.route('credit-cards.manage').'"');
-        $statements = strpos($html, 'href="'.route('credit-cards.statements').'"');
-        $policies = strpos($html, 'href="'.route('credit-cards.policies').'"');
+        // Thanh chính 5 mục theo đúng thứ tự:
+        // 🏠 Tổng quan · 🧾 Sao kê · 📊 Báo cáo · 🔎 Lựa chọn thẻ · ⚙️ Cài đặt.
+        $positions = [];
+        foreach ([
+            'credit-cards.index',
+            'credit-cards.statements',
+            'credit-cards.reports',
+            'credit-cards.compare',
+        ] as $name) {
+            $position = strpos($html, 'href="'.route($name).'"');
+            $this->assertNotFalse($position, "Thiếu mục chính {$name}.");
+            $positions[$name] = $position;
+        }
 
-        $this->assertNotFalse($manage);
-        $this->assertNotFalse($statements);
-        $this->assertNotFalse($policies);
+        $ordered = $positions;
+        asort($ordered);
+        $this->assertSame(
+            ['credit-cards.index', 'credit-cards.statements', 'credit-cards.reports', 'credit-cards.compare'],
+            array_keys($ordered),
+            'Thứ tự 5 mục chính không đúng.'
+        );
 
-        // "Sao kê" nằm NGAY sau "Quản lý thẻ", trước "Chính sách hoàn tiền":
-        // cả ba là việc làm với thẻ, nên nhóm lại thay vì rải khắp menu.
-        $this->assertLessThan($statements, $manage, 'Sao kê phải nằm sau Quản lý thẻ.');
-        $this->assertLessThan($policies, $statements, 'Sao kê phải nằm trước Chính sách hoàn tiền.');
+        // Nút "Cài đặt" đứng sau 4 mục chính và mở menu chứa
+        // Quản lý thẻ / Đơn vị tiền / Chính sách hoàn tiền / Danh mục.
+        $trigger = strpos($html, 'data-testid="cc-settings-trigger"');
+        $this->assertNotFalse($trigger, 'Thiếu nút mở menu Cài đặt.');
+
+        foreach ([
+            'credit-cards.manage',
+            'credit-cards.settings',
+            'credit-cards.policies',
+            'credit-cards.categories',
+        ] as $name) {
+            $position = strpos($html, 'href="'.route($name).'"');
+            $this->assertNotFalse($position, "Thiếu mục con Cài đặt {$name}.");
+            $this->assertGreaterThan($trigger, $position, "{$name} phải nằm trong menu Cài đặt.");
+        }
     }
 
     #[Test]
