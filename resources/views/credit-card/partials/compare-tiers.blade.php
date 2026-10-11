@@ -1,8 +1,9 @@
 {{--
     Danh sách bậc hoàn tiền cho danh mục đang chọn (dùng chung cho "Thẻ của tôi" và
-    "Thẻ trên thị trường"). Chỉ gồm bậc đạt ngưỡng hiển thị (>= 3%). "row" là biến
-    Alpine của thẻ trong vòng x-for; các bậc có `status` (đang áp dụng / chưa đạt
-    điều kiện / không xác định) và `shortfall` (số tiền còn thiếu, nếu có).
+    "Thẻ trên thị trường"). Mặc định chỉ gồm bậc đạt ngưỡng hiển thị (>= 2%); với
+    "Thẻ của tôi" ở chế độ tối ưu mốc chi tiêu, danh sách gồm cả bậc tỷ lệ thấp.
+    "row" là biến Alpine của thẻ trong vòng x-for; các bậc có `status` (đang áp dụng
+    / chưa đạt điều kiện / không xác định) và `shortfall` (số tiền còn thiếu, nếu có).
 --}}
 <div class="mt-3 space-y-1.5" x-show="row.tiers && row.tiers.length" x-cloak>
     <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-500">

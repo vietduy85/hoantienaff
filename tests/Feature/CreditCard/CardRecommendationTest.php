@@ -26,8 +26,11 @@ use Tests\TestCase;
  *   - "Thẻ của tôi": kỳ HIỆN TẠI + giao dịch giả định, tái dùng engine (tier
  *     retroactive, cap, qualification).
  *   - "Thẻ trên thị trường": template hệ thống đang bật, KHÔNG áp qualification.
- *   - Ngưỡng hiển thị: chỉ bậc có tỷ lệ >= 3% mới hiện; thẻ không còn bậc nào
- *     đạt ngưỡng thì bị ẩn (áp cho cả hai nhóm).
+ *   - Ngưỡng hiển thị: chỉ bậc có tỷ lệ >= 2% mới hiện; thẻ không còn bậc nào
+ *     đạt ngưỡng thì bị ẩn (áp cho cả hai nhóm; bậc đúng 2% vẫn GIỮ).
+ *   - Ngoại lệ "Thẻ của tôi": khi KHÔNG còn bậc nào > 2% cho cả nhóm, chuyển sang
+ *     chế độ tối ưu mốc chi tiêu — KHÔNG lọc ngưỡng, ưu tiên thẻ đang thiếu chi
+ *     tiêu hợp lệ. "Thẻ trên thị trường" luôn giữ ngưỡng 2%.
  *   - Thứ tự đề xuất: của tôi = tiền hoàn thực → tỷ lệ → tên; thị trường = tỷ lệ
  *     cao nhất mọi bậc → tiền hoàn tiềm năng → tên.
  */
@@ -578,12 +581,12 @@ class CardRecommendationTest extends TestCase
     }
 
     #[Test]
-    public function it_lists_only_the_tiers_at_or_above_the_display_threshold(): void
+    public function it_removes_a_market_tier_just_below_the_display_threshold(): void
     {
         $category = $this->makeSystemCategory();
 
         $template = $this->makeMarketTemplateWithTiers('Thẻ nhiều bậc', $category->id, [
-            ['name' => 'Bậc 1', 'min' => 0, 'max' => 10000000, 'percent' => '2.000'],
+            ['name' => 'Bậc 1', 'min' => 0, 'max' => 10000000, 'percent' => '1.990'],
             ['name' => 'Bậc 2', 'min' => 10000000, 'max' => null, 'percent' => '15.000'],
         ]);
 
@@ -595,7 +598,7 @@ class CardRecommendationTest extends TestCase
         $response->assertOk();
         $response->assertJsonPath('data.market_cards.0.template_id', $template->id);
 
-        // Bậc 1 (2%) dưới ngưỡng hiển thị ⇒ bị loại; chỉ còn Bậc 2 (15%).
+        // Bậc 1 (1,99%) dưới ngưỡng hiển thị ⇒ bị loại; chỉ còn Bậc 2 (15%).
         $response->assertJsonCount(1, 'data.market_cards.0.tiers');
         $tiers = collect($response->json('data.market_cards.0.tiers'))->keyBy('name');
 
@@ -1022,12 +1025,119 @@ class CardRecommendationTest extends TestCase
     }
 
     #[Test]
-    public function it_hides_cards_and_market_templates_below_the_display_threshold(): void
+    public function it_keeps_a_tier_at_exactly_two_percent(): void
     {
         $category = $this->makeSystemCategory();
 
-        // "Thẻ của tôi": chỉ có bậc dưới ngưỡng ⇒ ẩn cả thẻ.
-        foreach ([['Thẻ 0.1%', '0.100'], ['Thẻ 1%', '1.000'], ['Thẻ 2.99%', '2.990']] as [$name, $percent]) {
+        // Bậc 2% PHẢI giữ; thêm một thẻ 5% để cả nhóm ở chế độ thường.
+        $card = $this->makeUserCard($this->owner->id, ['name' => 'Thẻ 2%']);
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $category->id, 'percent' => '2.000']]
+        );
+
+        $card = $this->makeUserCard($this->owner->id, ['name' => 'Thẻ 5%']);
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $category->id, 'percent' => '5.000']]
+        );
+
+        // Thị trường: 2% hiện, 1.99% ẩn.
+        $marketTwo = $this->makeMarketTemplate('Thị trường 2%', $category->id, '2.000', sortOrder: 0);
+        $this->makeMarketTemplate('Thị trường 1.99%', $category->id, '1.990', sortOrder: 1);
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.recommend', [
+            'amount' => 1000000,
+            'category_id' => $category->id,
+        ]));
+
+        $response->assertOk();
+
+        $mine = collect($response->json('data.my_cards'))->keyBy('card_name');
+        $this->assertTrue($mine->has('Thẻ 2%'));
+        $this->assertSame('20000.00', $mine['Thẻ 2%']['cashback']);
+        $this->assertFalse($mine['Thẻ 2%']['low_rate_regime']);
+
+        $this->assertSame(
+            [$marketTwo->id],
+            array_column($response->json('data.market_cards'), 'template_id')
+        );
+    }
+
+    #[Test]
+    public function it_removes_a_my_card_tier_just_below_two_percent_under_the_normal_regime(): void
+    {
+        $category = $this->makeSystemCategory();
+
+        // Có bậc > 2% ⇒ chế độ thường cho cả nhóm.
+        $higher = $this->makeUserCard($this->owner->id, ['name' => 'Thẻ 3%']);
+        $this->makePolicyForCard(
+            $higher,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $category->id, 'percent' => '3.000']]
+        );
+
+        $below = $this->makeUserCard($this->owner->id, ['name' => 'Thẻ 1.99%']);
+        $this->makePolicyForCard(
+            $below,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $category->id, 'percent' => '1.990']]
+        );
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.recommend', [
+            'amount' => 1000000,
+            'category_id' => $category->id,
+        ]));
+
+        $response->assertOk();
+
+        // Thẻ chỉ có 1.99% bị ẩn dưới ngưỡng thông thường.
+        $this->assertSame(
+            ['Thẻ 3%'],
+            array_column($response->json('data.my_cards'), 'card_name')
+        );
+    }
+
+    #[Test]
+    public function it_shows_only_tiers_at_or_above_two_percent_when_a_higher_tier_exists(): void
+    {
+        $category = $this->makeSystemCategory();
+        $card = $this->makeUserCard($this->owner->id);
+
+        // Một thẻ có cả bậc 1% lẫn bậc 5% ⇒ chỉ bậc >= 2% được hiển thị.
+        $this->makePolicyForCard(
+            $card,
+            [
+                ['name' => 'Bậc 1', 'min' => 0, 'max' => 10000000],
+                ['name' => 'Bậc 2', 'min' => 10000000, 'max' => null],
+            ],
+            [
+                ['category_id' => $category->id, 'percent' => '1.000', 'only_tier' => 0],
+                ['category_id' => $category->id, 'percent' => '5.000', 'only_tier' => 1],
+            ]
+        );
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.recommend', [
+            'amount' => 1000000,
+            'category_id' => $category->id,
+        ]));
+
+        $response->assertOk();
+
+        $tiers = collect($response->json('data.my_cards.0.tiers'))->keyBy('name');
+        $this->assertCount(1, $tiers);
+        $this->assertTrue($tiers->has('Bậc 2'));
+        $this->assertFalse($tiers->has('Bậc 1'));
+    }
+
+    #[Test]
+    public function it_switches_my_cards_to_spend_targeting_when_all_tiers_are_at_most_two_percent(): void
+    {
+        $category = $this->makeSystemCategory();
+
+        foreach ([['Thẻ 0.5%', '0.500'], ['Thẻ 1.99%', '1.990']] as [$name, $percent]) {
             $card = $this->makeUserCard($this->owner->id, ['name' => $name]);
             $this->makePolicyForCard(
                 $card,
@@ -1036,8 +1146,47 @@ class CardRecommendationTest extends TestCase
             );
         }
 
-        // Thị trường: template chỉ có bậc dưới ngưỡng cũng bị ẩn.
-        $this->makeMarketTemplate('Thị trường 2.99%', $category->id, '2.990');
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.recommend', [
+            'amount' => 1000000,
+            'category_id' => $category->id,
+        ]));
+
+        $response->assertOk();
+
+        // Không có bậc nào > 2% ⇒ KHÔNG lọc ngưỡng: thẻ dưới 2% vẫn hiện.
+        $names = array_column($response->json('data.my_cards'), 'card_name');
+        sort($names);
+        $this->assertSame(['Thẻ 0.5%', 'Thẻ 1.99%'], $names);
+        $this->assertTrue($response->json('data.my_cards.0.low_rate_regime'));
+    }
+
+    #[Test]
+    public function it_prioritises_a_card_that_needs_valid_spend_toward_the_next_tier_in_low_rate_mode(): void
+    {
+        $category = $this->makeSystemCategory();
+
+        // Thẻ "gần mốc": bậc 1 (1%) → bậc 2 (2%) mốc 10tr; chi thực 5tr + 1tr < 10tr.
+        $nearTier = $this->makeUserCard($this->owner->id, ['name' => 'Gần mốc']);
+        $this->makePolicyForCard(
+            $nearTier,
+            [
+                ['name' => 'Bậc 1', 'min' => 0, 'max' => 10000000],
+                ['name' => 'Bậc 2', 'min' => 10000000, 'max' => null],
+            ],
+            [
+                ['category_id' => $category->id, 'percent' => '1.000', 'only_tier' => 0],
+                ['category_id' => $category->id, 'percent' => '2.000', 'only_tier' => 1],
+            ]
+        );
+        $this->makeTransaction($nearTier, $category->id, '5000000.00');
+
+        // Thẻ "phẳng" 2%: hoàn nhiều hơn nhưng không tiến gần mốc nào.
+        $flat = $this->makeUserCard($this->owner->id, ['name' => 'Phẳng']);
+        $this->makePolicyForCard(
+            $flat,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $category->id, 'percent' => '2.000']]
+        );
 
         $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.recommend', [
             'amount' => 1000000,
@@ -1045,8 +1194,153 @@ class CardRecommendationTest extends TestCase
         ]));
 
         $response->assertOk();
-        $response->assertJsonCount(0, 'data.my_cards');
-        $response->assertJsonCount(0, 'data.market_cards');
+
+        $rows = collect($response->json('data.my_cards'))->keyBy('card_name');
+
+        $this->assertTrue($rows['Gần mốc']['needs_spend']);
+        $this->assertFalse($rows['Phẳng']['needs_spend']);
+
+        // Ưu tiên thẻ đang thiếu chi tiêu dù tiền hoàn thấp hơn (10k < 20k).
+        $this->assertSame(
+            ['Gần mốc', 'Phẳng'],
+            array_column($response->json('data.my_cards'), 'card_name')
+        );
+    }
+
+    #[Test]
+    public function it_does_not_falsely_prioritise_exhausted_or_ineligible_cards_in_low_rate_mode(): void
+    {
+        $category = $this->makeSystemCategory();
+        $gateCategory = $this->makeSystemCategory(['name' => 'Điều kiện']);
+
+        // Thẻ hợp lệ: 2% phẳng.
+        $valid = $this->makeUserCard($this->owner->id, ['name' => 'Hợp lệ']);
+        $this->makePolicyForCard(
+            $valid,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $category->id, 'percent' => '2.000']]
+        );
+
+        // Thẻ "hết quota": đã dùng hết trần danh mục, dù còn thiếu mốc bậc kế tiếp.
+        $exhausted = $this->makeUserCard($this->owner->id, ['name' => 'Hết quota']);
+        $this->makePolicyForCard(
+            $exhausted,
+            [
+                ['name' => 'Bậc 1', 'min' => 0, 'max' => 10000000],
+                ['name' => 'Bậc 2', 'min' => 10000000, 'max' => null],
+            ],
+            [
+                ['category_id' => $category->id, 'percent' => '2.000', 'only_tier' => 0, 'cap_cat' => '50000.00'],
+                ['category_id' => $category->id, 'percent' => '2.000', 'only_tier' => 1],
+            ]
+        );
+        $this->makeTransaction($exhausted, $category->id, '3000000.00');
+
+        // Thẻ "không đủ điều kiện": gate chưa đạt dù còn thiếu mốc.
+        $ineligible = $this->makeUserCard($this->owner->id, ['name' => 'Không đủ điều kiện']);
+        $policy = $this->makePolicyForCard(
+            $ineligible,
+            [
+                ['name' => 'Bậc 1', 'min' => 0, 'max' => 10000000],
+                ['name' => 'Bậc 2', 'min' => 10000000, 'max' => null],
+            ],
+            [
+                ['category_id' => $category->id, 'percent' => '2.000', 'only_tier' => 0],
+                ['category_id' => $category->id, 'percent' => '2.000', 'only_tier' => 1],
+            ]
+        );
+        $qualification = SpendQualification::create([
+            'policy_version_id' => $policy->id,
+            'name' => 'Điều kiện kỳ',
+            'enabled' => true,
+        ]);
+        SpendQualificationCondition::create([
+            'qualification_id' => $qualification->id,
+            'condition_type' => SpendQualificationCondition::TYPE_CATEGORY,
+            'category_id' => $gateCategory->id,
+            'min_spend' => '5000000.00',
+            'is_enabled' => true,
+            'sort_order' => 0,
+        ]);
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.recommend', [
+            'amount' => 1000000,
+            'category_id' => $category->id,
+        ]));
+
+        $response->assertOk();
+
+        $rows = collect($response->json('data.my_cards'))->keyBy('card_name');
+
+        $this->assertTrue($rows->has('Hợp lệ'));
+        $this->assertTrue($rows->has('Hết quota'));
+        $this->assertTrue($rows->has('Không đủ điều kiện'));
+
+        // Không thẻ nào bị ưu tiên "needs_spend" giả.
+        $this->assertFalse($rows['Hết quota']['needs_spend']);
+        $this->assertFalse($rows['Không đủ điều kiện']['needs_spend']);
+
+        // Thẻ hợp lệ hoàn nhiều nhất đứng đầu; thẻ ineligible/không sinh hoàn bị xếp sau.
+        $this->assertSame('Hợp lệ', $response->json('data.my_cards.0.card_name'));
+    }
+
+    #[Test]
+    public function it_keeps_the_market_threshold_at_two_percent_even_when_all_my_cards_are_low(): void
+    {
+        $category = $this->makeSystemCategory();
+
+        // Toàn bộ thẻ cá nhân 1% ⇒ chế độ tối ưu cho "Thẻ của tôi".
+        $card = $this->makeUserCard($this->owner->id, ['name' => 'Thẻ 1%']);
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $category->id, 'percent' => '1.000']]
+        );
+
+        // Thị trường: 1.99% ẩn (dưới ngưỡng 2%), 2% hiện — KHÔNG theo chế độ của tôi.
+        $this->makeMarketTemplate('Thị trường 1.99%', $category->id, '1.990', sortOrder: 0);
+        $marketTwo = $this->makeMarketTemplate('Thị trường 2%', $category->id, '2.000', sortOrder: 1);
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.recommend', [
+            'amount' => 1000000,
+            'category_id' => $category->id,
+        ]));
+
+        $response->assertOk();
+
+        // "Thẻ của tôi" ở chế độ tối ưu ⇒ vẫn hiện thẻ 1%.
+        $this->assertCount(1, $response->json('data.my_cards'));
+        $this->assertTrue($response->json('data.my_cards.0.low_rate_regime'));
+
+        // Thị trường chỉ còn đúng thẻ 2%.
+        $this->assertSame(
+            [$marketTwo->id],
+            array_column($response->json('data.market_cards'), 'template_id')
+        );
+    }
+
+    #[Test]
+    public function it_orders_market_cards_by_highest_rate_then_potential_cashback_then_name(): void
+    {
+        $category = $this->makeSystemCategory();
+
+        $capLow = $this->makeMarketTemplate('B cap thấp', $category->id, '6.000', capPeriod: '10000.00', sortOrder: 0);
+        $noCap = $this->makeMarketTemplate('C không cap', $category->id, '6.000', sortOrder: 1);
+        $alpha = $this->makeMarketTemplate('A 6%', $category->id, '6.000', sortOrder: 2);
+        $lower = $this->makeMarketTemplate('Cao nhất thật', $category->id, '5.000', sortOrder: 3);
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.recommend', [
+            'amount' => 1000000,
+            'category_id' => $category->id,
+        ]));
+
+        $response->assertOk();
+
+        // 6% trước 5%; trong nhóm 6%: tiềm năng 60k (A, C) trước 10k (B); đồng hạng ⇒ tên.
+        $this->assertSame(
+            [$alpha->id, $noCap->id, $capLow->id, $lower->id],
+            array_column($response->json('data.market_cards'), 'template_id')
+        );
     }
 
     // =====================================================================

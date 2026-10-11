@@ -86,9 +86,17 @@
                 {{-- --- Thẻ của tôi --- --}}
                 <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-3">
                     <h4 class="font-semibold text-gray-800 text-sm">💳 Thẻ của tôi</h4>
-                    <p class="text-xs text-gray-500">
+                    <p class="text-xs text-gray-500"
+                       x-show="! (result.my_cards.length && result.my_cards[0].low_rate_regime)">
                         Tiền hoàn thực tế tính theo quota còn lại của thẻ. Chỉ hiển thị bậc có tỷ lệ từ
-                        3% trở lên; bậc chưa đạt được ghi rõ là tiềm năng, không phải khoản chắc chắn.
+                        2% trở lên; bậc chưa đạt được ghi rõ là tiềm năng, không phải khoản chắc chắn.
+                    </p>
+                    <p class="text-xs text-gray-500"
+                       x-show="result.my_cards.length && result.my_cards[0].low_rate_regime"
+                       x-cloak>
+                        Không có bậc nào đạt trên 2% cho danh mục này. Danh sách chuyển sang chế độ tối ưu
+                        mốc chi tiêu: hiển thị cả thẻ tỷ lệ thấp và ưu tiên thẻ mà khoản chi này được tính
+                        vào mốc, giúp tiến gần bậc kế tiếp.
                     </p>
 
                     <p class="text-sm text-gray-500" x-show="result.my_cards.length === 0" x-cloak>
@@ -180,7 +188,7 @@
                     <h4 class="font-semibold text-gray-800 text-sm">🏦 Thẻ trên thị trường</h4>
                     <p class="text-xs text-gray-500">
                         Tiền hoàn tính độc lập cho từng bậc theo khoản chi bạn nhập; chỉ hiển thị bậc có tỷ lệ
-                        từ 3% trở lên. Hạn mức hiển thị là giới hạn theo chính sách của thẻ — không phải quota
+                        từ 2% trở lên. Hạn mức hiển thị là giới hạn theo chính sách của thẻ — không phải quota
                         còn lại của bạn. Bậc chưa đạt được ghi rõ là tiềm năng.
                     </p>
 

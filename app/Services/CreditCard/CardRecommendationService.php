@@ -78,9 +78,15 @@ class CardRecommendationService
      * Áp cho CẢ "Thẻ của tôi" lẫn "Thẻ trên thị trường": bậc có tỷ lệ thực tế
      * đúng danh mục đang chọn < ngưỡng này bị loại khỏi danh sách; thẻ không còn
      * bậc nào đạt ngưỡng thì không hiển thị. Đây thuần là quy tắc LỌC gợi ý trên
-     * giao diện — KHÔNG sửa chính sách/cashback đã lưu.
+     * giao diện — KHÔNG sửa chính sách/cashback đã lưu. Bậc đúng bằng ngưỡng được
+     * GIỮ LẠI.
+     *
+     * NGOẠI LỆ DUY NHẤT — "Thẻ của tôi" khi cả nhóm KHÔNG còn bậc nào > ngưỡng:
+     * chuyển sang chế độ "tối ưu mốc chi tiêu" và KHÔNG lọc theo ngưỡng (vẫn bỏ
+     * bậc 0%). Xem {@see self::myCards()}. "Thẻ trên thị trường" KHÔNG bao giờ áp
+     * ngoại lệ này.
      */
-    private const MIN_DISPLAY_PERCENT = 3.0;
+    private const MIN_DISPLAY_PERCENT = 2.0;
 
     public function __construct(
         private readonly StatementPeriodService $periods,
@@ -120,10 +126,21 @@ class CardRecommendationService
     }
 
     /**
-     * "Thẻ của tôi" — thẻ đang dùng CÓ ít nhất một bậc đạt ngưỡng hiển thị
-     * ({@see self::MIN_DISPLAY_PERCENT}) cho danh mục đang chọn. Thẻ không còn bậc
-     * nào đạt ngưỡng (kể cả thẻ chưa có chính sách) bị ẩn. Tiền hoàn top-level vẫn
-     * là THỰC tế theo quota + bậc đang áp dụng; mảng `tiers` kèm tiềm năng từng bậc.
+     * "Thẻ của tôi" — chọn chế độ hiển thị theo TỶ LỆ HỢP LỆ CAO NHẤT của cả nhóm
+     * cho danh mục đang chọn, quyết định TRƯỚC khi lọc theo ngưỡng:
+     *
+     *  - CHẾ ĐỘ THƯỜNG (có ít nhất một bậc hợp lệ > {@see self::MIN_DISPLAY_PERCENT}):
+     *    chỉ hiển thị bậc đạt ngưỡng; thẻ không còn bậc nào đạt ngưỡng bị ẩn. Tiền
+     *    hoàn top-level vẫn là THỰC tế theo quota + bậc đang áp dụng.
+     *
+     *  - CHẾ ĐỘ TỐI ƯU MỐC CHI TIÊU (mọi bậc hợp lệ ≤ ngưỡng): KHÔNG lọc theo
+     *    ngưỡng — hiển thị mọi thẻ có chính sách phù hợp danh mục (kể cả tỷ lệ
+     *    thấp). Xếp hạng ưu tiên thẻ mà khoản chi giả định được TÍNH vào mốc và giúp
+     *    tiến gần bậc kế tiếp (`needs_spend`), nhưng CHỈ khi khoản chi thực sự hợp lệ
+     *    và thẻ chưa hết hạn mức; nếu không, sắp theo tiền hoàn → tỷ lệ → tên.
+     *
+     * Giao dịch giả định chỉ là what-if: KHÔNG được cộng vào chi tiêu thực đã tích
+     * luỹ (xem {@see self::spendGoal()}).
      *
      * @return array<int, array<string, mixed>>
      */
@@ -169,39 +186,60 @@ class CardRecommendationService
             $lines = $realLines;
             $lines[] = $hypoLine;
 
-            $evaluation = $this->evaluateCard($card, $realLines, $lines, $hypoLine, $end, $amount);
-
-            // Quy tắc lọc >= ngưỡng: thẻ không còn bậc nào đạt ngưỡng cho danh mục
-            // đang chọn thì KHÔNG hiển thị (kể cả thẻ chưa có chính sách).
-            if (! ($evaluation['visible'] ?? false)) {
-                continue;
-            }
-
+            // KHÔNG lọc ngưỡng ở bước này: cần toàn bộ bậc hợp lệ (tỷ lệ > 0) để
+            // quyết định chế độ hiển thị chung cho cả nhóm (xem bên dưới).
             $row = [
                 'card_id' => $cardId,
                 'card_name' => (string) $card->name,
                 'bank_name' => $card->bank?->name,
                 'period_start' => $start->toDateString(),
                 'period_end' => $end->toDateString(),
-            ] + $evaluation;
+            ] + $this->evaluateCard($card, $realLines, $lines, $hypoLine, $end, $amount);
 
             $row['needs_spend'] = $this->needsSpend($row);
 
             $rows[] = $row;
         }
 
-        // Chế độ xếp hạng phụ thuộc tỷ lệ hoàn tiền hiện có của cả nhóm:
-        //   - Bình thường (> 1%): ưu tiên tiền hoàn nhiều nhất (như cũ).
-        //   - "Tỷ lệ thấp" (mọi thẻ ≤ 1%): ưu tiên thẻ đang tiến gần mốc chi tiêu.
-        // Dùng "tỷ lệ cao nhất theo bậc" (`max_rate`) thay vì bậc đang áp dụng, vì
-        // bậc < ngưỡng đã bị lọc nên chế độ "tỷ lệ thấp" không còn khả năng xảy ra.
+        // Tỷ lệ hợp lệ cao nhất của cả nhóm — dùng `max_rate` (bậc cao nhất, KHÔNG
+        // lọc ngưỡng) để quyết định chế độ. Chỉ khi KHÔNG còn bậc nào VƯỢT ngưỡng
+        // mới bật "chế độ tối ưu mốc chi tiêu".
         $maxRate = 0.0;
 
         foreach ($rows as $row) {
             $maxRate = max($maxRate, (float) ($row['max_rate'] ?? 0.0));
         }
 
-        $lowRateRegime = $maxRate <= 1.0;
+        $lowRateRegime = $maxRate <= self::MIN_DISPLAY_PERCENT;
+
+        // Áp ngưỡng hiển thị theo chế độ; thẻ không còn bậc nào phù hợp bị ẩn.
+        $visible = [];
+
+        foreach ($rows as $row) {
+            $tiers = $row['tiers'];
+
+            if (! $lowRateRegime) {
+                $tiers = array_values(array_filter(
+                    $tiers,
+                    fn (array $tier): bool => $tier['cashback_percent'] !== null
+                        && (float) $tier['cashback_percent'] >= self::MIN_DISPLAY_PERCENT,
+                ));
+            }
+
+            if ($tiers === []) {
+                continue;
+            }
+
+            $row['tiers'] = $tiers;
+            $row['visible'] = true;
+            $row['low_rate_regime'] = $lowRateRegime;
+            $row['max_rate'] = $this->maxRateOf($tiers);
+            $row['max_cashback'] = $this->maxCashbackOf($tiers);
+
+            $visible[] = $row;
+        }
+
+        $rows = $visible;
 
         usort($rows, function (array $a, array $b) use ($lowRateRegime): int {
             if (! $lowRateRegime) {
@@ -354,9 +392,12 @@ class CardRecommendationService
     }
 
     /**
-     * Danh sách bậc ĐẠT NGƯỠNG hiển thị cho danh mục đang chọn, ĐÃ LOẠI bậc
-     * < {@see self::MIN_DISPLAY_PERCENT}. Dùng chung cho "Thẻ của tôi" và "Thẻ
-     * trên thị trường".
+     * Danh sách bậc hợp lệ cho danh mục đang chọn (có rule dương), đã loại bậc
+     * dưới `$minPercent`. Dùng chung cho "Thẻ của tôi" và "Thẻ trên thị trường".
+     *
+     * `$minPercent` mặc định là ngưỡng hiển thị chung; "Thẻ của tôi" truyền 0.0 để
+     * lấy TOÀN BỘ bậc dương nhằm quyết định chế độ hiển thị trước khi lọc. Bậc 0%
+     * (không hoàn tiền cho danh mục) luôn bị loại dù `$minPercent = 0`.
      *
      * `$scenarioTotal` là tổng chi dùng để xác định bậc ĐANG ÁP DỤNG (đối với thẻ
      * cá nhân là tổng thực + giao dịch đang hỏi; với thị trường chỉ là giao dịch
@@ -371,6 +412,7 @@ class CardRecommendationService
         string $amount,
         float $scenarioTotal,
         ?int $applicableTierId,
+        float $minPercent = self::MIN_DISPLAY_PERCENT,
     ): array {
         $rows = [];
 
@@ -387,8 +429,10 @@ class CardRecommendationService
                 (int) $tier->id === $applicableTierId,
             );
 
-            // Bậc không có rule dương cho danh mục này hoặc dưới ngưỡng hiển thị ⇒ bỏ.
-            if ($row['cashback_percent'] === null || (float) $row['cashback_percent'] < self::MIN_DISPLAY_PERCENT) {
+            // Bậc không có rule DƯƠNG cho danh mục này, hoặc dưới ngưỡng hiển thị ⇒ bỏ.
+            if ($row['cashback_percent'] === null
+                || (float) $row['cashback_percent'] <= 0.0
+                || (float) $row['cashback_percent'] < $minPercent) {
                 continue;
             }
 
@@ -621,14 +665,16 @@ class CardRecommendationService
         $totalEligible = $this->totalEligibleSpend($version, $lines);
         $tier = $this->tiers->resolveTier($version, $totalEligible);
 
-        // Liệt kê các bậc đạt ngưỡng hiển thị cho danh mục đang chọn (áp cho cả
-        // thẻ chưa đủ điều kiện/chưa đạt min — vẫn có thể hiển thị dạng tiềm năng).
+        // Liệt kê TOÀN BỘ bậc hợp lệ (tỷ lệ > 0) cho danh mục đang chọn — KHÔNG lọc
+        // ngưỡng ở đây; `myCards()` sẽ quyết định chế độ hiển thị rồi mới lọc. Áp cho
+        // cả thẻ chưa đủ điều kiện/chưa đạt min (vẫn có thể hiển thị dạng tiềm năng).
         $tiers = $this->tierList(
             $version,
             $hypoLine,
             $amount,
             $totalEligible,
             $tier === null ? null : (int) $tier->id,
+            0.0,
         );
         $context = $this->tierContext($tiers);
 
