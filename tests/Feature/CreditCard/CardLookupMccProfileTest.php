@@ -8,6 +8,7 @@ use App\Models\CreditCard\Policy;
 use App\Models\CreditCard\PolicyMccProfile;
 use App\Models\CreditCard\PolicyMccProfileRow;
 use App\Models\CreditCard\PolicyMccProfileRowCode;
+use App\Models\CreditCard\PolicyMccRowBenefit;
 use App\Models\CreditCard\PolicyTemplate;
 use App\Models\CreditCard\PolicyTier;
 use App\Models\CreditCard\PolicyTierCategory;
@@ -176,28 +177,50 @@ class CardLookupMccProfileTest extends TestCase
         return $blueprint;
     }
 
+    /**
+     * Gắn dữ liệu hoàn tiền trích tài liệu cho MỘT dòng MCC của hồ sơ.
+     *
+     * @param  array<int, array<string, mixed>>  $tiers
+     */
+    private function addRowBenefits(PolicyMccProfile $profile, array $tiers): void
+    {
+        $row = $profile->includedRows()->firstOrFail();
+
+        foreach (array_values($tiers) as $order => $tier) {
+            PolicyMccRowBenefit::create(array_merge([
+                'policy_mcc_row_id' => $row->id,
+                'tier_order' => $order,
+            ], $tier));
+        }
+    }
+
     #[Test]
-    public function lookup_mcc_shows_real_blueprint_rate_for_included_category(): void
+    public function lookup_mcc_shows_highest_documented_rate_and_condition_for_included_row(): void
     {
         $user = User::factory()->create();
         $this->seedMcc('6300');
         $template = $this->makeSystemTemplate(['name' => 'Thẻ bảo hiểm']);
-        $category = $this->makeSystemCategory(['name' => 'Bảo hiểm']);
 
-        // Bậc 1 (dưới 8tr): chỉ có fallback 0%. Bậc 2 (từ 8tr): Bảo hiểm 15%,
-        // trần 400.000/kỳ — đúng cấu hình thật của template LPBank JCB Ultimate.
-        $this->makeBlueprintWithTiers($template, [
-            ['name' => 'Bậc 1 - Dưới 8tr', 'min' => 0, 'max' => 8000000, 'rules' => [
-                ['percent' => '0.000'],
-            ]],
-            ['name' => 'Bậc 2 - Từ 8tr', 'min' => 8000000, 'max' => null, 'rules' => [
-                ['category_id' => $category->id, 'percent' => '15.000', 'cap' => '400000'],
-                ['percent' => '0.000'],
-            ]],
+        $profile = $this->makeIncludedProfile($template, 'Bảo hiểm', ['6300']);
+
+        // Hai bậc trích tài liệu gốc: bậc thấp 7.5% và bậc cao 15% (trần 400.000).
+        // Tra cứu phải chọn ĐÚNG bậc cao nhất + điều kiện của nó.
+        $this->addRowBenefits($profile, [
+            [
+                'cashback_percent' => '7.500',
+                'cap_amount' => '150000',
+                'cap_period' => 'kỳ sao kê',
+                'cap_unit' => 'VND',
+                'condition_note' => 'Chi tiêu dưới 15.000.000đ/kỳ sao kê',
+            ],
+            [
+                'cashback_percent' => '15.000',
+                'cap_amount' => '400000',
+                'cap_period' => 'kỳ sao kê',
+                'cap_unit' => 'VND',
+                'condition_note' => 'Chi tiêu từ 15.000.000đ/kỳ sao kê',
+            ],
         ]);
-
-        // Hồ sơ MCC nhập tay: nhóm "Bảo hiểm" khớp theo TÊN với danh mục blueprint.
-        $this->makeIncludedProfile($template, 'Bảo hiểm', ['6300']);
 
         $response = $this->actingAs($user)
             ->getJson(route('credit-cards.lookup.mcc', ['mcc' => '6300']))
@@ -206,13 +229,34 @@ class CardLookupMccProfileTest extends TestCase
         $response->assertJsonPath('data.matches.0.cashback.status', 'available');
         $response->assertJsonPath('data.matches.0.cashback.category_name', 'Bảo hiểm');
 
-        // Bậc 1 không áp dụng cho danh mục này…
-        $response->assertJsonPath('data.matches.0.cashback.tiers.0.has_rule', false);
+        // Bậc cao nhất (15%) + điều kiện của chính bậc đó.
+        $response->assertJsonPath('data.matches.0.cashback.highest.cashback_percent', '15.000');
+        $response->assertJsonPath('data.matches.0.cashback.highest.cap_amount', '400000.00');
+        $response->assertJsonPath('data.matches.0.cashback.highest.note', 'Chi tiêu từ 15.000.000đ/kỳ sao kê');
+    }
 
-        // …bậc 2 áp dụng đúng 15% + trần 400.000.
-        $response->assertJsonPath('data.matches.0.cashback.tiers.1.has_rule', true);
-        $response->assertJsonPath('data.matches.0.cashback.tiers.1.cashback_percent', '15.000');
-        $response->assertJsonPath('data.matches.0.cashback.tiers.1.max_cashback_per_category_per_period', '400000.00');
+    #[Test]
+    public function lookup_mcc_shows_label_only_when_document_gives_no_numeric_rate(): void
+    {
+        $user = User::factory()->create();
+        $this->seedMcc('5812');
+        $template = $this->makeSystemTemplate(['name' => 'Thẻ ẩm thực']);
+
+        $profile = $this->makeIncludedProfile($template, 'Ăn uống', ['5812']);
+
+        // Tài liệu chỉ nêu nhãn ("tới 20%"), không có tỷ lệ số ⇒ không bịa số.
+        $this->addRowBenefits($profile, [
+            ['rate_label' => 'tới 20%', 'cap_amount' => '300000', 'cap_period' => 'kỳ sao kê', 'cap_unit' => 'điểm'],
+        ]);
+
+        $response = $this->actingAs($user)
+            ->getJson(route('credit-cards.lookup.mcc', ['mcc' => '5812']))
+            ->assertOk();
+
+        $response->assertJsonPath('data.matches.0.cashback.status', 'available');
+        $response->assertJsonPath('data.matches.0.cashback.highest', null);
+        $response->assertJsonPath('data.matches.0.cashback.tiers.0.rate_label', 'tới 20%');
+        $response->assertJsonPath('data.matches.0.cashback.tiers.0.name', 'tới 20%');
     }
 
     #[Test]

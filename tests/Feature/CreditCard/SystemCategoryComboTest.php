@@ -27,7 +27,7 @@ use Tests\TestCase;
  *   2. Combo hệ thống CHỈ gồm danh mục HỆ THỐNG đang hoạt động — không nhét được
  *      danh mục riêng của user (vì combo hệ thống được mọi policy thẻ dùng).
  *   3. Combo phải có ≥1 danh mục, không trùng thành viên.
- *   4. KHÔNG có route xoá.
+ *   4. Có xoá CÓ HÀNG RÀO (chặn khi còn rule); không ẩn/khôi phục.
  *   5. Admin module không được chạm vào combo riêng của user ⇒ 404.
  *   6. Sửa membership không được phá bất biến "mỗi bậc chỉ một combo rule cho
  *      danh mục" ⇒ trả 422 chứ không tạo dữ liệu mơ hồ.
@@ -65,16 +65,15 @@ class SystemCategoryComboTest extends TestCase
     // =====================================================================
 
     #[Test]
-    public function routes_exist_and_there_is_no_delete_route(): void
+    public function routes_exist_including_guarded_delete(): void
     {
         $this->assertTrue(Route::has('admin.credit-card.system-combos.index'));
         $this->assertTrue(Route::has('admin.credit-card.system-combos.store'));
         $this->assertTrue(Route::has('admin.credit-card.system-combos.update'));
+        $this->assertTrue(Route::has('admin.credit-card.system-combos.destroy'));
 
-        $this->assertFalse(
-            Route::has('admin.credit-card.system-combos.destroy'),
-            'Module combo hệ thống KHÔNG được có route xoá.'
-        );
+        // Không có ẩn / khôi phục: chỉ xoá cứng có hàng rào.
+        $this->assertFalse(Route::has('admin.credit-card.system-combos.restore'));
     }
 
     #[Test]
@@ -518,6 +517,55 @@ class SystemCategoryComboTest extends TestCase
                 ->where('category_id', $c->id)
                 ->exists()
         );
+    }
+
+    // =====================================================================
+    // Xoá có hàng rào
+    // =====================================================================
+
+    #[Test]
+    public function admin_can_delete_a_system_combo_with_no_rule_references(): void
+    {
+        $category = $this->makeSystemCategory();
+        $combo = $this->makeSystemCombo(['category_ids' => [$category->id]]);
+
+        $this->actingAs($this->manager)
+            ->deleteJson(route('admin.credit-card.system-combos.destroy', $combo))
+            ->assertOk()
+            ->assertJsonPath('deleted', true);
+
+        $this->assertSame(0, CategoryCombo::query()->whereKey($combo->id)->count());
+        $this->assertSame(0, CategoryComboItem::query()->where('combo_id', $combo->id)->count());
+
+        // Danh mục thành viên KHÔNG bị xoá theo combo.
+        $this->assertNotNull(Category::query()->find($category->id));
+    }
+
+    #[Test]
+    public function deleting_a_system_combo_still_referenced_by_a_rule_is_rejected(): void
+    {
+        $category = $this->makeSystemCategory();
+        $combo = $this->makeSystemCombo(['category_ids' => [$category->id]]);
+        $this->makeComboRuleTier([$combo]);
+
+        $response = $this->actingAs($this->manager)
+            ->deleteJson(route('admin.credit-card.system-combos.destroy', $combo))
+            ->assertStatus(422);
+
+        $this->assertStringContainsString('rule', mb_strtolower((string) $response->json('message')));
+        $this->assertNotNull(CategoryCombo::query()->find($combo->id));
+    }
+
+    #[Test]
+    public function admin_system_combo_destroy_returns_404_for_a_user_combo(): void
+    {
+        $userCombo = $this->makeUserCombo($this->manager->id);
+
+        $this->actingAs($this->manager)
+            ->deleteJson(route('admin.credit-card.system-combos.destroy', $userCombo))
+            ->assertNotFound();
+
+        $this->assertNotNull(CategoryCombo::query()->find($userCombo->id));
     }
 
     // =====================================================================

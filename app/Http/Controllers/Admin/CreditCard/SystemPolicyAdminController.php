@@ -28,8 +28,24 @@ class SystemPolicyAdminController extends Controller
 
     public function index(Request $request): View
     {
+        $search = trim((string) $request->query('q'));
+
         $templates = PolicyTemplate::query()
             ->system()
+            ->when($search !== '', function (Builder $query) use ($search): void {
+                $needle = '%'.$search.'%';
+
+                $query->where(function (Builder $inner) use ($needle): void {
+                    $inner->where('name', 'like', $needle)
+                        ->orWhere('applicable_product_match', 'like', $needle)
+                        ->orWhere('description', 'like', $needle)
+                        ->orWhereHas('applicableBank', function (Builder $bank) use ($needle): void {
+                            $bank->where('name', 'like', $needle)
+                                ->orWhere('short_name', 'like', $needle)
+                                ->orWhere('aliases', 'like', $needle);
+                        });
+                });
+            })
             ->orderBy('sort_order')
             ->orderBy('name')
             ->get()
@@ -37,6 +53,7 @@ class SystemPolicyAdminController extends Controller
 
         return view('admin.credit-card-policies.index', [
             'templates' => $templates,
+            'search' => $search,
             'canManage' => $request->user()->hasPermissionTo('credit-cards.manage'),
         ]);
     }

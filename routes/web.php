@@ -428,8 +428,9 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
         });
 
     // === Quản trị "Danh mục hệ thống" (Credit Card) ===
-    // Chỉ 3 thao tác: thêm mới, đổi tên, sắp xếp. KHÔNG có xoá/ẩn/khôi phục.
-    // Đọc dùng `credit-cards.view`, ghi dùng `credit-cards.manage` (permission có sẵn).
+    // Thêm mới, đổi tên, sắp xếp lại và xoá CÓ HÀNG RÀO (chỉ khi chưa bị tham
+    // chiếu). KHÔNG có ẩn/khôi phục. Đọc dùng `credit-cards.view`, ghi dùng
+    // `credit-cards.manage` (permission có sẵn).
     Route::get('/credit-card/system-categories', [SystemCategoryAdminController::class, 'index'])
         ->middleware('permission:credit-cards.view')
         ->name('credit-card.system-categories.index');
@@ -442,6 +443,9 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
     Route::post('/credit-card/system-categories/reorder', [SystemCategoryAdminController::class, 'reorder'])
         ->middleware('permission:credit-cards.manage')
         ->name('credit-card.system-categories.reorder');
+    Route::delete('/credit-card/system-categories/{category}', [SystemCategoryAdminController::class, 'destroy'])
+        ->middleware('permission:credit-cards.manage')
+        ->name('credit-card.system-categories.destroy');
 
     // System Combo
     Route::get('/credit-card/system-combos', [SystemComboAdminController::class, 'index'])
@@ -453,6 +457,9 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
     Route::patch('/credit-card/system-combos/{combo}', [SystemComboAdminController::class, 'update'])
         ->middleware('permission:credit-cards.manage')
         ->name('credit-card.system-combos.update');
+    Route::delete('/credit-card/system-combos/{combo}', [SystemComboAdminController::class, 'destroy'])
+        ->middleware('permission:credit-cards.manage')
+        ->name('credit-card.system-combos.destroy');
 
     // === Quản trị "Mẫu điều kiện hoàn tiền đặc biệt" (Credit Card) ===
     // Master data: admin soạn bộ điều kiện ⇒ user chọn → hệ thống DEEP-CLONE vào

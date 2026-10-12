@@ -41,8 +41,8 @@ sách** (nghĩa `previous_name`, `recorded_by_user_id`) hiển thị trong form 
 - `vib-shopping` = **Mua sắm — Shopping**: siêu-thi-tien-loi, thoi-trang, cua-hang-tien-loi,
   dien-may, nha-sach, cham-soc-sac-dep (6 danh mục).
 - `vib-travel` = **Du lịch — Travel**: ve-may-bay-du-lich, khach-san-luu-tru, chi-tieu-nuoc-ngoai (3).
-- `vib-dining` = **Ẩm thực — Dining**: am-thuc-an-uong (1).
-- `vib-entertainment` = **Giải trí — Entertainment**: ung-dung-so-dich-vu-giai-tri (1).
+- ~~`vib-dining`~~ = **Ẩm thực — Dining**: am-thuc-an-uong (1) — **bị chuẩn hóa**: combo đã xóa, rule chuyển danh mục trực tiếp `am-thuc-an-uong` (xem `CREDIT_CARD_CATEGORY_COMBO_NORMALIZATION_PLAN.md` mục 6).
+- ~~`vib-entertainment`~~ = **Giải trí — Entertainment**: ung-dung-so-dich-vu-giai-tri (1) — **bị chuẩn hóa**: như trên, rule trực tiếp `ung-dung-so-dich-vu-giai-tri`.
 - `vib-online` = **Giao dịch trực tuyến — Online Transactions**: mua-sam-truc-tuyen,
   san-thuong-mai-dien-tu, shopee, tiki, lazada, tiktok (6).
 
@@ -234,9 +234,11 @@ Platinum 02, Signature 03), mọi DMCT đã đăng ký cùng nhận tỷ lệ c�
 - `vib-one-card-mua-sam` = **Mua sắm — Shopping**: sieu-thi-tien-loi, thoi-trang, dien-may,
   cua-hang-tien-loi, nha-sach, cham-soc-sac-dep.
 - `vib-one-card-du-lich` = **Du lịch — Travel**: ve-may-bay-du-lich, khach-san-luu-tru.
-- `vib-one-card-giao-duc` = **Giáo dục — Education**: giao-duc-hoc-phi.
-- `vib-one-card-bao-hiem` = **Bảo hiểm — Insurance**: bao-hiem.
-- `vib-one-card-nuoc-ngoai` = **Chi tiêu nước ngoài — Overseas Spending**: chi-tieu-nuoc-ngoai.
+- ~~`vib-one-card-giao-duc`~~ = **Giáo dục — Education**: giao-duc-hoc-phi — **bị chuẩn hóa** (combo xóa, rule chuyển danh mục trực tiếp `giao-duc-hoc-phi`).
+- ~~`vib-one-card-bao-hiem`~~ = **Bảo hiểm — Insurance**: bao-hiem — **bị chuẩn hóa** (combo xóa, rule trực tiếp `bao-hiem`).
+- ~~`vib-one-card-nuoc-ngoai`~~ = **Chi tiêu nước ngoài — Overseas Spending**: chi-tieu-nuoc-ngoai — **bị chuẩn hóa** (combo xóa; không có rule gắn trên live).
+
+_Xem `CREDIT_CARD_CATEGORY_COMBO_NORMALIZATION_PLAN.md` mục 6 để truy vết kết quả triển khai._
 
 Biểu diễn nghiệp vụ: blueprint mỗi hạng **CHỈ gắn rule combo cho DMCT trong cấu hình khởi tạo** +
 1 fallback `scope_type=other` 0,100% (`counts_toward_tier_cap=1`). DMCT khác trong "kho" không có rule

@@ -32,9 +32,10 @@ use Tests\TestCase;
  * duy nhất phủ từ 0đ:
  *   - khách hàng được đăng ký tối đa N DMCT theo hạng (Gold 01, Platinum 02,
  *     Signature 03); mọi DMCT ĐÃ ĐĂNG KÝ cùng nhận tỷ lệ theo hạng;
- *   - blueprint của từng hạng chứa rule combo CHỈ cho DMCT trong CẤU HÌNH KHỞI
- *     TẠO (Gold: Mua sắm; Platinum: Mua sắm, Bảo hiểm; Signature: Mua sắm,
- *     Giáo dục, Bảo hiểm) + fallback nền 0,1% cho mọi thứ không đăng ký;
+ *   - blueprint của từng hạng chứa rule CHỈ cho DMCT trong CẤU HÌNH KHỞI TẠO
+ *     (Gold: Mua sắm; Platinum: Mua sắm, Bảo hiểm; Signature: Mua sắm, Giáo dục,
+ *     Bảo hiểm) + fallback nền 0,1% cho mọi thứ không đăng ký. Nhóm nhiều danh mục
+ *     (Mua sắm) trỏ combo; DMCT một danh mục (Bảo hiểm, Giáo dục) trỏ thẳng danh mục;
  *   - trần Điểm thưởng/kỳ sao kê theo hạng (Cap toàn bậc).
  * Cờ `counts_toward_tier_cap = true` cho CẢ rule DMCT lẫn fallback.
  *
@@ -56,11 +57,11 @@ class VibOneCardVisaPolicyTest extends TestCase
         'signature' => 'vib-one-card-visa-signature',
     ];
 
-    /** DMCT trong CẤU HÌNH KHỞI TẠO của từng hạng. */
-    private const DEFAULT_COMBOS = [
-        'gold' => ['vib-one-card-mua-sam'],
-        'platinum' => ['vib-one-card-mua-sam', 'vib-one-card-bao-hiem'],
-        'signature' => ['vib-one-card-mua-sam', 'vib-one-card-giao-duc', 'vib-one-card-bao-hiem'],
+    /** DMCT trong CẤU HÌNH KHỞI TẠO của từng hạng (kiểu target ⇒ slug). */
+    private const DEFAULT_TARGETS = [
+        'gold' => [['combo', 'vib-one-card-mua-sam']],
+        'platinum' => [['combo', 'vib-one-card-mua-sam'], ['category', 'bao-hiem']],
+        'signature' => [['combo', 'vib-one-card-mua-sam'], ['category', 'giao-duc-hoc-phi'], ['category', 'bao-hiem']],
     ];
 
     private const PLAN_PERCENT = [
@@ -75,22 +76,16 @@ class VibOneCardVisaPolicyTest extends TestCase
         'signature' => '1500000.00',
     ];
 
-    /** 5 combo "kho" DMCT — membership trên danh mục CÓ TRONG BỘ SEED GỐC. */
+    /** 2 combo "kho" DMCT nhiều danh mục — membership trên danh mục CÓ TRONG BỘ SEED GỐC. */
     private const COMBO_GROUPS = [
         'vib-one-card-mua-sam' => ['sieu-thi-tien-loi', 'thoi-trang'],
         'vib-one-card-du-lich' => ['ve-may-bay-du-lich', 'khach-san-luu-tru'],
-        'vib-one-card-giao-duc' => ['giao-duc-hoc-phi'],
-        'vib-one-card-bao-hiem' => ['bao-hiem'],
-        'vib-one-card-nuoc-ngoai' => ['chi-tieu-nuoc-ngoai'],
     ];
 
     /** Nhãn hiển thị của từng combo (slug ⇒ name). */
     private const COMBO_NAMES = [
         'vib-one-card-mua-sam' => 'Mua sắm — Shopping',
         'vib-one-card-du-lich' => 'Du lịch — Travel',
-        'vib-one-card-giao-duc' => 'Giáo dục — Education',
-        'vib-one-card-bao-hiem' => 'Bảo hiểm — Insurance',
-        'vib-one-card-nuoc-ngoai' => 'Chi tiêu nước ngoài — Overseas Spending',
     ];
 
     private CreditCardSeeder $creditCardSeeder;
@@ -169,7 +164,7 @@ class VibOneCardVisaPolicyTest extends TestCase
 
             $rules = $tier->tierCategoryRules()->orderBy('sort_order')->orderBy('id')->get();
             $fallbacks = $rules->filter(fn (PolicyTierCategory $r): bool => $r->isFallback());
-            $comboRules = $rules->reject(fn (PolicyTierCategory $r): bool => $r->isFallback());
+            $targets = $rules->reject(fn (PolicyTierCategory $r): bool => $r->isFallback())->values();
 
             $this->assertCount(1, $fallbacks, 'Đúng 1 rule nền cho chi tiêu ngoài DMCT đã đăng ký.');
             $fallback = $fallbacks->first();
@@ -179,14 +174,23 @@ class VibOneCardVisaPolicyTest extends TestCase
             $this->assertNull($fallback->combo_id);
             $this->assertSame(PolicyTierCategory::SCOPE_OTHER, $fallback->scope_type);
 
-            // Số rule combo = số DMCT trong CẤU HÌNH KHỞI TẠO của hạng.
+            // Số rule DMCT = số DMCT trong CẤU HÌNH KHỞI TẠO của hạng. Thứ tự hiển
+            // thị chuẩn đẩy danh mục trực tiếp lên trước combo.
+            $expected = collect(self::DEFAULT_TARGETS[$plan])
+                ->sortBy(fn (array $target): int => $target[0] === 'combo' ? 1 : 0)
+                ->values()
+                ->map(fn (array $target): string => $target[0].':'.$target[1])
+                ->all();
+
             $this->assertSame(
-                self::DEFAULT_COMBOS[$plan],
-                $comboRules->map(fn (PolicyTierCategory $r): string => $r->combo->slug)->values()->all(),
-                'Chỉ DMCT đăng ký khởi tạo có rule tỷ lệ ưu đãi.'
+                $expected,
+                $targets->map(fn (PolicyTierCategory $r): string => $r->isComboSpecific()
+                    ? 'combo:'.$r->combo->slug
+                    : 'category:'.$r->category->slug)->all(),
+                'Chỉ DMCT đăng ký khởi tạo có rule tỷ lệ ưu đãi (combo nhiều danh mục / danh mục trực tiếp).'
             );
 
-            foreach ($comboRules as $rule) {
+            foreach ($targets as $rule) {
                 $this->assertSame(self::PLAN_PERCENT[$plan], $rule->cashback_percent, 'Mọi DMCT đăng ký cùng nhận tỷ lệ của hạng.');
                 $this->assertTrue((bool) $rule->counts_toward_tier_cap);
                 $this->assertSame('0.00', $rule->spend_from);
@@ -198,7 +202,7 @@ class VibOneCardVisaPolicyTest extends TestCase
     }
 
     #[Test]
-    public function the_five_one_card_combos_exist_with_disjoint_memberships_over_system_categories(): void
+    public function the_two_multi_member_one_card_combos_exist_with_disjoint_memberships(): void
     {
         $this->creditCardSeeder->run();
 
@@ -211,7 +215,7 @@ class VibOneCardVisaPolicyTest extends TestCase
             $this->assertSame(self::COMBO_NAMES[$slug], $combo->name);
 
             $membership = $combo->items()->pluck('category_id')->all();
-            $this->assertNotEmpty($membership);
+            $this->assertGreaterThanOrEqual(2, count($membership), 'Combo "kho" phải có từ 2 danh mục trở lên.');
 
             foreach ($categorySlugs as $categorySlug) {
                 $category = $this->categoryBySlug($categorySlug);
@@ -230,6 +234,18 @@ class VibOneCardVisaPolicyTest extends TestCase
                 );
                 $seenCategoryIds[(int) $categoryId] = true;
             }
+        }
+
+        // Ba DMCT một danh mục không còn dựng combo; danh mục vẫn tồn tại để rule trỏ thẳng.
+        foreach (['giao-duc-hoc-phi', 'bao-hiem', 'chi-tieu-nuoc-ngoai'] as $categorySlug) {
+            $this->categoryBySlug($categorySlug);
+        }
+
+        foreach (['vib-one-card-giao-duc', 'vib-one-card-bao-hiem', 'vib-one-card-nuoc-ngoai'] as $removed) {
+            $this->assertNull(
+                \App\Models\CreditCard\CategoryCombo::query()->system()->where('slug', $removed)->first(),
+                "Combo một-phần-tử {$removed} không được seed nữa."
+            );
         }
     }
 
@@ -251,7 +267,7 @@ class VibOneCardVisaPolicyTest extends TestCase
             $tier = $template->blueprint()->firstOrFail()->tiers()->firstOrFail();
 
             $this->assertSame(1, $tier->tierCategoryRules()->fallback()->count());
-            $this->assertSame(count(self::DEFAULT_COMBOS[$plan]) + 1, $tier->tierCategoryRules()->count());
+            $this->assertSame(count(self::DEFAULT_TARGETS[$plan]) + 1, $tier->tierCategoryRules()->count());
         }
 
         foreach (array_keys(self::COMBO_GROUPS) as $slug) {

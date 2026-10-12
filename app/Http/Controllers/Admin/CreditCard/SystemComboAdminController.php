@@ -18,8 +18,8 @@ use LogicException;
  *
  * - Combo hệ thống chỉ chứa SYSTEM CATEGORY (đang hoạt động).
  * - Chỉ admin có `credit-cards.manage` mới ghi.
- * - KHÔNG xoá ở phase này (tương tự Category): FK `combo_id` là RESTRICT và rule
- *   đã tạo phải giữ nguyên ý nghĩa. Sẽ làm ở task riêng nếu cần.
+ * - Xoá CÓ HÀNG RÀO: `destroy` chỉ xoá combo chưa bị rule nào tham chiếu; còn
+ *   rule ⇒ 422 kèm số rule (FK `combo_id` là RESTRICT). Không có ẩn/khôi phục.
  */
 class SystemComboAdminController extends Controller
 {
@@ -77,6 +77,27 @@ class SystemComboAdminController extends Controller
         }
 
         return response()->json(['data' => self::present($updated)]);
+    }
+
+    /**
+     * Xoá combo hệ thống (có hàng rào).
+     *
+     * Combo của user KHÔNG phải việc của màn này ⇒ 404. Còn rule tham chiếu ⇒
+     * 422 kèm số rule; hết ref ⇒ xoá cứng.
+     */
+    public function destroy(CategoryCombo $combo): JsonResponse
+    {
+        if (! $combo->isSystem()) {
+            abort(404);
+        }
+
+        try {
+            $this->combos->deleteSystemCombo($combo);
+        } catch (LogicException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json(['deleted' => true]);
     }
 
     private function invalid(string $message): JsonResponse

@@ -11,11 +11,14 @@ use App\Services\CreditCard\SystemCategoryService;
 use App\Support\CreditCard\CategoryIcon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\View\View;
+use LogicException;
 
 /**
  * Trang vận hành (Blade) + JSON API quản trị "Danh mục hệ thống".
  *
- * CHỈ 3 thao tác: thêm mới, đổi tên, sắp xếp lại. KHÔNG có xoá/ẩn/khôi phục.
+ * Thêm mới, đổi tên, sắp xếp lại và XOÁ CÓ HÀNG RÀO. Không có ẩn/khôi phục.
+ * `destroy` chỉ xoá được danh mục chưa bị bất kỳ tham chiếu nào; còn dùng ⇒ 422
+ * kèm lý do cụ thể (service kiểm tra, không để DB nổi lỗi FK).
  *
  * Đảm bảo bất biến "category_id là định danh, name là thuộc tính hiện tại":
  * mọi ghi đi qua `SystemCategoryService` và chỉ chạm đúng bản ghi `Category`;
@@ -73,6 +76,27 @@ class SystemCategoryAdminController extends Controller
         }
 
         return response()->json(['saved' => true]);
+    }
+
+    /**
+     * Xoá danh mục hệ thống (có hàng rào).
+     *
+     * Combo/danh mục của user KHÔNG phải việc của màn này ⇒ 404 (không rò rỉ sự
+     * tồn tại). Còn tham chiếu ⇒ 422 kèm lý do; sạch ⇒ xoá cứng.
+     */
+    public function destroy(Category $category): JsonResponse
+    {
+        if (! $category->isSystem()) {
+            abort(404);
+        }
+
+        try {
+            $this->categories->deleteSystemCategory($category);
+        } catch (LogicException $exception) {
+            return response()->json(['message' => $exception->getMessage()], 422);
+        }
+
+        return response()->json(['deleted' => true]);
     }
 
     /**

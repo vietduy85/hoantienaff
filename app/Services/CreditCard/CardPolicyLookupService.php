@@ -6,6 +6,7 @@ use App\Models\CreditCard\CardPolicyMccMapping;
 use App\Models\CreditCard\MccCode;
 use App\Models\CreditCard\PolicyMccProfile;
 use App\Models\CreditCard\PolicyMccProfileRow;
+use App\Models\CreditCard\PolicyMccRowBenefit;
 use App\Models\CreditCard\PolicyTemplate;
 use App\Models\CreditCard\PolicyTierCategory;
 use App\Models\CreditCard\PolicyVersion;
@@ -288,7 +289,7 @@ class CardPolicyLookupService
     private function adminProfileMatches(string $code): array
     {
         $profiles = PolicyMccProfile::query()
-            ->with(['template:id,name', 'rows.codes'])
+            ->with(['template:id,name', 'rows.codes', 'rows.benefits.document'])
             ->orderBy('policy_template_id')
             ->orderBy('name')
             ->orderBy('id')
@@ -362,6 +363,8 @@ class CardPolicyLookupService
      */
     private function profileMatch(PolicyMccProfile $profile, PolicyMccProfileRow $row, ?string $policyName, string $code, string $relation): array
     {
+        $source = $row->benefits->first()?->document;
+
         return [
             'id' => 'profile#'.$profile->id.'#'.$row->id,
             'source' => 'policy_mcc_profile',
@@ -379,7 +382,97 @@ class CardPolicyLookupService
             'note' => $row->note,
             'profile_note' => $profile->note,
             'verification_status' => null,
+            'source_pdf' => $source?->original_name,
+            'source_page' => $row->benefits->first()?->source_page,
+            // Tỷ lệ/bậc hoàn tiền trích từ tài liệu gốc (chỉ để tra cứu) — KHÔNG
+            // suy diễn, KHÔNG lấy từ blueprint.
+            'cashback' => $this->benefitCashback($row, $relation),
         ];
+    }
+
+    /**
+     * Bậc + tỷ lệ hoàn tiền của MỘT dòng MCC, đọc từ bảng tra cứu
+     * `credit_card_policy_mcc_row_benefits` (dữ liệu trích tài liệu gốc).
+     *
+     * @return array{status:string, category_name:?string, tiers:array<int, array<string, mixed>>, highest:?array<string, mixed>, reason:?string}
+     */
+    private function benefitCashback(PolicyMccProfileRow $row, string $relation): array
+    {
+        if ($relation === 'excluded') {
+            return ['status' => 'excluded', 'category_name' => $row->category_name, 'tiers' => [], 'highest' => null, 'reason' => 'excluded'];
+        }
+
+        $benefits = $row->benefits;
+
+        if ($benefits->isEmpty()) {
+            return ['status' => 'missing', 'category_name' => $row->category_name, 'tiers' => [], 'highest' => null, 'reason' => 'no_data'];
+        }
+
+        $tiers = $benefits
+            ->map(fn (PolicyMccRowBenefit $benefit): array => $this->benefitTierPayload($benefit))
+            ->values()
+            ->all();
+
+        $highest = $this->highestBenefit($benefits);
+
+        return [
+            'status' => 'available',
+            'category_name' => $row->category_name,
+            'tiers' => $tiers,
+            'highest' => $highest === null ? null : $this->benefitTierPayload($highest),
+            'reason' => null,
+        ];
+    }
+
+    /**
+     * Bậc hoàn tiền CAO NHẤT: ưu tiên tỷ lệ số, phá hoà bằng trần lớn hơn.
+     * Trả null khi mọi bậc đều không có tỷ lệ (chỉ có nhãn) — không suy diễn.
+     *
+     * @param  Collection<int, PolicyMccRowBenefit>  $benefits
+     */
+    private function highestBenefit($benefits): ?PolicyMccRowBenefit
+    {
+        $withPercent = $benefits->filter(fn (PolicyMccRowBenefit $benefit): bool => $benefit->cashback_percent !== null);
+
+        if ($withPercent->isEmpty()) {
+            return null;
+        }
+
+        return $withPercent
+            ->sortByDesc(fn (PolicyMccRowBenefit $benefit): array => [
+                (float) $benefit->cashback_percent,
+                (float) ($benefit->cap_amount ?? 0),
+            ])
+            ->first();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function benefitTierPayload(PolicyMccRowBenefit $benefit): array
+    {
+        return [
+            'name' => $benefit->rate_label
+                ?? ($benefit->cashback_percent !== null ? $this->number($benefit->cashback_percent).'%' : '—'),
+            'cashback_percent' => $benefit->cashback_percent,
+            'rate_label' => $benefit->rate_label,
+            'min_total_spend' => $benefit->min_spend,
+            'max_total_spend' => $benefit->max_spend,
+            'cap_amount' => $benefit->cap_amount,
+            'cap_period' => $benefit->cap_period,
+            'cap_unit' => $benefit->cap_unit,
+            'has_rule' => true,
+            'note' => $benefit->condition_note,
+            'exception' => $benefit->exception_note,
+            'source_page' => $benefit->source_page,
+        ];
+    }
+
+    private function number(mixed $value): string
+    {
+        $number = (float) $value;
+
+        return rtrim(rtrim(number_format($number, 3, '.', ''), '0'), '.');
     }
 
     /**
@@ -454,6 +547,12 @@ class CardPolicyLookupService
             : PolicyTemplate::query()->whereIn('id', array_keys($templateIds))->get()->keyBy('id');
 
         foreach ($matches as $index => $match) {
+            // Hồ sơ MCC admin nhập đã có sẵn tỷ lệ trích từ tài liệu gốc
+            // (`benefitCashback`); không ghi đè bằng dữ liệu blueprint.
+            if (($match['source'] ?? null) === 'policy_mcc_profile') {
+                continue;
+            }
+
             $template = $templates->get((int) ($match['policy_template_id'] ?? 0));
 
             $matches[$index]['cashback'] = $this->cashbackSummary(

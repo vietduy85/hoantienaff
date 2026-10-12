@@ -164,6 +164,14 @@ class PolicyTemplate extends CreditCardModel
     }
 
     /**
+     * Bank áp dụng cho template (chỉ khi template bị giới hạn theo ngân hàng).
+     */
+    public function applicableBank(): BelongsTo
+    {
+        return $this->belongsTo(Bank::class, 'applicable_bank_id');
+    }
+
+    /**
      * Tất cả policy đã clone ra từ template này (mỗi thẻ một bản độc lập).
      */
     public function clonedPolicies(): HasMany

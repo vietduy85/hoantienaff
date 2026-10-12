@@ -178,7 +178,7 @@ class CreditCardSeeder extends Seeder
             $combos = $this->seedVibCombos($categories);
             $this->seedVibMaxCardVisaTemplates($banks, $categories, $combos);
             $oneCardCombos = $this->seedVibOneCardCombos($categories);
-            $this->seedVibOneCardTemplates($banks, $oneCardCombos);
+            $this->seedVibOneCardTemplates($banks, $categories, $oneCardCombos);
         });
     }
 
@@ -586,24 +586,26 @@ class CreditCardSeeder extends Seeder
     // =====================================================================
 
     /**
-     * 5 Category Combo "bộ danh mục" của VIB Max Card Visa.
+     * Combo "bộ danh mục" của VIB Max Card Visa.
      *
-     * Mỗi combo là MỘT nhóm của chính sách (Shopping / Travel / Dining /
-     * Entertainment / Online Transactions). Rule của chính sách trỏ combo bằng
-     * `combo_id` — một rule, nhiều danh mục (migration 000020).
+     * Sau chuẩn hoá, chính sách chỉ còn 3 NHÓM NHIỀU DANH MỤC cần gom combo
+     * (Mua sắm / Du lịch / Online Transactions). Hai nhóm chỉ có ĐÚNG MỘT danh
+     * mục — Ẩm thực (`am-thuc-an-uong`) và Giải trí
+     * (`ung-dung-so-dich-vu-giai-tri`) — được chính sách trỏ THẲNG bằng
+     * `category_id` (xem `seedVibMaxCardVisaTemplates`), không bọc combo
+     * một-phần-tử nữa. Rule của chính sách trỏ combo bằng `combo_id` — một rule,
+     * nhiều danh mục (migration 000020).
      *
      * Membership (ánh xạ sang danh mục hệ thống CÓ SẴN, chỉ bảo thủ):
      *   - Mua sắm   : siêu thị, thời trang, cửa hàng tiện lợi, điện máy,
      *                 nhà sách, chăm sóc sắc đẹp.
      *   - Du lịch   : vé máy bay & du lịch, khách sạn & lưu trú, chi tiêu
      *                 nước ngoài / ngoại tệ.
-     *   - Ẩm thực   : ẩm thực & ăn uống.
-     *   - Giải trí  : ứng dụng số & dịch vụ giải trí trực tuyến.
      *   - Online    : mua sắm trực tuyến, sàn TMĐT, Shopee, Tiki, Lazada, Tiktok.
      *
      * Các combo rời nhau hoàn toàn (một danh mục chỉ thuộc MỘT nhóm) nên engine
      * không bao giờ khớp một giao dịch vào hai rule combo trong cùng bậc. Danh
-     * mục ngoài 5 nhóm rơi về fallback 0,1% của chính sách.
+     * mục ngoài các nhóm rơi về fallback 0,1% của chính sách.
      *
      * Seeder CHỈ THÊM membership, KHÔNG gỡ: admin có thể đã bổ sung danh mục
      * qua module quản lý combo — bộ seed chỉ đảm bảo bộ gốc có mặt.
@@ -629,20 +631,6 @@ class CreditCardSeeder extends Seeder
                 'description' => 'Nhóm "Du lịch" của VIB Max Card Visa: vé máy bay, khách sạn & lưu trú, chi tiêu nước ngoài.',
                 'sort_order' => 20,
                 'category_slugs' => ['ve-may-bay-du-lich', 'khach-san-luu-tru', 'chi-tieu-nuoc-ngoai'],
-            ],
-            [
-                'slug' => 'vib-dining',
-                'name' => 'Ẩm thực — Dining',
-                'description' => 'Nhóm "Ẩm thực" của VIB Max Card Visa.',
-                'sort_order' => 30,
-                'category_slugs' => ['am-thuc-an-uong'],
-            ],
-            [
-                'slug' => 'vib-entertainment',
-                'name' => 'Giải trí — Entertainment',
-                'description' => 'Nhóm "Giải trí" của VIB Max Card Visa: ứng dụng số & dịch vụ giải trí trực tuyến.',
-                'sort_order' => 40,
-                'category_slugs' => ['ung-dung-so-dich-vu-giai-tri'],
             ],
             [
                 'slug' => 'vib-online',
@@ -702,7 +690,9 @@ class CreditCardSeeder extends Seeder
      * 4 chính sách hệ thống VIB Max Card Visa (Starter / Plus / Pro / Elite).
      *
      * Mỗi chính sách MỘT bậc chi tiêu duy nhất, toàn bộ chi tiêu hợp lệ:
-     *   - 5 nhóm (combo) ở TỶ LỆ ƯU ĐÃI CAO của hạng thẻ;
+     *   - 5 mục tiêu ở TỶ LỆ ƯU ĐÃI CAO của hạng thẻ: 3 nhóm nhiều danh mục trỏ
+     *     combo (Mua sắm / Du lịch / Online) + 2 danh mục trực tiếp (Ẩm thực,
+     *     Giải trí) sau chuẩn hoá;
      *   - mọi danh mục còn lại ở TỶ LỆ NỀN 0,1%;
      *   - trần hoàn tiền/THÁNG = hạn mức riêng theo hạng (Cap 3: trần TOÀN BẬC).
      *
@@ -712,9 +702,10 @@ class CreditCardSeeder extends Seeder
      * hoàn cũng tiêu thụ ngân sách trần của bậc — đúng nghĩa "hoàn tối đa/kỳ".
      *
      * GIAN GIỚI (báo cáo X.7): chính sách gốc cho CHỌN MỘT nhóm ưu tiên, engine
-     * không có khái niệm "1 nhóm được chọn" per-card ⇒ 5 nhóm đều nhận tỷ lệ cao.
-     * Trần theo danh mục (Cap 2) và trần giao dịch đặc biệt 10k/kỳ: nguồn chưa có
-     * số liệu / engine chưa có khái niệm ⇒ KHÔNG cấu hình (ghi trong báo cáo).
+     * không có khái niệm "1 nhóm được chọn" per-card ⇒ 5 mục tiêu đều nhận tỷ lệ
+     * cao. Trần theo danh mục (Cap 2) và trần giao dịch đặc biệt 10k/kỳ: nguồn
+     * chưa có số liệu / engine chưa có khái niệm ⇒ KHÔNG cấu hình (ghi trong
+     * báo cáo).
      *
      * @param  array<string, Bank>  $banks  (slug ⇒ Bank)
      * @param  array<string, Category>  $categories
@@ -794,14 +785,26 @@ class CreditCardSeeder extends Seeder
                 'counts_toward_tier_cap' => true,
             ]);
 
-            // 5 nhóm (combo) — mỗi nhóm MỘT rule combo ở tỷ lệ ưu đãi cao.
+            // 5 mục tiêu chi tiêu — mỗi mục tiêu MỘT rule ở tỷ lệ ưu đãi cao:
+            //   3 nhóm nhiều danh mục gom bằng combo (Mua sắm / Du lịch / Online);
+            //   2 nhóm một danh mục trỏ THẲNG bằng `category_id` (Ẩm thực, Giải
+            //   trí) — đã chuẩn hoá khỏi combo một-phần-tử.
             $sortOrder = 0;
 
-            foreach (array_keys($combos) as $comboSlug) {
+            $targets = [
+                ['combo_id' => $combos['vib-shopping']->id],
+                ['combo_id' => $combos['vib-travel']->id],
+                ['combo_id' => $combos['vib-online']->id],
+                ['category_id' => $categories['am-thuc-an-uong']->id],
+                ['category_id' => $categories['ung-dung-so-dich-vu-giai-tri']->id],
+            ];
+
+            foreach ($targets as $target) {
                 PolicyTierCategory::updateOrCreate(
                     [
                         'tier_id' => $tier->id,
-                        'combo_id' => $combos[$comboSlug]->id,
+                        'combo_id' => $target['combo_id'] ?? null,
+                        'category_id' => $target['category_id'] ?? null,
                         'spend_from' => 0,
                     ],
                     [
@@ -818,8 +821,9 @@ class CreditCardSeeder extends Seeder
                 );
             }
 
-            // Thứ tự hiển thị chuẩn: 5 rule combo trước, fallback cuối. Fallback
-            // được tạo TRƯỚC ở trên (sort_order gốc = 1) nên phải chuẩn hoá ở cuối.
+            // Thứ tự hiển thị chuẩn: danh mục cụ thể → combo → fallback cuối.
+            // Fallback được tạo TRƯỚC ở trên (sort_order gốc = 1) nên phải chuẩn
+            // hoá ở cuối.
             $rulesService->normaliseRuleOrder($tier);
         }
     }
@@ -829,14 +833,15 @@ class CreditCardSeeder extends Seeder
     // =====================================================================
 
     /**
-     * 5 Combo "Danh Mục Chi Tiêu (DMCT) đăng ký" của VIB One Card (PDF mục 2.12).
+     * Combo "kho DMCT" nhiều danh mục của VIB One Card (PDF mục 2.12).
      *
      * Đặc trưng One Card khác Max Card Visa: KHÔNG phải bộ danh mục cố định —
      * khách hàng quyền CHỌN tối đa N DMCT theo hạng (Gold 01 / Platinum 02 /
      * Signature 03), các DMCT đã chọn cùng nhận tỷ lệ ưu đãi theo hạng, mọi chi
      * tiêu không nằm trong DMCT đã chọn rơi về nền 0,1%. Vì vậy:
-     *   - 5 combo dưới là "kho danh mục để chọn" — blueprint của từng hạng CHỈ
-     *     gắn rule cho các DMCT theo cấu hình khởi tạo (xem `seedVibOneCardTemplates`);
+     *   - 2 combo dưới là "kho danh mục nhiều phần tử để chọn" — blueprint của
+     *     từng hạng CHỈ gắn rule cho các DMCT theo cấu hình khởi tạo (xem
+     *     `seedVibOneCardTemplates`);
      *   - admin chuyển DMCT cho một thẻ = clone policy rồi đổi membership của bộ
      *     DMCT (thêm/bớt rule combo), không phải sửa chung trong seeder.
      *
@@ -846,17 +851,16 @@ class CreditCardSeeder extends Seeder
      *                          nhà sách, chăm sóc sắc đẹp (nhóm MCC mua sắm chung).
      *   - Du lịch          : vé máy bay & du lịch, khách sạn & lưu trú
      *                          (nhóm MCC 3000-3999 + 4511 + 4722 trong PDF).
-     *   - Giáo dục         : giáo dục & học phí (MCC 8211/8220/8241/8244/8249/8299).
-     *   - Bảo hiểm         : bảo hiểm (MCC 6300).
-     *   - Chi tiêu nước ngoài : POS/Contactless ngoài lãnh thổ, ngoại tệ.
      *
-     * "Chi tiêu nước ngoài" trong PDF xác định theo kênh POS + ngoại tệ chứ KHÔNG
-     * theo MCC ⇒ danh mục hệ thống `chi-tieu-nuoc-ngoai` là phép xấp xỉ gần nhất;
-     * cùng giới hạn như báo cáo Max Card (danh mục hiện có không phân biệt được
-     * kênh point-of-sale ngoài lãnh thổ).
+     * Ba DMCT chỉ có ĐÚNG MỘT danh mục — Giáo dục (`giao-duc-hoc-phi`), Bảo hiểm
+     * (`bao-hiem`), Chi tiêu nước ngoài (`chi-tieu-nuoc-ngoai`) — sau chuẩn hoá
+     * được chính sách trỏ THẲNG bằng `category_id`, không bọc combo một-phần-tử
+     * nữa. "Chi tiêu nước ngoài" trong PDF xác định theo kênh POS + ngoại tệ chứ
+     * KHÔNG theo MCC ⇒ danh mục hệ thống `chi-tieu-nuoc-ngoai` là phép xấp xỉ gần
+     * nhất; cùng giới hạn như báo cáo Max Card.
      *
-     * 5 combo rời nhau hoàn toàn (một danh mục chỉ thuộc MỘT nhóm) nên trong cùng
-     * một bậc không bao giờ có hai rule combo cùng khớp một giao dịch.
+     * Các combo rời nhau hoàn toàn (một danh mục chỉ thuộc MỘT nhóm) nên trong
+     * cùng một bậc không bao giờ có hai rule combo cùng khớp một giao dịch.
      *
      * Seeder CHỈ THÊM membership, KHÔNG gỡ — admin có thể đã bổ sung danh mục
      * qua module quản lý combo (đồng bộ cách `seedVibCombos`).
@@ -882,27 +886,6 @@ class CreditCardSeeder extends Seeder
                 'description' => 'DMCT "Du lịch" của VIB One Card (PDF mục 2.12): vé máy bay, khách sạn & lưu trú.',
                 'sort_order' => 70,
                 'category_slugs' => ['ve-may-bay-du-lich', 'khach-san-luu-tru'],
-            ],
-            [
-                'slug' => 'vib-one-card-giao-duc',
-                'name' => 'Giáo dục — Education',
-                'description' => 'DMCT "Giáo dục" của VIB One Card (PDF mục 2.12): học phí, khóa học.',
-                'sort_order' => 80,
-                'category_slugs' => ['giao-duc-hoc-phi'],
-            ],
-            [
-                'slug' => 'vib-one-card-bao-hiem',
-                'name' => 'Bảo hiểm — Insurance',
-                'description' => 'DMCT "Bảo hiểm" của VIB One Card (PDF mục 2.12).',
-                'sort_order' => 90,
-                'category_slugs' => ['bao-hiem'],
-            ],
-            [
-                'slug' => 'vib-one-card-nuoc-ngoai',
-                'name' => 'Chi tiêu nước ngoài — Overseas Spending',
-                'description' => 'DMCT "Chi tiêu nước ngoài" của VIB One Card (PDF mục 2.12): POS/Contactless ngoài lãnh thổ, ngoại tệ.',
-                'sort_order' => 100,
-                'category_slugs' => ['chi-tieu-nuoc-ngoai'],
             ],
         ];
 
@@ -963,10 +946,12 @@ class CreditCardSeeder extends Seeder
      *   - đổi DMCT: 01 lượt/kỳ, hiệu lực ngay — không truy thu điểm cũ;
      *   - đăng ký/đổi qua website hoặc MyVIB.
      *
-     * Blueprint của mỗi hạng = các rule combo của DMCT theo CẤU HÌNH KHỞI TẠO
-     * (Gold: Mua sắm; Platinum: Mua sắm, Bảo hiểm; Signature: Mua sắm, Giáo dục,
-     * Bảo hiểm) + fallback 0,1%. DMCT không nằm trong cấu hình khởi tạo không có
-     * rule trong blueprint ⇒ được tính nền 0,1% cho tới khi admin/thẻ đổi DMCT.
+     * Blueprint của mỗi hạng = các rule DMCT theo CẤU HÌNH KHỞI TẠO (Gold: Mua
+     * sắm; Platinum: Mua sắm, Bảo hiểm; Signature: Mua sắm, Giáo dục, Bảo hiểm) +
+     * fallback 0,1%. Mua sắm là nhóm nhiều danh mục nên trỏ combo; Bảo hiểm /
+     * Giáo dục chỉ một danh mục nên trỏ THẲNG `category_id` (đã chuẩn hoá). DMCT
+     * không nằm trong cấu hình khởi tạo không có rule trong blueprint ⇒ được tính
+     * nền 0,1% cho tới khi admin/thẻ đổi DMCT.
      *
      * GIAN GIỚI (báo cáo): trần riêng "Giao dịch đặc biệt" 10.000 điểm/kỳ và
      * khái niệm "DMCT được ĐĂNG KÝ / ĐƯỢC CHỌN" (tối đa N per thẻ) không có cơ
@@ -978,9 +963,10 @@ class CreditCardSeeder extends Seeder
      * hoàn cũng tiêu thụ ngân sách trần của bậc — đúng nghĩa "hoàn tối đa/kỳ".
      *
      * @param  array<string, Bank>  $banks  (slug ⇒ Bank)
+     * @param  array<string, Category>  $categories  (slug ⇒ Category)
      * @param  array<string, CategoryCombo>  $combos
      */
-    private function seedVibOneCardTemplates(array $banks, array $combos): void
+    private function seedVibOneCardTemplates(array $banks, array $categories, array $combos): void
     {
         $vib = $banks['vib'];
 
@@ -991,7 +977,7 @@ class CreditCardSeeder extends Seeder
                 'sort_order' => 40,
                 'percent' => '3.000',
                 'cap' => '500000.00',
-                'default_combos' => ['vib-one-card-mua-sam'],
+                'default_targets' => [['combo' => 'vib-one-card-mua-sam']],
                 'description' => 'VIB One Card Visa Gold: chi tiêu tại DMCT đã đăng ký (mặc định: Mua sắm) được hoàn 3%, ngoài DMCT đăng ký 0,1%; tối đa 500.000đ/kỳ sao kê. Đăng ký tối đa 1 DMCT, đổi 1 lần/kỳ.',
             ],
             [
@@ -1000,7 +986,7 @@ class CreditCardSeeder extends Seeder
                 'sort_order' => 41,
                 'percent' => '6.000',
                 'cap' => '1000000.00',
-                'default_combos' => ['vib-one-card-mua-sam', 'vib-one-card-bao-hiem'],
+                'default_targets' => [['combo' => 'vib-one-card-mua-sam'], ['category' => 'bao-hiem']],
                 'description' => 'VIB One Card Visa Platinum: chi tiêu tại DMCT đã đăng ký (mặc định: Mua sắm, Bảo hiểm) được hoàn 6%, ngoài DMCT đăng ký 0,1%; tối đa 1.000.000đ/kỳ sao kê. Đăng ký tối đa 2 DMCT, đổi 1 lần/kỳ.',
             ],
             [
@@ -1009,7 +995,7 @@ class CreditCardSeeder extends Seeder
                 'sort_order' => 42,
                 'percent' => '9.000',
                 'cap' => '1500000.00',
-                'default_combos' => ['vib-one-card-mua-sam', 'vib-one-card-giao-duc', 'vib-one-card-bao-hiem'],
+                'default_targets' => [['combo' => 'vib-one-card-mua-sam'], ['category' => 'giao-duc-hoc-phi'], ['category' => 'bao-hiem']],
                 'description' => 'VIB One Card Visa Signature: chi tiêu tại DMCT đã đăng ký (mặc định: Mua sắm, Giáo dục, Bảo hiểm) được hoàn 9%, ngoài DMCT đăng ký 0,1%; tối đa 1.500.000đ/kỳ sao kê. Đăng ký tối đa 3 DMCT, đổi 1 lần/kỳ.',
             ],
         ];
@@ -1080,18 +1066,22 @@ class CreditCardSeeder extends Seeder
                 'counts_toward_tier_cap' => true,
             ]);
 
-            // Chỉ DMCT trong CẤU HÌNH KHỞI TẠO có rule combo ở tỷ lệ ưu đãi; DMCT
-            // còn lại trong "kho" không có rule ở blueprint ⇒ rơi về nền 0,1% cho
-            // tới khi được đăng ký (đổi DMCT = đổi bộ rule combo của bản sao thẻ).
+            // Chỉ DMCT trong CẤU HÌNH KHỞI TẠO có rule ở tỷ lệ ưu đãi; DMCT còn
+            // lại trong "kho" không có rule ở blueprint ⇒ rơi về nền 0,1% cho tới
+            // khi được đăng ký (đổi DMCT = đổi bộ rule của bản sao thẻ). Nhóm nhiều
+            // danh mục (Mua sắm) trỏ combo; DMCT một danh mục (Bảo hiểm, Giáo dục)
+            // trỏ THẲNG `category_id`.
             $sortOrder = 0;
 
-            foreach ($plan['default_combos'] as $comboSlug) {
-                $combo = $combos[$comboSlug];
+            foreach ($plan['default_targets'] as $target) {
+                $comboId = isset($target['combo']) ? $combos[$target['combo']]->id : null;
+                $categoryId = isset($target['category']) ? $categories[$target['category']]->id : null;
 
                 PolicyTierCategory::updateOrCreate(
                     [
                         'tier_id' => $tier->id,
-                        'combo_id' => $combo->id,
+                        'combo_id' => $comboId,
+                        'category_id' => $categoryId,
                         'spend_from' => 0,
                     ],
                     [
@@ -1108,9 +1098,8 @@ class CreditCardSeeder extends Seeder
                 );
             }
 
-            // Thứ tự hiển thị chuẩn: rule DMCT trước, fallback "📦 Các danh mục
-            // còn lại" cuối. Fallback được tạo TRƯỚC (sort_order gốc = 1) nên phải
-            // chuẩn hoá ở cuối.
+            // Thứ tự hiển thị chuẩn: danh mục cụ thể → combo → fallback cuối.
+            // Fallback được tạo TRƯỚC (sort_order gốc = 1) nên phải chuẩn hoá ở cuối.
             $rulesService->normaliseRuleOrder($tier);
         }
     }

@@ -61,6 +61,18 @@ class PolicyMccProfileRow extends CreditCardModel
             ->orderBy('mcc');
     }
 
+    /**
+     * Dữ liệu hoàn tiền trích từ tài liệu ngân hàng cho dòng này (chỉ để tra cứu).
+     *
+     * @return HasMany<PolicyMccRowBenefit, $this>
+     */
+    public function benefits(): HasMany
+    {
+        return $this->hasMany(PolicyMccRowBenefit::class, 'policy_mcc_row_id')
+            ->orderBy('tier_order')
+            ->orderBy('id');
+    }
+
     public function isIncluded(): bool
     {
         return $this->row_type === self::TYPE_INCLUDED;

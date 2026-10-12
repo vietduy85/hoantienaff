@@ -22,7 +22,7 @@
                     + Tạo Combo
                 </button>
                 <p class="text-xs text-gray-500">
-                    Combo hệ thống chỉ chứa danh mục hệ thống đang hoạt động. Mỗi danh mục chỉ xuất hiện một lần trong cùng Combo.
+                    Combo hệ thống chỉ chứa danh mục hệ thống đang hoạt động. Mỗi danh mục chỉ xuất hiện một lần trong cùng Combo. Chỉ xoá được Combo chưa bị rule hoàn tiền nào tham chiếu.
                 </p>
             </div>
 
@@ -65,6 +65,13 @@
                             <button @click="openEdit(combo)"
                                     class="inline-flex items-center justify-center h-11 w-11 rounded-lg text-gray-500 hover:bg-gray-100">
                                 ✏️
+                            </button>
+                            <button @click="destroy(combo)"
+                                    :disabled="busy"
+                                    title="Xoá Combo"
+                                    aria-label="Xoá Combo"
+                                    class="inline-flex items-center justify-center h-11 w-11 rounded-lg text-gray-500 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50">
+                                🗑️
                             </button>
                         </li>
                     </template>
@@ -174,6 +181,14 @@
                         if(!p) return;
                         const nm=p.data?.name||name;
                         window.localStorage.setItem('cc_syscombo_flash', this.form.mode==='create'?`Đã tạo Combo "${nm}"`:`Đã cập nhật Combo "${nm}"`);
+                        window.location.reload();
+                    },
+                    async destroy(combo){
+                        if(!window.confirm(`Xoá Combo "${combo.name}"? Hành động này không thể hoàn tác.`)) return;
+                        const url=@js(route('admin.credit-card.system-combos.update', ['combo'=>0])).replace('0', combo.id);
+                        const p=await this.request(url,'DELETE');
+                        if(!p) return;
+                        window.localStorage.setItem('cc_syscombo_flash', `Đã xoá Combo "${combo.name}"`);
                         window.location.reload();
                     }
                 };

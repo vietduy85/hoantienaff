@@ -7,6 +7,7 @@ use App\Models\CreditCard\Policy;
 use App\Models\CreditCard\PolicyTemplate;
 use App\Models\CreditCard\PolicyTierCategory;
 use App\Models\User;
+use App\Services\CreditCard\CategoryComboService;
 use App\Services\CreditCard\PolicyService;
 use Carbon\CarbonImmutable;
 use Database\Seeders\CreditCardSeeder;
@@ -22,7 +23,7 @@ use Tests\TestCase;
  * Module ADMIN "⚙️ Quản lý danh mục hệ thống".
  *
  * CHỈ 3 thao tác trên danh mục hệ thống (master data): thêm mới, đổi tên,
- * sắp xếp lại. KHÔNG có xoá / ẩn / khôi phục / lưu trữ.
+ * sắp xếp lại, xoá có hàng rào. KHÔNG ẩn / khôi phục / lưu trữ.
  *
  * Bảo vệ cốt lõi:
  *   1. Phân quyền: đọc = `credit-cards.view`, ghi = `credit-cards.manage`.
@@ -92,17 +93,16 @@ class SystemCategoryAdminTest extends TestCase
     }
 
     #[Test]
-    public function only_three_write_routes_exist_and_no_delete_route_is_registered(): void
+    public function write_routes_exist_including_guarded_destroy(): void
     {
         $this->assertTrue(Route::has('admin.credit-card.system-categories.index'));
         $this->assertTrue(Route::has('admin.credit-card.system-categories.store'));
         $this->assertTrue(Route::has('admin.credit-card.system-categories.update'));
         $this->assertTrue(Route::has('admin.credit-card.system-categories.reorder'));
+        $this->assertTrue(Route::has('admin.credit-card.system-categories.destroy'));
 
-        $this->assertFalse(
-            Route::has('admin.credit-card.system-categories.destroy'),
-            'Module danh mục hệ thống KHÔNG được có route xoá.'
-        );
+        // Không có ẩn / khôi phục: chỉ xoá cứng có hàng rào.
+        $this->assertFalse(Route::has('admin.credit-card.system-categories.restore'));
     }
 
     #[Test]
@@ -748,6 +748,68 @@ class SystemCategoryAdminTest extends TestCase
         $this->assertNotNull($xangDau, 'Seeder phải tạo lại danh mục gốc còn thiếu.');
         $this->assertSame('Xăng dầu', $xangDau->name);
         $this->assertSame(19, Category::query()->system()->count());
+    }
+
+    // =====================================================================
+    // Xoá có hàng rào
+    // =====================================================================
+
+    #[Test]
+    public function admin_can_delete_a_system_category_with_no_references(): void
+    {
+        $category = $this->makeSystemCategory(['slug' => 'co-the-xoa', 'name' => 'Có thể xoá']);
+
+        $this->actingAs($this->manager)
+            ->deleteJson(route('admin.credit-card.system-categories.destroy', $category))
+            ->assertOk()
+            ->assertJsonPath('deleted', true);
+
+        $this->assertSame(0, Category::query()->whereKey($category->id)->count());
+    }
+
+    #[Test]
+    public function deleting_a_system_category_referenced_by_a_rule_is_rejected(): void
+    {
+        $category = $this->makeSystemCategory(['slug' => 'dang-dung-rule', 'name' => 'Đang dùng rule']);
+        $rule = $this->makeRuleReferencing($category);
+
+        $response = $this->actingAs($this->manager)
+            ->deleteJson(route('admin.credit-card.system-categories.destroy', $category))
+            ->assertStatus(422);
+
+        $this->assertStringContainsString('tham chiếu', (string) $response->json('message'));
+        $this->assertSame($category->id, $rule->refresh()->category_id);
+        $this->assertNotNull(Category::query()->find($category->id));
+    }
+
+    #[Test]
+    public function deleting_a_system_category_used_in_a_combo_is_rejected(): void
+    {
+        $category = $this->makeSystemCategory(['slug' => 'dang-trong-combo', 'name' => 'Đang trong combo']);
+
+        app(CategoryComboService::class)->createSystemCombo([
+            'name' => 'Combo giữ danh mục',
+            'category_ids' => [$category->id],
+        ]);
+
+        $response = $this->actingAs($this->manager)
+            ->deleteJson(route('admin.credit-card.system-categories.destroy', $category))
+            ->assertStatus(422);
+
+        $this->assertStringContainsString('combo', mb_strtolower((string) $response->json('message')));
+        $this->assertNotNull(Category::query()->find($category->id));
+    }
+
+    #[Test]
+    public function admin_system_category_destroy_returns_404_for_a_user_category(): void
+    {
+        $userCategory = $this->makeUserCategory($this->manager->id);
+
+        $this->actingAs($this->manager)
+            ->deleteJson(route('admin.credit-card.system-categories.destroy', $userCategory))
+            ->assertNotFound();
+
+        $this->assertNotNull(Category::query()->find($userCategory->id));
     }
 
     // =====================================================================

@@ -1,11 +1,13 @@
 {{--
     /admin/credit-card/system-categories — "⚙️ Quản lý danh mục hệ thống".
 
-    Module ADMIN quản lý danh mục HỆ THỐNG (master data): CHỈ 3 thao tác
+    Module ADMIN quản lý danh mục HỆ THỐNG (master data):
       - thêm mới (modal)
       - đổi tên (modal)
       - sắp xếp lại (↑/↓ + kéo-thả)
-    KHÔNG có xoá / ẩn / khôi phục.
+      - xoá CÓ HÀNG RÀO (chỉ xoá được khi danh mục chưa bị rule/combo/giao
+        dịch/spend-qual/MCC tham chiếu; còn dùng ⇒ báo lỗi kèm lý do).
+    KHÔNG có ẩn / khôi phục.
 
     Bất biến: `category_id` là định danh, `name` là thuộc tính hiện tại. Đổi tên
     chỉ chạm đúng bản ghi Category (cùng id) ⇒ mọi policy rule / giao dịch /
@@ -44,7 +46,7 @@
                     + Thêm danh mục
                 </button>
                 <p class="text-xs text-gray-500">
-                    Danh mục hệ thống dùng chung cho mọi chính sách hoàn tiền. Chỉ quản trị viên mới có thể thêm, đổi tên và sắp xếp. Không có thao tác xoá.
+                    Danh mục hệ thống dùng chung cho mọi chính sách hoàn tiền. Chỉ quản trị viên mới có thể thêm, đổi tên, sắp xếp. Chỉ có thể xoá danh mục chưa được rule, combo, giao dịch hay điều kiện chi tiêu tham chiếu.
                 </p>
             </div>
 
@@ -133,6 +135,16 @@
                                         class="inline-flex items-center justify-center w-11 h-11 rounded-lg p-2 text-gray-500 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-50">
                                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                                    </svg>
+                                </button>
+                                <button type="button"
+                                        @click="destroy(category)"
+                                        :disabled="busy"
+                                        title="Xoá danh mục"
+                                        aria-label="Xoá danh mục"
+                                        class="inline-flex items-center justify-center w-11 h-11 rounded-lg p-2 text-gray-500 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                                     </svg>
                                 </button>
                             </div>
@@ -381,6 +393,16 @@
 
                         this.closeModal();
                         window.localStorage.setItem('cc_syscat_flash', flash);
+                        window.location.reload();
+                    },
+
+                    async destroy(category) {
+                        if (!window.confirm(`Xoá danh mục hệ thống "${category.name}"? Hành động này không thể hoàn tác.`)) return;
+
+                        const payload = await this.request(`${this.baseUrl()}/${category.id}`, 'DELETE');
+                        if (!payload) return;
+
+                        window.localStorage.setItem('cc_syscat_flash', `Đã xoá danh mục hệ thống "${category.name}".`);
                         window.location.reload();
                     },
 

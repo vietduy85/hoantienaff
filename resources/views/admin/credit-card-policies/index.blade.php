@@ -26,6 +26,40 @@
             </div>
         @endif
 
+        {{-- ═══ TÌM KIẾM CHÍNH SÁCH ═══
+             Lọc BACKEND trên toàn bộ danh sách template hệ thống (giữ từ khoá trong
+             URL `?q=`). Giống ô tìm kiếm ở Quản lý thẻ về mặt hình thức (kính lúp,
+             kích thước, bo góc, focus); khác ở chỗ gửi GET lên server thay vì lọc
+             client-side vì danh sách này đổ từ database. Rỗng ⇒ hiện đủ như trước. --}}
+        <form method="GET" action="{{ route('admin.credit-card-policies.index') }}" role="search">
+            <label class="relative block">
+                <span class="sr-only">Tìm chính sách hệ thống</span>
+                <span class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                    <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                        <path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clip-rule="evenodd" />
+                    </svg>
+                </span>
+                <input type="search"
+                       inputmode="search"
+                       name="q"
+                       value="{{ $search }}"
+                       data-testid="policy-search-input"
+                       placeholder="Tìm theo tên chính sách, ngân hàng hoặc sản phẩm..."
+                       class="w-full h-11 pl-10 {{ $search !== '' ? 'pr-9' : 'pr-3' }} rounded-xl border border-gray-200 bg-white text-base sm:text-sm text-gray-800 placeholder:text-gray-400 focus:border-emerald-500 focus:ring-emerald-500">
+                @if ($search !== '')
+                    <a href="{{ route('admin.credit-card-policies.index') }}"
+                       aria-label="Xóa từ khóa tìm kiếm"
+                       title="Xóa từ khóa tìm kiếm"
+                       data-testid="policy-search-clear"
+                       class="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600">
+                        <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                            <path fill-rule="evenodd" d="M6.28 4.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 4.22z" clip-rule="evenodd" />
+                        </svg>
+                    </a>
+                @endif
+            </label>
+        </form>
+
         <div class="grid gap-4 sm:grid-cols-2">
             @forelse ($templates as $template)
                 <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-3">
@@ -75,13 +109,19 @@
                     </div>
                 </div>
             @empty
-                <div class="sm:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 p-10 text-center">
-                    <p class="text-gray-500">Chưa có chính sách hệ thống nào.</p>
-                    <a href="{{ route('admin.credit-card-policies.create') }}"
-                       class="inline-block mt-3 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium rounded-xl transition-colors">
-                        + Tạo chính sách hệ thống
-                    </a>
-                </div>
+                @if ($search !== '')
+                    <div data-testid="policy-search-empty" class="sm:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 p-10 text-center">
+                        <p class="text-gray-500">Không tìm thấy chính sách hoàn tiền phù hợp.</p>
+                    </div>
+                @else
+                    <div class="sm:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 p-10 text-center">
+                        <p class="text-gray-500">Chưa có chính sách hệ thống nào.</p>
+                        <a href="{{ route('admin.credit-card-policies.create') }}"
+                           class="inline-block mt-3 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium rounded-xl transition-colors">
+                            + Tạo chính sách hệ thống
+                        </a>
+                    </div>
+                @endif
             @endforelse
         </div>
     </div>

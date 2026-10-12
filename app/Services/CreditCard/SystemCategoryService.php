@@ -2,7 +2,15 @@
 
 namespace App\Services\CreditCard;
 
+use App\Models\CreditCard\CardPolicyMccMapping;
 use App\Models\CreditCard\Category;
+use App\Models\CreditCard\CategoryComboItem;
+use App\Models\CreditCard\PolicyTierCategory;
+use App\Models\CreditCard\SpendQualificationCondition;
+use App\Models\CreditCard\SpendQualificationConditionExcludedCategory;
+use App\Models\CreditCard\SpendQualificationTemplateCondition;
+use App\Models\CreditCard\SpendQualificationTemplateConditionExcludedCategory;
+use App\Models\CreditCard\Transaction;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -17,11 +25,17 @@ use LogicException;
  * riêng, tách khỏi `CategoryService` của user vì danh mục hệ thống ở đó là
  * READ-ONLY (user không được sửa bằng bất kỳ cách nào).
  *
- * CHỈ 3 THAO TÁC (§ section "Quản lý danh mục hệ thống"):
+ * CHỈ 3 THAO TÁC + 1 XOÁ CÓ HÀNG RÀO (§ section "Quản lý danh mục hệ thống"):
  *   - tạo mới (`create`)
  *   - đổi tên (`update`)
  *   - sắp xếp lại (`reorder`)
- * TUYỆT ĐỐI KHÔNG có xoá / ẩn / khôi phục / lưu trữ.
+ *   - xoá CÓ HÀNG RÀO (`deleteSystemCategory`): CHỈ xoá được khi danh mục
+ *     KHÔNG còn bất kỳ tham chiếu nào (rule / combo / giao dịch / spend-qual /
+ *     MCC). Còn tham chiếu ⇒ từ chối kèm lý do cụ thể, KHÔNG ẩn, KHÔNG khôi phục.
+ *
+ * KHÔNG có ẩn / khôi phục / lưu trữ: danh mục hệ thống là master data, ẩn nó sẽ
+ * làm giao dịch và rule cũ khó truy vết. Muốn bỏ thì phải gỡ hết tham chiếu rồi
+ * xoá cứng qua `deleteSystemCategory`.
  *
  * Invariant: `category_id` là ĐỊNH DANH, `name` là THUỘC TÍNH HIỆN TẠI. Đổi tên
  * KHÔNG tạo version mới, KHÔNG snapshot tên, KHÔNG đổi `category_id` ⇒ mọi tham
@@ -187,6 +201,91 @@ class SystemCategoryService
                 $system[$id]->forceFill(['sort_order' => $index + 1])->save();
             }
         });
+    }
+
+    /**
+     * Xoá danh mục HỆ THỐNG — CHỈ khi không còn bất kỳ tham chiếu nào.
+     *
+     * Hàng rào (fail loudly thay vì để DB nổi lỗi FK 1451 khó hiểu):
+     *   - còn rule cashback / combo / giao dịch / điều kiện chi tiêu / ánh xạ MCC
+     *     ⇒ ném `LogicException` kèm danh sách tham chiếu cụ thể;
+     *   - sạch tham chiếu ⇒ xoá cứng trong 1 transaction.
+     *
+     * KHÔNG soft-delete: master data bị ẩn khỏi dropdown nhưng vẫn còn trong mọi
+     * báo cáo là trạng thái nửa vời; muốn bỏ hẳn thì gỡ tham chiếu rồi xoá.
+     *
+     * @return array{deleted: bool, category: Category}
+     */
+    public function deleteSystemCategory(Category $category): array
+    {
+        $this->assertSystem($category);
+
+        return DB::connection('creditcard')->transaction(function () use ($category): array {
+            $usage = $this->usageOf($category);
+
+            if (array_sum($usage) > 0) {
+                throw new LogicException($this->blockedMessage($category, $usage));
+            }
+
+            $category->delete();
+
+            return ['deleted' => true, 'category' => $category];
+        });
+    }
+
+    /**
+     * Danh mục hệ thống đang được tham chiếu ở đâu?
+     *
+     * Đếm theo từng nhóm để vừa dựng hàng rào xoá, vừa đủ dữ liệu cho thông báo
+     * "còn dùng ở đâu". Gồm cả các bảng FK RESTRICT (rule / combo item / điều
+     * kiện chi tiêu) lẫn các bảng nullable nhưng cần giữ toàn vẹn (giao dịch, MCC).
+     *
+     * @return array<string, int>
+     */
+    public function usageOf(Category $category): array
+    {
+        $id = (int) $category->id;
+
+        return [
+            'rules' => PolicyTierCategory::query()->where('category_id', $id)->count(),
+            'combo_items' => CategoryComboItem::query()->where('category_id', $id)->count(),
+            'transactions' => Transaction::query()->where('category_id', $id)->count(),
+            'spend_qualification_conditions' => SpendQualificationCondition::query()->where('category_id', $id)->count(),
+            'spend_qualification_excluded' => SpendQualificationConditionExcludedCategory::query()->where('category_id', $id)->count(),
+            'spend_qualification_template_conditions' => SpendQualificationTemplateCondition::query()->where('category_id', $id)->count(),
+            'spend_qualification_template_excluded' => SpendQualificationTemplateConditionExcludedCategory::query()->where('category_id', $id)->count(),
+            'mcc_mappings' => CardPolicyMccMapping::query()->where('category_id', $id)->count(),
+        ];
+    }
+
+    /**
+     * @param  array<string, int>  $usage
+     */
+    private function blockedMessage(Category $category, array $usage): string
+    {
+        $labels = [
+            'rules' => 'rule cashback',
+            'combo_items' => 'combo danh mục',
+            'transactions' => 'giao dịch',
+            'spend_qualification_conditions' => 'điều kiện chi tiêu của chính sách',
+            'spend_qualification_excluded' => 'danh mục loại trừ của chính sách',
+            'spend_qualification_template_conditions' => 'điều kiện chi tiêu của mẫu',
+            'spend_qualification_template_excluded' => 'danh mục loại trừ của mẫu',
+            'mcc_mappings' => 'ánh xạ MCC',
+        ];
+
+        $parts = [];
+        foreach ($usage as $key => $count) {
+            if ($count > 0) {
+                $parts[] = $count.' '.($labels[$key] ?? $key);
+            }
+        }
+
+        return sprintf(
+            'Không thể xoá danh mục hệ thống "%s" vì đang được tham chiếu: %s. Hãy gỡ các tham chiếu trước.',
+            $category->name,
+            implode(', ', $parts)
+        );
     }
 
     private function assertSystem(Category $category): void

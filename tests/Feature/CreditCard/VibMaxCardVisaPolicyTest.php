@@ -31,8 +31,10 @@ use Tests\TestCase;
  * ---------------------------------------------------------------------------
  * 4 hạng thẻ (Starter / Plus / Pro / Elite), mỗi chính sách MỘT bậc chi tiêu
  * duy nhất phủ từ 0đ:
- *   - 5 nhóm danh mục (combo hệ thống) ở TỶ LỆ ƯU ĐÃI của hạng;
- *   - mọi danh mục ngoài 5 nhóm rơi về nền 0,1%;
+ *   - 5 MỤC TIÊU chi tiêu ở TỶ LỆ ƯU ĐÃI của hạng: 3 nhóm nhiều danh mục (combo
+ *     hệ thống: Mua sắm, Du lịch, Online) + 2 nhóm một danh mục trỏ thẳng
+ *     (Ẩm thực, Giải trí);
+ *   - mọi danh mục ngoài các mục tiêu trên rơi về nền 0,1%;
  *   - trần hoàn tiền/THÁNG theo hạng (Cap 3 — trần TOÀN BẬC).
  * Cờ `counts_toward_tier_cap = true` cho CẢ rule nhóm lẫn fallback.
  *
@@ -52,13 +54,17 @@ class VibMaxCardVisaPolicyTest extends TestCase
         'elite' => 'vib-max-card-visa-elite',
     ];
 
-    /** Danh mục hệ thống đại diện cho từng nhóm (đều có trong bộ seed gốc). */
+    /** Danh mục hệ thống đại diện cho từng nhóm nhiều danh mục (đều có trong bộ seed gốc). */
     private const COMBO_GROUPS = [
         'vib-shopping' => ['sieu-thi-tien-loi', 'thoi-trang'],
         'vib-travel' => ['ve-may-bay-du-lich', 'khach-san-luu-tru', 'chi-tieu-nuoc-ngoai'],
-        'vib-dining' => ['am-thuc-an-uong'],
-        'vib-entertainment' => ['ung-dung-so-dich-vu-giai-tri'],
         'vib-online' => ['mua-sam-truc-tuyen', 'san-thuong-mai-dien-tu', 'shopee', 'tiki', 'lazada', 'tiktok'],
+    ];
+
+    /** 2 nhóm một danh mục — rule trỏ THẲNG `category_id`, không bọc combo nữa. */
+    private const DIRECT_CATEGORY_SLUGS = [
+        'am-thuc-an-uong',
+        'ung-dung-so-dich-vu-giai-tri',
     ];
 
     private const PLAN_PERCENT = [
@@ -79,8 +85,6 @@ class VibMaxCardVisaPolicyTest extends TestCase
     private const COMBO_NAMES = [
         'vib-shopping' => 'Mua sắm — Shopping',
         'vib-travel' => 'Du lịch — Travel',
-        'vib-dining' => 'Ẩm thực — Dining',
-        'vib-entertainment' => 'Giải trí — Entertainment',
         'vib-online' => 'Giao dịch trực tuyến — Online Transactions',
     ];
 
@@ -142,7 +146,7 @@ class VibMaxCardVisaPolicyTest extends TestCase
     }
 
     #[Test]
-    public function each_template_has_one_tier_five_combo_rules_and_a_01_fallback(): void
+    public function each_template_has_one_tier_two_direct_category_rules_three_combo_rules_and_a_01_fallback(): void
     {
         $this->creditCardSeeder->run();
 
@@ -160,9 +164,9 @@ class VibMaxCardVisaPolicyTest extends TestCase
 
             $rules = $tier->tierCategoryRules()->orderBy('sort_order')->orderBy('id')->get();
             $fallbacks = $rules->filter(fn (PolicyTierCategory $r): bool => $r->isFallback());
-            $comboRules = $rules->reject(fn (PolicyTierCategory $r): bool => $r->isFallback());
+            $targets = $rules->reject(fn (PolicyTierCategory $r): bool => $r->isFallback())->values();
 
-            $this->assertCount(1, $fallbacks, 'Đúng 1 rule nền cho mọi danh mục ngoài 5 nhóm.');
+            $this->assertCount(1, $fallbacks, 'Đúng 1 rule nền cho mọi danh mục ngoài các mục tiêu.');
             $fallback = $fallbacks->first();
             $this->assertSame('0.100', $fallback->cashback_percent);
             $this->assertTrue((bool) $fallback->counts_toward_tier_cap, 'Fallback tính vào trần toàn bậc.');
@@ -170,14 +174,21 @@ class VibMaxCardVisaPolicyTest extends TestCase
             $this->assertNull($fallback->combo_id);
             $this->assertSame(PolicyTierCategory::SCOPE_OTHER, $fallback->scope_type);
 
-            $this->assertCount(5, $comboRules, '5 nhóm --> 5 rule combo.');
+            // 5 mục tiêu ưu đãi = 2 danh mục trực tiếp (đứng trước) + 3 combo.
+            $this->assertCount(5, $targets, '5 mục tiêu ưu đãi (2 danh mục + 3 combo).');
+            $this->assertSame(
+                self::DIRECT_CATEGORY_SLUGS,
+                $targets->take(2)->map(fn (PolicyTierCategory $r): string => $r->category->slug)->all(),
+                'Hai nhóm một danh mục trỏ thẳng `category_id`.'
+            );
             $this->assertSame(
                 array_keys(self::COMBO_GROUPS),
-                $comboRules->map(fn (PolicyTierCategory $r): string => $r->combo->slug)->values()->all()
+                $targets->slice(2)->map(fn (PolicyTierCategory $r): string => $r->combo->slug)->values()->all(),
+                'Ba nhóm nhiều danh mục vẫn gom bằng combo.'
             );
 
-            foreach ($comboRules as $rule) {
-                $this->assertSame(self::PLAN_PERCENT[$plan], $rule->cashback_percent, 'Các nhóm đều nhận tỷ lệ ưu đãi của hạng.');
+            foreach ($targets as $rule) {
+                $this->assertSame(self::PLAN_PERCENT[$plan], $rule->cashback_percent, 'Các mục tiêu đều nhận tỷ lệ ưu đãi của hạng.');
                 $this->assertTrue((bool) $rule->counts_toward_tier_cap);
                 $this->assertSame('0.00', $rule->spend_from);
                 $this->assertNull($rule->spend_to);
@@ -188,7 +199,7 @@ class VibMaxCardVisaPolicyTest extends TestCase
     }
 
     #[Test]
-    public function the_five_combos_exist_with_disjoint_memberships_over_system_categories(): void
+    public function the_three_multi_member_combos_exist_with_disjoint_memberships(): void
     {
         $this->creditCardSeeder->run();
 
@@ -199,9 +210,9 @@ class VibMaxCardVisaPolicyTest extends TestCase
 
             $this->assertSame('system', $combo->scope);
             $this->assertSame(self::COMBO_NAMES[$slug], $combo->name);
+            $this->assertGreaterThanOrEqual(2, $combo->items()->count(), 'Combo chính sách phải có từ 2 danh mục trở lên.');
 
             $membership = $combo->items()->pluck('category_id')->all();
-            $this->assertNotEmpty($membership);
 
             foreach ($categorySlugs as $categorySlug) {
                 $category = $this->categoryBySlug($categorySlug);
@@ -220,6 +231,18 @@ class VibMaxCardVisaPolicyTest extends TestCase
                 );
                 $seenCategoryIds[(int) $categoryId] = true;
             }
+        }
+
+        // Hai nhóm một danh mục không còn dựng combo; danh mục vẫn tồn tại để rule trỏ thẳng.
+        foreach (self::DIRECT_CATEGORY_SLUGS as $categorySlug) {
+            $this->categoryBySlug($categorySlug);
+        }
+
+        foreach (['vib-dining', 'vib-entertainment'] as $removed) {
+            $this->assertNull(
+                \App\Models\CreditCard\CategoryCombo::query()->system()->where('slug', $removed)->first(),
+                "Combo một-phần-tử {$removed} không được seed nữa."
+            );
         }
     }
 

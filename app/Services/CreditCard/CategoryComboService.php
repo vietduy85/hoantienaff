@@ -44,13 +44,13 @@ use LogicException;
  *          user đó. Không bao giờ danh mục của người khác.
  *
  * ---------------------------------------------------------------------------
- * VÌ SAO KHÔNG CÓ XOÁ
+ * XOÁ COMBO — CÓ HÀNG RÀO
  * ---------------------------------------------------------------------------
- * Task này không triển khai xoá combo. Ngoài yêu cầu, lý do kỹ thuật là combo đã
- * được rule tham chiếu thì FK `combo_id` là RESTRICT, và các bản ghi lịch sử đọc
- * membership qua combo để hiển thị nhãn. Để xoá an toàn sau này cần chính sách
- * "đã dùng ⇒ ẩn", giống `CategoryService::deleteUserCategory()` — sẽ làm ở task
- * riêng chứ không gộp vào đây.
+ * `deleteSystemCombo()` chỉ xoá combo khi KHÔNG còn rule nào tham chiếu. Combo
+ * đã được rule tham chiếu thì FK `combo_id` là RESTRICT, và các bản ghi lịch sử
+ * đọc membership qua combo để hiển thị nhãn. Nên guard: còn rule ⇒ từ chối kèm
+ * số rule; hết ref ⇒ xoá cứng (kèm item, FK CASCADE). Không có ẩn/khôi phục —
+ * master data muốn bỏ thì gỡ khỏi rule rồi xoá hẳn.
  *
  * ---------------------------------------------------------------------------
  * SNAPSHOT KHI DEEP-CLONE POLICY (Q3/Q4 đã chốt)
@@ -259,6 +259,42 @@ class CategoryComboService
             }
 
             return $combo->refresh()->load('items.category');
+        });
+    }
+
+    /**
+     * Xoá combo HỆ THỐNG — CHỈ khi không còn rule nào tham chiếu.
+     *
+     * Hàng rào: đếm `PolicyTierCategory.combo_id`. Còn rule ⇒ ném `LogicException`
+     * kèm số lượng; hết ref ⇒ xoá item rồi xoá combo trong 1 transaction (FK
+     * `combo_id` là CASCADE nên item cũng biến mất, nhưng xoá tường minh để không
+     * phụ thuộc vào cấu hình FK).
+     *
+     * @return array{deleted: bool, combo: CategoryCombo}
+     */
+    public function deleteSystemCombo(CategoryCombo $combo): array
+    {
+        if (! $combo->isSystem()) {
+            throw new LogicException('Module combo hệ thống chỉ quản lý combo system, không quản lý combo riêng của user.');
+        }
+
+        return DB::connection('creditcard')->transaction(function () use ($combo): array {
+            $ruleCount = PolicyTierCategory::query()
+                ->where('combo_id', (int) $combo->id)
+                ->count();
+
+            if ($ruleCount > 0) {
+                throw new LogicException(sprintf(
+                    'Không thể xoá Combo "%s" vì đang được %d rule cashback tham chiếu. Hãy gỡ Combo khỏi các rule trước.',
+                    $combo->name,
+                    $ruleCount
+                ));
+            }
+
+            CategoryComboItem::query()->where('combo_id', (int) $combo->id)->delete();
+            $combo->delete();
+
+            return ['deleted' => true, 'combo' => $combo];
         });
     }
 

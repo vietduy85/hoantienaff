@@ -332,21 +332,47 @@
                                                     Danh mục:
                                                     <span class="font-semibold text-gray-800" x-text="row.cashback.category_name || row.category_name || '—'"></span>
                                                 </p>
-                                                <template x-for="(tier, ti) in row.cashback.tiers" :key="'tier-' + row.id + '-' + ti">
-                                                    <div class="flex items-start justify-between gap-3">
-                                                        <div class="min-w-0">
-                                                            <p class="text-xs text-gray-700" x-text="tier.name"></p>
-                                                            <p class="text-[11px] text-gray-400" x-show="tier.has_rule"
-                                                               x-text="ccTierRange(tier.min_total_spend, tier.max_total_spend)"></p>
-                                                            <p class="text-[11px] text-gray-400" x-show="! tier.has_rule">Không áp dụng cho danh mục này</p>
+
+                                                {{-- Tỷ lệ hoàn tiền CAO NHẤT + điều kiện của nó (trích tài liệu gốc). --}}
+                                                <template x-if="row.cashback.highest">
+                                                    <div class="rounded-lg border border-emerald-100 bg-emerald-50/70 px-3 py-2">
+                                                        <div class="flex items-start justify-between gap-3">
+                                                            <p class="text-sm font-bold text-emerald-700">
+                                                                Hoàn tối đa
+                                                                <span x-text="ccBenefitRate(row.cashback.highest)"></span>
+                                                            </p>
+                                                            <p class="shrink-0 text-[11px] text-gray-500"
+                                                               x-show="ccBenefitCap(row.cashback.highest)"
+                                                               x-text="ccBenefitCap(row.cashback.highest)"></p>
                                                         </div>
-                                                        <div class="text-right shrink-0">
-                                                            <p class="text-sm font-semibold text-emerald-700" x-show="tier.has_rule"
-                                                               x-text="ccNumber(tier.cashback_percent) + '%'"></p>
-                                                            <p class="text-[11px] text-gray-400"
-                                                               x-show="tier.has_rule && (tier.max_cashback_per_transaction || tier.max_cashback_per_category_per_period)"
-                                                               x-text="ccRuleCaps(tier)"></p>
-                                                        </div>
+                                                        <p class="mt-0.5 text-[11px] text-gray-600"
+                                                           x-show="row.cashback.highest.note"
+                                                           x-text="row.cashback.highest.note"></p>
+                                                    </div>
+                                                </template>
+
+                                                {{-- Bậc chi tiết: chỉ hiện khi KHÔNG có tỷ lệ cao nhất trích tài liệu. --}}
+                                                <template x-if="! row.cashback.highest">
+                                                    <div class="space-y-2">
+                                                        <template x-for="(tier, ti) in row.cashback.tiers" :key="'tier-' + row.id + '-' + ti">
+                                                            <div class="flex items-start justify-between gap-3">
+                                                                <div class="min-w-0">
+                                                                    <p class="text-xs text-gray-700" x-text="tier.name"></p>
+                                                                    <p class="text-[11px] text-gray-400" x-show="tier.has_rule"
+                                                                       x-text="ccTierRange(tier.min_total_spend, tier.max_total_spend)"></p>
+                                                                    <p class="text-[11px] text-gray-400" x-show="! tier.has_rule">Không áp dụng cho danh mục này</p>
+                                                                    <p class="text-[11px] text-gray-500 mt-0.5" x-show="tier.note" x-text="tier.note"></p>
+                                                                    <p class="text-[11px] text-rose-600 mt-0.5" x-show="tier.exception" x-text="tier.exception"></p>
+                                                                </div>
+                                                                <div class="text-right shrink-0">
+                                                                    <p class="text-sm font-semibold text-emerald-700" x-show="tier.has_rule"
+                                                                       x-text="ccBenefitRate(tier)"></p>
+                                                                    <p class="text-[11px] text-gray-400"
+                                                                       x-show="tier.has_rule && ccBenefitCap(tier)"
+                                                                       x-text="ccBenefitCap(tier)"></p>
+                                                                </div>
+                                                            </div>
+                                                        </template>
                                                     </div>
                                                 </template>
                                             </div>
@@ -427,6 +453,38 @@
                 }
 
                 return caps.join(' · ');
+            }
+
+            /**
+             * Tỷ lệ hoàn tiền hiển thị của một bậc: ưu tiên nhãn nguyên văn của
+             * tài liệu ("tới 20%"), rồi tới tỷ lệ số (15% / 0,5%). Không suy diễn.
+             */
+            function ccBenefitRate(tier) {
+                if (! tier) return '—';
+
+                if (tier.rate_label) return tier.rate_label;
+
+                if (tier.cashback_percent !== null && tier.cashback_percent !== undefined && tier.cashback_percent !== '') {
+                    return ccNumber(tier.cashback_percent) + '%';
+                }
+
+                return '—';
+            }
+
+            /**
+             * Trần hoàn tiền của một bậc: dữ liệu trích tài liệu (`cap_amount` +
+             * `cap_unit` + `cap_period`) nếu có, ngược lại dùng hạn mức blueprint.
+             */
+            function ccBenefitCap(tier) {
+                if (tier?.cap_amount) {
+                    const isPoints = String(tier.cap_unit || '').toLowerCase() === 'điểm';
+                    const amount = isPoints ? ccMoney(tier.cap_amount) + ' điểm' : ccMoneyVnd(tier.cap_amount);
+                    const period = tier.cap_period ? '/' + tier.cap_period : '';
+
+                    return 'tối đa ' + amount + period;
+                }
+
+                return ccRuleCaps(tier);
             }
 
             /** Lớp màu cho khối tóm tắt hoàn tiền theo trạng thái dữ liệu blueprint. */

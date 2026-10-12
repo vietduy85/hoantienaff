@@ -64,9 +64,13 @@ class RuleOrderingRegressionTest extends TestCase
     private const VIB_COMBO_SLUGS = [
         'vib-shopping',
         'vib-travel',
-        'vib-dining',
-        'vib-entertainment',
         'vib-online',
+    ];
+
+    /** 2 nhóm một danh mục — trỏ thẳng danh mục, đứng TRƯỚC combo. */
+    private const VIB_DIRECT_CATEGORY_SLUGS = [
+        'am-thuc-an-uong',
+        'ung-dung-so-dich-vu-giai-tri',
     ];
 
     private CreditCardSeeder $creditCardSeeder;
@@ -96,7 +100,7 @@ class RuleOrderingRegressionTest extends TestCase
     // =====================================================================
 
     #[Test]
-    public function vib_blueprints_order_five_combo_rules_then_the_fallback(): void
+    public function vib_blueprints_order_two_direct_categories_three_combos_then_the_fallback(): void
     {
         $this->creditCardSeeder->run();
 
@@ -106,17 +110,23 @@ class RuleOrderingRegressionTest extends TestCase
             $rules = $this->listFor($tier);
 
             $this->assertSame(
-                ['combo', 'combo', 'combo', 'combo', 'combo', 'fallback'],
+                ['category', 'category', 'combo', 'combo', 'combo', 'fallback'],
                 $rules->map(fn (PolicyTierCategory $r): string => $this->target($r))->all(),
-                "{$slug}: danh mục nhóm (combo) trước, fallback cuối."
+                "{$slug}: danh mục trực tiếp trước, combo sau, fallback cuối."
             );
             $this->assertSame([1, 2, 3, 4, 5, 6], $rules->pluck('sort_order')->map(fn ($v) => (int) $v)->all(), "{$slug}: sort_order liên tục 1..6.");
 
-            $combos = $rules->take(5);
+            $targets = $rules->reject(fn (PolicyTierCategory $r): bool => $r->isFallback())->values();
+
+            $this->assertSame(
+                self::VIB_DIRECT_CATEGORY_SLUGS,
+                $targets->take(2)->map(fn (PolicyTierCategory $r): string => $r->category->slug)->all(),
+                "{$slug}: 2 nhóm một danh mục trỏ thẳng, theo thứ tự seeder."
+            );
             $this->assertSame(
                 self::VIB_COMBO_SLUGS,
-                $combos->map(fn (PolicyTierCategory $r): string => $r->combo->slug)->all(),
-                "{$slug}: thứ tự 5 combo theo thứ tự seeder."
+                $targets->slice(2)->map(fn (PolicyTierCategory $r): string => $r->combo->slug)->values()->all(),
+                "{$slug}: 3 combo theo thứ tự seeder."
             );
 
             $fallback = $rules->last();
@@ -124,7 +134,7 @@ class RuleOrderingRegressionTest extends TestCase
             $this->assertSame('0.100', $fallback->cashback_percent);
             $this->assertSame(self::VIB_PLAN_CAP[$plan], $tier->max_cashback_per_period, 'Trần toàn bậc không đổi.');
 
-            foreach ($combos as $rule) {
+            foreach ($targets as $rule) {
                 $this->assertSame(self::VIB_PLAN_PERCENT[$plan], $rule->cashback_percent, 'Tỷ lệ hạng thẻ không đổi.');
             }
         }
@@ -193,7 +203,7 @@ class RuleOrderingRegressionTest extends TestCase
         $service = app(CategoryRuleService::class);
 
         $this->assertSame(
-            ['combo', 'combo', 'combo', 'combo', 'combo', 'fallback'],
+            ['category', 'category', 'combo', 'combo', 'combo', 'fallback'],
             $service->listFor($tier)->map(fn (PolicyTierCategory $r): string => $this->target($r))->all(),
             'Hiển thị phải chuẩn ngay cả khi cột sort_order để sai.'
         );
@@ -244,7 +254,7 @@ class RuleOrderingRegressionTest extends TestCase
         $presented = app(SystemPolicyPresenter::class)->tiers($blueprint);
 
         $this->assertSame(
-            ['combo', 'combo', 'combo', 'combo', 'combo', 'other'],
+            ['category', 'category', 'combo', 'combo', 'combo', 'other'],
             array_map(fn ($rule): string => (string) $rule['target_type'], $presented[0]['rules']),
             'Presenter (editor hệ thống) phải hiển thị fallback cuối dù sort_order để sai.'
         );
@@ -355,10 +365,10 @@ class RuleOrderingRegressionTest extends TestCase
         $rules = $this->listFor($nextTier);
 
         $this->assertSame(
-            ['combo', 'combo', 'combo', 'combo', 'combo', 'fallback'],
+            ['combo', 'combo', 'combo', 'fallback'],
             $rules->map(fn (PolicyTierCategory $r): string => $this->target($r))->all()
         );
-        $this->assertSame([1, 2, 3, 4, 5, 6], $rules->pluck('sort_order')->map(fn ($v) => (int) $v)->all());
+        $this->assertSame([1, 2, 3, 4], $rules->pluck('sort_order')->map(fn ($v) => (int) $v)->all());
     }
 
     // =====================================================================
@@ -374,7 +384,7 @@ class RuleOrderingRegressionTest extends TestCase
         $rules = $this->listFor($tier);
 
         $this->assertSame(
-            ['combo', 'combo', 'combo', 'combo', 'combo', 'fallback'],
+            ['category', 'category', 'combo', 'combo', 'combo', 'fallback'],
             $rules->map(fn (PolicyTierCategory $r): string => $this->target($r))->all(),
             'Clone sang thẻ phải giữ thứ tự chuẩn.'
         );
@@ -402,7 +412,7 @@ class RuleOrderingRegressionTest extends TestCase
         $rules = $this->listFor($card->currentPolicy->tiers()->first());
 
         $this->assertSame(
-            ['combo', 'combo', 'combo', 'combo', 'combo', 'fallback'],
+            ['category', 'category', 'combo', 'combo', 'combo', 'fallback'],
             $rules->map(fn (PolicyTierCategory $r): string => $this->target($r))->all(),
             'Clone từ dữ liệu sai vẫn phải ra thứ tự chuẩn.'
         );
@@ -420,7 +430,7 @@ class RuleOrderingRegressionTest extends TestCase
         $rules = $this->listFor($next->tiers()->first());
 
         $this->assertSame(
-            ['combo', 'combo', 'combo', 'combo', 'combo', 'fallback'],
+            ['category', 'category', 'combo', 'combo', 'combo', 'fallback'],
             $rules->map(fn (PolicyTierCategory $r): string => $this->target($r))->all()
         );
         $this->assertSame([1, 2, 3, 4, 5, 6], $rules->pluck('sort_order')->map(fn ($v) => (int) $v)->all());
