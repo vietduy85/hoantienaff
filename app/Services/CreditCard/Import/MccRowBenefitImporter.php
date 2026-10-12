@@ -106,6 +106,15 @@ class MccRowBenefitImporter
             return;
         }
 
+        // Tên sản phẩm đại diện (chương trình dùng chung nhiều hạng thẻ). Chỉ ghi
+        // khi dữ liệu có khai báo — không tự suy diễn từ tên template.
+        $productName = $this->str($profileData['product_name'] ?? null);
+
+        if ($productName !== null && $profile->product_name !== $productName) {
+            $profile->product_name = $productName;
+            $profile->save();
+        }
+
         $document = $this->resolveDocument($profile, $profileData['source_doc'] ?? null);
         $defaultPage = $this->str($profileData['source_page'] ?? null);
 

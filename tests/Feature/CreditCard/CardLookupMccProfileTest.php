@@ -6,6 +6,7 @@ use App\Models\CreditCard\CardPolicyMccMapping;
 use App\Models\CreditCard\MccCode;
 use App\Models\CreditCard\Policy;
 use App\Models\CreditCard\PolicyMccProfile;
+use App\Models\CreditCard\PolicyMccProfileDocument;
 use App\Models\CreditCard\PolicyMccProfileRow;
 use App\Models\CreditCard\PolicyMccProfileRowCode;
 use App\Models\CreditCard\PolicyMccRowBenefit;
@@ -13,6 +14,9 @@ use App\Models\CreditCard\PolicyTemplate;
 use App\Models\CreditCard\PolicyTier;
 use App\Models\CreditCard\PolicyTierCategory;
 use App\Models\User;
+use App\Services\CreditCard\PolicyMccProfileService;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Concerns\InteractsWithCreditCardDatabase;
 use Tests\TestCase;
@@ -99,12 +103,12 @@ class CardLookupMccProfileTest extends TestCase
      *
      * @param  array<int, string>  $codes
      */
-    private function makeIncludedProfile(PolicyTemplate $template, string $categoryName, array $codes): PolicyMccProfile
+    private function makeIncludedProfile(PolicyTemplate $template, string $categoryName, array $codes, array $attributes = []): PolicyMccProfile
     {
-        $profile = PolicyMccProfile::create([
+        $profile = PolicyMccProfile::create(array_merge([
             'policy_template_id' => $template->id,
             'name' => 'Hồ sơ '.$template->name,
-        ]);
+        ], $attributes));
 
         $row = PolicyMccProfileRow::create([
             'policy_mcc_profile_id' => $profile->id,
@@ -123,10 +127,53 @@ class CardLookupMccProfileTest extends TestCase
     }
 
     /**
-     * Blueprint nhiều bậc + rule danh mục / fallback để kiểm tra phần hiển thị
-     * tỷ lệ hoàn tiền. Mỗi rule `category_id = null` là rule fallback.
+     * Tạo tài liệu hồ sơ kèm file vật lý trên disk. Test gọi `Storage::fake`
+     * TRƯỚC khi tạo tài liệu — file nằm trên disk private, không có URL tĩnh.
      *
-     * @param  array<int, array{name:string, min:float, max:float|null, rules:array<int, array{category_id?:int|null, percent:string, cap?:string|null}>}>  $tiers
+     * @param  array<string, mixed>  $attributes
+     */
+    private function makeDocument(PolicyMccProfile $profile, string $name, string $content = 'pdf-bytes', array $attributes = []): PolicyMccProfileDocument
+    {
+        $disk = PolicyMccProfileService::DOCUMENT_DISK;
+
+        $path = 'credit-card-mcc/'.Str::uuid().'.pdf';
+
+        Storage::disk($disk)->put($path, $content);
+
+        return PolicyMccProfileDocument::create(array_merge([
+            'policy_mcc_profile_id' => $profile->id,
+            'disk' => $disk,
+            'path' => $path,
+            'original_name' => $name,
+            'mime' => 'application/pdf',
+            'extension' => 'pdf',
+            'size' => strlen($content),
+            'uploaded_by' => null,
+        ], $attributes));
+    }
+
+    /**
+     * Tạo bản ghi tài liệu KHÔNG có file vật lý trên disk (link chết).
+     */
+    private function makeDocumentRecordWithoutFile(PolicyMccProfile $profile, string $name): PolicyMccProfileDocument
+    {
+        return PolicyMccProfileDocument::create([
+            'policy_mcc_profile_id' => $profile->id,
+            'disk' => PolicyMccProfileService::DOCUMENT_DISK,
+            'path' => 'credit-card-mcc/khong-ton-tai.pdf',
+            'original_name' => $name,
+            'mime' => 'application/pdf',
+            'extension' => 'pdf',
+            'size' => 5,
+            'uploaded_by' => null,
+        ]);
+    }
+
+    /**
+     * Hồ sơ MCC có MỘT nhóm included mang tên danh mục cụ thể — dùng để kiểm tra
+     * việc khớp tên nhóm hồ sơ với rule danh mục trong blueprint.
+     *
+     * @param  array<int, string>  $codes
      */
     private function makeBlueprintWithTiers(PolicyTemplate $template, array $tiers): Policy
     {
@@ -355,5 +402,294 @@ class CardLookupMccProfileTest extends TestCase
         $this->assertCount(1, $matches);
         $this->assertSame('excluded', $matches[0]['relation']);
         $this->assertSame('policy_mcc_profile', $matches[0]['source']);
+    }
+
+    #[Test]
+    public function lookup_mcc_groups_shared_product_variants_into_one_representative_result(): void
+    {
+        $user = User::factory()->create();
+        $this->seedMcc('5252');
+
+        // Hai hạng thẻ của CÙNG một sản phẩm dùng chung tài liệu.
+        $starter = $this->makeSystemTemplate(['name' => 'VIB Max Card Visa - Starter']);
+        $elite = $this->makeSystemTemplate(['name' => 'VIB Max Card Visa - Elite']);
+
+        $starterProfile = $this->makeIncludedProfile($starter, 'Mua sắm', ['5252'], ['product_name' => 'VIB Max Card Visa']);
+        $eliteProfile = $this->makeIncludedProfile($elite, 'Mua sắm', ['5252'], ['product_name' => 'VIB Max Card Visa']);
+
+        $this->addRowBenefits($starterProfile, [
+            ['cashback_percent' => '0.500', 'condition_note' => 'Gói Starter'],
+        ]);
+        $this->addRowBenefits($eliteProfile, [
+            ['cashback_percent' => '10.000', 'condition_note' => 'Gói Elite'],
+        ]);
+
+        $response = $this->actingAs($user)
+            ->getJson(route('credit-cards.lookup.mcc', ['mcc' => '5252']))
+            ->assertOk();
+
+        $matches = $response->json('data.matches');
+        $this->assertCount(1, $matches);
+        $this->assertSame('VIB Max Card Visa', $matches[0]['policy_name']);
+        $this->assertSame('10.000', $matches[0]['cashback']['highest']['cashback_percent']);
+        $this->assertSame('Gói Elite', $matches[0]['cashback']['highest']['note']);
+        $this->assertCount(2, $matches[0]['cashback']['tiers']);
+    }
+
+    #[Test]
+    public function lookup_mcc_shows_representative_product_name_and_preserves_every_tier_difference(): void
+    {
+        $user = User::factory()->create();
+        $this->seedMcc('4511');
+
+        // Hồ sơ dùng chung tài liệu cho 4 hạng; tên template là hạng "vận chuyển".
+        $template = $this->makeSystemTemplate(['name' => 'VIB Max Card Visa - Starter']);
+        $profile = $this->makeIncludedProfile($template, 'Du lịch', ['4511'], ['product_name' => 'VIB Max Card Visa']);
+
+        $this->addRowBenefits($profile, [
+            ['cashback_percent' => '0.500', 'condition_note' => 'Gói Starter'],
+            ['cashback_percent' => '10.000', 'condition_note' => 'Gói Elite'],
+        ]);
+
+        $response = $this->actingAs($user)
+            ->getJson(route('credit-cards.lookup.mcc', ['mcc' => '4511']))
+            ->assertOk();
+
+        // Kết quả mang TÊN SẢN PHẨM, không phải tên hạng thẻ.
+        $response->assertJsonPath('data.matches.0.policy_name', 'VIB Max Card Visa');
+        $response->assertJsonPath('data.matches.0.product_name', 'VIB Max Card Visa');
+        // Tỷ lệ cao nhất (Elite 10%) + điều kiện của chính hạng đó.
+        $response->assertJsonPath('data.matches.0.cashback.highest.cashback_percent', '10.000');
+        $response->assertJsonPath('data.matches.0.cashback.highest.note', 'Gói Elite');
+        // TOÀN BỘ bậc (mọi hạng) vẫn được giữ — không khẳng định một mức chung.
+        $response->assertJsonCount(2, 'data.matches.0.cashback.tiers');
+    }
+
+    #[Test]
+    public function lookup_mcc_keeps_template_name_when_policy_has_no_shared_product(): void
+    {
+        $user = User::factory()->create();
+        $this->seedMcc('5411');
+        $template = $this->makeSystemTemplate(['name' => 'Thẻ riêng lẻ']);
+
+        $this->makeIncludedProfile($template, 'Mua sắm', ['5411']);
+
+        $response = $this->actingAs($user)
+            ->getJson(route('credit-cards.lookup.mcc', ['mcc' => '5411']))
+            ->assertOk();
+
+        $response->assertJsonPath('data.matches.0.policy_name', 'Thẻ riêng lẻ');
+        $response->assertJsonPath('data.matches.0.product_name', null);
+    }
+
+    #[Test]
+    public function lookup_mcc_keeps_representative_product_name_for_excluded_rows(): void
+    {
+        $user = User::factory()->create();
+        $this->seedMcc('9311');
+        $template = $this->makeSystemTemplate(['name' => 'VIB One Card Visa - Gold']);
+
+        $profile = PolicyMccProfile::create([
+            'policy_template_id' => $template->id,
+            'name' => 'Hồ sơ '.$template->name,
+            'product_name' => 'VIB One Card Visa',
+        ]);
+
+        $row = PolicyMccProfileRow::create([
+            'policy_mcc_profile_id' => $profile->id,
+            'row_type' => PolicyMccProfileRow::TYPE_EXCLUDED,
+            'category_name' => 'Loại trừ',
+        ]);
+
+        PolicyMccProfileRowCode::create([
+            'policy_mcc_row_id' => $row->id,
+            'mcc' => '9311',
+        ]);
+
+        $response = $this->actingAs($user)
+            ->getJson(route('credit-cards.lookup.mcc', ['mcc' => '9311']))
+            ->assertOk();
+
+        $response->assertJsonPath('data.matches.0.policy_name', 'VIB One Card Visa');
+        $response->assertJsonPath('data.matches.0.relation', 'excluded');
+        $response->assertJsonPath('data.matches.0.cashback.status', 'excluded');
+    }
+
+    // =====================================================================
+    // Tài liệu hồ sơ MCC trong "Tra cứu thẻ"
+    // =====================================================================
+
+    #[Test]
+    public function policy_lookup_lists_documents_under_the_correct_profile(): void
+    {
+        $user = User::factory()->create();
+        $template = $this->makeSystemTemplate(['name' => 'Thẻ nhiều hồ sơ']);
+
+        Storage::fake(PolicyMccProfileService::DOCUMENT_DISK);
+
+        $profileA = $this->makeProfile($template, [], [], ['name' => 'Hồ sơ A']);
+        $profileB = $this->makeProfile($template, [], [], ['name' => 'Hồ sơ B']);
+
+        $docA = $this->makeDocument($profileA, 'dieu-kien-A.pdf', 'noi dung A');
+        $docB = $this->makeDocument($profileB, 'dieu-kien-B.pdf', 'noi dung B');
+
+        $response = $this->actingAs($user)->getJson(
+            route('credit-cards.lookup.policy', ['template_id' => $template->id])
+        )->assertOk();
+
+        // Mỗi hồ sơ chỉ liệt kê tài liệu CỦA CHÍNH NÓ — không trộn lẫn.
+        $response->assertJsonPath('data.mcc_profiles.0.name', 'Hồ sơ A');
+        $response->assertJsonCount(1, 'data.mcc_profiles.0.documents');
+        $response->assertJsonPath('data.mcc_profiles.0.documents.0.id', $docA->id);
+        $response->assertJsonPath('data.mcc_profiles.0.documents.0.name', 'dieu-kien-A.pdf');
+        $response->assertJsonPath('data.mcc_profiles.0.documents.0.size', strlen('noi dung A'));
+        $response->assertJsonPath('data.mcc_profiles.0.documents.0.human_size', '10 B');
+
+        $response->assertJsonPath('data.mcc_profiles.1.name', 'Hồ sơ B');
+        $response->assertJsonCount(1, 'data.mcc_profiles.1.documents');
+        $response->assertJsonPath('data.mcc_profiles.1.documents.0.id', $docB->id);
+        $response->assertJsonPath('data.mcc_profiles.1.documents.0.name', 'dieu-kien-B.pdf');
+
+        // URL tải là endpoint kiểm tra quyền, KHÔNG lộ đường dẫn file private.
+        $urlA = (string) $response->json('data.mcc_profiles.0.documents.0.url');
+        $this->assertStringContainsString('/tra-cuu/tai-lieu/'.$profileA->id.'/', $urlA);
+        $this->assertStringNotContainsString('credit-card-mcc', $urlA);
+        $this->assertStringNotContainsString('storage/app', $urlA);
+    }
+
+    #[Test]
+    public function policy_lookup_hides_documents_whose_file_is_missing(): void
+    {
+        $user = User::factory()->create();
+        $template = $this->makeSystemTemplate(['name' => 'Thẻ tài liệu mất']);
+
+        Storage::fake(PolicyMccProfileService::DOCUMENT_DISK);
+
+        $profile = $this->makeProfile($template);
+        $this->makeDocumentRecordWithoutFile($profile, 'missing.pdf');
+
+        $response = $this->actingAs($user)->getJson(
+            route('credit-cards.lookup.policy', ['template_id' => $template->id])
+        )->assertOk();
+
+        // Không tạo link chết: tài liệu không còn file bị bỏ ra khỏi payload.
+        $response->assertJsonPath('data.mcc_profiles.0.documents', []);
+    }
+
+    #[Test]
+    public function policy_lookup_reports_empty_documents_when_profile_has_none(): void
+    {
+        $user = User::factory()->create();
+        $template = $this->makeSystemTemplate(['name' => 'Thẻ không tài liệu']);
+
+        $this->makeProfile($template, ['5411']);
+
+        $response = $this->actingAs($user)->getJson(
+            route('credit-cards.lookup.policy', ['template_id' => $template->id])
+        )->assertOk();
+
+        $response->assertJsonPath('data.mcc_profiles.0.included.0.codes', ['5411']);
+        $response->assertJsonPath('data.mcc_profiles.0.documents', []);
+    }
+
+    // =====================================================================
+    // Tải tài liệu qua endpoint "Tra cứu thẻ" (disk private, kiểm tra quyền)
+    // =====================================================================
+
+    #[Test]
+    public function document_download_streams_file_for_a_selectable_template(): void
+    {
+        $user = User::factory()->create();
+        $template = $this->makeSystemTemplate(['name' => 'Thẻ tải tài liệu']);
+
+        Storage::fake(PolicyMccProfileService::DOCUMENT_DISK);
+
+        $profile = $this->makeProfile($template);
+        $document = $this->makeDocument($profile, 'bang-dieu-kien.pdf', 'noi dung pdf');
+
+        $response = $this->actingAs($user)->get(
+            route('credit-cards.lookup.document', [$profile->id, $document->id])
+        );
+
+        $response->assertOk();
+        $this->assertSame('noi dung pdf', $response->streamedContent());
+        $this->assertStringContainsString(
+            'attachment; filename=bang-dieu-kien.pdf',
+            (string) $response->headers->get('content-disposition')
+        );
+    }
+
+    #[Test]
+    public function document_download_is_denied_for_a_template_the_user_cannot_see(): void
+    {
+        $owner = User::factory()->create();
+        $stranger = User::factory()->create();
+
+        $private = PolicyTemplate::create([
+            'scope' => PolicyTemplate::SCOPE_USER,
+            'owner_user_id' => $owner->id,
+            'name' => 'Chính sách riêng',
+            'slug' => 'chinh-sach-rieng-mcc',
+            'is_active' => true,
+        ]);
+
+        Storage::fake(PolicyMccProfileService::DOCUMENT_DISK);
+
+        $profile = $this->makeProfile($private);
+        $document = $this->makeDocument($profile, 'doc-bi-mat.pdf', 'bi mat');
+
+        // 404 — không tiết lộ sự tồn tại của tài liệu.
+        $this->actingAs($stranger)
+            ->get(route('credit-cards.lookup.document', [$profile->id, $document->id]))
+            ->assertNotFound();
+    }
+
+    #[Test]
+    public function document_download_returns_404_when_document_belongs_to_another_profile(): void
+    {
+        $user = User::factory()->create();
+        $template = $this->makeSystemTemplate(['name' => 'Thẻ tráo tài liệu']);
+
+        Storage::fake(PolicyMccProfileService::DOCUMENT_DISK);
+
+        $profileA = $this->makeProfile($template, [], [], ['name' => 'Hồ sơ A']);
+        $profileB = $this->makeProfile($template, [], [], ['name' => 'Hồ sơ B']);
+
+        $documentB = $this->makeDocument($profileB, 'doc-B.pdf', 'noi dung B');
+
+        // Ghép sai {profile}/{document}: cùng endpoint → 404.
+        $this->actingAs($user)
+            ->get(route('credit-cards.lookup.document', [$profileA->id, $documentB->id]))
+            ->assertNotFound();
+    }
+
+    #[Test]
+    public function document_download_returns_404_when_file_is_missing_on_disk(): void
+    {
+        $user = User::factory()->create();
+        $template = $this->makeSystemTemplate(['name' => 'Thẻ file mất']);
+
+        Storage::fake(PolicyMccProfileService::DOCUMENT_DISK);
+
+        $profile = $this->makeProfile($template);
+        $document = $this->makeDocumentRecordWithoutFile($profile, 'khong-ton-tai.pdf');
+
+        $this->actingAs($user)
+            ->get(route('credit-cards.lookup.document', [$profile->id, $document->id]))
+            ->assertNotFound();
+    }
+
+    #[Test]
+    public function lookup_page_removed_the_duplicate_mcc_related_block(): void
+    {
+        $user = User::factory()->create();
+        $this->makeSystemTemplate(['name' => 'Hoàn tiền siêu thị']);
+
+        $response = $this->actingAs($user)->get(route('credit-cards.lookup'));
+
+        $response->assertOk();
+        $response->assertDontSee('MCC liên quan');
+        $response->assertDontSee('Chưa nhập danh sách MCC cho chính sách này.');
+        $response->assertSee('Tài liệu tham khảo');
     }
 }

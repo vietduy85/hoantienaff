@@ -1,0 +1,57 @@
+<?php
+
+namespace App\Services\CreditCard\Optimizer;
+
+use App\Models\CreditCard\PolicyVersion;
+use App\Models\CreditCard\SpendQualification;
+use App\Services\CreditCard\TransactionLine;
+use Carbon\CarbonImmutable;
+use Illuminate\Support\Collection;
+
+/**
+ * CardScaffold — dữ liệu "hồ sơ" của một thẻ cho bộ tối ưu.
+ *
+ * Được build một lần cho mỗi thẻ trong phạm vi, rồi tái sử dụng qua nhiều lần
+ * chạy (nhiều tiêu chí / nhiều config). Mọi dữ liệu phụ thuộc bậc được gom sẵn
+ * theo version (rules theo tier, caps giao dịch theo tier, rule positive) để phần
+ * đánh giá thực thi thuần như `CashbackCalculator` — không query DB.
+ */
+final class CardScaffold
+{
+    public const HYPO_ID_OFFSET_OWNED = 900_000_000_000;
+
+    public const HYPO_ID_OFFSET_MARKET = 800_000_000_000;
+
+    public function __construct(
+        public readonly string $key,
+        public readonly bool $isOwned,
+        public readonly string $name,
+        public readonly ?string $bankName,
+        public readonly ?int $cardId,
+        public readonly ?int $templateId,
+        public readonly ?PolicyVersion $version,
+        /** @var Collection<int, \App\Models\CreditCard\PolicyTier> */
+        public readonly Collection $tiers,
+        /** @var array<int, array<int, array<string, mixed>>> tierId => rules */
+        public readonly array $rulesByTier,
+        /** @var array<int, array<int, array<string, mixed>>> tierId => caps giao dịch */
+        public readonly array $capsByTier,
+        /** @var array<int, array<string, mixed>> */
+        public readonly array $allEnabledRules,
+        /** @var list<TransactionLine> */
+        public readonly array $realLines,
+        public readonly ?CarbonImmutable $periodEnd,
+        public readonly float $minTotalSpend,
+        public readonly string $roundingMode,
+        public readonly ?SpendQualification $qualification,
+        public readonly ?string $qualificationNotice,
+        public readonly string $marketAssumption,
+        public readonly int $idNumber,
+    ) {
+    }
+
+    public static function hypoIdBase(bool $isOwned): int
+    {
+        return $isOwned ? self::HYPO_ID_OFFSET_OWNED : self::HYPO_ID_OFFSET_MARKET;
+    }
+}

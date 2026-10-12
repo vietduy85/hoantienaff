@@ -16,12 +16,18 @@ use Illuminate\Support\Collection;
  *   - các DÒNG MCC ({@see PolicyMccProfileRow}) loại `included` / `excluded`;
  *   - tài liệu ngân hàng đính kèm ({@see PolicyMccProfileDocument}).
  *
- * KHÔNG lưu tỷ lệ hoàn tiền ở đây: tỷ lệ/hạn mức luôn đọc từ blueprint của chính
- * sách hiện có khi tra cứu, tránh hai nguồn dữ liệu lệch nhau.
+ * KHÔNG lưu tỷ lệ hoàn tiền ở đây: tỷ lệ/hạn mức của DÒNG luôn đọc từ blueprint
+ * hoặc từ bảng con `credit_card_policy_mcc_row_benefits` khi tra cứu.
+ *
+ * `product_name` — TÊN SẢN PHẨM ĐẠI DIỆN cho chương trình dùng chung nhiều hạng
+ * thẻ (ví dụ VIB Max Card Visa / VIB One Card Visa). Khi có giá trị, "Tra cứu MCC"
+ * gộp các kết quả của cùng sản phẩm về một kết quả mang tên này. NULL = giữ hành
+ * vi cũ (lấy tên template).
  *
  * @property int $id
  * @property int $policy_template_id
  * @property string $name
+ * @property string|null $product_name
  * @property string|null $note
  */
 class PolicyMccProfile extends CreditCardModel
@@ -31,6 +37,7 @@ class PolicyMccProfile extends CreditCardModel
     protected $fillable = [
         'policy_template_id',
         'name',
+        'product_name',
         'note',
     ];
 

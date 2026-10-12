@@ -188,3 +188,24 @@ Quy tắc áp dụng: mã không có trong master **không** được đưa vào
 - Không mã nào vừa included vừa excluded (0 vi phạm).
 - Mọi mã trong hồ sơ đều tồn tại trong `credit_card_mcc_codes` (service chặn nếu không).
 - Tài liệu đính kèm tồn tại trên disk `local`: profile 1 (2), 10 (2), còn lại mỗi hồ sơ 1 tệp.
+
+---
+
+## 17. Đợt bổ sung 2026-10-12: hồ sơ MCC 6 sản phẩm mới (Phase D)
+
+| Profile id | Template (slug) | Hồ sơ | Inc dòng / MCC | Exc dòng / MCC | Bậc thưởng | Tài liệu đính kèm |
+|---|---|---|---|---|---|---|
+| 23 | `vpbank-s-rewards-mastercard` | VPBank S Rewards Mastercard – Thể lệ tích điểm (Điểm thưởng) | 4 / 7 | 1 / 11 | 3 (4%) | `vpbank_s_rewards.pdf` |
+| 24 | `bidv-visa-cashback-360` | BIDV Visa Cashback 360 – Thể lệ tích điểm hoàn tiền | 3 / 15 | 0 / 0 | 4 (2/10/2/2) | `bidv_membership_rewards_2026.pdf` |
+| 25 | `tpb-evo` | TPBank EVO – Thể lệ hoàn tiền thẻ tín dụng quốc tế | 0 / 0 | 1 / 9 | — | `tpb_evo_tnc.pdf` |
+| 26 | `vib-online-plus-2in1` | VIB Online Plus 2in1 – Chương trình Điểm thưởng & Hoàn tiền (mục 2.6) | 0 / 0 | 0 / 0 | — | (không có — thể lệ dạng HTML chính thức; không tải PDF) |
+| 27 | `ocb-jcb-platinum` | OCB JCB Platinum – Thể lệ chương trình ưu đãi (Phụ lục A) | 2 / 18 | 1 / 1 | 4 (7/15 × 2 dòng) | `ocb_jcb_platinum_update19.pdf` |
+
+Ghi chú đợt bổ sung:
+
+- **HSBC `hsbc-cash-back`: KHÔNG tạo hồ sơ** — ngân hàng không công bố danh mục MCC; trạng thái **CHƯA ĐỦ DỮ LIỆU**, chỉ có template (quyết định của chủ dự án).
+- **NCC**: mọi mã đưa vào hồ sơ 23–27 đều đã tồn tại trong `credit_card_mcc_codes` (kiểm tra trước khi tạo, **0 mã thiếu qua master** — không có mục nào phải ghi nhận thêm).
+- **TPBank EVO (25) và VIB Online Plus 2in1 (26) có 0 dòng included**: chương trình xác định theo **kênh giao dịch** (online / nước ngoài) chứ không theo MCC. Hồ sơ mang tính đối chiếu, loại trừ và ghi chú minh bạch — **không** cho tra cứu MCC tự động.
+- **Bậc thưởng theo dòng** nạp qua `php artisan credit-card:import-mcc-row-benefits` từ `database/data/credit_card_mcc_row_benefits.php`: **11 bậc tạo mới** (VPBank 3, BIDV 4, OCB 4), idempotent.
+- Danh sách MCC dòng Sức khỏe OCB khác BIDV (OCB: 4119, 5047, 5122, 5912, 5975, 5976, 8011, 8031, 8041, 8043, 8049 + 8 mã chung; BIDV: 7298, 8062, 8050, 8099, 8021, 8042, 8071) — giữ nguyên theo từng tài liệu, không gộp.
+- Tổng `credit_card_policy_mcc_profiles` hiện tại: **27** (1–14 đợt đầu, 15–22 đợt nghiên cứu trước, 23–27 đợt này).

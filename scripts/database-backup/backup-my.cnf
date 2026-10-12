@@ -1,0 +1,12 @@
+;
+; HoanTienAff database-backup client credentials
+; Dung boi scripts/database-backup/*.ps1 qua --defaults-extra-file
+; KHONG chua mat khau dang plaintext (tai khoan root hien khong co mat khau).
+; Neu chuyen sang tai khoan backup rieng, them dong: password=... vao [client]
+; va han che quyen doc file nay (icacls) — xem BACKUP_DEPLOYMENT_REPORT.md.
+;
+[client]
+user=root
+host=127.0.0.1
+port=3306
+default-character-set=utf8mb4

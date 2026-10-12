@@ -3,12 +3,16 @@
 namespace App\Http\Controllers\CreditCard;
 
 use App\Http\Controllers\Controller;
+use App\Models\CreditCard\PolicyMccProfile;
+use App\Models\CreditCard\PolicyMccProfileDocument;
 use App\Models\CreditCard\PolicyTemplate;
 use App\Services\CreditCard\CardPolicyLookupService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * /thetindung/tra-cuu — module "Tra cứu" cho Thẻ tín dụng.
@@ -86,5 +90,30 @@ class CreditCardLookupController extends Controller
         return response()->json([
             'data' => $this->lookup->lookupMcc((string) $validated['mcc']),
         ]);
+    }
+
+    /**
+     * GET /thetindung/tra-cuu/tai-lieu/{profile}/{document} — tải tài liệu ngân
+     * hàng của HỒ SƠ MCC (module "Quản lý MCC").
+     *
+     * File nằm trên disk PRIVATE nên không có URL tĩnh; endpoint này kiểm tra
+     * theo thứ tự: tài liệu thuộc ĐÚNG hồ sơ → hồ sơ thuộc chính sách mà user
+     * được phép tra cứu → file còn tồn tại. Mọi sai lệch trả 404, không tiết
+     * lộ đường dẫn hay sự tồn tại của tài liệu. Quyền đọc của Admin KHÔNG đổi.
+     */
+    public function document(PolicyMccProfile $profile, PolicyMccProfileDocument $document): StreamedResponse
+    {
+        abort_unless((int) $document->policy_mcc_profile_id === (int) $profile->id, 404);
+
+        $selectable = PolicyTemplate::query()
+            ->selectableBy((int) auth()->id())
+            ->whereKey((int) $profile->policy_template_id)
+            ->exists();
+
+        abort_unless($selectable, 404);
+
+        abort_unless(Storage::disk($document->disk)->exists($document->path), 404);
+
+        return Storage::disk($document->disk)->download($document->path, $document->original_name);
     }
 }

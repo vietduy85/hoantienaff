@@ -120,6 +120,10 @@ class CreditCardSeeder extends Seeder
         ['slug' => 'cakevpb', 'name' => 'Việt Nam Thịnh Vượng CAKE BANK', 'short_name' => 'CAKEVPB'],
         ['slug' => 'ubankvpb', 'name' => 'Việt Nam Thịnh Vượng UBANK', 'short_name' => 'UBANKVPB'],
         ['slug' => 'mb', 'name' => 'Quân đội', 'short_name' => 'MB'],
+        // Bổ sung cho chương trình thẻ tín dụng HSBC Cash Back (thẻ do HSBC
+        // Việt Nam – ngân hàng 100% vốn nước ngoài – phát hành; chưa có
+        // trong danh sách 43 bank gốc).
+        ['slug' => 'hsbc', 'name' => 'Ngân hàng TNHH MTV HSBC Việt Nam', 'short_name' => 'HSBC'],
     ];
 
     /**
@@ -179,6 +183,8 @@ class CreditCardSeeder extends Seeder
             $this->seedVibMaxCardVisaTemplates($banks, $categories, $combos);
             $oneCardCombos = $this->seedVibOneCardCombos($categories);
             $this->seedVibOneCardTemplates($banks, $categories, $oneCardCombos);
+            $researchedCombos = $this->seedResearchedCombos($categories) + $combos;
+            $this->seedResearchedTemplates($banks, $categories, $researchedCombos);
         });
     }
 
@@ -1101,6 +1107,810 @@ class CreditCardSeeder extends Seeder
             // Thứ tự hiển thị chuẩn: danh mục cụ thể → combo → fallback cuối.
             // Fallback được tạo TRƯỚC (sort_order gốc = 1) nên phải chuẩn hoá ở cuối.
             $rulesService->normaliseRuleOrder($tier);
+        }
+    }
+
+    // =====================================================================
+    // Bộ chính sách hệ thống mở rộng (12/10/2026)
+    // =====================================================================
+
+    /**
+     * Combo dùng cho các chính sách nghiên cứu (ngoài bộ VIB Max/One Card).
+     *
+     * Chỉ tạo combo khi CẦN: nhiều danh mục chia sẻ CHUNG một trần (Cap 2) mà
+     * engine chỉ gắn được trần cho một target (danh mục hoặc combo). Trường hợp
+     * một-nhóm một-danh-mục vẫn trỏ THẲNG `category_id` (không bọc combo).
+     *
+     * - `vpb-s-rewards-uu-dai`: nhóm "Siêu thị + Ăn uống + Di chuyển" của
+     *   VPBank S Rewards Mastercard — 3 danh mục dùng chung trần 200.000 xu/kỳ.
+     * - `tpb-evo-online`: xấp xỉ nhóm "giao dịch trực tuyến" của TPBank EVO
+     *   (engine không có cờ kênh online) bằng các danh mục TMĐT/dịch vụ số.
+     *
+     * @param  array<string, Category>  $categories  (slug ⇒ Category)
+     * @return array<string, CategoryCombo> (combo slug ⇒ CategoryCombo)
+     */
+    private function seedResearchedCombos(array $categories): array
+    {
+        $combos = [];
+
+        $definition = [
+            [
+                'slug' => 'vpb-s-rewards-uu-dai',
+                'name' => 'VPBank S Rewards — Siêu thị, Ăn uống, Di chuyển',
+                'description' => 'Nhóm ưu đãi 4% dùng chung trần 200.000 xu/kỳ của thẻ VPBank S Rewards Mastercard: Siêu thị, Ăn uống, Di chuyển.',
+                'sort_order' => 60,
+                'category_slugs' => ['sieu-thi-tien-loi', 'am-thuc-an-uong', 'goi-xe-di-chuyen'],
+            ],
+            [
+                'slug' => 'tpb-evo-online',
+                'name' => 'TPBank EVO — Giao dịch trực tuyến (xấp xỉ)',
+                'description' => 'Xấp xỉ nhóm "giao dịch trực tuyến" của TPBank EVO (engine không có cờ kênh online): mua sắm trực tuyến, sàn TMĐT, Shopee, Tiki, Lazada, TikTok, ứng dụng/dịch vụ giải trí số.',
+                'sort_order' => 61,
+                'category_slugs' => ['mua-sam-truc-tuyen', 'san-thuong-mai-dien-tu', 'shopee', 'tiki', 'lazada', 'tiktok', 'ung-dung-so-dich-vu-giai-tri'],
+            ],
+        ];
+
+        foreach ($definition as $row) {
+            $slug = $row['slug'];
+            $categorySlugs = $row['category_slugs'];
+            unset($row['slug'], $row['category_slugs']);
+
+            $combo = CategoryCombo::updateOrCreate(
+                [
+                    'scope' => CategoryCombo::SCOPE_SYSTEM,
+                    'owner_user_id' => CategoryCombo::SYSTEM_OWNER_ID,
+                    'slug' => $slug,
+                ],
+                $row
+            );
+
+            $existingIds = $combo->items()->pluck('category_id')->all();
+            $already = array_flip(array_map('intval', $existingIds));
+            $sortOrder = count($existingIds);
+
+            foreach ($categorySlugs as $categorySlug) {
+                // Danh mục có thể thiếu ở DB test (bộ seed gốc) ⇒ bỏ qua.
+                $category = $categories[$categorySlug] ?? Category::query()
+                    ->where('scope', Category::SCOPE_SYSTEM)
+                    ->where('owner_user_id', Category::SYSTEM_OWNER_ID)
+                    ->where('slug', $categorySlug)
+                    ->first();
+
+                if ($category === null || isset($already[(int) $category->id])) {
+                    continue;
+                }
+
+                CategoryComboItem::create([
+                    'combo_id' => $combo->id,
+                    'category_id' => $category->id,
+                    'sort_order' => $sortOrder++,
+                ]);
+            }
+
+            $combos[$slug] = $combo;
+        }
+
+        return $combos;
+    }
+
+    /**
+     * Các chính sách hệ thống cho thẻ hoàn tiền phổ biến 2025–2026.
+     *
+     * ---------------------------------------------------------------------------
+     * NGUYÊN TẮC CẤU HÌNH (xem docs/CREDIT_CARD_NEW_TEMPLATES_RESEARCH_REPORT.md)
+     * ---------------------------------------------------------------------------
+     * - Chỉ tạo cho sản phẩm có tài liệu CHÍNH THỨC (trang chủ / T&C / quy định
+     *   hoàn tiền) của ngân hàng, đối chiếu 12/10/2026. Tên & mạng lưới lấy theo
+     *   sản phẩm chính thức (nhiều nơi lệch với tên định danh yêu cầu, vd. VPBank
+     *   Flex là MASTERCARD chứ không phải Visa).
+     * - KHÔNG tạo template cho "VPBank Reward Visa" (không có sản phẩm Visa chính
+     *   thức) và "Shinhan Cashback Visa" (3 hạng, T&C xung đột tỷ lệ nền, ưu đãi
+     *   cuối tuần không cấu hình được) — xem báo cáo ở docs/.
+     * - Chương trình ĐIỂM/XU (1 điểm/xu ≈ 1đ) được mô hình hoá như phần trăm hoàn
+     *   tiền (tiền lệ VIB Max Card Visa / One Card), ghi rõ trong `description`.
+     * - Ưu tiên trỏ danh mục hệ thống CÓ SẴN trong bộ seed để DB test (mới) và DB
+     *   live đều khớp. Chỉ tạo combo (xem `seedResearchedCombos`) khi nhiều danh
+     *   mục chia sẻ CHUNG một trần, không thể biểu diễn bằng trần từng danh mục.
+     *
+     * @param  array<string, Bank>  $banks  (slug ⇒ Bank)
+     * @param  array<string, Category>  $categories  (slug ⇒ Category)
+     * @param  array<string, CategoryCombo>  $combos  (combo slug ⇒ CategoryCombo)
+     */
+    private function seedResearchedTemplates(array $banks, array $categories, array $combos): void
+    {
+
+        $plans = [
+            // -----------------------------------------------------------------
+            // SACOMBANK VISA PLATINUM CASHBACK
+            // -----------------------------------------------------------------
+            // Nguồn: "Quy định hoàn tiền thẻ SACOMBANK Visa Bạch Kim Hoàn Tiền"
+            // (PDF chính thức). Siêu thị & cửa hàng tiện lợi 6,8%, Di chuyển 16,8%,
+            // giao dịch khác 0,39% "không giới hạn"; trần CHUNG nhóm ưu đãi
+            // 680.000đ/kỳ TBGD; mỗi giao dịch từ 100.000đ trở lên mới được hoàn.
+            // "Cửa hàng tiện lợi" là danh mục riêng ở DB live (cua-hang-tien-loi)
+            // nhưng KHÔNG có trong bộ seed gốc ⇒ gộp vào sieu-thi-tien-loi.
+            [
+                'slug' => 'sacombank-visa-platinum-cashback',
+                'name' => 'Sacombank Visa Platinum Cashback',
+                'sort_order' => 50,
+                'bank' => 'stb',
+                'match' => 'platinum cashback',
+                'description' => 'SACOMBANK Visa Bạch Kim Hoàn Tiền: Siêu thị & cửa hàng tiện lợi 6,8%, Di chuyển 16,8%, giao dịch khác 0,39% (không giới hạn); trần chung nhóm ưu đãi 680.000đ/kỳ sao kê; giao dịch từ 100.000đ trở lên mới được hoàn.',
+                'tiers' => [
+                    [
+                        'name' => 'Toàn bộ chi tiêu hợp lệ',
+                        'min' => 0,
+                        'max' => null,
+                        // Trần CHUNG 680.000đ cho nhóm ưu đãi (Siêu thị + Di chuyển);
+                        // nền 0,39% đặt cờ counts_cap=false ⇒ không bị trừ vào trần này
+                        // (đúng nghĩa "0,39% không giới hạn" của quy định chính thức).
+                        'cap' => '680000.00',
+                        'fallback' => [
+                            'percent' => '0.390',
+                            'counts_cap' => false,
+                            'min_tx' => 100000,
+                        ],
+                        'rules' => [
+                            ['category' => 'sieu-thi-tien-loi', 'percent' => '6.800', 'min_tx' => 100000, 'counts_cap' => true],
+                            ['category' => 'goi-xe-di-chuyen', 'percent' => '16.800', 'min_tx' => 100000, 'counts_cap' => true],
+                        ],
+                    ],
+                ],
+            ],
+            // -----------------------------------------------------------------
+            // SACOMBANK PLATINUM AMERICAN EXPRESS
+            // -----------------------------------------------------------------
+            // Nguồn: trang chính thức Sacombank (12/10/2026). Vé máy bay, khách
+            // sạn, đại lý du lịch 20%; TBCNT nước ngoài 10%; giao dịch trực tuyến
+            // nước ngoài 5%; các giao dịch khác 0,5%; tối đa 1.000.000đ/kỳ TBGD
+            // (trần ĐÁNH TRÊN TẤT CẢ, kể cả nền). 10% và 5% nước ngoài đều gom về
+            // danh mục chi-tieu-nuoc-ngoai (engine không tách kênh POS/online) —
+            // cấu hình 10%.
+            [
+                'slug' => 'sacombank-platinum-amex',
+                'name' => 'Sacombank Platinum American Express',
+                'sort_order' => 51,
+                'bank' => 'stb',
+                'match' => 'platinum american express',
+                'description' => 'SACOMBANK Platinum American Express: Vé máy bay, khách sạn, đại lý du lịch 20%; giao dịch tại TBCNT nước ngoài 10%; giao dịch khác 0,5%; tối đa 1.000.000đ/kỳ sao kê. Lưu ý: 5% giao dịch trực tuyến nước ngoài gộp vào "Chi tiêu nước ngoài" (engine không tách kênh POS/online).',
+                'tiers' => [
+                    [
+                        'name' => 'Toàn bộ chi tiêu hợp lệ',
+                        'min' => 0,
+                        'max' => null,
+                        'cap' => '1000000.00',
+                        'fallback' => [
+                            'percent' => '0.500',
+                            'counts_cap' => true,
+                        ],
+                        'rules' => [
+                            ['category' => 've-may-bay-du-lich', 'percent' => '20.000', 'counts_cap' => true],
+                            ['category' => 'khach-san-luu-tru', 'percent' => '20.000', 'counts_cap' => true],
+                            ['category' => 'chi-tieu-nuoc-ngoai', 'percent' => '10.000', 'counts_cap' => true],
+                        ],
+                    ],
+                ],
+            ],
+            // -----------------------------------------------------------------
+            // MB JCB PLATINUM
+            // -----------------------------------------------------------------
+            // Nguồn: T&C "Thẻ tín dụng quốc tế MB JCB Platinum" hiệu lực 01/11/2025.
+            // Tỷ lệ theo tổng chi tiêu/kỳ: dưới 5 triệu → 5% (Ẩm thực MCC 5812 +
+            // siêu thị Nhật: Aeon, Muji, FujiMart, FamilyMart, Ministop), trần
+            // 200.000đ; từ 5 triệu → 10%, trần 500.000đ. "Siêu thị Nhật" là danh
+            // mục riêng (Aeon...) ⇒ xấp xỉ sieu-thi-tien-loi. Tỷ lệ giao dịch khác
+            // KHÔNG được T&C chính thức công bố ⇒ nền 0%.
+            [
+                'slug' => 'mb-jcb-platinum',
+                'name' => 'MB JCB Platinum',
+                'sort_order' => 52,
+                'bank' => 'mb',
+                'match' => 'jcb platinum',
+                'description' => 'Thẻ tín dụng quốc tế MB JCB Platinum: Ẩm thực & siêu thị Nhật Bản (Aeon, Muji, FujiMart, FamilyMart, Ministop) 5% khi tổng chi tiêu dưới 5.000.000đ/kỳ, 10% khi từ 5.000.000đ; trần 200.000đ/500.000đ/kỳ; ngoài nhóm 0% (tỷ lệ "khác" chưa công bố chính thức).',
+                'tiers' => [
+                    [
+                        'name' => 'Bậc 1 – Dưới 5 triệu',
+                        'min' => 0,
+                        'max' => 5000000,
+                        'cap' => '200000.00',
+                        'fallback' => [
+                            'percent' => '0.000',
+                            'counts_cap' => false,
+                        ],
+                        'rules' => [
+                            ['category' => 'am-thuc-an-uong', 'percent' => '5.000', 'counts_cap' => true],
+                            ['category' => 'sieu-thi-tien-loi', 'percent' => '5.000', 'counts_cap' => true],
+                        ],
+                    ],
+                    [
+                        'name' => 'Bậc 2 – Từ 5 triệu',
+                        'min' => 5000000,
+                        'max' => null,
+                        'cap' => '500000.00',
+                        'fallback' => [
+                            'percent' => '0.000',
+                            'counts_cap' => false,
+                        ],
+                        'rules' => [
+                            ['category' => 'am-thuc-an-uong', 'percent' => '10.000', 'counts_cap' => true],
+                            ['category' => 'sieu-thi-tien-loi', 'percent' => '10.000', 'counts_cap' => true],
+                        ],
+                    ],
+                ],
+            ],
+            // -----------------------------------------------------------------
+            // UOB ONE CREDIT CARD
+            // -----------------------------------------------------------------
+            // Nguồn: trang chính thức UOB (12/10/2026). Chương trình ĐIỂM THƯỞNG
+            // đổi sang tiền hoàn: 10% Grab & di chuyển mặt đất; 5% gói đăng ký định
+            // kỳ (Apple Music, Spotify, LinkedIn...); 3% bảo hiểm; 2% mua sắm tại
+            // trung tâm thương mại & chuỗi thời trang; 0,3% cho mọi chi tiêu khác.
+            // Trần 600.000 Điểm Thưởng/tháng áp cho 4 nhóm ưu đãi. Mạng lưới có cả
+            // BIN Visa & Mastercard ⇒ chưa xác nhận network. Tỷ lệ quy đổi điểm→đ
+            // CHƯA XÁC MINH (giả định 1 điểm = 1đ để đặt trần).
+            [
+                'slug' => 'uob-one',
+                'name' => 'UOB One',
+                'sort_order' => 53,
+                'bank' => 'uob',
+                'match' => 'uob one',
+                'description' => 'UOB One (chương trình điểm Thưởng, quy đổi hoàn tiền): 10% Grab & di chuyển mặt đất, 5% gói đăng ký định kỳ (Apple Music, Spotify, LinkedIn...), 3% bảo hiểm, 2% mua sắm (trung tâm thương mại & chuỗi thời trang), còn lại 0,3% (không giới hạn); trần 4 nhóm ưu đãi 600.000 Điểm Thưởng/tháng. Mạng lưới Visa/Mastercard chưa xác nhận; tỷ lệ quy đổi điểm giả định 1:1.',
+                'tiers' => [
+                    [
+                        'name' => 'Toàn bộ chi tiêu hợp lệ',
+                        'min' => 0,
+                        'max' => null,
+                        'cap' => '600000.00',
+                        'fallback' => [
+                            'percent' => '0.300',
+                            'counts_cap' => false,
+                        ],
+                        'rules' => [
+                            ['category' => 'goi-xe-di-chuyen', 'percent' => '10.000', 'counts_cap' => true],
+                            ['category' => 'ung-dung-so-dich-vu-giai-tri', 'percent' => '5.000', 'counts_cap' => true],
+                            ['category' => 'bao-hiem', 'percent' => '3.000', 'counts_cap' => true],
+                            ['category' => 'thoi-trang', 'percent' => '2.000', 'counts_cap' => true],
+                        ],
+                    ],
+                ],
+            ],
+            // -----------------------------------------------------------------
+            // VPBANK FLEX MASTERCARD
+            // -----------------------------------------------------------------
+            // Nguồn: trang chính thức VPBank (12/10/2026). Sản phẩm chính thức là
+            // MASTERCARD (không phải Visa như tên định danh yêu cầu). Tích ĐIỂM
+            // LynkiD: chọn 1 trong 4 nhóm → 8% điểm, trần 500.000đ/tháng; yêu cầu
+            // tổng doanh số thanh toán thẻ tín dụng ≥2.000.000đ/kỳ, dưới ngưỡng
+            // không có điểm nhóm. Cấu hình mặc định group = Ăn uống (admin đổi
+            // theo nhóm khách đăng ký). Ngoài nhóm chưa được công bố ⇒ 0%.
+            [
+                'slug' => 'vpbank-flex',
+                'name' => 'VPBank Flex Mastercard',
+                'sort_order' => 54,
+                'bank' => 'vpb',
+                'match' => 'flex',
+                'description' => 'VPBank Flex Mastercard (mạng lưới Mastercard; điểm LynkiD quy đổi 1:1): 8% điểm cho 1 trong 4 nhóm được chọn (mặc định: Ăn uống), trần 500.000đ/tháng; cần tổng doanh số thanh toán tín dụng ≥2.000.000đ/kỳ; ngoài nhóm 0% (chưa công bố).',
+                'tiers' => [
+                    [
+                        'name' => 'Bậc 1 – Dưới 2 triệu',
+                        'min' => 0,
+                        'max' => 2000000,
+                        'cap' => null,
+                        'fallback' => [
+                            'percent' => '0.000',
+                            'counts_cap' => false,
+                        ],
+                        'rules' => [],
+                    ],
+                    [
+                        'name' => 'Bậc 2 – Từ 2 triệu',
+                        'min' => 2000000,
+                        'max' => null,
+                        'cap' => '500000.00',
+                        'fallback' => [
+                            'percent' => '0.000',
+                            'counts_cap' => false,
+                        ],
+                        'rules' => [
+                            ['category' => 'am-thuc-an-uong', 'percent' => '8.000', 'counts_cap' => true],
+                        ],
+                    ],
+                ],
+            ],
+            // -----------------------------------------------------------------
+            // SHINHAN 365 CASHBACK PLATINUM
+            // -----------------------------------------------------------------
+            // Nguồn: trang & T&C chính thức Shinhan (12/10/2026). Sản phẩm chính
+            // thức là MASTERCARD (không phải Visa như tên định danh yêu cầu).
+            // Siêu thị/tạp hóa 10% và chi tiêu nước ngoài 3% đều tính trên kênh
+            // POS; nền 0,4% cho mọi chi tiêu; cần tổng chi tiêu ≥3.000.000đ/kỳ;
+            // trần 400.000đ (siêu thị) & 200.000đ (nước ngoài). Giới hạn POS
+            // không có engine flag ⇒ ghi chú, online có thể được tính nhầm vào
+            // các danh mục trên.
+            [
+                'slug' => 'shinhan-365-cashback-platinum',
+                'name' => 'Shinhan 365 Cashback Platinum',
+                'sort_order' => 55,
+                'bank' => 'shbvn',
+                'match' => '365 cashback',
+                'description' => 'Shinhan 365 Cashback Platinum (mạng lưới Mastercard): Siêu thị/tạp hóa 10% (POS), chi tiêu nước ngoài 3% (POS), còn lại 0,4%; ưu đãi cần tổng chi tiêu ≥3.000.000đ/kỳ; trần 400.000đ (siêu thị) & 200.000đ (nước ngoài).',
+                'tiers' => [
+                    [
+                        'name' => 'Bậc 1 – Dưới 3 triệu',
+                        'min' => 0,
+                        'max' => 3000000,
+                        'cap' => null,
+                        'fallback' => [
+                            'percent' => '0.400',
+                            'counts_cap' => false,
+                        ],
+                        'rules' => [],
+                    ],
+                    [
+                        'name' => 'Bậc 2 – Từ 3 triệu',
+                        'min' => 3000000,
+                        'max' => null,
+                        'cap' => '400000.00',
+                        'fallback' => [
+                            'percent' => '0.400',
+                            'counts_cap' => false,
+                        ],
+                        'rules' => [
+                            ['category' => 'sieu-thi-tien-loi', 'percent' => '10.000', 'counts_cap' => true],
+                            ['category' => 'chi-tieu-nuoc-ngoai', 'percent' => '3.000', 'counts_cap' => false, 'cap_cat' => 200000],
+                        ],
+                    ],
+                ],
+            ],
+            // -----------------------------------------------------------------
+            // SHINHAN MYLIFE VISA – BẠCH KIM
+            // -----------------------------------------------------------------
+            // Nguồn: trang & T&C chính thức Shinhan (12/10/2026). Chương trình
+            // ĐIỂM my point (1 điểm = 1đ, tiền lệ quy đổi chính thức): 10% điểm
+            // cho Di chuyển, Siêu thị & cửa hàng tiện lợi, Ăn uống, Giải trí;
+            // 0,4% điểm cho phần còn lại; cần tổng chi tiêu ≥3.000.000đ/kỳ;
+            // trần 300.000đ/nhóm, tối đa 1.200.000đ/kỳ. "Giải trí" xấp xỉ danh
+            // mục ung-dung-so-dich-vu-giai-tri (theo MCC gần nhất).
+            [
+                'slug' => 'shinhan-mylife-visa-bach-kim',
+                'name' => 'Shinhan MyLife Visa - Bạch Kim',
+                'sort_order' => 56,
+                'bank' => 'shbvn',
+                'match' => 'mylife',
+                'description' => 'Shinhan MyLife Platinum (mạng lưới Visa; điểm my point 1:1): 10% điểm cho Di chuyển, Siêu thị & cửa hàng tiện lợi, Ăn uống, Giải trí; 0,4% điểm còn lại; cần tổng chi tiêu ≥3.000.000đ/kỳ; trần 300.000đ/nhóm, tối đa 1.200.000đ/kỳ.',
+                'tiers' => [
+                    [
+                        'name' => 'Bậc 1 – Dưới 3 triệu',
+                        'min' => 0,
+                        'max' => 3000000,
+                        'cap' => null,
+                        'fallback' => [
+                            'percent' => '0.400',
+                            'counts_cap' => false,
+                        ],
+                        'rules' => [],
+                    ],
+                    [
+                        'name' => 'Bậc 2 – Từ 3 triệu',
+                        'min' => 3000000,
+                        'max' => null,
+                        'cap' => null,
+                        'fallback' => [
+                            'percent' => '0.400',
+                            'counts_cap' => false,
+                        ],
+                        'rules' => [
+                            ['category' => 'goi-xe-di-chuyen', 'percent' => '10.000', 'cap_cat' => 300000],
+                            ['category' => 'sieu-thi-tien-loi', 'percent' => '10.000', 'cap_cat' => 300000],
+                            ['category' => 'am-thuc-an-uong', 'percent' => '10.000', 'cap_cat' => 300000],
+                            ['category' => 'ung-dung-so-dich-vu-giai-tri', 'percent' => '10.000', 'cap_cat' => 300000],
+                        ],
+                    ],
+                ],
+            ],
+            // -----------------------------------------------------------------
+            // CAKE 2IN1 – GÓI PREMIUM
+            // -----------------------------------------------------------------
+            // Nguồn: trang & T&C chính thức Cake by VPBank (12/10/2026). Sản phẩm
+            // là Visa Signature (không phải Mastercard như tên định danh yêu cầu).
+            // Thẻ 2-trong-1: chọn 1 trong 3 nhóm → 20%: Giáo dục, Đồ điện tử/điện
+            // máy, Du lịch–khách sạn–hàng không; trần 200.000đ/giao dịch; trần/kỳ
+            // theo hạng: 2M / 5M / 10M (hạng CASA không mô hình được bằng bậc chi
+            // tiêu); cần tổng chi tiêu ≥20.000.000đ/kỳ. Cấu hình mặc định nhóm
+            // Giáo dục, trần 2.000.000đ (hạng thấp nhất).
+            [
+                'slug' => 'cake-2in1-premium',
+                'name' => 'Thẻ Cake 2in1 – Gói Premium',
+                'sort_order' => 57,
+                'bank' => 'cakevpb',
+                'match' => 'cake 2in1',
+                'description' => 'Thẻ Cake 2in1 – Gói Premium (Visa Signature): 20% cho 1 trong 3 nhóm được chọn (mặc định: Giáo dục; Đồ điện tử/điện máy; Du lịch–khách sạn–hàng không), trần 200.000đ/giao dịch, trần 2.000.000đ/kỳ (hạng thấp nhất, hạng CASA không mô hình được); cần tổng chi tiêu ≥20.000.000đ/kỳ; ngoài nhóm 0%.',
+                'tiers' => [
+                    [
+                        'name' => 'Bậc 1 – Dưới 20 triệu',
+                        'min' => 0,
+                        'max' => 20000000,
+                        'cap' => null,
+                        'fallback' => [
+                            'percent' => '0.000',
+                            'counts_cap' => false,
+                        ],
+                        'rules' => [],
+                    ],
+                    [
+                        'name' => 'Bậc 2 – Từ 20 triệu',
+                        'min' => 20000000,
+                        'max' => null,
+                        'cap' => '2000000.00',
+                        'fallback' => [
+                            'percent' => '0.000',
+                            'counts_cap' => false,
+                        ],
+                        'rules' => [
+                            ['category' => 'giao-duc-hoc-phi', 'percent' => '20.000', 'cap_tx' => 200000, 'counts_cap' => true],
+                        ],
+                    ],
+                ],
+            ],
+            // -----------------------------------------------------------------
+            // VPBANK S REWARDS MASTERCARD
+            // -----------------------------------------------------------------
+            // Nguồn: "Thể lệ ưu đãi tính năng dành cho chủ thẻ tín dụng VPBank S
+            // Rewards Mastercard" (PDF chính thức; BIN 52439439; thời gian
+            // 05/01/2026–05/01/2027; chương trình Xu Shopee). Shopee & ShopeeFood
+            // 12% (xác định theo MID, KHÔNG theo MCC) trần 400.000 xu/kỳ; nhóm
+            // Siêu thị + Ăn uống + Di chuyển 4% với trần CHUNG 200.000 xu/kỳ
+            // (3 danh mục dùng combo `vpb-s-rewards-uu-dai` để chia sẻ chung
+            // một trần); còn lại 0,1% không giới hạn. Điều kiện: tổng chi tiêu
+            // ≥5.000.000đ/kỳ sao kê — dưới ngưỡng KHÔNG hoàn. 1 xu ≈ 1đ.
+            // "Shopee/ShopeeFood theo MID" không có MCC ⇒ xấp xỉ danh mục
+            // `shopee`. Loại trừ theo nguồn: mã hoàn tiền khác, giao dịch
+            // VPBank NEO (không cấu hình được bằng engine).
+            [
+                'slug' => 'vpbank-s-rewards-mastercard',
+                'name' => 'VPBank S Rewards Mastercard',
+                'sort_order' => 58,
+                'bank' => 'vpb',
+                'match' => 's rewards',
+                'description' => 'VPBank S Rewards Mastercard (BIN 52439439; chương trình Xu Shopee 2026): Shopee & ShopeeFood 12% (trần 400.000 xu/kỳ), Siêu thị + Ăn uống + Di chuyển 4% (trần chung 200.000 xu/kỳ), còn lại 0,1% (không giới hạn); cần tổng chi tiêu ≥5.000.000đ/kỳ; 1 xu ≈ 1đ.',
+                'tiers' => [
+                    [
+                        'name' => 'Bậc 1 – Dưới 5 triệu',
+                        'min' => 0,
+                        'max' => 5000000,
+                        'cap' => null,
+                        'fallback' => [
+                            'percent' => '0.000',
+                            'counts_cap' => false,
+                        ],
+                        'rules' => [],
+                    ],
+                    [
+                        'name' => 'Bậc 2 – Từ 5 triệu',
+                        'min' => 5000000,
+                        'max' => null,
+                        'cap' => null,
+                        'fallback' => [
+                            'percent' => '0.100',
+                            'counts_cap' => false,
+                        ],
+                        'rules' => [
+                            ['category' => 'shopee', 'percent' => '12.000', 'cap_cat' => 400000, 'counts_cap' => true],
+                            ['combo' => 'vpb-s-rewards-uu-dai', 'percent' => '4.000', 'cap_cat' => 200000, 'counts_cap' => true],
+                        ],
+                    ],
+                ],
+            ],
+            // -----------------------------------------------------------------
+            // HSBC CASH BACK
+            // -----------------------------------------------------------------
+            // Nguồn: trang sản phẩm chính thức HSBC Việt Nam (12/10/2026). "Siêu
+            // thị & Cửa hàng tiện ích" 6% (8% nếu chi lương qua HSBC), trần
+            // 200.000đ/tháng; "Bảo hiểm & Giáo dục" 1% (không trần); "Khác" 0,5%.
+            // HSBC KHÔNG công bố mã MCC ⇒ không có cơ sở tạo MCC profile (báo
+            // cáo: CHƯA ĐỦ DỮ LIỆU). Trần tính theo THÁNG DƯƠNG LỊCH, engine
+            // tính theo kỳ sao kê ⇒ ghi chú. "Cửa hàng tiện ích" gộp về danh mục
+            // `sieu-thi-tien-loi` (bộ seed gốc); mức 8% chi-lương không mô hình
+            // được (ghi chú).
+            [
+                'slug' => 'hsbc-cash-back',
+                'name' => 'HSBC Cash Back',
+                'sort_order' => 59,
+                'bank' => 'hsbc',
+                'match' => 'cash back',
+                'description' => 'HSBC Cash Back: Siêu thị & Cửa hàng tiện ích 6% (8% nếu nhận lương qua HSBC), trần 200.000đ/tháng; Bảo hiểm & Giáo dục 1% (không trần); còn lại 0,5%. HSBC chưa công bố mã MCC. Trần theo tháng dương lịch.',
+                'tiers' => [
+                    [
+                        'name' => 'Toàn bộ chi tiêu hợp lệ',
+                        'min' => 0,
+                        'max' => null,
+                        'cap' => null,
+                        'fallback' => [
+                            'percent' => '0.500',
+                            'counts_cap' => false,
+                        ],
+                        'rules' => [
+                            ['category' => 'sieu-thi-tien-loi', 'percent' => '6.000', 'cap_cat' => 200000],
+                            ['category' => 'bao-hiem', 'percent' => '1.000'],
+                            ['category' => 'giao-duc-hoc-phi', 'percent' => '1.000'],
+                        ],
+                    ],
+                ],
+            ],
+            // -----------------------------------------------------------------
+            // BIDV VISA CASHBACK 360
+            // -----------------------------------------------------------------
+            // Nguồn: BIDV "PHỤ LỤC 02 – Thể lệ chương trình tích lũy và đổi điểm
+            // thưởng Loyalty năm 2026" (KH cá nhân, tích điểm từ 01/07/2026).
+            // Sản phẩm Visa Cashback 360 (PVC0016, PVC0051, PVC0018). Siêu thị
+            // (MCC 5411): 2% (20 điểm/1.000đ) khi doanh số siêu thị trong tháng
+            // 0–10 triệu, 10% (100 điểm/1.000đ) khi trên 10 triệu; Y tế/sức khỏe
+            // (8062,8050,8099,8021,8042,8071) 2%; Giáo dục (8244,8351,8220,8211,
+            // 8299,8249,8241) 2%. Trần 300.000 điểm/nhóm/tháng; tổng trần/tháng:
+            // Private/Elite 600.000đ, còn lại 500.000đ (cấu hình mức phổ biến
+            // 500.000đ). 1 điểm ≈ 1đ.
+            [
+                'slug' => 'bidv-visa-cashback-360',
+                'name' => 'BIDV Visa Cashback 360',
+                'sort_order' => 60,
+                'bank' => 'bidv',
+                'match' => 'cashback 360',
+                'description' => 'BIDV Visa Cashback 360 (chương trình Loyalty 2026, giai đoạn 2): Siêu thị 2% (doanh số siêu thị 0–10 triệu/tháng) hoặc 10% (trên 10 triệu/tháng), Y tế 2%, Giáo dục 2%; trần 300.000 điểm/nhóm/tháng, tổng trần/kỳ 500.000đ (Private/Elite 600.000đ); điểm ≈ 1đ.',
+                'tiers' => [
+                    [
+                        'name' => 'Toàn bộ chi tiêu hợp lệ',
+                        'min' => 0,
+                        'max' => null,
+                        'cap' => '500000.00',
+                        'fallback' => [
+                            'percent' => '0.000',
+                            'counts_cap' => false,
+                        ],
+                        'rules' => [
+                            ['category' => 'sieu-thi-tien-loi', 'from' => 0, 'to' => 10000000, 'percent' => '2.000', 'cap_cat' => 300000, 'counts_cap' => true],
+                            ['category' => 'sieu-thi-tien-loi', 'from' => 10000000, 'to' => null, 'percent' => '10.000', 'cap_cat' => 300000, 'counts_cap' => true],
+                            ['category' => 'y-te-benh-vien', 'percent' => '2.000', 'cap_cat' => 300000, 'counts_cap' => true],
+                            ['category' => 'giao-duc-hoc-phi', 'percent' => '2.000', 'cap_cat' => 300000, 'counts_cap' => true],
+                        ],
+                    ],
+                ],
+            ],
+            // -----------------------------------------------------------------
+            // TPBANK EVO
+            // -----------------------------------------------------------------
+            // Nguồn: "Chương trình hoàn tiền cho khách hàng cá nhân là chủ thẻ
+            // thẻ tín dụng quốc tế TPBank EVO Card" (áp dụng từ 21/10/2025; BIN
+            // 498796). Hoàn tiền cho chi tiêu TRỰC TUYẾN (transaction type 680 +
+            // card data input mode = e-commerce) theo tổng chi tiêu/kỳ: <10tr 1%,
+            // 10–30tr 5%, ≥30tr 10%; trần 500.000đ/KH/thẻ chính/kỳ. Loại trừ
+            // giao dịch ví điện tử/cổng thanh toán (AIRPAY, MOMO, VNPAY, ZALOPAY)
+            // và MCC 6211, 4829, 6051, 4900, 6011, 7311, 5968, 7801, 7995.
+            // "Trực tuyến" là tiêu chí KÊNH, engine không có cờ ⇒ xấp xỉ bằng
+            // combo danh mục TMĐT `tpb-evo-online` (ghi chú CHƯA HỖ TRỢ chính xác).
+            [
+                'slug' => 'tpb-evo',
+                'name' => 'TPBank EVO',
+                'sort_order' => 61,
+                'bank' => 'tpb',
+                'match' => 'evo',
+                'description' => 'TPBank EVO: hoàn tiền chi tiêu trực tuyến 1% (<10 triệu/kỳ), 5% (10–30 triệu/kỳ), 10% (≥30 triệu/kỳ); trần 500.000đ/kỳ. "Trực tuyến" xấp xỉ bằng nhóm danh mục TMĐT (engine không có cờ kênh).',
+                'tiers' => [
+                    [
+                        'name' => 'Bậc 1 – Dưới 10 triệu',
+                        'min' => 0,
+                        'max' => 10000000,
+                        'cap' => '500000.00',
+                        'fallback' => [
+                            'percent' => '0.000',
+                            'counts_cap' => false,
+                        ],
+                        'rules' => [
+                            ['combo' => 'tpb-evo-online', 'percent' => '1.000', 'counts_cap' => true],
+                        ],
+                    ],
+                    [
+                        'name' => 'Bậc 2 – Từ 10 đến 30 triệu',
+                        'min' => 10000000,
+                        'max' => 30000000,
+                        'cap' => '500000.00',
+                        'fallback' => [
+                            'percent' => '0.000',
+                            'counts_cap' => false,
+                        ],
+                        'rules' => [
+                            ['combo' => 'tpb-evo-online', 'percent' => '5.000', 'counts_cap' => true],
+                        ],
+                    ],
+                    [
+                        'name' => 'Bậc 3 – Từ 30 triệu',
+                        'min' => 30000000,
+                        'max' => null,
+                        'cap' => '500000.00',
+                        'fallback' => [
+                            'percent' => '0.000',
+                            'counts_cap' => false,
+                        ],
+                        'rules' => [
+                            ['combo' => 'tpb-evo-online', 'percent' => '10.000', 'counts_cap' => true],
+                        ],
+                    ],
+                ],
+            ],
+            // -----------------------------------------------------------------
+            // VIB ONLINE PLUS 2IN1
+            // -----------------------------------------------------------------
+            // Nguồn: "Chương trình Điểm thưởng/hoàn tiền thẻ tín dụng VIB", mục
+            // 2.6 (Online Plus 2in1), trang vib.com.vn/the-tin-dung/diem-thuong-
+            // hoan-tien. 5% điểm cho chi tiêu TRỰC TUYẾN NƯỚC NGOÀI (ngoại tệ);
+            // 3% điểm cho chi tiêu trực tuyến còn lại; 0,1% điểm cho chi tiêu
+            // còn lại; trần 600.000 điểm/kỳ sao kê (giao dịch đặc biệt 300.000).
+            // Điểm 1:1. "Trực tuyến" theo KÊNH ⇒ xấp xỉ combo `vib-online` (3%)
+            // và danh mục `chi-tieu-nuoc-ngoai` (5%). KHÔNG bật product_name.
+            [
+                'slug' => 'vib-online-plus-2in1',
+                'name' => 'VIB Online Plus 2in1',
+                'sort_order' => 62,
+                'bank' => 'vib',
+                'match' => 'online plus 2in1',
+                'description' => 'VIB Online Plus 2in1: 5% điểm chi tiêu trực tuyến nước ngoài, 3% điểm chi tiêu trực tuyến còn lại, 0,1% cho phần còn lại; trần 600.000 điểm/kỳ (điểm 1:1). "Trực tuyến" xấp xỉ bằng nhóm danh mục TMĐT.',
+                'tiers' => [
+                    [
+                        'name' => 'Toàn bộ chi tiêu hợp lệ',
+                        'min' => 0,
+                        'max' => null,
+                        'cap' => '600000.00',
+                        'fallback' => [
+                            'percent' => '0.100',
+                            'counts_cap' => true,
+                        ],
+                        'rules' => [
+                            ['category' => 'chi-tieu-nuoc-ngoai', 'percent' => '5.000', 'counts_cap' => true],
+                            ['combo' => 'vib-online', 'percent' => '3.000', 'counts_cap' => true],
+                        ],
+                    ],
+                ],
+            ],
+            // -----------------------------------------------------------------
+            // OCB JCB PLATINUM
+            // -----------------------------------------------------------------
+            // Nguồn: "Chương trình ưu đãi dành cho thẻ tín dụng quốc tế OCB JCB
+            // Platinum" (hiệu lực 01/06/2026–31/05/2027; kỳ xét thưởng = tháng
+            // dương lịch; Phụ lục A – MCC). Điều kiện: tối thiểu 7 giao dịch hợp
+            // lệ/kỳ (không mô hình được bằng engine → ghi chú). Tổng chi tiêu
+            // ≥30 triệu/kỳ: Sức khỏe (4119,5047,5122,5912,5975,5976,8011,8021,
+            // 8031,8041,8042,8043,8049,8050,8062,8071,8099) 15% & Bảo hiểm (6300)
+            // 15% (trần mỗi nhóm 300.000đ); <30 triệu/kỳ: 7% & 7% (trần 150.000đ
+            // /nhóm); còn lại 0,1%; tổng trần/kỳ 1.500.000đ (≥30tr) hoặc 700.000đ.
+            [
+                'slug' => 'ocb-jcb-platinum',
+                'name' => 'OCB JCB Platinum',
+                'sort_order' => 63,
+                'bank' => 'ocb',
+                'match' => 'jcb platinum',
+                'description' => 'OCB JCB Platinum: cần ≥7 giao dịch hợp lệ/kỳ. Tổng chi tiêu ≥30 triệu/kỳ: Sức khỏe 15%, Bảo hiểm 15% (trần 300.000đ/nhóm); dưới 30 triệu/kỳ: Sức khỏe 7%, Bảo hiểm 7% (trần 150.000đ/nhóm); còn lại 0,1%; tổng trần 1.500.000đ (≥30tr) hoặc 700.000đ (<30tr).',
+                'tiers' => [
+                    [
+                        'name' => 'Bậc 1 – Dưới 30 triệu',
+                        'min' => 0,
+                        'max' => 30000000,
+                        'cap' => '700000.00',
+                        'fallback' => [
+                            'percent' => '0.100',
+                            'counts_cap' => true,
+                        ],
+                        'rules' => [
+                            ['category' => 'y-te-benh-vien', 'percent' => '7.000', 'cap_cat' => 150000, 'counts_cap' => true],
+                            ['category' => 'bao-hiem', 'percent' => '7.000', 'cap_cat' => 150000, 'counts_cap' => true],
+                        ],
+                    ],
+                    [
+                        'name' => 'Bậc 2 – Từ 30 triệu',
+                        'min' => 30000000,
+                        'max' => null,
+                        'cap' => '1500000.00',
+                        'fallback' => [
+                            'percent' => '0.100',
+                            'counts_cap' => true,
+                        ],
+                        'rules' => [
+                            ['category' => 'y-te-benh-vien', 'percent' => '15.000', 'cap_cat' => 300000, 'counts_cap' => true],
+                            ['category' => 'bao-hiem', 'percent' => '15.000', 'cap_cat' => 300000, 'counts_cap' => true],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+
+        $rulesService = app(CategoryRuleService::class);
+
+        foreach ($plans as $plan) {
+            $template = PolicyTemplate::updateOrCreate(
+                [
+                    'scope' => PolicyTemplate::SCOPE_SYSTEM,
+                    'owner_user_id' => PolicyTemplate::SYSTEM_OWNER_ID,
+                    'slug' => $plan['slug'],
+                ],
+                [
+                    'name' => $plan['name'],
+                    'description' => $plan['description'],
+                    'is_builtin' => true,
+                    'is_active' => true,
+                    'sort_order' => $plan['sort_order'],
+                    'applicable_bank_id' => (int) $banks[$plan['bank']]->id,
+                    'applicable_product_match' => $plan['match'],
+                ]
+            );
+
+            // Đã seed trước đó ⇒ giữ nguyên blueprint để không phá cấu hình đã chỉnh.
+            if ($template->blueprint()->exists()) {
+                continue;
+            }
+
+            $blueprint = Policy::create([
+                'user_card_id' => null,
+                'template_id' => $template->id,
+                'version_no' => 1,
+                'status' => Policy::STATUS_ACTIVE,
+                'name' => $plan['name'],
+                'effective_from' => now()->toDateString(),
+                'effective_to' => null,
+                // Điều kiện tổng chi tiêu nằm ở TỪNG BẬC, cột policy legacy bỏ trống.
+                'min_total_spend' => 0,
+                'max_cashback_total_per_period' => null,
+                'rounding_mode' => 'round',
+                'note' => 'Chính sách hệ thống '.$plan['name'].'.',
+            ]);
+            $blueprint->forceFill(['root_policy_id' => $blueprint->id])->save();
+
+            foreach ($plan['tiers'] as $index => $tierConfig) {
+                $tier = PolicyTier::create([
+                    'policy_id' => $blueprint->id,
+                    'name' => $tierConfig['name'],
+                    'sort_order' => $index + 1,
+                    'min_total_spend' => $tierConfig['min'],
+                    'max_total_spend' => $tierConfig['max'],
+                    'max_cashback_per_period' => $tierConfig['cap'],
+                ]);
+
+                $fallback = $tierConfig['fallback'];
+                $rulesService->ensureSingleFallback($tier, [
+                    'cashback_percent' => $fallback['percent'],
+                    'counts_toward_tier_cap' => $fallback['counts_cap'],
+                    'min_transaction_amount' => $fallback['min_tx'] ?? null,
+                ]);
+
+                $sortOrder = 0;
+
+                foreach ($tierConfig['rules'] as $rule) {
+                    // Rule nhắm MỘT danh mục (`category`) hoặc MỘT combo
+                    // (`combo`) — combo dùng khi nhiều danh mục chia sẻ chung
+                    // một trần (vd. nhóm 4% của VPBank S Rewards).
+                    // `from`/`to` = khoảng chi tiêu CỦA DANH MỤC trong kỳ (dùng
+                    // cho ngưỡng siêu thị 0–10tr / ≥10tr của BIDV Cashback 360).
+                    PolicyTierCategory::updateOrCreate(
+                        [
+                            'tier_id' => $tier->id,
+                            'category_id' => isset($rule['combo']) ? null : $categories[$rule['category']]->id,
+                            'combo_id' => isset($rule['combo']) ? $combos[$rule['combo']]->id : null,
+                            'spend_from' => $rule['from'] ?? 0,
+                        ],
+                        [
+                            'spend_to' => $rule['to'] ?? null,
+                            'scope_type' => PolicyTierCategory::SCOPE_CATEGORY,
+                            'counts_toward_tier_cap' => $rule['counts_cap'] ?? false,
+                            'cashback_percent' => $rule['percent'],
+                            'max_cashback_per_transaction' => $rule['cap_tx'] ?? null,
+                            'max_cashback_per_category_per_period' => $rule['cap_cat'] ?? null,
+                            'min_transaction_amount' => $rule['min_tx'] ?? null,
+                            'is_enabled' => true,
+                            'sort_order' => $sortOrder++,
+                        ]
+                    );
+                }
+
+                // Thứ tự hiển thị chuẩn: danh mục cụ thể → fallback cuối.
+                $rulesService->normaliseRuleOrder($tier);
+            }
         }
     }
 

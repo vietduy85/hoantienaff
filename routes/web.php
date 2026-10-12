@@ -142,10 +142,18 @@ Route::middleware('auth')->group(function () {
             ->whereNumber('report')->name('reports.destroy');
         Route::get('/so-sanh', [CreditCardController::class, 'compare'])->name('compare');
         Route::get('/so-sanh/de-xuat', [CreditCardController::class, 'recommendations'])->name('compare.recommend');
+        Route::get('/so-sanh/toi-uu', [CreditCardController::class, 'optimize'])->name('compare.optimize');
         // "Tra cứu" — chỉ đọc: tra chính sách hoàn tiền + MCC từ dữ liệu đã nhập.
         Route::get('/tra-cuu', [CreditCardLookupController::class, 'index'])->name('lookup');
         Route::get('/tra-cuu/chinh-sach', [CreditCardLookupController::class, 'policy'])->name('lookup.policy');
         Route::get('/tra-cuu/mcc', [CreditCardLookupController::class, 'mcc'])->name('lookup.mcc');
+        // Tài liệu hồ sơ MCC của "Tra cứu thẻ" — file disk private, tải qua
+        // endpoint kiểm tra quyền (`lookup.document`). Ràng buộc SỐ để không
+        // nuốt các đường tĩnh cùng tiền tố `/tra-cuu`.
+        Route::get('/tra-cuu/tai-lieu/{profile}/{document}', [CreditCardLookupController::class, 'document'])
+            ->whereNumber('profile')
+            ->whereNumber('document')
+            ->name('lookup.document');
         Route::get('/cai-dat', [CreditCardController::class, 'settings'])->name('settings');
         Route::get('/chinh-sach', [CreditCardController::class, 'policies'])->name('policies');
         Route::get('/sao-ke', [StatementController::class, 'index'])->name('statements');

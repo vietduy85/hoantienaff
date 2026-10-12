@@ -151,43 +151,6 @@
                         </template>
                     </section>
 
-                    {{-- MCC đã mapping --}}
-                    <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-3">
-                        <h4 class="font-semibold text-gray-800 text-sm">
-                            MCC liên quan
-                            <span class="ml-1 font-medium text-gray-400" x-text="'(' + policyResult.mcc_mappings.length + ')'"></span>
-                        </h4>
-
-                        <p class="text-sm text-gray-500" x-show="policyResult.mcc_mappings.length === 0" x-cloak>
-                            Chưa nhập danh sách MCC cho chính sách này.
-                        </p>
-
-                        <ul class="space-y-2">
-                            <template x-for="(row, index) in policyResult.mcc_mappings" :key="row.id">
-                                <li class="rounded-xl border border-gray-100 p-3 sm:p-4">
-                                    <div class="flex items-start justify-between gap-3">
-                                        <div class="min-w-0">
-                                            <p class="font-medium text-gray-800">
-                                                <span class="font-mono" x-text="row.mcc || row.mcc_group || '(quy tắc nhóm)'"></span>
-                                                <span class="ms-2 rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                                                      :class="ccRelationClass(row.relation)"
-                                                      x-text="row.relation_label"></span>
-                                            </p>
-                                            <p class="text-xs text-gray-500 mt-1" x-show="row.category_name" x-text="'Danh mục: ' + row.category_name"></p>
-                                        </div>
-                                        <span class="shrink-0 text-[11px] font-semibold"
-                                              :class="row.verification_status === 'verified' ? 'text-emerald-700' : 'text-amber-700'"
-                                              x-text="ccVerificationLabel(row.verification_status)"></span>
-                                    </div>
-                                    <p class="text-xs text-gray-600 mt-1.5" x-show="row.condition_note" x-text="row.condition_note"></p>
-                                    <p class="text-xs text-rose-700 mt-1" x-show="row.exclusion_reason" x-text="'Loại trừ: ' + row.exclusion_reason"></p>
-                                    <p class="text-[11px] text-gray-400 mt-1.5"
-                                       x-show="row.source_pdf"
-                                       x-text="'Nguồn: ' + row.source_pdf + (row.source_page ? ' · trang ' + row.source_page : '')"></p>
-                                </li>
-                            </template>
-                        </ul>
-                    </section>
                     {{-- Hồ sơ MCC admin nhập (module "Quản lý MCC") --}}
                     <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-3">
                         <h4 class="font-semibold text-gray-800 text-sm">
@@ -197,6 +160,12 @@
 
                         <p class="text-sm text-gray-500" x-show="!((policyResult.mcc_profiles || []).length)" x-cloak>
                             Chưa có dữ liệu MCC cho chính sách này.
+                        </p>
+
+                        <p class="text-xs text-gray-400"
+                           x-show="(policyResult.mcc_profiles || []).length && ccTotalDocuments(policyResult.mcc_profiles || []) === 0"
+                           x-cloak>
+                            Chưa có tài liệu tham khảo.
                         </p>
 
                         <ul class="space-y-2">
@@ -225,6 +194,23 @@
                                                 <span class="block text-gray-400" x-show="row.description || row.note" x-text="row.description || row.note"></span>
                                             </div>
                                         </template>
+                                    </div>
+
+                                    <div x-show="(profile.documents || []).length">
+                                        <p class="text-[11px] font-semibold text-gray-500 mb-1">Tài liệu tham khảo</p>
+                                        <ul class="space-y-1.5">
+                                            <template x-for="doc in (profile.documents || [])" :key="doc.id">
+                                                <li class="flex items-center justify-between gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                                                    <div class="min-w-0">
+                                                        <p class="truncate text-xs text-gray-700" x-text="doc.name"></p>
+                                                        <p class="text-[11px] text-gray-400" x-text="doc.human_size"></p>
+                                                    </div>
+                                                    <a :href="doc.url"
+                                                       rel="noreferrer"
+                                                       class="shrink-0 text-[11px] font-medium text-emerald-700 hover:text-emerald-800">Tải xuống</a>
+                                                </li>
+                                            </template>
+                                        </ul>
                                     </div>
                                 </li>
                             </template>
@@ -351,8 +337,9 @@
                                                     </div>
                                                 </template>
 
-                                                {{-- Bậc chi tiết: chỉ hiện khi KHÔNG có tỷ lệ cao nhất trích tài liệu. --}}
-                                                <template x-if="! row.cashback.highest">
+                                                {{-- Bậc chi tiết: hiện khi KHÔNG có tỷ lệ cao nhất, hoặc khi kết quả là
+                                                     SẢN PHẨM dùng chung nhiều hạng thẻ — để bảo toàn khác biệt tỷ lệ theo hạng. --}}
+                                                <template x-if="! row.cashback.highest || row.product_name">
                                                     <div class="space-y-2">
                                                         <template x-for="(tier, ti) in row.cashback.tiers" :key="'tier-' + row.id + '-' + ti">
                                                             <div class="flex items-start justify-between gap-3">
@@ -500,6 +487,14 @@
                 }
 
                 return 'border-amber-100 bg-amber-50/40';
+            }
+
+            /** Tổng số tài liệu tham khảo của mọi hồ sơ MCC trong kết quả. */
+            function ccTotalDocuments(profiles) {
+                return (profiles || []).reduce(
+                    (total, profile) => total + ((profile.documents || []).length || 0),
+                    0
+                );
             }
 
             /** Nhãn trạng thái xác minh của mapping/MCC. */

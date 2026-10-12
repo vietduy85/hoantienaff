@@ -15,6 +15,9 @@ use App\Services\CreditCard\CreditCardCardSortService;
 use App\Services\CreditCard\CreditCardOverviewService;
 use App\Services\CreditCard\CreditCardStatementService;
 use App\Services\CreditCard\CreditCardUserSettingService;
+use App\Services\CreditCard\Optimizer\OptimizationCriterion;
+use App\Services\CreditCard\Optimizer\OptimizerScope;
+use App\Services\CreditCard\Optimizer\PortfolioOptimizerService;
 use App\Services\CreditCard\SpendQualificationService;
 use App\Services\CreditCard\StatementPeriodService;
 use App\Support\CreditCard\CategoryIcon;
@@ -23,6 +26,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
@@ -47,6 +51,7 @@ class CreditCardController extends Controller
         private readonly CreditCardStatementService $statements,
         private readonly CreditCardUserSettingService $settings,
         private readonly CardRecommendationService $recommendations,
+        private readonly PortfolioOptimizerService $optimizer,
     ) {}
 
     /**
@@ -470,6 +475,56 @@ class CreditCardController extends Controller
 
         return response()->json([
             'data' => $this->recommendations->recommend($userId, (string) $validated['amount'], $categoryId),
+        ]);
+    }
+
+    /**
+     * GET /thetindung/so-sanh/toi-uu — JSON "Tối ưu bộ thẻ hoàn tiền".
+     *
+     * Người dùng nhập chi tiêu theo danh mục (key = category id), chọn phạm vi
+     * thẻ và tiêu chí; hệ thống trả tối đa 3 phương án phân bổ thực khác nhau,
+     * đều tính bằng đúng engine hoàn tiền hiện hành (CHỈ ĐỌC, không ghi DB).
+     *
+     * Danh mục phải thuộc quyền sử dụng của user (hệ thống hoặc riêng của họ);
+     * tiền mỗi danh mục là số nguyên VND ≥ 0 và tổng phải > 0.
+     */
+    public function optimize(Request $request): JsonResponse
+    {
+        $userId = (int) auth()->id();
+
+        $validated = $request->validate([
+            'scope' => ['sometimes', 'string', Rule::in(OptimizerScope::keys())],
+            'criterion' => ['sometimes', 'string', Rule::in(OptimizationCriterion::keys())],
+            'amounts' => ['required', 'array'],
+            'amounts.*' => ['integer', 'min:0', 'max:1000000000000'],
+        ]);
+
+        $amounts = $validated['amounts'] ?? [];
+
+        $usableIds = Category::query()
+            ->selectableBy($userId)
+            ->pluck('id')
+            ->all();
+
+        foreach ($amounts as $categoryId => $amount) {
+            if ((int) $amount > 0 && ! in_array((int) $categoryId, $usableIds, true)) {
+                throw ValidationException::withMessages([
+                    'amounts.'.$categoryId => 'Danh mục không hợp lệ hoặc không thuộc quyền sử dụng của bạn.',
+                ]);
+            }
+        }
+
+        if (array_sum($amounts) <= 0) {
+            throw ValidationException::withMessages([
+                'amounts' => 'Tổng chi tiêu dự kiến phải lớn hơn 0.',
+            ]);
+        }
+
+        $scope = $validated['scope'] ?? OptimizerScope::COMPARE;
+        $criterion = $validated['criterion'] ?? OptimizationCriterion::BALANCE;
+
+        return response()->json([
+            'data' => $this->optimizer->optimize($userId, $scope, $criterion, $amounts),
         ]);
     }
 

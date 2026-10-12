@@ -207,9 +207,9 @@ class ShinhanSupremePolicyTemplateTest extends TestCase
         );
 
         $this->assertSame(
-            9,
+            23,
             PolicyTemplate::query()->system()->count(),
-            'Đúng 9 template hệ thống: Cashback phổ thông + Shinhan Supreme + 4 bậc VIB Max Card Visa + 3 hạng VIB One Card Visa.'
+            'Đúng 23 template hệ thống: Cashback phổ thông + Shinhan Supreme + 4 bậc VIB Max Card Visa + 3 hạng VIB One Card Visa + 14 chính sách mở rộng (8 của 12/10/2026 + 6 thẻ hoàn tiền bổ sung: VPBank S Rewards, HSBC Cash Back, BIDV Cashback 360, TPBank EVO, VIB Online Plus 2in1, OCB JCB Platinum).'
         );
     }
 

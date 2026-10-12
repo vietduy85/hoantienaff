@@ -1,25 +1,60 @@
 {{--
     /thetindung/so-sanh — "Lựa chọn thẻ".
 
-    Người dùng nhập số tiền + danh mục chi tiêu dự kiến; trang gọi JSON
-    `credit-cards.compare.recommend` để server mô phỏng trên engine cashback và
-    trả hai nhóm: "Thẻ của tôi" (kỳ hiện tại + giao dịch giả định) và "Thẻ trên
-    thị trường" (template hệ thống). CHỈ ĐỌC — không tạo kỳ sao kê, không ghi
-    snapshot; xem `App\Services\CreditCard\CardRecommendationService`.
+    Hai tab trong CÙNG một state Alpine `cardRecommendation`:
+      - "Nhu cầu thẻ": nhập số tiền + danh mục chi tiêu dự kiến; gọi JSON
+        `credit-cards.compare.recommend` để server mô phỏng trên engine cashback
+        và trả hai nhóm "Thẻ của tôi" + "Thẻ trên thị trường".
+      - "Tối ưu bộ thẻ": nhập chi tiêu theo DANH MỤC/tháng (nhiều dòng), chọn
+        phạm vi + tiêu chí; gọi JSON `credit-cards.compare.optimize`
+        (`PortfolioOptimizerService`) trả tối đa 3 phương án phân bổ thực khác.
 
-    Cấu trúc state `need` là OBJECT (không phải scalar) để ô nhập tiền
-    (`x-credit-card.money-input` dùng `expr="need.amount"`) và ô chọn danh mục
-    (`searchable-select` entangle `x-model`) ghi ngược được vào state cha.
+    Cả hai CHỈ ĐỌC — không tạo kỳ sao kê, không ghi snapshot, không commit.
+    Cấu trúc state `need` (tab 1) / `budget` (tab 2) là OBJECT để các component
+    con (`x-credit-card.money-input`, `searchable-select`) ghi ngược vào đúng
+    thuộc tính của state cha.
 --}}
 <x-credit-card.layout
     title="Lựa chọn thẻ"
     subtitle="Nhập nhu cầu chi tiêu để biết thẻ nào hoàn tiền nhiều nhất"
     active="compare">
 
-    <div x-data="cardRecommendation(@js(['endpoint' => route('credit-cards.compare.recommend')]))"
+    @php
+        $scopes = \App\Services\CreditCard\Optimizer\OptimizerScope::labels();
+        $criteria = \App\Services\CreditCard\Optimizer\OptimizationCriterion::labels();
+    @endphp
+
+    <div x-data="cardRecommendation(@js([
+            'endpoint' => route('credit-cards.compare.recommend'),
+            'optimizeEndpoint' => route('credit-cards.compare.optimize'),
+            'scopes' => $scopes,
+            'criteria' => $criteria,
+        ]))"
          class="space-y-4 sm:space-y-5">
 
-        {{-- ===== Nhu cầu chi tiêu ===== --}}
+        {{-- ===== Thanh tab ===== --}}
+        <div class="flex items-center gap-1 bg-white rounded-2xl shadow-sm border border-gray-100 p-1">
+            <button type="button"
+                    @click="tab = 'need'"
+                    class="flex-1 h-10 rounded-xl text-sm font-semibold px-3 transition"
+                    :class="tab === 'need'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'text-gray-600 hover:bg-gray-100'">
+                ☝️ Nhu cầu thẻ
+            </button>
+            <button type="button"
+                    @click="tab = 'optimize'"
+                    class="flex-1 h-10 rounded-xl text-sm font-semibold px-3 transition"
+                    :class="tab === 'optimize'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'text-gray-600 hover:bg-gray-100'">
+                🎯 Tối ưu bộ thẻ
+            </button>
+        </div>
+
+        <div x-show="tab === 'need'" x-cloak class="space-y-4 sm:space-y-5">
+
+        {{-- ===== Tab 1 — Nhu cầu chi tiêu ===== --}}
         <form class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4"
               @submit.prevent="run()">
             <div>
@@ -236,6 +271,192 @@
             </div>
         </template>
 
+        </div>{{-- /tab need --}}
+
+        <div x-show="tab === 'optimize'" x-cloak class="space-y-4 sm:space-y-5">
+
+            {{-- ===== Tab 2 — Form chi tiêu theo danh mục ===== --}}
+            <form class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4"
+                  @submit.prevent="optimizeRun()">
+                <div>
+                    <h4 class="font-semibold text-gray-800 text-sm">Chi tiêu dự kiến theo danh mục</h4>
+                    <p class="text-xs text-gray-500 mt-1">
+                        Nhập số tiền bạn định chi cho từng danh mục trong một tháng. Hệ thống phân bổ
+                        các danh mục vào bộ thẻ để hoàn tiền tốt nhất theo tiêu chí bạn chọn (có thể
+                        tách một danh mục cho nhiều thẻ).
+                    </p>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div class="space-y-1.5">
+                        <label class="block text-sm font-semibold text-gray-700">Phạm vi thẻ</label>
+                        <div class="space-y-1.5">
+                            <template x-for="(label, key) in scopes" :key="key">
+                                <label class="flex items-start gap-2 text-sm text-gray-600 cursor-pointer">
+                                    <input type="radio" name="optimize-scope" :value="key"
+                                           x-model="budget.scope"
+                                           class="mt-0.5 text-emerald-600 focus:ring-emerald-500 border-gray-300">
+                                    <span>
+                                        <span class="font-medium text-gray-700" x-text="label.split(':')[0]"></span>
+                                        <template x-if="label.includes(':')">
+                                            <span class="text-gray-500" x-text="': ' + label.split(':').slice(1).join(':')"></span>
+                                        </template>
+                                    </span>
+                                </label>
+                            </template>
+                        </div>
+                    </div>
+
+                    <div class="space-y-1.5">
+                        <label for="opt-criterion" class="block text-sm font-semibold text-gray-700">Tiêu chí tối ưu</label>
+                        <select id="opt-criterion" x-model="budget.criterion"
+                                class="w-full h-12 rounded-xl border-gray-300 text-sm px-3 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                            <template x-for="(label, key) in criteria" :key="key">
+                                <option :value="key" x-text="label"></option>
+                            </template>
+                        </select>
+                        <p class="text-xs text-gray-400" x-text="criteria[budget.criterion] ?? ''"></p>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="flex items-center justify-between gap-3">
+                        <label for="opt-filter" class="block text-sm font-semibold text-gray-700">Số tiền theo danh mục</label>
+                        <input id="opt-filter" type="text" x-model="budget.filter"
+                               placeholder="Lọc danh mục…"
+                               class="w-48 h-9 rounded-lg border-gray-300 text-sm px-3 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                    </div>
+                    <p class="text-xs text-gray-400 mt-1" x-text="coveredText()"></p>
+                </div>
+
+                <ul class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    @foreach ($categories as $category)
+                        <li class="rounded-xl border border-gray-100 p-3 flex items-center justify-between gap-3"
+                            x-show="! budget.filter || String(@js($category['label'])).toLowerCase().includes(budget.filter.toLowerCase())">
+                            <div class="min-w-0">
+                                <p class="font-medium text-gray-700 text-sm truncate">{!! $category['label'] !!}</p>
+                                <p class="text-xs text-gray-400" x-text="'Danh mục ' + @js($category['sublabel'])"></p>
+                            </div>
+                            <div class="w-40 shrink-0">
+                                <x-credit-card.money-input
+                                    expr="budget.amounts[@js($category['id'])]"
+                                    example="2000000"
+                                    class="w-full h-10 rounded-lg border-gray-300 text-sm px-3 shadow-sm focus:border-emerald-500 focus:ring-emerald-500" />
+                            </div>
+                        </li>
+                    @endforeach
+                </ul>
+
+                <div class="flex items-center gap-3">
+                    <button type="submit"
+                            :disabled="optimizeLoading"
+                            class="inline-flex items-center gap-2 px-4 h-11 rounded-xl bg-emerald-600 text-white text-sm font-semibold shadow-sm hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed">
+                        <span x-show="! optimizeLoading">Tối ưu bộ thẻ</span>
+                        <span x-show="optimizeLoading" x-cloak>Đang tối ưu…</span>
+                    </button>
+                    <p class="text-xs text-gray-500">Chỉ mô phỏng — không mở thẻ, không ghi dữ liệu.</p>
+                </div>
+
+                <p class="text-sm text-red-600" x-show="optimizeError" x-cloak x-text="optimizeError"></p>
+                <p class="text-xs text-red-600" x-show="optimizeFieldErrors.amounts" x-cloak x-text="optimizeFieldErrors.amounts"></p>
+            </form>
+
+            {{-- ===== Tab 2 — Chưa có kết quả ===== --}}
+            <div x-show="! optimizeResult && ! optimizeLoading" x-cloak
+                 class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <p class="text-sm text-gray-500">Nhập chi tiêu theo danh mục rồi bấm “Tối ưu bộ thẻ”.</p>
+            </div>
+
+            {{-- ===== Tab 2 — Kết quả tối ưu ===== --}}
+            <template x-if="optimizeResult">
+                <div class="space-y-4">
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                        <p class="text-sm text-gray-600">
+                            Tổng chi
+                            <span class="font-semibold text-gray-800" x-text="ccMoneyVnd(optimizeResult.total_input_number)"></span>
+                            · tiêu chí
+                            <span class="font-semibold text-gray-800" x-text="optimizeResult.criterion_label"></span>.
+                        </p>
+                        <p class="text-xs text-gray-500 mt-1"
+                           x-show="optimizeResult.plans.length === 0">
+                            Không tìm được phương án nào khả thi với dữ liệu hiện tại.
+                        </p>
+                    </div>
+
+                    <template x-for="plan in optimizeResult.plans" :key="plan.rank">
+                        <section class="bg-white rounded-2xl shadow-sm border p-5 space-y-3"
+                                 :class="plan.rank === 1 ? 'border-emerald-300 bg-emerald-50/40' : 'border-gray-100'">
+                            <div class="flex items-start justify-between gap-3">
+                                <div>
+                                    <p class="font-semibold text-gray-800 text-sm">
+                                        Phương án <span x-text="plan.rank"></span>
+                                        <span class="text-xs font-medium text-gray-500" x-text="'· ' + plan.cards_count + ' thẻ'"></span>
+                                    </p>
+                                    <p class="text-xs text-gray-500 mt-0.5">
+                                        Phân bổ các danh mục vào bộ thẻ; một danh mục có thể chia cho nhiều thẻ.
+                                    </p>
+                                </div>
+                                <div class="text-right shrink-0">
+                                    <p class="font-extrabold text-emerald-700" x-text="ccMoneyVnd(plan.total_cashback)"></p>
+                                    <p class="text-xs text-gray-500" x-text="'hoàn ' + ccNumber(plan.total_rate) + '% tổng chi'"></p>
+                                </div>
+                            </div>
+
+                            <ul class="space-y-2">
+                                <template x-for="card in plan.cards" :key="card.key">
+                                    <li class="rounded-xl border border-gray-100 bg-white p-3 sm:p-4">
+                                        <div class="flex items-start justify-between gap-3">
+                                            <div class="min-w-0">
+                                                <p class="font-medium text-gray-800 text-sm truncate">
+                                                    <span x-text="card.name"></span>
+                                                    <span class="ms-1 text-xs font-semibold"
+                                                          :class="card.is_owned ? 'text-sky-700' : 'text-violet-700'"
+                                                          x-text="card.is_owned ? '(thẻ của bạn)' : '(thẻ mới)'"></span>
+                                                </p>
+                                                <p class="text-xs text-gray-500 truncate">
+                                                    <span x-show="card.bank_name" x-text="card.bank_name"></span>
+                                                    <span x-show="card.tier_label" x-text="(card.bank_name ? ' · ' : '') + card.tier_label"></span>
+                                                </p>
+                                            </div>
+                                            <div class="text-right shrink-0">
+                                                <p class="font-bold text-emerald-700" x-text="ccMoneyVnd(card.total_cashback)"></p>
+                                                <p class="text-xs text-gray-500" x-text="'hoàn ' + ccNumber(card.rate) + '%'"></p>
+                                            </div>
+                                        </div>
+
+                                        <ul class="mt-2 space-y-1 border-t border-gray-100 pt-2">
+                                            <template x-for="cat in card.categories" :key="cat.category_id">
+                                                <li class="flex items-center justify-between gap-3 text-xs">
+                                                    <span class="text-gray-600 truncate"
+                                                          x-text="cat.amount + ' → thẻ này'"></span>
+                                                    <span class="shrink-0"
+                                                          :class="Number(cat.cashback) > 0 ? 'font-semibold text-emerald-700' : 'text-gray-400'"
+                                                          x-text="(Number(cat.cashback) > 0 ? '+' : '') + ccMoneyVnd(cat.cashback)"></span>
+                                                </li>
+                                            </template>
+                                        </ul>
+
+                                        <p class="text-xs text-gray-400 mt-2" x-show="card.scenario_reason" x-text="ccReasonLabel(card.scenario_reason)"></p>
+                                        <p class="text-xs text-amber-700 mt-1" x-show="card.qualification_notice" x-text="card.qualification_notice"></p>
+                                        <p class="text-xs text-gray-400 mt-1" x-show="card.market_assumption" x-text="card.market_assumption"></p>
+                                    </li>
+                                </template>
+                            </ul>
+                        </section>
+                    </template>
+
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-1"
+                         x-show="optimizeResult.notes.length">
+                        <p class="text-sm font-semibold text-gray-800">Lưu ý</p>
+                        <template x-for="(note, i) in optimizeResult.notes" :key="i">
+                            <p class="text-xs text-gray-500" x-text="'• ' + note"></p>
+                        </template>
+                    </div>
+                </div>
+            </template>
+
+        </div>{{-- /tab optimize --}}
+
     </div>
 
     @once
@@ -310,11 +531,20 @@
             function cardRecommendation(config) {
                 return {
                     endpoint: config.endpoint,
+                    optimizeEndpoint: config.optimizeEndpoint,
+                    scopes: config.scopes,
+                    criteria: config.criteria,
+                    tab: 'need',
                     need: { amount: '', category_id: '' },
                     loading: false,
                     error: '',
                     fieldErrors: { amount: '', category_id: '' },
                     result: null,
+                    budget: { scope: 'compare', criterion: 'balance', amounts: {}, filter: '' },
+                    optimizeLoading: false,
+                    optimizeError: '',
+                    optimizeFieldErrors: {},
+                    optimizeResult: null,
 
                     async run() {
                         this.error = '';
@@ -367,6 +597,88 @@
                             this.error = 'Không kết nối được máy chủ. Vui lòng thử lại.';
                         } finally {
                             this.loading = false;
+                        }
+                    },
+
+                    /** Số danh mục đang nhập + tổng chi (dạng chuỗi ngắn). */
+                    coveredText() {
+                        let count = 0;
+                        let total = 0;
+
+                        for (const [categoryId, amount] of Object.entries(this.budget.amounts)) {
+                            const value = Number(amount ?? 0);
+
+                            if (value > 0) {
+                                count++;
+                                total += value;
+                            }
+                        }
+
+                        if (count === 0) {
+                            return 'Chưa có danh mục nào nhập số tiền.';
+                        }
+
+                        return count + ' danh mục · tổng ' + ccMoneyVnd(total);
+                    },
+
+                    /**
+                     * Chạy tối ưu: gửi scope + criterion + amounts (chỉ giữ danh mục
+                     * có số tiền > 0) lên `credit-cards.compare.optimize`.
+                     */
+                    async optimizeRun() {
+                        this.optimizeError = '';
+                        this.optimizeFieldErrors = {};
+
+                        const amounts = {};
+
+                        for (const [categoryId, amount] of Object.entries(this.budget.amounts)) {
+                            const value = Number(amount ?? 0);
+
+                            if (value > 0) {
+                                amounts[categoryId] = value;
+                            }
+                        }
+
+                        if (Object.keys(amounts).length === 0) {
+                            this.optimizeFieldErrors = { amounts: 'Vui lòng nhập số tiền cho ít nhất một danh mục.' };
+
+                            return;
+                        }
+
+                        this.optimizeLoading = true;
+
+                        try {
+                            const url = new URL(this.optimizeEndpoint, window.location.origin);
+                            url.searchParams.set('scope', this.budget.scope);
+                            url.searchParams.set('criterion', this.budget.criterion);
+
+                            for (const [categoryId, amount] of Object.entries(amounts)) {
+                                url.searchParams.set('amounts[' + categoryId + ']', String(amount));
+                            }
+
+                            const response = await fetch(url.toString(), {
+                                headers: {
+                                    'Accept': 'application/json',
+                                    'X-Requested-With': 'XMLHttpRequest',
+                                },
+                            });
+
+                            const payload = await response.json().catch(() => ({}));
+
+                            if (! response.ok) {
+                                this.optimizeError = payload?.errors
+                                    ? (this.firstOf(payload.errors.amounts) || 'Vui lòng kiểm tra lại thông tin.')
+                                    : 'Không tối ưu được. Vui lòng thử lại.';
+                                this.optimizeFieldErrors = payload?.errors ?? {};
+
+                                return;
+                            }
+
+                            this.optimizeResult = payload.data;
+                        } catch (e) {
+                            this.optimizeError = 'Không kết nối được máy chủ. Vui lòng thử lại.';
+                        } finally {
+                            this.optimizeLoading = false;
                         }
                     },
 

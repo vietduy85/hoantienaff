@@ -12,6 +12,7 @@ use App\Models\CreditCard\PolicyTierCategory;
 use App\Models\CreditCard\PolicyVersion;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * CardPolicyLookupService — "Tra cứu" cho module Thẻ tín dụng.
@@ -124,7 +125,7 @@ class CardPolicyLookupService
     {
         return PolicyMccProfile::query()
             ->where('policy_template_id', $templateId)
-            ->with('rows.codes')
+            ->with(['rows.codes', 'documents'])
             ->orderBy('name')
             ->orderBy('id')
             ->get()
@@ -132,6 +133,7 @@ class CardPolicyLookupService
                 'id' => (int) $profile->id,
                 'name' => $profile->name,
                 'note' => $profile->note,
+                'documents' => $this->profileDocumentsPayload($profile),
                 'included' => $profile->rows
                     ->where('row_type', PolicyMccProfileRow::TYPE_INCLUDED)
                     ->map(fn (PolicyMccProfileRow $row): array => $this->profileRowPayload($row))
@@ -182,6 +184,10 @@ class CardPolicyLookupService
         foreach ($this->adminProfileMatches($code) as $match) {
             $matches[] = $match;
         }
+
+        // Gộp các kết quả của CÙNG một sản phẩm dùng chung tài liệu cho nhiều hạng
+        // thẻ (VIB Max Card Visa / VIB One Card Visa) về MỘT kết quả đại diện.
+        $matches = $this->mergeProductMatches($matches);
 
         // Sắp theo độ ưu tiên: trực tiếp → nhóm → loại trừ → áp dụng rộng → chưa xác minh.
         $priority = [
@@ -365,11 +371,16 @@ class CardPolicyLookupService
     {
         $source = $row->benefits->first()?->document;
 
+        // Chương trình dùng chung nhiều hạng thẻ: hiển thị TÊN SẢN PHẨM đại diện,
+        // không hiển thị tên hạng thẻ vận chuyển dữ liệu (Starter / Gold...).
+        $productName = $profile->product_name;
+
         return [
             'id' => 'profile#'.$profile->id.'#'.$row->id,
             'source' => 'policy_mcc_profile',
             'policy_template_id' => (int) $profile->policy_template_id,
-            'policy_name' => $policyName,
+            'policy_name' => $productName !== null && $productName !== '' ? $productName : $policyName,
+            'product_name' => $productName,
             'relation' => $relation,
             'relation_label' => $this->relationLabel($relation),
             'exclusion_scope' => $relation === 'excluded' ? 'policy' : null,
@@ -413,37 +424,141 @@ class CardPolicyLookupService
             ->values()
             ->all();
 
-        $highest = $this->highestBenefit($benefits);
-
         return [
             'status' => 'available',
             'category_name' => $row->category_name,
             'tiers' => $tiers,
-            'highest' => $highest === null ? null : $this->benefitTierPayload($highest),
+            'highest' => $this->highestTier($tiers),
             'reason' => null,
         ];
     }
 
     /**
-     * Bậc hoàn tiền CAO NHẤT: ưu tiên tỷ lệ số, phá hoà bằng trần lớn hơn.
-     * Trả null khi mọi bậc đều không có tỷ lệ (chỉ có nhãn) — không suy diễn.
+     * Bậc hoàn tiền CAO NHẤT từ danh sách tier payload: ưu tiên tỷ lệ số, phá hoà
+     * bằng trần lớn hơn. Trả null khi mọi bậc đều không có tỷ lệ (chỉ có nhãn) —
+     * không suy diễn.
      *
-     * @param  Collection<int, PolicyMccRowBenefit>  $benefits
+     * @param  array<int, array<string, mixed>>  $tiers
+     * @return array<string, mixed>|null
      */
-    private function highestBenefit($benefits): ?PolicyMccRowBenefit
+    private function highestTier(array $tiers): ?array
     {
-        $withPercent = $benefits->filter(fn (PolicyMccRowBenefit $benefit): bool => $benefit->cashback_percent !== null);
+        $best = null;
+        $bestPercent = null;
 
-        if ($withPercent->isEmpty()) {
-            return null;
+        foreach ($tiers as $tier) {
+            $percent = $tier['cashback_percent'] ?? null;
+
+            if ($percent === null || $percent === '') {
+                continue;
+            }
+
+            $percent = (float) $percent;
+            $cap = (float) ($tier['cap_amount'] ?? 0);
+
+            if ($best === null || $percent > $bestPercent || ($percent === $bestPercent && $cap > (float) ($best['cap_amount'] ?? 0))) {
+                $best = $tier;
+                $bestPercent = $percent;
+            }
         }
 
-        return $withPercent
-            ->sortByDesc(fn (PolicyMccRowBenefit $benefit): array => [
-                (float) $benefit->cashback_percent,
-                (float) ($benefit->cap_amount ?? 0),
-            ])
-            ->first();
+        return $best;
+    }
+
+    /**
+     * Gộp các kết quả của CÙNG một sản phẩm (`product_name`) về MỘT kết quả đại
+     * diện, hợp nhất các bậc hoàn tiền của mọi hạng thẻ để KHÔNG làm mất khác
+     * biệt giữa các hạng. Kết quả không khai báo `product_name` giữ nguyên.
+     *
+     * @param  array<int, array<string, mixed>>  $matches
+     * @return array<int, array<string, mixed>>
+     */
+    private function mergeProductMatches(array $matches): array
+    {
+        $merged = [];
+        $groups = [];
+
+        foreach ($matches as $match) {
+            $product = $match['product_name'] ?? null;
+
+            if ($product === null || $product === '') {
+                $merged[] = $match;
+
+                continue;
+            }
+
+            $groups[$product][] = $match;
+        }
+
+        foreach ($groups as $product => $group) {
+            $merged[] = $this->collapseProductGroup($group, (string) $product);
+        }
+
+        return $merged;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $group
+     * @return array<string, mixed>
+     */
+    private function collapseProductGroup(array $group, string $product): array
+    {
+        $excluded = false;
+        $tiers = [];
+        $seen = [];
+
+        foreach ($group as $match) {
+            if (($match['relation'] ?? null) === 'excluded') {
+                $excluded = true;
+            }
+
+            foreach (($match['cashback']['tiers'] ?? []) as $tier) {
+                $key = implode('|', [
+                    $tier['cashback_percent'] ?? '',
+                    $tier['rate_label'] ?? '',
+                    $tier['min_total_spend'] ?? '',
+                    $tier['max_total_spend'] ?? '',
+                    $tier['cap_amount'] ?? '',
+                    $tier['note'] ?? '',
+                ]);
+
+                if (isset($seen[$key])) {
+                    continue;
+                }
+
+                $seen[$key] = true;
+                $tiers[] = $tier;
+            }
+        }
+
+        $representative = $group[0];
+        $representative['policy_name'] = $product;
+        $representative['product_group_size'] = count($group);
+
+        if ($excluded) {
+            $representative['relation'] = 'excluded';
+            $representative['relation_label'] = $this->relationLabel('excluded');
+            $representative['exclusion_scope'] = 'policy';
+            $representative['cashback'] = [
+                'status' => 'excluded',
+                'category_name' => $representative['category_name'] ?? null,
+                'tiers' => [],
+                'highest' => null,
+                'reason' => 'excluded',
+            ];
+
+            return $representative;
+        }
+
+        $representative['cashback'] = [
+            'status' => $tiers === [] ? 'missing' : 'available',
+            'category_name' => $representative['category_name'] ?? null,
+            'tiers' => $tiers,
+            'highest' => $this->highestTier($tiers),
+            'reason' => $tiers === [] ? 'no_data' : null,
+        ];
+
+        return $representative;
     }
 
     /**
@@ -473,6 +588,36 @@ class CardPolicyLookupService
         $number = (float) $value;
 
         return rtrim(rtrim(number_format($number, 3, '.', ''), '0'), '.');
+    }
+
+    /**
+     * Tài liệu ngân hàng của một hồ sơ — chỉ dành cho phần "Tra cứu thẻ".
+     *
+     * Chỉ đưa tài liệu mà file còn TỒN TẠI trên disk (không tạo link chết).
+     * KHÔNG lộ `path`/`disk` ra view: đường tải là endpoint có kiểm tra quyền,
+     * file nằm trên disk private.
+     *
+     * @return array<int, array{id:int, name:string, size:int, human_size:string, url:string}>
+     */
+    private function profileDocumentsPayload(PolicyMccProfile $profile): array
+    {
+        $payload = [];
+
+        foreach ($profile->documents as $document) {
+            if (! Storage::disk($document->disk)->exists($document->path)) {
+                continue;
+            }
+
+            $payload[] = [
+                'id' => (int) $document->id,
+                'name' => $document->original_name,
+                'size' => (int) $document->size,
+                'human_size' => $document->humanSize(),
+                'url' => route('credit-cards.lookup.document', [(int) $profile->id, (int) $document->id]),
+            ];
+        }
+
+        return $payload;
     }
 
     /**
