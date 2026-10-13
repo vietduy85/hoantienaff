@@ -47,7 +47,17 @@ final class CardScaffold
         public readonly ?string $qualificationNotice,
         public readonly string $marketAssumption,
         public readonly int $idNumber,
+        /** Vị trí instance (1-based) khi cùng một sản phẩm được dùng nhiều bản. */
+        public readonly int $instanceIndex = 1,
+        /** Khoá nhóm bản sao của cùng một sản phẩm (mặc định = key). */
+        public readonly ?string $productKey = null,
     ) {
+    }
+
+    /** Khoá nhóm bản sao — dùng để nhận diện nhiều thẻ CÙNG sản phẩm. */
+    public function groupKey(): string
+    {
+        return $this->productKey ?? $this->key;
     }
 
     public static function hypoIdBase(bool $isOwned): int

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\AffiliateOrderItem;
 use App\Services\AddLiveTag\ShopeeApiSyncService;
+use App\Services\Backup\BackupStatusService;
 use App\Services\Lazada\LazadaException;
 use App\Services\Lazada\LazadaOrderSyncService;
 use App\Services\Lazada\LazadaSyncResult;
@@ -42,10 +43,13 @@ class OrderSyncController extends Controller
         private readonly ShopeeFoodOrderSyncService $shopeeFoodService,
         private readonly LazadaOrderSyncService $lazadaService,
         private readonly ShopeeApiSyncService $shopeeService,
+        private readonly BackupStatusService $backupStatusService,
     ) {}
 
     public function index(): View
     {
+        $backupStatus = $this->backupStatusService->status();
+
         $recentOrders = AffiliateOrderItem::query()
             ->whereIn('platform', ['TikTok', 'Lazada', 'ShopeeFood', 'Shopee'])
             ->orderByDesc('id')
@@ -100,6 +104,7 @@ class OrderSyncController extends Controller
             'lastShopeeFoodSyncAt',
             'lastLazadaSyncAt',
             'lastShopeeSyncAt',
+            'backupStatus',
         ));
     }
 

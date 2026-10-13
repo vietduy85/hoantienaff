@@ -9,6 +9,7 @@ use App\Models\CreditCard\PolicyMccProfile;
 use App\Models\CreditCard\PolicyMccProfileDocument;
 use App\Models\CreditCard\PolicyMccProfileRow;
 use App\Models\CreditCard\PolicyMccProfileRowCode;
+use App\Models\CreditCard\PolicyMccProfileTemplateLink;
 use App\Models\CreditCard\PolicyMccRowBenefit;
 use App\Models\CreditCard\PolicyTemplate;
 use App\Models\CreditCard\PolicyTier;
@@ -593,6 +594,97 @@ class CardLookupMccProfileTest extends TestCase
     }
 
     // =====================================================================
+    // Phí thường niên theo hồ sơ MCC trong "Tra cứu thẻ"
+    // =====================================================================
+
+    #[Test]
+    public function policy_lookup_reports_annual_fees_per_profile(): void
+    {
+        $user = User::factory()->create();
+        $template = $this->makeSystemTemplate(['name' => 'Thẻ phí thường niên']);
+
+        // Hai hồ sơ khác nhau với mức phí khác nhau — không trộn số liệu.
+        $this->makeProfile($template, [], [], [
+            'name' => 'Hồ sơ phí A',
+            'annual_fee_primary' => '1200000',
+            'annual_fee_supplementary' => '600000',
+            'annual_spend_for_annual_fee_waiver' => '120000000',
+        ]);
+        $this->makeProfile($template, [], [], [
+            'name' => 'Hồ sơ phí B',
+            'annual_fee_primary' => '2500000',
+        ]);
+
+        $response = $this->actingAs($user)->getJson(
+            route('credit-cards.lookup.policy', ['template_id' => $template->id])
+        )->assertOk();
+
+        $response->assertJsonPath('data.mcc_profiles.0.annual_fee_primary', '1200000.00');
+        $response->assertJsonPath('data.mcc_profiles.0.annual_fee_supplementary', '600000.00');
+        $response->assertJsonPath('data.mcc_profiles.0.annual_spend_for_annual_fee_waiver', '120000000.00');
+
+        $response->assertJsonPath('data.mcc_profiles.1.annual_fee_primary', '2500000.00');
+        $response->assertJsonPath('data.mcc_profiles.1.annual_fee_supplementary', null);
+        $response->assertJsonPath('data.mcc_profiles.1.annual_spend_for_annual_fee_waiver', null);
+    }
+
+    #[Test]
+    public function policy_lookup_reports_null_annual_fees_when_profile_has_none(): void
+    {
+        $user = User::factory()->create();
+        $template = $this->makeSystemTemplate(['name' => 'Thẻ không phí']);
+
+        $this->makeProfile($template, ['5411']);
+
+        $response = $this->actingAs($user)->getJson(
+            route('credit-cards.lookup.policy', ['template_id' => $template->id])
+        )->assertOk();
+
+        $response->assertJsonPath('data.mcc_profiles.0.annual_fee_primary', null);
+        $response->assertJsonPath('data.mcc_profiles.0.annual_fee_supplementary', null);
+        $response->assertJsonPath('data.mcc_profiles.0.annual_spend_for_annual_fee_waiver', null);
+    }
+
+    #[Test]
+    public function lookup_page_always_renders_annual_fee_block_with_placeholder(): void
+    {
+        $user = User::factory()->create();
+        $this->makeSystemTemplate(['name' => 'Thẻ phí thường niên']);
+
+        $html = $this->actingAs($user)->get(route('credit-cards.lookup'))->assertOk()->getContent();
+
+        // Khối "Phí thường niên" LUÔN có trong template hồ sơ (không bị ẩn theo dữ liệu),
+        // với đủ ba dòng: thẻ chính / thẻ phụ / chi tiêu trong năm.
+        $this->assertStringContainsString('Phí thường niên', $html);
+        $this->assertStringContainsString('Thẻ chính:', $html);
+        $this->assertStringContainsString('Thẻ phụ:', $html);
+        $this->assertStringContainsString('Chi tiêu trong năm để được hoàn/miễn phí:', $html);
+
+        // Mỗi dòng thiếu dữ liệu đều có nhãn "Chưa cập nhật" (3 dòng) — không hiển thị "0 đ".
+        $this->assertSame(3, substr_count($html, 'Chưa cập nhật'));
+
+        // Hồi quy: bản cũ gắn x-show="ccProfileHasFees(profile)" + x-cloak lên chính khối phí
+        // khiến nó bị ẩn khi cả ba trường NULL. Đảm bảo không tái xuất hiện.
+        $this->assertStringNotContainsString('x-show="ccProfileHasFees(profile)" x-cloak', $html);
+    }
+
+    #[Test]
+    public function lookup_policy_section_uses_readable_font_sizes(): void
+    {
+        $user = User::factory()->create();
+        $this->makeSystemTemplate(['name' => 'Thẻ cỡ chữ']);
+
+        $html = $this->actingAs($user)->get(route('credit-cards.lookup'))->assertOk()->getContent();
+
+        // Tiêu đề section 18px, tên hồ sơ 16px, nhóm & nội dung 14px (class lõi Tailwind
+        // đã có trong CSS build; không dùng giá trị arbitrary chưa build như text-[17px]).
+        $this->assertStringContainsString('text-lg leading-snug', $html);
+        $this->assertStringContainsString('text-base leading-snug', $html);
+        $this->assertStringContainsString('text-sm font-semibold text-gray-600 mb-1">Phí thường niên', $html);
+        $this->assertStringContainsString('text-sm leading-relaxed text-gray-600', $html);
+    }
+
+    // =====================================================================
     // Tải tài liệu qua endpoint "Tra cứu thẻ" (disk private, kiểm tra quyền)
     // =====================================================================
 
@@ -691,5 +783,106 @@ class CardLookupMccProfileTest extends TestCase
         $response->assertDontSee('MCC liên quan');
         $response->assertDontSee('Chưa nhập danh sách MCC cho chính sách này.');
         $response->assertSee('Tài liệu tham khảo');
+    }
+
+    // =====================================================================
+    // Hồ sơ MCC DÙNG CHUNG nhiều template (VIB Max Card / VIB One Card)
+    // =====================================================================
+
+    #[Test]
+    public function policy_lookup_returns_a_shared_profile_for_every_variant_template(): void
+    {
+        $user = User::factory()->create();
+
+        // 4 HẠNG thẻ là 4 template RIÊNG nhưng dùng CHUNG một chương trình/hồ sơ.
+        $starter = $this->makeSystemTemplate(['name' => 'VIB Max Card Visa - Starter', 'slug' => 'shared-vib-max-starter']);
+        $plus = $this->makeSystemTemplate(['name' => 'VIB Max Card Visa - Plus', 'slug' => 'shared-vib-max-plus']);
+        $pro = $this->makeSystemTemplate(['name' => 'VIB Max Card Visa - Pro', 'slug' => 'shared-vib-max-pro']);
+        $elite = $this->makeSystemTemplate(['name' => 'VIB Max Card Visa - Elite', 'slug' => 'shared-vib-max-elite']);
+
+        // Hồ sơ CHỈ thuộc template Starter (nguồn chính); các hạng khác liên kết.
+        $profile = $this->makeIncludedProfile($starter, 'Mua sắm', ['5252'], ['product_name' => 'VIB Max Card Visa']);
+
+        foreach ([$starter, $plus, $pro, $elite] as $template) {
+            PolicyMccProfileTemplateLink::create([
+                'policy_mcc_profile_id' => $profile->id,
+                'policy_template_id' => $template->id,
+            ]);
+        }
+
+        // MỌI hạng đều thấy ĐÚNG một hồ sơ — không nhân bản.
+        foreach ([$starter, $plus, $pro, $elite] as $template) {
+            $response = $this->actingAs($user)->getJson(
+                route('credit-cards.lookup.policy', ['template_id' => $template->id])
+            )->assertOk();
+
+            $response->assertJsonCount(1, 'data.mcc_profiles');
+            $response->assertJsonPath('data.mcc_profiles.0.id', $profile->id);
+            $response->assertJsonPath('data.mcc_profiles.0.included.0.codes', ['5252']);
+        }
+    }
+
+    #[Test]
+    public function mcc_lookup_returns_one_result_for_a_shared_profile_across_linked_templates(): void
+    {
+        $user = User::factory()->create();
+        $this->seedMcc('5252');
+
+        $starter = $this->makeSystemTemplate(['name' => 'VIB One Card Visa - Gold', 'slug' => 'shared-one-gold']);
+        $linked = $this->makeSystemTemplate(['name' => 'VIB One Card Visa - Platinum', 'slug' => 'shared-one-platinum']);
+
+        $profile = $this->makeIncludedProfile($starter, 'Mua sắm', ['5252'], ['product_name' => 'VIB One Card Visa']);
+
+        PolicyMccProfileTemplateLink::create([
+            'policy_mcc_profile_id' => $profile->id,
+            'policy_template_id' => $linked->id,
+        ]);
+
+        $response = $this->actingAs($user)
+            ->getJson(route('credit-cards.lookup.mcc', ['mcc' => '5252']))
+            ->assertOk();
+
+        // Một chương trình dùng chung ⇒ MỘT kết quả đại diện, KHÔNG trùng.
+        $matches = $response->json('data.matches');
+        $this->assertCount(1, $matches);
+        $this->assertSame('VIB One Card Visa', $matches[0]['policy_name']);
+        $this->assertSame('policy_mcc_profile', $matches[0]['source']);
+    }
+
+    #[Test]
+    public function shared_profile_exclusion_applies_to_linked_templates(): void
+    {
+        $user = User::factory()->create();
+        $this->seedMcc('7995');
+
+        $primary = $this->makeSystemTemplate(['name' => 'VIB One Card Visa - Gold', 'slug' => 'shared-excl-primary']);
+        $linked = $this->makeSystemTemplate(['name' => 'VIB One Card Visa - Signature', 'slug' => 'shared-excl-linked']);
+
+        // Loại trừ mã nằm ở hồ sơ thuộc template chính.
+        $profile = $this->makeProfile($primary, [], ['7995'], ['product_name' => 'VIB One Card Visa']);
+
+        PolicyMccProfileTemplateLink::create([
+            'policy_mcc_profile_id' => $profile->id,
+            'policy_template_id' => $linked->id,
+        ]);
+
+        // Mapping import cho CÙNG mã nằm ở template LIÊN KẾT — phải bị loại trừ theo
+        // phạm vi chương trình dùng chung, không lòi ra như đang áp dụng.
+        CardPolicyMccMapping::create([
+            'policy_template_id' => $linked->id,
+            'match_type' => CardPolicyMccMapping::MATCH_DIRECT,
+            'mcc' => '7995',
+            'application_status' => 'applied',
+            'verification_status' => MccCode::STATUS_VERIFIED,
+        ]);
+
+        $response = $this->actingAs($user)
+            ->getJson(route('credit-cards.lookup.mcc', ['mcc' => '7995']))
+            ->assertOk();
+
+        $matches = $response->json('data.matches');
+        $this->assertCount(1, $matches);
+        $this->assertSame('excluded', $matches[0]['relation']);
+        $this->assertSame('policy_mcc_profile', $matches[0]['source']);
     }
 }

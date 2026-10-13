@@ -33,6 +33,36 @@
         @endif
 
         @php
+            $annualFees = [
+                ['label' => 'Phí thường niên thẻ chính', 'value' => $profile->annual_fee_primary, 'suffix' => ' đ/năm'],
+                ['label' => 'Phí thường niên thẻ phụ', 'value' => $profile->annual_fee_supplementary, 'suffix' => ' đ/năm'],
+                ['label' => 'Chi tiêu để miễn phí thường niên', 'value' => $profile->annual_spend_for_annual_fee_waiver, 'suffix' => ' đ/năm'],
+            ];
+            $hasAnnualFee = collect($annualFees)->contains(fn (array $fee): bool => $fee['value'] !== null && $fee['value'] !== '');
+        @endphp
+
+        <div class="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm space-y-2">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Phí thường niên (tham khảo)</p>
+
+            @if ($hasAnnualFee)
+                <dl class="grid gap-2 sm:grid-cols-3">
+                    @foreach ($annualFees as $fee)
+                        @if ($fee['value'] !== null && $fee['value'] !== '')
+                            <div class="rounded-xl bg-gray-50 p-3">
+                                <dt class="text-[11px] font-medium text-gray-500">{{ $fee['label'] }}</dt>
+                                <dd class="mt-0.5 text-sm font-semibold text-gray-800">
+                                    {{ number_format((float) $fee['value'], 0, ',', '.') }}{{ $fee['suffix'] }}
+                                </dd>
+                            </div>
+                        @endif
+                    @endforeach
+                </dl>
+            @else
+                <p class="text-sm text-gray-400">Chưa có thông tin phí thường niên.</p>
+            @endif
+        </div>
+
+        @php
             $sections = [
                 ['title' => 'MCC được hoàn tiền', 'rows' => $profile->includedRows, 'tone' => 'emerald'],
                 ['title' => 'MCC loại trừ', 'rows' => $profile->excludedRows, 'tone' => 'rose'],

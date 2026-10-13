@@ -1604,21 +1604,23 @@ class CreditCardSeeder extends Seeder
             // -----------------------------------------------------------------
             // HSBC CASH BACK
             // -----------------------------------------------------------------
-            // Nguồn: trang sản phẩm chính thức HSBC Việt Nam (12/10/2026). "Siêu
-            // thị & Cửa hàng tiện ích" 6% (8% nếu chi lương qua HSBC), trần
-            // 200.000đ/tháng; "Bảo hiểm & Giáo dục" 1% (không trần); "Khác" 0,5%.
-            // HSBC KHÔNG công bố mã MCC ⇒ không có cơ sở tạo MCC profile (báo
-            // cáo: CHƯA ĐỦ DỮ LIỆU). Trần tính theo THÁNG DƯƠNG LỊCH, engine
-            // tính theo kỳ sao kê ⇒ ghi chú. "Cửa hàng tiện ích" gộp về danh mục
-            // `sieu-thi-tien-loi` (bộ seed gốc); mức 8% chi-lương không mô hình
-            // được (ghi chú).
+            // Nguồn: "Điều khoản và Điều kiện của Thẻ tín dụng HSBC Cash Back"
+            // (hiệu lực 06/03/2026), Phụ lục — Tỷ lệ và hạn mức hoàn tiền. Siêu
+            // thị, cửa hàng bách hóa (MCC 5411, 4121) 6%, hoàn thêm 2% (tổng 8%)
+            // khi có Tài khoản Nhận Lương + Giao dịch Lương Chuyển Khoản Hợp Lệ từ
+            // 10.000.000đ/tháng, trần 200.000đ/tháng; Giáo dục 1% và Chăm sóc sức
+            // khỏe 1% (không giới hạn); giao dịch khác 0,3%.
+            // Blueprint mô hình hoá phần tỷ lệ theo danh mục; hồ sơ MCC chi tiết
+            // (mã ngành hàng) do migration dữ liệu tạo. Trần tính theo THÁNG DƯƠNG
+            // LỊCH, engine tính theo kỳ sao kê ⇒ ghi chú. "Cửa hàng bách hóa" gộp
+            // về danh mục `sieu-thi-tien-loi` (bộ seed gốc).
             [
                 'slug' => 'hsbc-cash-back',
                 'name' => 'HSBC Cash Back',
                 'sort_order' => 59,
                 'bank' => 'hsbc',
                 'match' => 'cash back',
-                'description' => 'HSBC Cash Back: Siêu thị & Cửa hàng tiện ích 6% (8% nếu nhận lương qua HSBC), trần 200.000đ/tháng; Bảo hiểm & Giáo dục 1% (không trần); còn lại 0,5%. HSBC chưa công bố mã MCC. Trần theo tháng dương lịch.',
+                'description' => 'HSBC Cash Back: Siêu thị, cửa hàng bách hóa (MCC 5411, 4121) 6% — hoàn thêm 2% (tổng 8%) khi có Tài khoản Nhận Lương và Giao dịch Lương Chuyển Khoản Hợp Lệ từ 10.000.000đ/tháng, trần 200.000đ/tháng; Giáo dục (8211, 8220, 8241, 8244, 8249, 8299, 8351) 1% và Chăm sóc sức khỏe (5047, 5122, 5912, 8011, 8021, 8041, 8042, 8043, 8049, 8050, 8062, 8071, 8099) 1%, không giới hạn; giao dịch khác 0,3%.',
                 'tiers' => [
                     [
                         'name' => 'Toàn bộ chi tiêu hợp lệ',

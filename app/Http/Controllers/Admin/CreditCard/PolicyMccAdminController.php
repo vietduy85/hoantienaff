@@ -46,7 +46,7 @@ class PolicyMccAdminController extends Controller
                 'documents',
             ])
             ->search($filters['name'])
-            ->when($filters['template_id'] !== null, fn (Builder $query) => $query->where('policy_template_id', $filters['template_id']))
+            ->when($filters['template_id'] !== null, fn (Builder $query) => $query->forTemplate((int) $filters['template_id']))
             ->orderByDesc('updated_at')
             ->orderByDesc('id')
             ->paginate(20)
@@ -67,6 +67,9 @@ class PolicyMccAdminController extends Controller
             'initialName' => (string) old('name', ''),
             'initialTemplateId' => (int) old('policy_template_id', $request->integer('template_id') ?: 0) ?: null,
             'initialNote' => (string) old('note', ''),
+            'initialAnnualFeePrimary' => (string) old('annual_fee_primary', ''),
+            'initialAnnualFeeSupplementary' => (string) old('annual_fee_supplementary', ''),
+            'initialAnnualSpendForWaiver' => (string) old('annual_spend_for_annual_fee_waiver', ''),
             'initialIncluded' => old('included', []),
             'initialExcluded' => old('excluded', []),
         ]);
@@ -119,6 +122,9 @@ class PolicyMccAdminController extends Controller
             'initialName' => (string) old('name', $profile->name),
             'initialTemplateId' => (int) $profile->policy_template_id,
             'initialNote' => (string) old('note', $profile->note ?? ''),
+            'initialAnnualFeePrimary' => (string) old('annual_fee_primary', $profile->annual_fee_primary ?? ''),
+            'initialAnnualFeeSupplementary' => (string) old('annual_fee_supplementary', $profile->annual_fee_supplementary ?? ''),
+            'initialAnnualSpendForWaiver' => (string) old('annual_spend_for_annual_fee_waiver', $profile->annual_spend_for_annual_fee_waiver ?? ''),
             'initialIncluded' => old('included', $this->rowsToInitial($profile->includedRows)),
             'initialExcluded' => old('excluded', $this->rowsToInitial($profile->excludedRows)),
         ]);

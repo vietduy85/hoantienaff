@@ -378,4 +378,60 @@ class OrderSyncAdminTest extends TestCase
             ->get(route('admin.tiktok-order-sync.index'))
             ->assertForbidden();
     }
+
+    public function test_get_index_shows_backup_status_card_with_onedrive_success(): void
+    {
+        $statusPath = sys_get_temp_dir().'/htx_bk_'.uniqid().'.json';
+        config(['backup.status_path' => $statusPath]);
+
+        file_put_contents($statusPath, json_encode([
+            'updated_at' => '2026-10-13T11:12:11+07:00',
+            'last_backup' => [
+                'status' => 'SUCCESS',
+                'set_id' => '20261013_111153',
+                'time' => '2026-10-13T11:11:53+07:00',
+                'databases' => ['hoantienaff', 'hoantien_creditcard'],
+                'files' => [['size' => 4477604], ['size' => 439867]],
+            ],
+            'onedrive' => [
+                'status' => 'SUCCESS',
+                'set_id' => '20261013_111153',
+                'time' => '2026-10-13T11:12:10+07:00',
+                'files' => [
+                    ['name' => 'a.sql', 'verified' => true],
+                    ['name' => 'b.sql', 'verified' => true],
+                ],
+            ],
+            'cloud_sync' => [
+                'status' => 'UNKNOWN',
+                'checked_at' => '2026-10-13T11:12:10+07:00',
+                'note' => 'Da copy vao thu muc OneDrive - chua xac minh dong bo cloud.',
+            ],
+        ]));
+
+        try {
+            $this->actingAs($this->admin)
+                ->get(route('admin.tiktok-order-sync.index'))
+                ->assertOk()
+                ->assertSee('Backup database')
+                ->assertSee('Backup thành công và đã copy vào thư mục OneDrive.')
+                ->assertSee('2')
+                ->assertSee('chưa xác minh đồng bộ cloud (hệ thống không có API/cơ chế xác minh đáng tin cậy)')
+                ->assertSee('20261013_111153');
+        } finally {
+            @unlink($statusPath);
+        }
+    }
+
+    public function test_get_index_shows_unreadable_backup_status(): void
+    {
+        $statusPath = sys_get_temp_dir().'/htx_bk_'.uniqid().'.json';
+        config(['backup.status_path' => $statusPath]);
+
+        $this->actingAs($this->admin)
+            ->get(route('admin.tiktok-order-sync.index'))
+            ->assertOk()
+            ->assertSee('Backup database')
+            ->assertSee('Không đọc được trạng thái backup hiện tại.');
+    }
 }

@@ -27,7 +27,15 @@ final class CardScenario
         public readonly bool $minTotalSpendMet,
         public readonly ?string $qualificationNotice,
         public readonly string $marketAssumption,
+        public readonly int $instanceIndex = 1,
+        public readonly ?string $productKey = null,
     ) {
+    }
+
+    /** Khoá nhóm bản sao của cùng một sản phẩm (mặc định = key). */
+    public function groupKey(): string
+    {
+        return $this->productKey ?? $this->key;
     }
 
     public function cardsCounted(): bool

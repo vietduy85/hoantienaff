@@ -50,6 +50,9 @@ $logFile    = Join-Path $LogsDir ("backup_{0}.log" -f $ts)
 $utf8NoBom  = New-Object System.Text.UTF8Encoding($false)
 $exitCode   = 0
 
+# Shared helpers: OneDrive copy + backup status JSON
+. (Join-Path $PSScriptRoot 'backup-onedrive-common.ps1')
+
 function Write-Log {
     param([string]$Message, [ValidateSet('INFO','WARN','ERROR','OK')][string]$Level = 'INFO')
     $line = "{0} [{1}] {2}" -f (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $Level, $Message
@@ -271,6 +274,50 @@ if ($allOk -and -not $SkipManualCopy) {
     Copy-Item -LiteralPath (Join-Path $setDir 'MANIFEST.sha256') -Destination (Join-Path $ManualDir 'MANIFEST.sha256') -Force
     if (Test-Path -LiteralPath $GuideFile) { Copy-Item -LiteralPath $GuideFile -Destination (Join-Path $ManualDir (Split-Path $GuideFile -Leaf)) -Force }
     Write-Log "manual_copy da cap nhat bang bo backup moi nhat ($ts)."
+}
+
+# ---------------- Backup status JSON + OneDrive copy ----------------
+$dbInfoArr = @()
+foreach ($r in $dbResults) {
+    $dbInfoArr += @{
+        db = "$($r.Database)"; file = "$($r.File)"; size = $r.SizeBytes
+        sha256 = "$($r.Sha256)"; encoding = "$($r.Encoding)"; tables = $r.Tables
+        status = "$($r.Status)"
+    }
+}
+
+$localStatus = $(if ($allOk) { 'SUCCESS' } else { 'FAILED' })
+Write-BackupStatus @{
+    last_backup = @{
+        time = $StartedAt.ToString('o')
+        set_id = $ts
+        status = $localStatus
+        databases = @($Databases)
+        files = $dbInfoArr
+        error = $(if ($allOk) { $null } else { "Backup database that bai - xem log: $(Split-Path $logFile -Leaf)" })
+    }
+}
+Write-Log "Status file da cap nhat last_backup -> $localStatus"
+
+if ($allOk) {
+    $oneRes = Copy-BackupSetToOneDrive -SetId $ts
+    if ($oneRes.status -eq 'SUCCESS') {
+        Write-Log ("OneDrive: copy xong + da xac minh SHA-256 -> " + $oneRes.target_dir) 'OK'
+    } else {
+        Write-Log ("OneDrive: " + $oneRes.status + " - " + $oneRes.error) 'WARN'
+    }
+    $patch2 = New-OneDriveStatusPatch $oneRes
+    $patch2 += New-CloudSyncPatch
+    Write-BackupStatus $patch2
+} else {
+    Write-BackupStatus @{
+        onedrive = @{
+            time = $null; status = 'PENDING'; set_id = $ts
+            target_dir = $script:ONEDRIVE_ROOT; files = @()
+            error = 'Backup local that bai - chua copy sang OneDrive'
+        }
+        cloud_sync = @{ status = 'PENDING'; note = 'Cho thuc hien sao chep OneDrive khi backup local thanh cong.'; checked_at = (Get-Date).ToString('o') }
+    }
 }
 
 # ---------------- Retention (mac dinh TAT) ----------------

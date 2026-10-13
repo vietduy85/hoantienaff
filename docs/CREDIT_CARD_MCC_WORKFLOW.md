@@ -29,21 +29,33 @@ Bảng `credit_card_policy_mcc_row_benefits` cũng **không** là đầu vào c�
 ```
 credit_card_policy_templates (1)
   └── (n) credit_card_policy_mcc_profiles      [hồ sơ: name, note, product_name]
+        │      template chủ = policy_template_id
+        │      template LIÊN KẾT (dùng chung) = (n) qua credit_card_policy_mcc_profile_template_links
         ├── (n) credit_card_policy_mcc_rows     [row_type: included|excluded, category_name, note]
         │      ├── (n) credit_card_policy_mcc_row_codes   [mỗi mã MCC 1 bản ghi → mcc_code_id, mcc]
         │      └── (n) credit_card_policy_mcc_row_benefits [bậc hoàn tiền trích tài liệu; tier_order]
         └── (n) credit_card_policy_mcc_documents [tài liệu ngân hàng, disk private]
 
+credit_card_policy_mcc_profile_template_links  [policy_mcc_profile_id ↔ policy_template_id, UNIQUE]
 credit_card_mcc_codes (master MCC)  ←── mcc (natural key, char 4)
 ```
 
 ### A.3 Vai trò từng bảng / model
 
 - **`PolicyMccProfile`** (`app/Models/CreditCard/PolicyMccProfile.php`) — "hồ sơ MCC chính sách".
-  Trường: `policy_template_id`, `name` (tên riêng của hồ sơ, KHÔNG đổi tên template), `note`,
+  Trường: `policy_template_id` (**template CHỦ**), `name` (tên riêng của hồ sơ, KHÔNG đổi tên template), `note`,
   `product_name` (nullable — tên **sản phẩm đại diện** khi một chương trình dùng chung tài liệu cho
   nhiều hạng thẻ; chỉ VIB khai báo). Quan hệ: `template()`, `rows()`, `includedRows()`,
-  `excludedRows()`, `documents()`.
+  `excludedRows()`, `documents()`, `templateLinks()` (HasMany tới bảng liên kết),
+  `sharedTemplates()` (BelongsToMany tới các template dùng chung).
+  Scope `scopeForTemplate($id)` = template **chủ** HOẶC có **liên kết** tới template đó; helper
+  `allTemplateIds()` = [template chủ + mọi template liên kết] (dùng để mở rộng phạm vi loại trừ — Phần G).
+  Trường **phí thường niên** (nullable, `decimal(16,2)`, cast `decimal:2`):
+  `annual_fee_primary` (thẻ chính), `annual_fee_supplementary` (thẻ phụ),
+  `annual_spend_for_annual_fee_waiver` (tổng chi tiêu/năm để được miễn/hoàn phí) — xem Phần I.
+- **`PolicyMccProfileTemplateLink`** (`app/Models/CreditCard/PolicyMccProfileTemplateLink.php`) — một dòng
+  liên kết hồ sơ ↔ template **dùng chung**: `policy_mcc_profile_id` + `policy_template_id`
+  (UNIQUE đôi, FK cascade). Xem Phần G để biết quy tắc và A.6.
 - **`PolicyMccProfileRow`** (`PolicyMccProfileRow.php`) — một DÒNG MCC. `row_type` = `included`
   (hoàn tiền) | `excluded` (loại trừ). `category_name` là **text tự do**, KHÔNG liên kết
   `credit_card_categories` (VIB dùng combo nên tên không khớp blueprint). Một dòng chứa **nhiều** MCC.
@@ -88,6 +100,24 @@ credit_card_mcc_codes (master MCC)  ←── mcc (natural key, char 4)
 - Ghi (create/store/edit/update): `credit-cards.manage`.
 - Form request kiểm tra `authorize()` = có quyền `credit-cards.manage`.
 - Chỉ hồ sơ gắn **chính sách hệ thống** (`scope = system`) mới thuộc phạm vi.
+
+### A.6 Chương trình dùng chung nhiều template (bảng liên kết)
+
+Một chương trình ngân hàng có thể áp dụng cho **nhiều hạng thẻ = nhiều template** nhưng chỉ có **một bộ
+danh mục MCC** (ví dụ VIB Max Card, VIB One Card — xem Phần G). Để **không nhân bản** dữ liệu:
+
+- Hồ sơ vẫn thuộc **một template chủ** (`policy_template_id`) để không phá luồng tạo/sửa hiện có.
+- Các template hạng khác được ghi vào bảng **`credit_card_policy_mcc_profile_template_links`**
+  (`policy_mcc_profile_id` + `policy_template_id`).
+- **Tra cứu theo template** dùng `PolicyMccProfile::scopeForTemplate($id)`:
+  `where('policy_template_id', $id)` **OR** `whereHas('templateLinks', … policy_template_id = $id)`.
+  ⇒ mọi hạng dùng chung đều thấy **đúng một** hồ sơ.
+- **Loại trừ thắng** được mở rộng theo `allTemplateIds()` (chủ + liên kết) để mapping import của
+  template liên kết cũng bị loại khi hồ sơ có dòng `excluded` chứa mã.
+- Tra cứu theo **mã MCC** vẫn gộp về **một kết quả đại diện** theo `product_name` (Phần F/G) — không trùng.
+
+Hiện có **7 liên kết**: #14 → #15/#16/#17/#18 (Max Card) và #2 → #19/#20/#21 (One Card). Migration seed
+`2026_10_13_000006_...`. Ví dụ ngoài VIB: **HSBC Cash Back** tạo hồ sơ **#28** cho template #31 (không dùng chung).
 
 ---
 
@@ -161,6 +191,8 @@ credit_card_mcc_codes (master MCC)  ←── mcc (natural key, char 4)
     mở rộng thành danh sách đầy đủ.
 - **Mã có dẫn chứng nhưng thiếu trong master** (đã ghi nhận, CHƯA thêm — chỉ bổ sung khi có căn cứ):
   - VIB (One Card & Max Card): `5301, 5298, 5296, 0046`; dải hàng không `3000–3838, 3998, 0070, 0010`.
+  - Sacombank Platinum Amex: dải hàng không/khách sạn `3xxx` (đã thêm **4511, 4722, 7011** vào hồ sơ #16;
+    phần dải 3xxx **tồn đọng có chủ đích**).
   - Shinhan Supreme: `6381, 6399`.
   - MB JCB Ultimate: `8044, 8082, 7295`.
   - Sacombank Uniq: `9751`.
@@ -275,18 +307,20 @@ Nguồn: `CardPolicyLookupService::lookupMcc()` (CHỈ ĐỌC; không tạo kỳ
 ### G.1 Bối cảnh
 
 - Hai chương trình VIB dùng **chung một tài liệu cho nhiều hạng thẻ**:
-  - `VIB Max Card Visa` — hồ sơ **#14** → template **#15** (`vib-max-card-visa-starter`),
-    template #16–18 (Plus/Pro/Elite) **dùng chung** hồ sơ #14.
-  - `VIB One Card Visa` — hồ sơ **#2** → template **#19** (`vib-one-card-visa-gold`),
-    template #20–21 (Platinum/Signature) **dùng chung** hồ sơ #2.
+  - `VIB Max Card Visa` — hồ sơ **#14** (template chủ **#15** `vib-max-card-visa-starter`);
+    template #16–18 (Plus/Pro/Elite) **liên kết** tới hồ sơ #14 qua bảng liên kết (A.6).
+  - `VIB One Card Visa` — hồ sơ **#2** (template chủ **#19** `vib-one-card-visa-gold`);
+    template #20–21 (Platinum/Signature) **liên kết** tới hồ sơ #2 qua bảng liên kết (A.6).
 - Mỗi dòng của hồ sơ mang **đủ bậc của MỌI hạng** (VIB Max: Elite 10% / Pro 8% / Plus 5% /
   Starter 0,5% / ngoài nhóm 0,1%; VIB One: Signature 9% / Platinum 6% / Gold 3% / ngoài DMCT 0,1%).
 - Chỉ hai hồ sơ này có `product_name`; mọi hồ sơ khác `product_name = NULL`.
 
 ### G.2 Cơ chế gộp (data-driven, không hard-code)
 
+- **Phủ theo hạng (tra cứu thẻ):** nhờ bảng liên kết (A.6), mỗi template hạng #16–18/#20–21 trả về **đúng một**
+  hồ sơ chủ (#14/#2) qua `scopeForTemplate()`. **Không** nhân bản dòng/mã/tài liệu.
 - `profileMatch()` dùng `product_name` (nếu có) làm `policy_name`, ngược lại giữ tên template như cũ.
-- `mergeProductMatches()` gộp mọi kết quả **cùng `product_name`** về **MỘT kết quả đại diện**.
+- `mergeProductMatches()` gộp mọi kết quả **cùng `product_name`** về **MỘT kết quả đại diện** (tra cứu theo mã MCC).
 - `collapseProductGroup()` hợp nhất bậc của mọi hạng, **khử trùng lặp** theo khoá
   `cashback_percent|rate_label|min_total_spend|max_total_spend|cap_amount|note`; nếu nhóm có phần tử
   `excluded` ⇒ kết quả là **loại trừ**.
@@ -303,11 +337,16 @@ Nguồn: `CardPolicyLookupService::lookupMcc()` (CHỈ ĐỌC; không tạo kỳ
 
 ### G.4 Kiểm thử tham chiếu
 
-`tests/Feature/CreditCard/CardLookupMccProfileTest.php` (12 passed / 52 assertions), gồm 4 test cho cơ chế gộp:
+`tests/Feature/CreditCard/CardLookupMccProfileTest.php` — gồm test cho cơ chế gộp:
 `lookup_mcc_groups_shared_product_variants_into_one_representative_result`,
 `lookup_mcc_shows_representative_product_name_and_preserves_every_tier_difference`,
 `lookup_mcc_keeps_template_name_when_policy_has_no_shared_product`,
-`lookup_mcc_keeps_representative_product_name_for_excluded_rows`.
+`lookup_mcc_keeps_representative_product_name_for_excluded_rows`;
+và **3 test mới cho bảng liên kết dùng chung**:
+`policy_lookup_returns_a_shared_profile_for_every_variant_template`,
+`mcc_lookup_returns_one_result_for_a_shared_profile_across_linked_templates`,
+`shared_profile_exclusion_applies_to_linked_templates`.
+Chạy: `php artisan test --filter "CardLookupTest|CardLookupMccProfileTest"`.
 
 ---
 
@@ -346,11 +385,86 @@ Nguồn: `CardPolicyLookupService::lookupMcc()` (CHỈ ĐỌC; không tạo kỳ
 
 ---
 
+## PHẦN I — PHÍ THƯỜNG NIÊN CỦA HỒ SƠ MCC
+
+Mỗi hồ sơ MCC mang thêm 3 trường **phí thường niên** trên `credit_card_policy_mcc_profiles`
+(nullable, `decimal(16,2)`):
+
+| Trường | Ý nghĩa |
+|---|---|
+| `annual_fee_primary` | Phí thường niên **thẻ chính** (VND/năm). |
+| `annual_fee_supplementary` | Phí thường niên **thẻ phụ** (VND/năm). |
+| `annual_spend_for_annual_fee_waiver` | Tổng **chi tiêu/năm** để được miễn/hoàn phí thường niên. |
+
+### I.1 Giao diện
+
+- Admin nhập ở form hồ sơ (khối "Phí thường niên") trên cả màn **tạo** và **sửa**
+  (`resources/views/components/mcc-profile-form.blade.php`).
+- Tab **Tra cứu MCC** (`/thetindung/tra-cuu/mcc`) luôn hiển thị khối "Phí thường niên"; trường
+  trống hiển thị **"Chưa cập nhật"** — **không bao giờ** hiện `0 đ` (dùng `ccMoneyVnd` +
+  `/năm`, xem `resources/views/credit-card/partials/money-js.blade.php`).
+
+### I.2 Quy tắc nghiên cứu (bắt buộc)
+
+1. **Chỉ ghi khi có nguồn chính thức** đúng **sản phẩm + hạng** của ngân hàng phát hành.
+2. **KHÔNG suy luận**, **KHÔNG sao chép** giá trị giữa các hồ sơ; **KHÔNG coi "thiếu thông tin"
+   là "miễn phí"**.
+3. **KHÔNG điền `0`** — kể cả khi ngân hàng ghi "Miễn phí". Trường không xác minh để **NULL** và
+   ghi rõ lý do trong báo cáo (quy ước chung với Phần C).
+4. **Liệt kê riêng từng hạng/bậc phí — KHÔNG gộp.** Hồ sơ dùng chung nhiều hạng có phí **khác
+   nhau** (VIB One Card #2: 3 hạng; VIB Max Card #14: 4 hạng). Schema hiện tại chỉ có **1 bộ 3
+   trường/hồ sơ** ⇒ **KHÔNG ghi một mức chung**; để NULL, ghi lý do "phí phụ thuộc hạng", và
+   **đề xuất cách biểu diễn** (xem I.4).
+5. **Phân biệt loại phí:** phí thường niên **thẻ chính** vs **thẻ phụ**; **phí gói/thành viên**
+   (membership/package fee — ví dụ gói Cake 2in1 Premium, gói hạng của VIB Max) là loại phí KHÁC,
+   **không** ghi vào 3 trường phí thường niên.
+6. **Tách "năm đầu" vs "các năm tiếp theo"**, và phân biệt **mức phí chuẩn** vs **ưu đãi có thời
+   hạn** (promo). Giá trị ghi vào DB là **mức chuẩn**; ưu đãi thời hạn chỉ ghi trong báo cáo.
+7. Ghi **nguồn (URL) + ngày hiệu lực** trong báo cáo nghiên cứu.
+8. Thứ tự ưu tiên nguồn: (1) **biểu phí chính thức** của ngân hàng (PDF/HTML, thường tên
+   "Biểu phí thẻ tín dụng"); (2) trang **sản phẩm chính thức**. Nguồn thứ cấp (sosanhthe, rcgv,
+   fingo, topbank…) **chỉ tham khảo**, KHÔNG dùng để ghi giá trị.
+9. ⚠️ `shinhanfinance.com.vn` là **Shinhan Finance (SVFC)** — KHÁC Shinhan Bank Việt Nam; KHÔNG
+   dùng biểu phí đó cho thẻ của Shinhan Bank (`shinhan.com.vn`).
+10. ⚠️ Bảng phí PDF nhiều cột: trích xuất văn bản có thể **lệch cột** ⇒ phải đối chiếu toạ độ
+    x/y hoặc mở trực tiếp bảng trước khi ghi; số liệu "đáng ngờ" để NULL (xem I.4).
+
+### I.3 Trạng thái (cập nhật 2026-10-13, đợt I.1)
+
+- **20/27 hồ sơ** có ≥1 giá trị phí (nguồn chính thức, chỉ ghi trường đã kiểm chứng).
+- Đợt **I.1** bổ sung **thẻ phụ / ngưỡng miễn phí** cho nhóm VPBank (`#5` StepUp, `#6` Lady,
+  `#7` Z Card, `#23` S Rewards) từ **biểu phí chính thức hiệu lực 22/06/2026**.
+- **7 hồ sơ để NULL toàn bộ**: `#2` (VIB One Card — 3 hạng), `#4` (MB JCB Ultimate — chưa có số
+  chính thức), `#14` (VIB Max Card — 4 hạng), `#17` (MB JCB Platinum — chỉ có nguồn thứ cấp),
+  `#19` (VPBank Flex — "miễn phí", NULL theo luật không-điền-0), `#22` (Thẻ Cake 2in1 gói
+  Premium — phí gói, không phải phí thường niên cố định), `#25` (TPBank EVO — "miễn phí", NULL).
+- Chi tiết từng hồ sơ (giá trị + nguồn + ngày hiệu lực) xem báo cáo nghiên cứu phí thường niên.
+
+### I.4 Hạng/bậc phí & đề xuất biểu diễn
+
+Hai hồ sơ gộp nhiều hạng có **mức phí khác nhau theo hạng** nhưng schema hiện tại chỉ có **1 bộ
+3 trường/hồ sơ**, nên **không thể** biểu diễn đúng:
+
+- `#2` **VIB One Card** (3 hạng): thẻ chính Gold **999.000** / Platinum **1.999.000** /
+  Signature **2.999.000**; thẻ phụ Gold **499.000** / Platinum **999.000** / Signature
+  **1.499.000**.
+- `#14` **VIB Max Card** (4 hạng): Starter **miễn phí**; Plus/Pro/Elite phí thường niên
+  **5.000 VNĐ/tháng (~60.000/năm)** cho thẻ chính & thẻ phụ; kèm **phí gói thành viên** riêng
+  (Plus 300.000 / Pro 500.000 / Elite 1.000.000 — mỗi 3 kỳ sao kê).
+
+**Đề xuất (chờ duyệt, chưa thực hiện):** thêm bảng con
+`credit_card_policy_mcc_fee_tiers(profile_id, tier_name, credit_limit_min, credit_limit_max,
+annual_fee_primary, annual_fee_supplementary, annual_spend_for_annual_fee_waiver,
+membership_fee, membership_period_months, effective_date)` và **giữ nguyên 3 cột** hiện tại cho
+hồ sơ **một hạng** (tương thích ngược, không phá tra cứu). Không đổi schema trong đợt I.1.
+
+---
+
 ## PHỤ LỤC — LỆNH & ĐƯỜNG DẪN NHANH
 
 | Mục đích | Lệnh / đường dẫn |
 |---|---|
-| Áp dụng migration (connection `creditcard`) | `php artisan migrate --database=creditcard --path=database/migrations/creditcard` |
+| Áp dụng migration (connection `creditcard`) | `php artisan credit-card:migrate` (đường chạy DUY NHẤT; `php artisan migrate` KHÔNG chạy thư mục con) |
 | Nạp MCC master + mapping | `php artisan credit-card:import-mcc {file} [--sheet=]` |
 | Nạp bậc hoàn tiền theo dòng | `php artisan credit-card:import-mcc-row-benefits [--file=]` |
 | Admin quản lý MCC | `/credit-card/mcc` (index/create/show/edit) |

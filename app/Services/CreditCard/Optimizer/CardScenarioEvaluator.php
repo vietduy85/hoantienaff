@@ -142,6 +142,8 @@ class CardScenarioEvaluator
             minTotalSpendMet: $scaffold->minTotalSpend <= $totalEligible,
             qualificationNotice: $scaffold->qualificationNotice,
             marketAssumption: $scaffold->marketAssumption,
+            instanceIndex: $scaffold->instanceIndex,
+            productKey: $scaffold->productKey,
         );
     }
 
@@ -165,6 +167,8 @@ class CardScenarioEvaluator
             minTotalSpendMet: false,
             qualificationNotice: $scaffold->qualificationNotice,
             marketAssumption: $scaffold->marketAssumption,
+            instanceIndex: $scaffold->instanceIndex,
+            productKey: $scaffold->productKey,
         );
     }
 
@@ -210,6 +214,8 @@ class CardScenarioEvaluator
             minTotalSpendMet: false,
             qualificationNotice: $scaffold->qualificationNotice,
             marketAssumption: $scaffold->marketAssumption,
+            instanceIndex: $scaffold->instanceIndex,
+            productKey: $scaffold->productKey,
         );
     }
 

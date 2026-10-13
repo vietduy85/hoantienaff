@@ -1,0 +1,359 @@
+# BÁO CÁO KIỂM TOÁN ĐỘ PHỦ HỒ SƠ MCC THEO CHÍNH SÁCH HOÀN TIỀN
+
+> Ngày thực hiện: 2026-10-13. Người thực hiện: phiên OpenCode.
+> Phạm vi: đối chiếu **toàn bộ chính sách hoàn tiền** (template hệ thống + policy đang chạy) với
+> **hồ sơ MCC** (`credit_card_policy_mcc_profiles`) trong CSDL `hoantien_creditcard` (connection `creditcard`).
+> Mục tiêu: phát hiện chính sách thiếu/không đầy đủ hồ sơ, nghiên cứu nguồn chính thức, và **ghi nhận**
+> các trường hợp chưa thể tạo/hoàn thiện kèm lý do + đề xuất.
+>
+> Nguyên tắc: chỉ dựa trên **nguồn chính thức** của ngân hàng; **KHÔNG suy luận** mã MCC từ tên danh mục;
+> mã MCC chỉ dùng khi **có trong master** `credit_card_mcc_codes`; **KHÔNG** sửa công thức hoàn tiền,
+> tỷ lệ/trần/điều kiện, master MCC, ví/sổ cái hay module khác trong đợt này.
+>
+> **Trạng thái:** tài liệu này gồm **2 phần**:
+> - **Đợt kiểm toán (audit)** — chỉ báo cáo, không ghi CSDL; kết quả ở Phần A–F.
+> - **Đợt thực thi (execution, cùng ngày 2026-10-13)** — người dùng chốt và hệ thống **đã ghi CSDL**:
+>   tạo hồ sơ HSBC #31 (quyết định 1), giải quyết VIB nhiều hạng bằng **liên kết dùng chung** (quyết định 3),
+>   bổ sung mã Sacombank Amex (quyết định 4). Chi tiết ở **Phần J — Nhật ký thực thi**; các mục C/D/E/F/H
+>   được cập nhật kèm trạng thái sau thực thi.
+> - Quyết định 2 (VPBank Super Shopee) và 5 (VIB Online Plus 2in1) **vẫn để mở** — chưa thực hiện.
+
+---
+
+## A. Tổng quan & phương pháp
+
+### A.1 Số liệu nền (đo trực tiếp trên CSDL)
+
+| Hạng mục | Số lượng |
+|---|---|
+| Template chính sách hệ thống (`scope = system`) | **35** |
+| Template chính sách người dùng (`scope = user`) | **0** |
+| Policy (`credit_card_policies`) | **69** (active **62**, superseded **7**) |
+| Policy gắn thẻ người dùng thật (`user_card_id != NULL`) | 34 |
+| Hồ sơ MCC (`credit_card_policy_mcc_profiles`) | **28** (sau thực thi; audit gốc: 27) |
+| Hồ sơ **có ≥1 dòng** | 27 |
+| Hồ sơ **có ≥1 tài liệu** | 27 |
+| Liên kết chương trình dùng chung (`credit_card_policy_mcc_profile_template_links`) | **7** (sau thực thi; audit gốc: 0) |
+| Master MCC (`credit_card_mcc_codes`) | **293** |
+| Mapping MCC import (`credit_card_policy_mcc_mappings`) | 0 |
+
+### A.2 Phương pháp
+
+1. Trích xuất toàn bộ template + policy + profile + dòng/code/tài liệu → `audit_inventory.json`.
+2. Đối chiếu **mã trong hồ sơ** với **master**: tìm mã thiếu, mã trùng included/excluded, tài liệu thiếu file.
+3. Kiểm tra **policy ↔ template ↔ profile** để phát hiện template có policy nhưng **không có hồ sơ**.
+4. Đọc chính sách (route/service) `CardPolicyLookupService` + `CreditCardLookupController` để hiểu cách
+   hồ sơ được **tra cứu** theo template và theo mã MCC.
+5. Nghiên cứu nguồn ngân hàng cho các case thiếu (HSBC, VPBank Super Shopee, VIB Online Plus 2in1,
+   Sacombank Amex) và ghi lại URL/ngày truy cập/hiệu lực.
+
+### A.3 Kết luận nhanh (cập nhật sau thực thi)
+
+- **Sau thực thi, chỉ còn 2 template hệ thống không có hồ sơ MCC** (trước là 8):
+  - **#1 Cashback phổ thông** — template khởi đầu, không phải sản phẩm ngân hàng (E.6) → giữ nguyên.
+  - **#7 VPBank Super Shopee Platinum Visa** — nguồn có nhưng ngân hàng **không công bố mã MCC** (E.2) → chờ chốt.
+- **5 template VIB nhiều hạng trước đây không có hồ sơ** (#16/#17/#18 Max Card Plus/Pro/Elite và
+  #20/#21 One Card Platinum/Signature) **nay được phủ** thông qua **bảng liên kết chương trình dùng chung**
+  `credit_card_policy_mcc_profile_template_links` (không nhân bản dữ liệu); xem E.3 và Phần J.
+- **HSBC Cash Back (#31)** đã có hồ sơ **#28** (đầy đủ mã included + excluded + tài liệu T&C); mô tả template
+  đã được cập nhật bỏ câu "chưa công bố mã MCC"; xem E.1 và Phần J.
+- **prof#16 (Sacombank Amex)** đã được bổ sung **4511, 4722, 7011** vào dòng included; dải 3xxx vẫn là
+  **tồn đọng có chủ đích** (master chưa có); xem E.4 và Phần J.
+- **1 hồ sơ rỗng hoàn toàn vẫn còn**: **prof#26** (VIB Online Plus 2in1) — chưa thực hiện (quyết định 5 để mở).
+- **0 mã trong hồ sơ bị thiếu ở master**, **0 mã vừa included vừa excluded**, **0 tài liệu thiếu file**.
+
+---
+
+## B. Danh sách toàn bộ chính sách & hồ sơ
+
+### B.1 27 template ĐÃ có hồ sơ riêng (audit gốc)
+
+Ký hiệu: `rows in/out` = số dòng included/excluded; `codes in/out` = số mã included/excluded (đã khử trùng);
+`tiers` = số bậc hoàn tiền (`credit_card_policy_mcc_row_benefits`); `docs` = số tài liệu.
+Cột "sau TT" = trạng thái sau đợt thực thi.
+
+| Template# | Slug | Hồ sơ# | rows in/out | codes in/out | tiers | docs | Ghi chú |
+|---|---|---|---|---|---|---|---|
+| 2 | sacombank-uniq-visa | 3 | 2/4 | 6/8 | 4 | 1 | |
+| 3 | mb-ultimate-jcb | 4 | 3/0 | 26/0 | 3 | 1 | |
+| 4 | vpbank-stepup-mastercars | 5 | 2/1 | 5/11 | 6 | 1 | |
+| 5 | vpbank-lady-mastercard | 6 | 5/1 | 30/11 | 10 | 1 | |
+| 6 | vpbank-z-card-jcb | 7 | 3/0 | 10/0 | 3 | 1 | |
+| 8 | msb-mdigi-mastercard | 8 | 3/0 | 12/0 | 3 | 1 | |
+| 9 | msb-online-visa | 9 | 2/0 | 16/0 | 2 | 1 | |
+| 10 | vpbank-cake-freedom-visa | 10 | 2/1 | 13/3 | 2 | 2 | |
+| 11 | lpbank-ultimate-jcb | 1 | 3/6 | 21/8 | 3 | 2 | |
+| 12 | bidv-cashback-online-visa | 11 | 0/1 | 0/13 | 0 | 1 | **Theo kênh GD** — chỉ có loại trừ (đúng thiết kế) |
+| 13 | seabank-sea-easy-visa | 12 | 0/1 | 0/15 | 0 | 1 | **Theo kênh GD** — chỉ có loại trừ (đúng thiết kế) |
+| 14 | shinhan-supreme-visa | 13 | 6/0 | 17/0 | 18 | 1 | |
+| 15 | vib-max-card-visa-starter | 14 | 5/1 | 79/2 | 25 | 1 | `product_name = VIB Max Card Visa` |
+| 19 | vib-one-card-visa-gold | 2 | 4/0 | 63/0 | 16 | 1 | `product_name = VIB One Card Visa` |
+| 22 | sacombank-visa-platinum-cashback | 15 | 2/6 | 7/29 | 2 | 1 | |
+| 23 | sacombank-platinum-amex | 16 | 2/4 | **3**/8 | 2 | 2 | **Đã bổ sung 4511/4722/7011** (J) — dải 3xxx vẫn tồn đọng |
+| 24 | mb-jcb-platinum | 17 | 2/1 | 1/6 | 2 | 1 | |
+| 25 | uob-one | 18 | 4/1 | 33/3 | 4 | 1 | |
+| 26 | vpbank-flex | 19 | 1/1 | 6/11 | 1 | 1 | |
+| 27 | shinhan-365-cashback-platinum | 20 | 2/0 | 1/0 | 3 | 1 | `5411`; phần "quốc tế" 0 mã (theo kênh) |
+| 28 | shinhan-mylife-visa-bach-kim | 21 | 4/0 | 12/0 | 4 | 1 | |
+| 29 | cake-2in1-premium | 22 | 3/1 | 7/3 | 9 | 1 | |
+| 30 | vpbank-s-rewards-mastercard | 23 | 4/1 | 7/11 | 3 | 1 | |
+| 32 | bidv-visa-cashback-360 | 24 | 3/0 | 15/0 | 4 | 1 | |
+| 33 | tpb-evo | 25 | 0/1 | 0/9 | 0 | 1 | **Theo kênh GD** — chỉ có loại trừ (đúng thiết kế) |
+| 34 | vib-online-plus-2in1 | 26 | **0/0** | **0/0** | 0 | **0** | **Hồ sơ RỖNG** (xem E.5) |
+| 35 | ocb-jcb-platinum | 27 | 2/1 | 18/1 | 4 | 1 | |
+| 31 | hsbc-cash-back | **28** | 4/11 | 23/0 | 4 | 1 | **Tạo mới trong đợt thực thi** (J); `product_name=NULL` |
+
+### B.2 Template hệ thống CHƯA có hồ sơ (audit gốc) — cập nhật sau thực thi
+
+| Template# | Slug | Tên | Bank | Policy | Loại | Trạng thái sau TT |
+|---|---|---|---|---|---|---|
+| 1 | cashback-pho-thong | Cashback phổ thông | — | #1 (active, ucard=NULL) | Template khởi đầu | Không phải sản phẩm ngân hàng (E.6) — **để nguyên** |
+| 7 | vpbank-super-shopee-platinum-visa | VPBank Super Shopee Platinum Visa | — | #9 (superseded), #33/#34/#42/#43 (active) | SP ngân hàng | Nguồn có, nhưng **không công bố mã MCC** (E.2) — **để mở** |
+| 16 | vib-max-card-visa-plus | VIB Max Card Visa - Plus | Quốc tế | #52 (active) | VIB nhiều hạng | **ĐÃ PHỦ** qua liên kết → prof#14 (J) |
+| 17 | vib-max-card-visa-pro | VIB Max Card Visa - Pro | Quốc tế | #53 (active) | VIB nhiều hạng | **ĐÃ PHỦ** qua liên kết → prof#14 (J) |
+| 18 | vib-max-card-visa-elite | VIB Max Card Visa - Elite | Quốc tế | #54 (active) | VIB nhiều hạng | **ĐÃ PHỦ** qua liên kết → prof#14 (J) |
+| 20 | vib-one-card-visa-platinum | VIB One Card Platinum | Quốc tế | #56 (active) | VIB nhiều hạng | **ĐÃ PHỦ** qua liên kết → prof#2 (J) |
+| 21 | vib-one-card-visa-signature | VIB One Card Signature | Quốc tế | #57 (active) | VIB nhiều hạng | **ĐÃ PHỦ** qua liên kết → prof#2 (J) |
+| 31 | hsbc-cash-back | HSBC Cash Back | Ngân hàng TNHH MTV HSBC Việt Nam | #67 (active) | SP ngân hàng | **ĐÃ TẠO** hồ sơ #28 (E.1, J) |
+
+> Tổng: 27 (B.1) + 8 (B.2) = **35** template hệ thống. Sau thực thi: **28 template có hồ sơ riêng**
+> (27 gốc + HSBC #31), **5 template phủ qua liên kết dùng chung** (#16/#17/#18 → #14; #20/#21 → #2)
+> ⇒ **33/35 template được phủ**; còn **2 template không hồ sơ** (#1, #7).
+
+---
+
+## C. Hồ sơ đã tạo trong đợt thực thi
+
+Đợt audit: **KHÔNG** tạo hồ sơ nào (report-only). Đợt **thực thi** (cùng ngày) tạo **1 hồ sơ mới**:
+
+- **HSBC Cash Back — hồ sơ #28** (template #31, policy #67), `product_name = NULL`.
+  - Included (4 dòng): Siêu thị/bách hóa/taxi/limousine (**5411, 4121**); Giáo dục
+    (**8211, 8220, 8241, 8244, 8249, 8299, 8351**); Chăm sóc sức khỏe
+    (**5047, 5122, 5912, 8011, 8021, 8041, 8042, 8043, 8049, 8050, 8062, 8071, 8099**);
+    "Khác" (0 mã, 0,3%).
+  - Excluded (11 dòng, mô tả theo **loại giao dịch**, không gắn mã): rút tiền mặt; phí và lãi;
+    trả góp; chuyển khoản số dư; chứng khoán/ngoại hối; chuyển tiền trên trang điện tử; nạp thẻ
+    trả trước; giao dịch tương tự tiền mặt (quasi-cash); chuyển đổi ngoại tệ; ví điện tử;
+    thanh toán hóa đơn trực tuyến qua HSBC.
+  - 4 bậc hoàn tiền (nạp qua `credit-card:import-mcc-row-benefits`).
+  - 1 tài liệu: `hsbc-cash-back-terms-vn.pdf` (T&C hiệu lực 06/03/2026).
+
+## D. Hồ sơ đã hoàn thiện trong đợt thực thi
+
+Đợt audit: **KHÔNG** sửa hồ sơ nào. Đợt **thực thi** hoàn thiện:
+
+- **prof#16 (Sacombank Platinum Amex)** — bổ sung **4511, 4722, 7011** vào dòng included
+  "Vé máy bay, khách sạn, đại lý du lịch" (trước **0 mã**).
+- **Template #31 HSBC** — cập nhật mô tả, bỏ câu *"HSBC chưa công bố mã MCC"*, ghi rõ nhóm nào
+  hoàn bao nhiêu % (dữ liệu lấy từ cùng nguồn T&C).
+- **Cơ chế dùng chung** — thêm bảng liên kết để #16/#17/#18 và #20/#21 thấy hồ sơ #14/#2 ở tab
+  "Tra cứu thẻ" mà **không nhân bản** dữ liệu (xem Phần J).
+
+---
+
+## E. Các trường hợp chưa thể tạo/hoàn thiện (chi tiết)
+
+### E.1 HSBC Cash Back — template #31, policy #67 (hồ sơ: **ĐÃ TẠO #28**)
+
+> **Trạng thái: ĐÃ THỰC HIỆN** — xem Phần J. Nội dung dưới đây là kết quả nghiên cứu/thực thi.
+
+- **Ngân hàng / sản phẩm:** HSBC Việt Nam — thẻ HSBC Cash Back.
+- **Nguồn chính thức:** `https://www.hsbc.com.vn/content/dam/hsbc/hbvn/documents/vi/credit-cards/credit-card-cashback-terms-vn.pdf`
+  (Điều khoản & Điều kiện Chương trình Hoàn tiền), **hiệu lực 06/03/2026**; truy cập 2026-10-13.
+- **Đã xác minh:** tài liệu **có liệt kê mã MCC cụ thể** theo nhóm:
+  - Siêu thị / cửa hàng bách hóa / taxi / limousine: **5411, 4121** — hoàn **6%** (nâng **8%** nếu nhận lương
+    qua HSBC ≥ 10.000.000 VNĐ/tháng), **trần 200.000 VNĐ/tháng**.
+  - Giáo dục: **8211, 8220, 8241, 8244, 8249, 8299, 8351** — **1%**, không trần.
+  - Chăm sóc sức khỏe: **5047, 5122, 5912, 8011, 8021, 8041, 8042, 8043, 8049, 8050, 8062, 8071, 8099** — **1%**, không trần.
+  - Còn lại: **0,3%** (không gắn mã).
+  - Tất cả mã trên **đã có trong master** (293 mã).
+- **Thiếu / mâu thuẫn:** mô tả template #31 cũ ghi *"HSBC chưa công bố mã MCC"* — **đã lỗi thời** so với T&C mới.
+- **Đã thực hiện:** tạo hồ sơ **#28** cho template #31 với 4 dòng included + 11 dòng excluded (theo loại giao dịch)
+  + 4 bậc hoàn tiền + gắn tài liệu T&C; cập nhật mô tả template #31 bỏ câu "chưa công bố mã MCC".
+- **Kiểm chứng:** tra mã **5411/4121** → hiển thị "HSBC Cash Back", hoàn tối đa 6% (chưa gồm bậc +2%);
+  tra **8211/5047…** → 1%; không có kết quả trùng.
+
+### E.2 VPBank Super Shopee Platinum Visa — template #7 (hồ sơ: **chưa có**)
+
+- **Ngân hàng / sản phẩm:** VPBank — thẻ Super Shopee Platinum Visa.
+- **Policy:** #9 (superseded), **#33, #34, #42, #43 (active)**.
+- **Nguồn chính thức đã tải:**
+  - `https://www.vpbank.com.vn/-/media/vpbank-latest/1retail/files/cards/tbsct_the-le-uu-dai-super-shopee-platinum.pdf`
+  - `https://www.vpbank.com.vn/-/media/vpbank-latest/1retail/files/cards/tnc-super-shopee-032023.pdf`
+- **Đã xác minh:** tỷ lệ theo danh mục **do Visa/MCC quyết định**; VPBank **KHÔNG công bố danh sách mã MCC cụ
+  thể**. Tỷ lệ: 10% Shopee/ShopeeFood (tối đa 400.000đ), 2% ăn uống/siêu thị (Co.op, BigC, LotteMart, Winmart)
+  + Grab/Be (tối đa 200.000đ), 0,1% còn lại; điều kiện chi tiêu tối thiểu 4.000.000đ/kỳ.
+- **Thiếu:** danh sách mã MCC cụ thể từ nguồn chính thức.
+- **Lý do chưa tạo:** hiện **chỉ có tên danh mục**, không có mã ⇒ nếu tạo thì hồ sơ **không thể có mã** (chỉ
+  dòng mô tả + tài liệu). Việc này cần người dùng quyết định (đã ghi nhận ở Phần H).
+- **Đề xuất:** tạo hồ sơ "mô tả" (included theo danh mục **không kèm mã** + excluded mô tả theo loại GD:
+  rút tiền, phí/lãi, thuế, tự động trả qua NEO, xăng dầu/điện/gas/nước/dầu sưởi + viễn thông, hoàn tiền/chargeback,
+  gian lận, trả góp), gắn tài liệu chính thức, note rõ "VPBank không công bố mã MCC".
+- **Điều kiện để tiếp tục:** người dùng duyệt tạo "hồ sơ mô tả không mã".
+
+### E.3 VIB nhiều hạng — template #16/#17/#18 (Max Card Plus/Pro/Elite) & #20/#21 (One Card Platinum/Signature) — **ĐÃ XỬ LÝ (liên kết dùng chung)**
+
+- **Ngân hàng / sản phẩm:** VIB — Max Card Visa và One Card Visa.
+- **Thực trạng:**
+  - Template **#15** (Starter) có hồ sơ **#14** (`product_name = VIB Max Card Visa`).
+  - Template **#19** (Gold) có hồ sơ **#2** (`product_name = VIB One Card Visa`).
+  - Template **#16/#17/#18** và **#20/#21** **có policy active** (#52/#53/#54, #56/#57) nhưng **KHÔNG có hồ sơ**
+    gắn trực tiếp.
+- **Nguồn nội bộ:** `docs/CREDIT_CARD_MCC_WORKFLOW.md` **G.1** ghi *"template #16–18 dùng chung hồ sơ #14;
+  #20–21 dùng chung hồ sơ #2"*.
+- **Phát hiện quan trọng (cơ chế):** `CardPolicyLookupService::mccProfilesForTemplate()` (dòng 124–127) lọc
+  **`where('policy_template_id', $templateId)`** — tức tra cứu theo template **không** gộp theo `product_name`.
+  ⇒ Khi người dùng chọn đúng hạng **Plus/Pro/Elite** ở tab **"Tra cứu thẻ"**, hệ thống **trả về không hồ sơ**.
+  - Cơ chế gộp `mergeProductMatches()`/`collapseProductGroup()` chỉ áp dụng cho **tra cứu theo mã MCC**
+    (`lookupMcc`), nơi mã `5252`… vẫn hiển thị đại diện "VIB Max Card Visa". ⇒ **Tra cứu MCC không bị ảnh hưởng**;
+    chỉ tab **Tra cứu thẻ theo từng hạng** bị thiếu.
+- **Lý do chưa xử lý (audit):** người dùng chọn **"Document only (no change)"**.
+- **Phương án đã chọn & thực hiện:** **phương án 2 (mở rộng ở tầng code, dạng dữ liệu)** — thêm bảng liên kết
+  `credit_card_policy_mcc_profile_template_links` để một hồ sơ nhận **nhiều template**; `CardPolicyLookupService`
+  và admin dùng `PolicyMccProfile::scopeForTemplate()`. **Không nhân bản** dữ liệu; mã MCC tra cứu vẫn **một
+  kết quả đại diện** (giữ cơ chế gộp theo `product_name`). Chi tiết + test ở Phần J.
+- **Kiểm chứng:** mỗi hạng #16/#17/#18 trả về **đúng một** hồ sơ #14; #20/#21 trả về **đúng một** hồ sơ #2;
+  tra mã MCC không phát sinh kết quả trùng.
+- **Điều kiện để tiếp tục:** không còn — đã hoàn tất.
+
+### E.4 Sacombank Platinum Amex — hồ sơ #16 (template #23) — **thiếu mã ở dòng included**
+
+- **Nguồn chính thức:** `sacombank_amex_tnc.pdf`, `sacombank_amex_mcc.pdf` (tài liệu Sacombank đã tải).
+- **Đã xác minh:** tài liệu liệt kê mã theo 3 nhóm: Vé máy bay (**4511** + dải **3000–3301**), Khách sạn
+  (**3501–3581**), Đại lý du lịch (**4722, 3836, 7011** + dải **3582–3826**).
+- **Thiếu:** master **KHÔNG có mã 3xxx**. Chỉ **4511, 4722, 7011** có trong master.
+- **Lý do chưa điền (audit):** quy tắc "không đưa mã không có trong master"; KHÔNG tự thêm master trong đợt này.
+- **Đã thực hiện:** bổ sung **4511, 4722, 7011** vào dòng included "Vé máy bay, khách sạn, đại lý du lịch"
+  (trước 0 mã); giữ note về dải 3000–3836 chưa có trong master. Dòng "Chi tiêu tại TBCNT nước ngoài" giữ **0 mã**
+  (theo **quốc gia**, không theo mã). Các dòng excluded giữ nguyên.
+- **Tồn đọng có chủ đích:** master **chưa có dải 3xxx** ⇒ các mã máy bay/khách sạn còn lại **chưa thêm**;
+  **không** mở rộng master trong đợt này (tách đợt, cần nghiên cứu + căn cứ).
+- **Điều kiện để tiếp tục:** nghiên cứu bổ sung master 3xxx (đợt riêng).
+
+### E.5 VIB Online Plus 2in1 — hồ sơ #26 (template #34) — **hồ sơ RỖNG**
+
+- **Thực trạng:** hồ sơ #26 có `note` (nguồn VIB, Chương trình Điểm thưởng & Hoàn tiền mục 2.6) nhưng
+  **0 dòng, 0 mã, 0 tài liệu**.
+- **Nguồn chính thức:** trang chương trình VIB (trực tiếp bị "Challenge Validation"; dùng phần mô tả từ kết quả
+  tìm kiếm) — `https://www.vib.com.vn/vn/the-tin-dung/diem-thuong-hoan-tien`.
+- **Đã xác minh:** chương trình hiện tại là **điểm thưởng theo KÊNH**: 5% điểm chi tiêu online nước ngoài,
+  3% online khác, 0,1% còn lại; tối đa 600.000 điểm/kỳ; cộng cashback "card-on-file" (Grab, Netflix, Tiki,
+  Agoda, Booking, iTunes, CH Play, Spotify, Traveloka) 50k/GD, tối đa 100k/kỳ, 300k/khách.
+  T&C master VIB hiện hành **loại trừ**: **MCC 4900** (điện/gas/dầu sưởi/vệ sinh/nước) và **MCC 4814**
+  (viễn thông) — **cả hai có trong master** — và giao dịch **không có mã MCC** (QR payment, thanh toán hóa đơn qua MyVIB).
+- **Lý do chưa hoàn thiện:** người dùng chọn report-only.
+- **Đề xuất:** (a) thêm dòng **excluded** với mã **4900, 4814** + note nguồn; (b) thêm dòng **included mô tả**
+  theo kênh (không mã); (c) gắn tài liệu nguồn nếu tải được bản PDF chính thức.
+- **Điều kiện để tiếp tục:** người dùng duyệt.
+
+### E.6 Cashback phổ thông — template #1, policy #1 — **template khởi đầu, không phải SP ngân hàng**
+
+- **Thực trạng:** policy #1 `status = active`, `user_card_id = NULL`, template không gắn ngân hàng
+  (`applicable_bank_id = NULL`), mô tả *"Template khởi đầu: 2 bậc chi tiêu, cashback theo danh mục, có trần."*
+- **Lý do:** là template mẫu/khởi đầu dùng chung, **không** đại diện một sản phẩm ngân hàng ⇒ không có căn cứ
+  tạo hồ sơ MCC ngân hàng.
+- **Đề xuất:** chỉ ghi nhận; không tạo hồ sơ.
+
+---
+
+## F. Vấn đề dữ liệu & rủi ro phát hiện
+
+| # | Vấn đề | Mức độ | Trạng thái sau TT |
+|---|---|---|---|
+| F1 | **Tra cứu thẻ theo template hạng** không gộp theo `product_name` ⇒ #16–18/#20–21 trả về **không hồ sơ** | Cao (UX sai) | **ĐÃ SỬA** — bảng liên kết + `scopeForTemplate()` (E.3, J) |
+| F2 | `docs/CREDIT_CARD_MCC_WORKFLOW.md` **G.1** khẳng định #16–18/#20–21 "dùng chung hồ sơ" — **không khớp** liên kết FK thực tế | Trung bình (tài liệu sai) | **ĐÃ SỬA** — cập nhật G.1 + Phần A.2/A.6 mô tả bảng liên kết |
+| F3 | Mô tả template **#31 HSBC** ghi "chưa công bố mã MCC" — **lỗi thời** | Trung bình | **ĐÃ SỬA** — cập nhật mô tả khi tạo hồ sơ #28 (E.1, J) |
+| F4 | Master **thiếu toàn bộ dải 3xxx** ⇒ không thể nhập mã máy bay/khách sạn Amex | Trung bình | **Tồn đọng có chủ đích** — bổ sung master ở đợt riêng (E.4) |
+| F5 | Hồ sơ **#26 rỗng** (chỉ có note) | Trung bình | **ĐỂ MỞ** — chưa thực hiện (E.5) |
+| F6 | Các hồ sơ **0 mã included** do hoàn theo **kênh** (#11 BIDV Online, #12 SeABank, #25 TPBank EVO) | Thấp (đúng thiết kế) | Giữ nguyên; đã ghi nhận là hợp lệ |
+| F7 | Template **#7** có 4 policy active + 1 superseded (nhiều bản ghi) | Thấp | Xác nhận không nhân bản hồ sơ; hồ sơ theo template |
+
+---
+
+## G. Kiểm thử & kiểm tra
+
+- **Đợt audit KHÔNG thay đổi code/CSDL.** Đợt **thực thi** thay đổi code + CSDL; kết quả kiểm thử:
+  - **Baseline tra cứu (audit):** `php artisan test --filter "CardLookupTest|CardLookupMccProfileTest"`
+    → **42 passed (203 assertions)**.
+  - **Sau thực thi:** cùng bộ lọc → **45 passed (227 assertions)** (thêm **3 test** cho hồ sơ dùng chung);
+    `CreditCardMccManagementTest` → **15 passed (69 assertions)**.
+  - `php -l` tệp thay đổi: không lỗi cú pháp; `vendor\bin\pint --test`: **passed**;
+    `git diff --check`: **sạch**.
+- **Nhất quán dữ liệu (đo trực tiếp sau thực thi):** mã thiếu master = **0**; overlap included/excluded = **0**;
+  tài liệu thiếu file = **0**; template có >1 hồ sơ riêng = **0**; liên kết pivot hợp lệ = **7**.
+- **Kiểm chứng tra cứu (sau thực thi):** #15/#16/#17/#18 → prof#14; #19/#20/#21 → prof#2; #31 → prof#28;
+  mã 5411 (HSBC + 10 chính sách khác) không trùng; mã 4511 xuất hiện đúng 1 lần cho VIB Max và 1 lần cho VIB One.
+
+---
+
+## H. Quyết định & trạng thái
+
+1. **HSBC #31 (E.1):** ✅ **ĐÃ THỰC HIỆN** — tạo hồ sơ #28 đầy đủ mã + gắn T&C + sửa mô tả.
+2. **VPBank Super Shopee #7 (E.2):** ⏳ **ĐỂ MỞ** — chưa tạo hồ sơ mô tả không mã.
+3. **VIB nhiều hạng #16–18/#20–21 (E.3):** ✅ **ĐÃ THỰC HIỆN** — bảng liên kết dùng chung (phương án 2 dạng
+   dữ liệu ở tầng code), không nhân bản hồ sơ.
+4. **Sacombank Amex #16 (E.4):** ✅ **ĐÃ THỰC HIỆN** một phần — thêm **4511/4722/7011**; đợt **bổ sung master 3xxx**
+   **vẫn để mở** (tách riêng).
+5. **VIB Online Plus 2in1 #26 (E.5):** ⏳ **ĐỂ MỞ** — chưa bổ sung dòng loại trừ 4900/4814.
+
+> Đã thực hiện: 1, 3, 4. Để mở: 2, 5. Tồn đọng có chủ đích: master dải 3xxx.
+
+---
+
+## J. Nhật ký thực thi (2026-10-13)
+
+### J.1 Hồ sơ dùng chung nhiều template (VIB)
+
+- **Vấn đề gốc:** `credit_card_policy_mcc_profiles` chỉ có **một** `policy_template_id`; tra cứu theo template
+  lọc `where('policy_template_id', $id)` ⇒ 5 hạng VIB (#16–18, #20–21) không thấy hồ sơ.
+- **Giải pháp:** bảng liên kết **`credit_card_policy_mcc_profile_template_links`**
+  (`policy_mcc_profile_id` + `policy_template_id`, UNIQUE đôi, FK cascade). Hồ sơ vẫn có **một template chủ**
+  (`policy_template_id` giữ nguyên) để không phá service/tạo/sửa hiện có; các template khác **liên kết thêm**.
+- **Code:**
+  - Model mới `app/Models/CreditCard/PolicyMccProfileTemplateLink.php`.
+  - `PolicyMccProfile`: `templateLinks()` (HasMany), `sharedTemplates()` (BelongsToMany),
+    `scopeForTemplate()` = chủ **hoặc** có liên kết, `allTemplateIds()` = [chủ + các template liên kết].
+  - `CardPolicyLookupService::mccProfilesForTemplate()` dùng `forTemplate()`;
+    `profileExcludedTemplateIds()` mở rộng phạm vi loại trừ theo `allTemplateIds()`.
+  - `PolicyMccAdminController` (index) cũng lọc theo `forTemplate()`.
+- **Dữ liệu seed (guarded, `insertOrIgnore`):** #14 → #15/#16/#17/#18; #2 → #19/#20/#21 (**7 liên kết**).
+- **Bất biến:** tra mã MCC vẫn **một kết quả đại diện** (gộp theo `product_name`); **không** nhân bản dòng/mã/tài liệu.
+
+### J.2 HSBC Cash Back (template #31)
+
+- Tạo hồ sơ **#28** + 4 dòng included (3 dòng có mã, 1 dòng "Khác" 0 mã) + 11 dòng excluded (theo loại GD)
+  + gắn `hsbc-cash-back-terms-vn.pdf` (311.438 bytes, disk `local`, path `credit-card-mcc/28/…pdf`).
+- Nạp **4 bậc** hoàn tiền qua `credit-card:import-mcc-row-benefits` (mục mới `hsbc-cash-back` trong
+  `database/data/credit_card_mcc_row_benefits.php`).
+- Cập nhật mô tả template #31 trong `CreditCardSeeder` (bỏ "chưa công bố mã MCC").
+
+### J.3 Sacombank Amex (hồ sơ #16)
+
+- Thêm **4511, 4722, 7011** vào dòng included "Vé máy bay, khách sạn, đại lý du lịch" (trước 0 mã).
+- Dải 3xxx **không** thêm (master chưa có) — tồn đọng có chủ đích.
+
+### J.4 Tệp thay đổi
+
+- **Mới:** migration `2026_10_13_000006_create_credit_card_policy_mcc_profile_template_links_table.php`;
+  migration `2026_10_13_000007_seed_hsbc_cash_back_mcc_profile_and_sacombank_amex_codes.php`;
+  `app/Models/CreditCard/PolicyMccProfileTemplateLink.php`;
+  `database/data/credit_card_documents/hsbc-cash-back-terms-vn.pdf`.
+- **Sửa:** `app/Models/CreditCard/PolicyMccProfile.php`; `app/Services/CreditCard/CardPolicyLookupService.php`;
+  `app/Http/Controllers/Admin/CreditCard/PolicyMccAdminController.php`;
+  `database/data/credit_card_mcc_row_benefits.php`; `database/seeders/CreditCardSeeder.php`;
+  `tests/Feature/CreditCard/CardLookupMccProfileTest.php`.
+- **Áp dụng:** chỉ qua `php artisan credit-card:migrate` (000006 DONE, 000007 DONE).
+- **Không** commit/push/deploy.
+
+---
+
+## Phụ lục — Lệnh & đường dẫn nhanh
+
+- CSDL: `hoantien_creditcard` (connection `creditcard`).
+- Trích xuất kiểm toán: `%TEMP%\opencode\audit_inventory.json`, `sum_report.txt`, `gap_out.txt`.
+- Nguồn HSBC: `credit-card-cashback-terms-vn.pdf` (hiệu lực 06/03/2026) → `%TEMP%\opencode\audit2\hsbc.txt`.
+- Nguồn VPBank Super Shopee: `tbsct_the-le-uu-dai-super-shopee-platinum.pdf`, `tnc-super-shopee-032023.pdf`.
+- Tra cứu theo template: `app/Services/CreditCard/CardPolicyLookupService.php:124` (`mccProfilesForTemplate`).
+- Tra cứu theo mã + gộp sản phẩm: cùng file — `lookupMcc()` / `mergeProductMatches()` (dòng ~473).
+- Controller tra cứu: `app/Http/Controllers/CreditCard/CreditCardLookupController.php:76,110`.
+- Quy tắc VIB (cần đối chiếu): `docs/CREDIT_CARD_MCC_WORKFLOW.md` Phần G.

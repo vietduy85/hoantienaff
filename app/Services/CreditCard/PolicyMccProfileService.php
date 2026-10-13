@@ -89,7 +89,7 @@ class PolicyMccProfileService
     }
 
     /**
-     * @param  array{policy_template_id:int, name:string, note?:string|null, included?:array<int, array<string,mixed>>, excluded?:array<int, array<string,mixed>>}  $data
+     * @param  array{policy_template_id:int, name:string, note?:string|null, annual_fee_primary?:numeric|null, annual_fee_supplementary?:numeric|null, annual_spend_for_annual_fee_waiver?:numeric|null, included?:array<int, array<string,mixed>>, excluded?:array<int, array<string,mixed>>}  $data
      * @param  array<int, UploadedFile>  $documents
      */
     public function create(array $data, array $documents = [], ?int $userId = null): PolicyMccProfile
@@ -99,6 +99,9 @@ class PolicyMccProfileService
                 'policy_template_id' => (int) $data['policy_template_id'],
                 'name' => trim((string) $data['name']),
                 'note' => $this->nullIfBlank($data['note'] ?? null),
+                'annual_fee_primary' => $this->nullIfBlankMoney($data['annual_fee_primary'] ?? null),
+                'annual_fee_supplementary' => $this->nullIfBlankMoney($data['annual_fee_supplementary'] ?? null),
+                'annual_spend_for_annual_fee_waiver' => $this->nullIfBlankMoney($data['annual_spend_for_annual_fee_waiver'] ?? null),
             ]);
 
             $this->syncRows($profile, $data['included'] ?? [], $data['excluded'] ?? []);
@@ -109,7 +112,7 @@ class PolicyMccProfileService
     }
 
     /**
-     * @param  array{name?:string, note?:string|null, included?:array<int, array<string,mixed>>, excluded?:array<int, array<string,mixed>>}  $data
+     * @param  array{name?:string, note?:string|null, annual_fee_primary?:numeric|null, annual_fee_supplementary?:numeric|null, annual_spend_for_annual_fee_waiver?:numeric|null, included?:array<int, array<string,mixed>>, excluded?:array<int, array<string,mixed>>}  $data
      * @param  array<int, UploadedFile>  $documents
      */
     public function update(PolicyMccProfile $profile, array $data, array $documents = [], ?int $userId = null): PolicyMccProfile
@@ -121,6 +124,12 @@ class PolicyMccProfileService
 
             if (array_key_exists('note', $data)) {
                 $profile->note = $this->nullIfBlank($data['note']);
+            }
+
+            foreach (['annual_fee_primary', 'annual_fee_supplementary', 'annual_spend_for_annual_fee_waiver'] as $field) {
+                if (array_key_exists($field, $data)) {
+                    $profile->{$field} = $this->nullIfBlankMoney($data[$field]);
+                }
             }
 
             $profile->save();
@@ -315,6 +324,22 @@ class PolicyMccProfileService
         }
 
         $value = trim($value);
+
+        return $value === '' ? null : $value;
+    }
+
+    /**
+     * Chuẩn hoá GIÁ TRỊ TIỀN của hồ sơ trước khi ghi: rỗng/không có ⇒ NULL
+     * (chưa có thông tin đáng tin cậy), KHÔNG tự điền 0. Giữ nguyên chuỗi số đã
+     * được validate (không chuyển qua float để tránh sai lệch tiền tệ).
+     */
+    private function nullIfBlankMoney(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $value = trim((string) $value);
 
         return $value === '' ? null : $value;
     }

@@ -8,6 +8,9 @@
     'initialName' => '',
     'initialTemplateId' => null,
     'initialNote' => '',
+    'initialAnnualFeePrimary' => '',
+    'initialAnnualFeeSupplementary' => '',
+    'initialAnnualSpendForWaiver' => '',
     'initialIncluded' => [],
     'initialExcluded' => [],
     'documents' => [],
@@ -85,6 +88,48 @@
         @error('note')
             <p class="mt-1 text-xs text-rose-600">{{ $message }}</p>
         @enderror
+    </div>
+
+    {{-- ===== Phí thường niên (thông tin tham khảo) ===== --}}
+    <div class="rounded-2xl border border-gray-100 bg-white p-4 space-y-3">
+        <div>
+            <h3 class="text-sm font-semibold text-gray-800">Phí thường niên</h3>
+            <p class="text-xs text-gray-500">
+                VNĐ/năm, trích từ tài liệu ngân hàng. Để trống nếu chưa có thông tin đáng tin cậy —
+                hệ thống KHÔNG tự điền 0. Chỉ là thông tin tham khảo, không ảnh hưởng tính hoàn tiền.
+            </p>
+        </div>
+
+        <div class="grid gap-3 sm:grid-cols-3">
+            <div>
+                <label class="block text-xs font-medium text-gray-700">Phí thường niên thẻ chính</label>
+                <input type="text" inputmode="decimal" name="annual_fee_primary"
+                       value="{{ $initialAnnualFeePrimary }}" placeholder="vd: 1200000"
+                       class="mt-1 w-full rounded-xl border-gray-200 focus:border-emerald-400 focus:ring-emerald-400 text-sm">
+                @error('annual_fee_primary')
+                    <p class="mt-1 text-xs text-rose-600">{{ $message }}</p>
+                @enderror
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-gray-700">Phí thường niên thẻ phụ</label>
+                <input type="text" inputmode="decimal" name="annual_fee_supplementary"
+                       value="{{ $initialAnnualFeeSupplementary }}" placeholder="vd: 600000"
+                       class="mt-1 w-full rounded-xl border-gray-200 focus:border-emerald-400 focus:ring-emerald-400 text-sm">
+                @error('annual_fee_supplementary')
+                    <p class="mt-1 text-xs text-rose-600">{{ $message }}</p>
+                @enderror
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-gray-700">Chi tiêu để miễn phí thường niên</label>
+                <input type="text" inputmode="decimal" name="annual_spend_for_annual_fee_waiver"
+                       value="{{ $initialAnnualSpendForWaiver }}" placeholder="vd: 120000000"
+                       class="mt-1 w-full rounded-xl border-gray-200 focus:border-emerald-400 focus:ring-emerald-400 text-sm">
+                <p class="mt-1 text-[11px] text-gray-400">Mức chi tiêu/năm theo điều kiện ngân hàng — không phải cam kết chắc chắn được miễn.</p>
+                @error('annual_spend_for_annual_fee_waiver')
+                    <p class="mt-1 text-xs text-rose-600">{{ $message }}</p>
+                @enderror
+            </div>
+        </div>
     </div>
 
     {{-- ===== Bảng MCC được hoàn tiền ===== --}}

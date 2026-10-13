@@ -956,6 +956,43 @@ return [
     ],
 
     // =====================================================================
+    // #31 — HSBC Cash Back (Điều khoản & Điều kiện, hiệu lực 06/03/2026)
+    // =====================================================================
+    'hsbc-cash-back' => [
+        'source_doc' => 'hsbc-cash-back-terms-vn',
+        'source_page' => '6',
+        'rows' => [
+            'Siêu thị, cửa hàng bách hóa và dịch vụ taxi, limousine' => [
+                [
+                    'pct' => 6,
+                    'cap' => 200000,
+                    'cap_period' => 'tháng',
+                    'cap_unit' => 'VND',
+                    'cond' => '6% cho giao dịch Siêu thị, cửa hàng bách hóa (kèm dịch vụ taxi, limousine). Hoàn thêm 2% (tổng cộng 8%) khi Chủ Thẻ có Tài Khoản Nhận Lương và Giao Dịch Lương Chuyển Khoản Hợp Lệ từ 10.000.000đ/tháng. Trần hoàn tiền 200.000đ/tháng (theo tháng dương lịch).',
+                ],
+            ],
+            'Giáo dục' => [
+                [
+                    'pct' => 1,
+                    'cond' => 'Hoàn 1% cho giao dịch thuộc danh mục Giáo dục; không giới hạn số tiền hoàn.',
+                ],
+            ],
+            'Chăm sóc sức khỏe' => [
+                [
+                    'pct' => 1,
+                    'cond' => 'Hoàn 1% cho giao dịch thuộc danh mục Chăm sóc sức khỏe; không giới hạn số tiền hoàn.',
+                ],
+            ],
+            'Khác' => [
+                [
+                    'pct' => 0.3,
+                    'cond' => 'Mọi Giao Dịch Hợp Lệ khác không thuộc các danh mục nêu trên: hoàn 0,3%. Tài liệu không liệt kê mã MCC cho nhóm này.',
+                ],
+            ],
+        ],
+    ],
+
+    // =====================================================================
     // #15 — MB JCB Platinum
     // =====================================================================
     'mb-jcb-platinum' => [

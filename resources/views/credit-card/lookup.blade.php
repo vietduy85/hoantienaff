@@ -56,7 +56,6 @@
                 </div>
 
                 <div class="space-y-1.5">
-                    <label for="cc-lookup-policy" class="block text-sm font-semibold text-gray-700">Thẻ</label>
                     <x-credit-card.searchable-select
                         id="cc-lookup-policy"
                         testid="cc-lookup-policy-select"
@@ -151,33 +150,62 @@
                         </template>
                     </section>
 
-                    {{-- Hồ sơ MCC admin nhập (module "Quản lý MCC") --}}
+                    {{-- Hồ sơ MCC admin nhập (module "Quản lý MCC").
+                         Cỡ chữ trong khu vực này dùng class lõi Tailwind đã có trong build:
+                         tiêu đề section `text-lg` (18px), tên hồ sơ `text-base` (16px),
+                         tiêu đề nhóm & nội dung `text-sm` (14px). KHÔNG dùng giá trị
+                         arbitrary (text-[17px]...) vì chưa có trong CSS đã build. --}}
                     <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-3">
-                        <h4 class="font-semibold text-gray-800 text-sm">
+                        <h4 class="font-semibold text-gray-800 text-lg leading-snug">
                             Hồ sơ MCC chính sách
                             <span class="ml-1 font-medium text-gray-400" x-text="'(' + ((policyResult.mcc_profiles || []).length) + ')'"></span>
                         </h4>
 
-                        <p class="text-sm text-gray-500" x-show="!((policyResult.mcc_profiles || []).length)" x-cloak>
+                        <p class="text-sm text-gray-500 leading-relaxed" x-show="!((policyResult.mcc_profiles || []).length)" x-cloak>
                             Chưa có dữ liệu MCC cho chính sách này.
                         </p>
 
-                        <p class="text-xs text-gray-400"
+                        <p class="text-sm text-gray-400 leading-relaxed"
                            x-show="(policyResult.mcc_profiles || []).length && ccTotalDocuments(policyResult.mcc_profiles || []) === 0"
                            x-cloak>
                             Chưa có tài liệu tham khảo.
                         </p>
 
-                        <ul class="space-y-2">
+                        <ul class="space-y-3">
                             <template x-for="profile in (policyResult.mcc_profiles || [])" :key="profile.id">
-                                <li class="rounded-xl border border-gray-100 p-3 sm:p-4 space-y-2">
-                                    <p class="font-medium text-gray-800" x-text="profile.name"></p>
-                                    <p class="text-xs text-gray-500" x-show="profile.note" x-text="profile.note"></p>
+                                <li class="rounded-xl border border-gray-100 p-3 sm:p-4 space-y-3">
+                                    <p class="font-medium text-gray-800 text-base leading-snug" x-text="profile.name"></p>
+                                    <p class="text-sm text-gray-500 leading-relaxed" x-show="profile.note" x-text="profile.note"></p>
+
+                                    {{-- Phí thường niên: LUÔN hiển thị với mọi hồ sơ. Trường chưa có
+                                         dữ liệu (NULL) hiển thị "Chưa cập nhật" — KHÔNG hiển thị 0 đ và
+                                         không suy đoán. Mỗi hồ sơ chỉ đọc dữ liệu phí CỦA CHÍNH NÓ. --}}
+                                    <div>
+                                        <p class="text-sm font-semibold text-gray-600 mb-1">Phí thường niên</p>
+                                        <ul class="text-sm leading-relaxed text-gray-600 space-y-1">
+                                            <li>
+                                                Thẻ chính:
+                                                <span x-show="ccProfileFeeValue(profile.annual_fee_primary)" class="font-semibold text-gray-800" x-text="ccMoneyVnd(profile.annual_fee_primary) + '/năm'"></span>
+                                                <span x-show="!ccProfileFeeValue(profile.annual_fee_primary)" class="italic text-gray-400">Chưa cập nhật</span>
+                                            </li>
+                                            <li>
+                                                Thẻ phụ:
+                                                <span x-show="ccProfileFeeValue(profile.annual_fee_supplementary)" class="font-semibold text-gray-800" x-text="ccMoneyVnd(profile.annual_fee_supplementary) + '/năm'"></span>
+                                                <span x-show="!ccProfileFeeValue(profile.annual_fee_supplementary)" class="italic text-gray-400">Chưa cập nhật</span>
+                                            </li>
+                                            <li>
+                                                Chi tiêu trong năm để được hoàn/miễn phí:
+                                                <span x-show="ccProfileFeeValue(profile.annual_spend_for_annual_fee_waiver)" class="font-semibold text-gray-800" x-text="ccMoneyVnd(profile.annual_spend_for_annual_fee_waiver) + '/năm'"></span>
+                                                <span x-show="!ccProfileFeeValue(profile.annual_spend_for_annual_fee_waiver)" class="italic text-gray-400">Chưa cập nhật</span>
+                                            </li>
+                                        </ul>
+                                        <p class="mt-1 text-sm leading-relaxed text-gray-400" x-show="ccProfileHasFees(profile)">Theo tài liệu ngân hàng; điều kiện miễn phí có thể kèm điều kiện khác.</p>
+                                    </div>
 
                                     <div x-show="(profile.included || []).length">
-                                        <p class="text-[11px] font-semibold text-emerald-700 mb-1">MCC được hoàn tiền</p>
+                                        <p class="text-sm font-semibold text-emerald-700 mb-1">MCC được hoàn tiền</p>
                                         <template x-for="(row, ri) in (profile.included || [])" :key="'in' + ri">
-                                            <div class="text-[11px] text-gray-600">
+                                            <div class="text-sm leading-relaxed text-gray-600">
                                                 <span class="font-medium text-gray-700" x-show="row.category_name" x-text="row.category_name + ': '"></span>
                                                 <span class="font-mono text-emerald-700" x-text="(row.codes || []).join(', ')"></span>
                                                 <span class="block text-gray-400" x-show="row.description || row.note" x-text="row.description || row.note"></span>
@@ -186,9 +214,9 @@
                                     </div>
 
                                     <div x-show="(profile.excluded || []).length">
-                                        <p class="text-[11px] font-semibold text-rose-700 mb-1">MCC loại trừ</p>
+                                        <p class="text-sm font-semibold text-rose-700 mb-1">MCC loại trừ</p>
                                         <template x-for="(row, ri) in (profile.excluded || [])" :key="'ex' + ri">
-                                            <div class="text-[11px] text-gray-600">
+                                            <div class="text-sm leading-relaxed text-gray-600">
                                                 <span class="font-medium text-gray-700" x-show="row.category_name" x-text="row.category_name + ': '"></span>
                                                 <span class="font-mono text-rose-700" x-text="(row.codes || []).join(', ')"></span>
                                                 <span class="block text-gray-400" x-show="row.description || row.note" x-text="row.description || row.note"></span>
@@ -197,17 +225,17 @@
                                     </div>
 
                                     <div x-show="(profile.documents || []).length">
-                                        <p class="text-[11px] font-semibold text-gray-500 mb-1">Tài liệu tham khảo</p>
+                                        <p class="text-sm font-semibold text-gray-500 mb-1">Tài liệu tham khảo</p>
                                         <ul class="space-y-1.5">
                                             <template x-for="doc in (profile.documents || [])" :key="doc.id">
                                                 <li class="flex items-center justify-between gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
                                                     <div class="min-w-0">
-                                                        <p class="truncate text-xs text-gray-700" x-text="doc.name"></p>
-                                                        <p class="text-[11px] text-gray-400" x-text="doc.human_size"></p>
+                                                        <p class="truncate text-sm text-gray-700" x-text="doc.name"></p>
+                                                        <p class="text-sm text-gray-400" x-text="doc.human_size"></p>
                                                     </div>
                                                     <a :href="doc.url"
                                                        rel="noreferrer"
-                                                       class="shrink-0 text-[11px] font-medium text-emerald-700 hover:text-emerald-800">Tải xuống</a>
+                                                       class="shrink-0 text-sm font-medium text-emerald-700 hover:text-emerald-800">Tải xuống</a>
                                                 </li>
                                             </template>
                                         </ul>
@@ -495,6 +523,22 @@
                     (total, profile) => total + ((profile.documents || []).length || 0),
                     0
                 );
+            }
+
+            /** Giá trị phí thường niên hợp lệ (khác null/rỗng). NULL = chưa có dữ liệu. */
+            function ccProfileFeeValue(value) {
+                return value !== null && value !== undefined && value !== '';
+            }
+
+            /** Hồ sơ có ít nhất một thông tin phí thường niên để hiển thị. */
+            function ccProfileHasFees(profile) {
+                if (!profile) {
+                    return false;
+                }
+
+                return ccProfileFeeValue(profile.annual_fee_primary)
+                    || ccProfileFeeValue(profile.annual_fee_supplementary)
+                    || ccProfileFeeValue(profile.annual_spend_for_annual_fee_waiver);
             }
 
             /** Nhãn trạng thái xác minh của mapping/MCC. */

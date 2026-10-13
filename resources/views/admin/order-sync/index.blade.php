@@ -192,6 +192,103 @@
             </form>
         </div>
 
+        {{-- Backup database --}}
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="font-semibold text-gray-800">Backup database</h3>
+                <span class="text-xs text-gray-400">Chạy tự động 01:30 &amp; 13:30 hằng ngày</span>
+            </div>
+
+            @unless ($backupStatus['readable'])
+                <div class="bg-gray-50 border border-gray-100 rounded-xl px-3 py-2 text-sm text-gray-600">
+                    <span class="font-medium text-gray-700">Trạng thái:</span>
+                    <span class="font-mono text-gray-800">Không đọc được trạng thái backup hiện tại.</span>
+                </div>
+                <p class="text-xs text-gray-400 mt-2">
+                    File báo cáo chưa được tạo hoặc chưa thể đọc. Kiểm tra script backup
+                    (scripts/database-backup) sau lần chạy theo lịch tiếp theo.
+                </p>
+            @else
+                <div class="flex items-center justify-between bg-gray-50 border border-gray-100 rounded-xl px-3 py-2 mb-2 text-sm text-gray-600">
+                    <span class="font-medium text-gray-700">Tóm tắt:</span>
+                    <span class="text-gray-800">{{ $backupStatus['headline'] }}</span>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
+                    <div class="border border-gray-100 rounded-xl p-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-xs font-medium text-gray-400 uppercase tracking-wide">Backup local</span>
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold
+                                {{ $backupStatus['last_backup']['status'] === 'SUCCESS' ? 'bg-emerald-100 text-emerald-700' : '' }}
+                                {{ $backupStatus['last_backup']['status'] === 'FAILED' ? 'bg-red-100 text-red-700' : '' }}
+                                {{ $backupStatus['last_backup']['status'] === 'PENDING' ? 'bg-amber-100 text-amber-700' : '' }}
+                                {{ $backupStatus['last_backup']['status'] === 'UNKNOWN' ? 'bg-gray-100 text-gray-600' : '' }}">
+                                {{ $backupStatus['last_backup']['label'] }}
+                            </span>
+                        </div>
+                        @if ($backupStatus['last_backup']['status'] === 'UNKNOWN')
+                            <p class="text-sm text-gray-500">Chưa có thông tin.</p>
+                        @else
+                            <dl class="text-sm space-y-1">
+                                <div class="flex justify-between"><dt class="text-gray-500">Thời điểm</dt>
+                                    <dd class="font-mono text-xs">{{ $backupStatus['last_backup']['time'] ? \Illuminate\Support\Carbon::parse($backupStatus['last_backup']['time'])->format('d/m/Y H:i:s') : '—' }}</dd></div>
+                                <div class="flex justify-between"><dt class="text-gray-500">Set</dt>
+                                    <dd class="font-mono text-xs break-all">{{ $backupStatus['last_backup']['set_id'] ?? '—' }}</dd></div>
+                                <div class="flex justify-between"><dt class="text-gray-500">Số CSDL</dt>
+                                    <dd class="font-mono text-xs">{{ $backupStatus['last_backup']['db_count'] }}</dd></div>
+                                <div class="flex justify-between"><dt class="text-gray-500">Dung lượng</dt>
+                                    <dd class="font-mono text-xs">{{ number_format($backupStatus['last_backup']['total_size'] / 1048576, 2, ',', '.') }} MB</dd></div>
+                            </dl>
+                            @if ($backupStatus['last_backup']['error'])
+                                <p class="mt-2 text-xs text-red-600 break-words">{{ $backupStatus['last_backup']['error'] }}</p>
+                            @endif
+                        @endif
+                    </div>
+
+                    <div class="border border-gray-100 rounded-xl p-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-xs font-medium text-gray-400 uppercase tracking-wide">OneDrive</span>
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold
+                                {{ $backupStatus['onedrive']['status'] === 'SUCCESS' ? 'bg-emerald-100 text-emerald-700' : '' }}
+                                {{ $backupStatus['onedrive']['status'] === 'FAILED' ? 'bg-red-100 text-red-700' : '' }}
+                                {{ $backupStatus['onedrive']['status'] === 'PENDING' ? 'bg-amber-100 text-amber-700' : '' }}
+                                {{ $backupStatus['onedrive']['status'] === 'UNKNOWN' ? 'bg-gray-100 text-gray-600' : '' }}">
+                                {{ $backupStatus['onedrive']['label'] }}
+                            </span>
+                        </div>
+                        @if ($backupStatus['onedrive']['status'] === 'SUCCESS')
+                            <dl class="text-sm space-y-1">
+                                <div class="flex justify-between"><dt class="text-gray-500">File đã xác minh</dt>
+                                    <dd class="font-mono text-xs">{{ $backupStatus['onedrive']['verified_count'] }}</dd></div>
+                                <div class="flex justify-between"><dt class="text-gray-500">Thời điểm</dt>
+                                    <dd class="font-mono text-xs">{{ $backupStatus['onedrive']['time'] ? \Illuminate\Support\Carbon::parse($backupStatus['onedrive']['time'])->format('d/m/Y H:i:s') : '—' }}</dd></div>
+                                <div class="flex justify-between"><dt class="text-gray-500">Set</dt>
+                                    <dd class="font-mono text-xs break-all">{{ $backupStatus['onedrive']['set_id'] ?? '—' }}</dd></div>
+                            </dl>
+                            <p class="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+                                {{ $backupStatus['cloud_sync']['note'] }}
+                            </p>
+                        @elseif ($backupStatus['onedrive']['status'] === 'PENDING')
+                            <p class="text-sm text-gray-500">Đang chờ sao chép sang OneDrive.</p>
+                        @elseif ($backupStatus['onedrive']['status'] === 'FAILED')
+                            <p class="text-sm text-gray-500">Lần thử trước gặp lỗi.</p>
+                            @if ($backupStatus['onedrive']['error'])
+                                <p class="mt-2 text-xs text-red-600 break-words">{{ $backupStatus['onedrive']['error'] }}</p>
+                            @endif
+                        @else
+                            <p class="text-sm text-gray-500">Chưa có thông tin.</p>
+                        @endif
+                    </div>
+                </div>
+
+                <p class="text-xs text-gray-400 mt-3">
+                    Thư mục đích chỉ vừa đặt tại khu vực đồng bộ OneDrive (cùng máy). Việc đã tải lên
+                    cloud không thể xác minh tự động — trạng thái cloud luôn ghi nhận chưa xác minh.
+                    Backup gốc trên máy không bị thay đổi.
+                </p>
+            @endunless
+        </div>
+
         {{-- Stats --}}
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">

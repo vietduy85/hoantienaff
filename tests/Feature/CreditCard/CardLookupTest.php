@@ -53,9 +53,9 @@ class CardLookupTest extends TestCase
         $response->assertSee('Tra cứu thẻ');
         $response->assertSee('Tra cứu MCC');
 
-        // Tab "Tra cứu thẻ": tiêu đề "Chọn thẻ", nhãn "Thẻ", nút "Xem thẻ".
+        // Tab "Tra cứu thẻ": tiêu đề "Chọn thẻ", nút "Xem thẻ" (không còn nhãn "Thẻ" dư).
         $response->assertSee('Chọn thẻ');
-        $response->assertSee('>Thẻ</label>', false);
+        $response->assertDontSee('>Thẻ</label>', false);
         $response->assertSee('Xem thẻ');
 
         // Không còn dòng mô tả dài dòng / nhãn cũ "chính sách".

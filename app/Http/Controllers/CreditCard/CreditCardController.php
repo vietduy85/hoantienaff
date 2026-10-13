@@ -495,6 +495,7 @@ class CreditCardController extends Controller
         $validated = $request->validate([
             'scope' => ['sometimes', 'string', Rule::in(OptimizerScope::keys())],
             'criterion' => ['sometimes', 'string', Rule::in(OptimizationCriterion::keys())],
+            'max_copies_per_card' => ['sometimes', 'integer', 'min:1', 'max:'.PortfolioOptimizerService::MAX_COPIES_LIMIT],
             'amounts' => ['required', 'array'],
             'amounts.*' => ['integer', 'min:0', 'max:1000000000000'],
         ]);
@@ -522,9 +523,12 @@ class CreditCardController extends Controller
 
         $scope = $validated['scope'] ?? OptimizerScope::COMPARE;
         $criterion = $validated['criterion'] ?? OptimizationCriterion::BALANCE;
+        $maxCopies = PortfolioOptimizerService::clampCopies(
+            (int) ($validated['max_copies_per_card'] ?? PortfolioOptimizerService::DEFAULT_MAX_COPIES),
+        );
 
         return response()->json([
-            'data' => $this->optimizer->optimize($userId, $scope, $criterion, $amounts),
+            'data' => $this->optimizer->optimize($userId, $scope, $criterion, $amounts, $maxCopies),
         ]);
     }
 

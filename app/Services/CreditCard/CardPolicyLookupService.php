@@ -124,7 +124,7 @@ class CardPolicyLookupService
     public function mccProfilesForTemplate(int $templateId): array
     {
         return PolicyMccProfile::query()
-            ->where('policy_template_id', $templateId)
+            ->forTemplate($templateId)
             ->with(['rows.codes', 'documents'])
             ->orderBy('name')
             ->orderBy('id')
@@ -133,6 +133,10 @@ class CardPolicyLookupService
                 'id' => (int) $profile->id,
                 'name' => $profile->name,
                 'note' => $profile->note,
+                // Phí thường niên (VNĐ/năm) — CHỈ tham khảo, NULL = chưa có dữ liệu.
+                'annual_fee_primary' => $profile->annual_fee_primary,
+                'annual_fee_supplementary' => $profile->annual_fee_supplementary,
+                'annual_spend_for_annual_fee_waiver' => $profile->annual_spend_for_annual_fee_waiver,
                 'documents' => $this->profileDocumentsPayload($profile),
                 'included' => $profile->rows
                     ->where('row_type', PolicyMccProfileRow::TYPE_INCLUDED)
@@ -349,6 +353,9 @@ class CardPolicyLookupService
     /**
      * Các chính sách có hồ sơ chứa mã này trong dòng loại trừ.
      *
+     * Chương trình dùng chung nhiều hạng thẻ: một hồ sơ áp dụng cho NHIỀU template
+     * (owner + liên kết) nên phạm vi loại trừ được mở rộng cho MỌI template đó.
+     *
      * @return array<int, int>
      */
     private function profileExcludedTemplateIds(string $code): array
@@ -357,8 +364,9 @@ class CardPolicyLookupService
             ->whereHas('rows', fn (Builder $rows) => $rows
                 ->where('row_type', PolicyMccProfileRow::TYPE_EXCLUDED)
                 ->whereHas('codes', fn (Builder $codes) => $codes->where('mcc', $code)))
-            ->pluck('policy_template_id')
-            ->map(fn ($id): int => (int) $id)
+            ->with('templateLinks:id,policy_mcc_profile_id,policy_template_id')
+            ->get()
+            ->flatMap(fn (PolicyMccProfile $profile): array => $profile->allTemplateIds())
             ->unique()
             ->values()
             ->all();

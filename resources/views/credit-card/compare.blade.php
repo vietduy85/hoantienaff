@@ -2,7 +2,7 @@
     /thetindung/so-sanh — "Lựa chọn thẻ".
 
     Hai tab trong CÙNG một state Alpine `cardRecommendation`:
-      - "Nhu cầu thẻ": nhập số tiền + danh mục chi tiêu dự kiến; gọi JSON
+      - "Nhu cầu chi tiêu": nhập số tiền + danh mục chi tiêu dự kiến; gọi JSON
         `credit-cards.compare.recommend` để server mô phỏng trên engine cashback
         và trả hai nhóm "Thẻ của tôi" + "Thẻ trên thị trường".
       - "Tối ưu bộ thẻ": nhập chi tiêu theo DANH MỤC/tháng (nhiều dòng), chọn
@@ -40,7 +40,7 @@
                     :class="tab === 'need'
                         ? 'bg-emerald-600 text-white shadow-sm'
                         : 'text-gray-600 hover:bg-gray-100'">
-                ☝️ Nhu cầu thẻ
+                ☝️ Nhu cầu chi tiêu
             </button>
             <button type="button"
                     @click="tab = 'optimize'"
@@ -319,6 +319,21 @@
                     </div>
                 </div>
 
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div class="space-y-1.5">
+                        <label for="opt-max-copies" class="block text-sm font-semibold text-gray-700">
+                            Số thẻ tối đa cho mỗi loại thẻ
+                        </label>
+                        <input id="opt-max-copies" type="number" min="1" max="{{ \App\Services\CreditCard\Optimizer\PortfolioOptimizerService::MAX_COPIES_LIMIT }}"
+                               x-model.number="budget.max_copies"
+                               class="w-full h-12 rounded-xl border-gray-300 text-sm px-3 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                        <p class="text-xs text-gray-400">
+                            Cho phép dùng tối đa bao nhiêu thẻ cùng một sản phẩm trong cùng phương án
+                            (1 = mỗi loại thẻ dùng một lần). Hệ thống chỉ dùng thêm bản khi thật sự tăng hoàn tiền.
+                        </p>
+                    </div>
+                </div>
+
                 <div>
                     <div class="flex items-center justify-between gap-3">
                         <label for="opt-filter" class="block text-sm font-semibold text-gray-700">Số tiền theo danh mục</label>
@@ -338,8 +353,12 @@
                                 <p class="text-xs text-gray-400" x-text="'Danh mục ' + @js($category['sublabel'])"></p>
                             </div>
                             <div class="w-40 shrink-0">
+                                {{-- LƯU Ý: `expr` là thuộc tính của Blade component ⇒ chỉ `{{ }}` mới được
+                                     biên dịch; `@js(...)` KHÔNG chạy trong attribute component và sẽ để lại
+                                     biểu thức Alpine sai (`budget.amounts[@js(...)]`). Vì id danh mục là số
+                                     nguyên nên nội suy trực tiếp là an toàn. --}}
                                 <x-credit-card.money-input
-                                    expr="budget.amounts[@js($category['id'])]"
+                                    expr="budget.amounts[{{ $category['id'] }}]"
                                     example="2000000"
                                     class="w-full h-10 rounded-lg border-gray-300 text-sm px-3 shadow-sm focus:border-emerald-500 focus:ring-emerald-500" />
                             </div>
@@ -378,9 +397,40 @@
                             <span class="font-semibold text-gray-800" x-text="optimizeResult.criterion_label"></span>.
                         </p>
                         <p class="text-xs text-gray-500 mt-1"
-                           x-show="optimizeResult.plans.length === 0">
+                           x-show="optimizeResult.plan_count === 0">
                             Không tìm được phương án nào khả thi với dữ liệu hiện tại.
                         </p>
+                        <p class="text-xs text-gray-500 mt-1"
+                           x-show="optimizeResult.plan_count === 1">
+                            Chỉ tìm được một phương án phân bổ khác biệt với dữ liệu hiện tại.
+                        </p>
+                        <p class="text-xs text-gray-500 mt-1"
+                           x-show="optimizeResult.plan_count > 1"
+                           x-text="optimizeResult.plans.length + ' / ' + optimizeResult.max_plans + ' phương án khác nhau được hiển thị.'"></p>
+                        <p class="text-xs text-gray-400 mt-1">
+                            Các phương án được coi là trùng (gộp lại) khi phân bổ danh mục↔thẻ giống hệt nhau, kể cả tỷ lệ chia tiền.
+                        </p>
+                    </div>
+
+                    {{-- ===== Tab 2 — Tóm tắt nhu cầu chi tiêu tháng ===== --}}
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5"
+                         x-show="optimizeResult.categories.length">
+                        <p class="text-sm font-semibold text-gray-800">Tóm tắt nhu cầu chi tiêu tháng</p>
+                        <dl class="mt-2 divide-y divide-gray-100">
+                            <template x-for="cat in optimizeResult.categories" :key="cat.id">
+                                <div class="flex items-center justify-between gap-3 py-1.5">
+                                    <dt class="text-sm text-gray-600 truncate" x-text="cat.name"></dt>
+                                    <dd class="text-sm font-medium text-gray-800 tabular-nums shrink-0" x-text="ccMoneyVnd(cat.amount)"></dd>
+                                </div>
+                            </template>
+                        </dl>
+                        <div class="mt-2 flex items-center justify-between gap-3 border-t border-gray-100 pt-2">
+                            <span class="text-sm font-semibold text-gray-700">Tổng chi tiêu dự kiến</span>
+                            <span class="text-sm font-bold text-gray-900 tabular-nums shrink-0"
+                                  x-text="ccMoneyVnd(optimizeResult.total_input_number)"></span>
+                        </div>
+                        <p class="text-xs text-gray-400 mt-1"
+                           x-text="optimizeResult.categories.length + ' danh mục có chi tiêu.'"></p>
                     </div>
 
                     <template x-for="plan in optimizeResult.plans" :key="plan.rank">
@@ -391,6 +441,9 @@
                                     <p class="font-semibold text-gray-800 text-sm">
                                         Phương án <span x-text="plan.rank"></span>
                                         <span class="text-xs font-medium text-gray-500" x-text="'· ' + plan.cards_count + ' thẻ'"></span>
+                                        <span class="text-xs font-medium text-gray-500"
+                                              x-show="plan.distinct_products < plan.cards_count"
+                                              x-text="'· ' + plan.distinct_products + ' loại thẻ'"></span>
                                     </p>
                                     <p class="text-xs text-gray-500 mt-0.5">
                                         Phân bổ các danh mục vào bộ thẻ; một danh mục có thể chia cho nhiều thẻ.
@@ -419,19 +472,28 @@
                                                 </p>
                                             </div>
                                             <div class="text-right shrink-0">
-                                                <p class="font-bold text-emerald-700" x-text="ccMoneyVnd(card.total_cashback)"></p>
+                                                <p class="font-bold text-emerald-700 tabular-nums" x-text="ccMoneyVnd(card.total_cashback)"></p>
                                                 <p class="text-xs text-gray-500" x-text="'hoàn ' + ccNumber(card.rate) + '%'"></p>
+                                                <p class="text-xs text-gray-500">
+                                                    phân bổ
+                                                    <span class="tabular-nums" x-text="ccMoneyVnd(card.allocated_total)"></span>
+                                                </p>
                                             </div>
                                         </div>
 
                                         <ul class="mt-2 space-y-1 border-t border-gray-100 pt-2">
                                             <template x-for="cat in card.categories" :key="cat.category_id">
-                                                <li class="flex items-center justify-between gap-3 text-xs">
-                                                    <span class="text-gray-600 truncate"
-                                                          x-text="cat.amount + ' → thẻ này'"></span>
-                                                    <span class="shrink-0"
-                                                          :class="Number(cat.cashback) > 0 ? 'font-semibold text-emerald-700' : 'text-gray-400'"
-                                                          x-text="(Number(cat.cashback) > 0 ? '+' : '') + ccMoneyVnd(cat.cashback)"></span>
+                                                <li class="flex items-baseline justify-between gap-3 text-xs">
+                                                    <span class="text-gray-600 truncate">
+                                                        <span x-text="cat.category_name"></span>
+                                                        <span class="text-gray-400" x-show="! cat.eligible"> · chưa xác định quyền lợi</span>
+                                                    </span>
+                                                    <span class="shrink-0 text-right">
+                                                        <span class="tabular-nums text-gray-700" x-text="ccMoneyVnd(cat.amount)"></span>
+                                                        <span class="ms-1 tabular-nums"
+                                                              :class="Number(cat.cashback) > 0 ? 'font-semibold text-emerald-700' : 'text-gray-400'"
+                                                              x-text="(Number(cat.cashback) > 0 ? '+' : '') + ccMoneyVnd(cat.cashback)"></span>
+                                                    </span>
                                                 </li>
                                             </template>
                                         </ul>
@@ -444,6 +506,89 @@
                             </ul>
                         </section>
                     </template>
+
+                    {{-- ===== Tab 2 — Tổng kết và đánh giá phương án ===== --}}
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4"
+                         x-show="optimizeResult.plans.length">
+                        <p class="text-sm font-semibold text-gray-800">Tổng kết và đánh giá phương án</p>
+
+                        <div class="grid gap-4 sm:grid-cols-2">
+                            {{-- A. Nhu cầu ban đầu --}}
+                            <div class="rounded-xl border border-gray-100 p-3 sm:p-4">
+                                <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Nhu cầu ban đầu</p>
+                                <p class="mt-2 text-sm text-gray-600">
+                                    Tổng chi tiêu:
+                                    <span class="font-semibold text-gray-800 tabular-nums" x-text="ccMoneyVnd(optimizeResult.total_input_number)"></span>
+                                </p>
+                                <p class="text-sm text-gray-600"
+                                   x-text="optimizeResult.categories.length + ' danh mục có chi tiêu.'"></p>
+                                <ul class="mt-2 space-y-0.5">
+                                    <template x-for="cat in optimizeResult.categories" :key="cat.id">
+                                        <li class="flex items-baseline justify-between gap-3 text-xs">
+                                            <span class="text-gray-500 truncate" x-text="cat.name"></span>
+                                            <span class="text-gray-700 tabular-nums shrink-0" x-text="ccMoneyVnd(cat.amount)"></span>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </div>
+
+                            {{-- B. Phương án đề xuất --}}
+                            <div class="rounded-xl border border-gray-100 p-3 sm:p-4">
+                                <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                    Phương án đề xuất
+                                    <span x-text="proposed().rank ? '(phương án ' + proposed().rank + ')' : ''"></span>
+                                </p>
+                                <dl class="mt-2 space-y-1 text-sm text-gray-600">
+                                    <div class="flex items-center justify-between gap-3">
+                                        <dt>Số thẻ</dt>
+                                        <dd class="font-medium text-gray-800" x-text="(proposed().cards_count ?? 0) + ' thẻ'"></dd>
+                                    </div>
+                                    <div class="flex items-center justify-between gap-3">
+                                        <dt>Tổng tiền phân bổ</dt>
+                                        <dd class="font-medium text-gray-800 tabular-nums" x-text="ccMoneyVnd(proposed().total_allocated)"></dd>
+                                    </div>
+                                    <div class="flex items-center justify-between gap-3">
+                                        <dt>Tổng tiền hoàn dự kiến</dt>
+                                        <dd class="font-semibold text-emerald-700 tabular-nums" x-text="ccMoneyVnd(proposed().total_cashback)"></dd>
+                                    </div>
+                                    <div class="flex items-center justify-between gap-3">
+                                        <dt>Tỷ lệ hoàn hiệu dụng</dt>
+                                        <dd class="font-medium text-gray-800" x-text="ccNumber(proposed().total_rate) + '%'"></dd>
+                                    </div>
+                                    <div class="flex items-center justify-between gap-3">
+                                        <dt>Thẻ đang sở hữu được dùng</dt>
+                                        <dd class="font-medium text-gray-800" x-text="(proposed().owned_cards ?? 0) + ' thẻ'"></dd>
+                                    </div>
+                                    <div class="flex items-center justify-between gap-3">
+                                        <dt>Thẻ mới cần cân nhắc mở</dt>
+                                        <dd class="font-medium text-gray-800" x-text="(proposed().new_cards ?? 0) + ' thẻ'"></dd>
+                                    </div>
+                                    <div class="flex items-center justify-between gap-3">
+                                        <dt>Chi tiêu chưa chắc chắn quyền lợi</dt>
+                                        <dd class="font-medium text-gray-800 tabular-nums"
+                                            x-text="Number(proposed().uncertain_total) > 0 ? ccMoneyVnd(proposed().uncertain_total) : 'Không có'"></dd>
+                                    </div>
+                                </dl>
+                            </div>
+                        </div>
+
+                        {{-- C. Mục tiêu và mức độ đạt mục tiêu --}}
+                        <div class="rounded-xl border border-gray-100 p-3 sm:p-4">
+                            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Mục tiêu và mức độ đạt mục tiêu</p>
+                            <p class="mt-2 text-sm text-gray-600">
+                                Mục tiêu đã chọn:
+                                <span class="font-medium text-gray-800" x-text="optimizeResult.criterion_label"></span>
+                            </p>
+                            <p class="text-sm text-gray-600">
+                                Phương án đề xuất là phương án tốt nhất trong các phương án tìm được theo đúng tiêu chí này (kết quả của thuật toán tìm kiếm, không phải tối ưu toàn cục).
+                            </p>
+                            <ul class="mt-2 space-y-1">
+                                <template x-for="(line, i) in assessmentLines()" :key="i">
+                                    <li class="text-sm text-gray-700" x-text="'• ' + line"></li>
+                                </template>
+                            </ul>
+                        </div>
+                    </div>
 
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-1"
                          x-show="optimizeResult.notes.length">
@@ -540,7 +685,7 @@
                     error: '',
                     fieldErrors: { amount: '', category_id: '' },
                     result: null,
-                    budget: { scope: 'compare', criterion: 'balance', amounts: {}, filter: '' },
+                    budget: { scope: 'compare', criterion: 'balance', amounts: {}, filter: '', max_copies: 1 },
                     optimizeLoading: false,
                     optimizeError: '',
                     optimizeFieldErrors: {},
@@ -651,6 +796,7 @@
                             const url = new URL(this.optimizeEndpoint, window.location.origin);
                             url.searchParams.set('scope', this.budget.scope);
                             url.searchParams.set('criterion', this.budget.criterion);
+                            url.searchParams.set('max_copies_per_card', String(this.budget.max_copies || 1));
 
                             for (const [categoryId, amount] of Object.entries(amounts)) {
                                 url.searchParams.set('amounts[' + categoryId + ']', String(amount));
@@ -684,6 +830,83 @@
 
                     firstOf(list) {
                         return Array.isArray(list) && list.length ? list[0] : '';
+                    },
+
+                    /** Phương án đang được đề xuất (hạng 1) — object rỗng khi chưa có. */
+                    proposed() {
+                        return (this.optimizeResult?.plans?.[0]) ?? {};
+                    },
+
+                    /** Mức hoàn cao nhất trong TẤT CẢ phương án tìm được (server trả về). */
+                    bestCashback() {
+                        return Number(this.optimizeResult?.best_cashback ?? 0);
+                    },
+
+                    /**
+                     * Phương án dùng ÍT THẺ HƠN phương án đề xuất, nếu có trong tập
+                     * đã trả về — dùng để nêu đánh đổi "ít thẻ hơn, hoàn thấp hơn".
+                     */
+                    fewerCardsAlternative() {
+                        const plans = this.optimizeResult?.plans ?? [];
+                        const chosen = plans[0];
+
+                        if (! chosen) {
+                            return null;
+                        }
+
+                        let result = null;
+
+                        for (const plan of plans) {
+                            if (plan.cards_count < chosen.cards_count
+                                && (! result || plan.cards_count < result.cards_count)) {
+                                result = plan;
+                            }
+                        }
+
+                        return result;
+                    },
+
+                    /**
+                     * Các kết luận ĐỊNH TÍNH (có giải thích, dựa trên số liệu thật đã
+                     * trả về) — KHÔNG bịa điểm số phần trăm mục tiêu.
+                     */
+                    assessmentLines() {
+                        const chosen = this.proposed();
+
+                        if (! chosen.cards_count) {
+                            return ['Chưa có phương án để đánh giá.'];
+                        }
+
+                        const lines = [];
+                        const chosenCashback = Number(chosen.total_cashback);
+                        const best = this.bestCashback();
+                        const gap = best - chosenCashback;
+
+                        if (gap > 0.5) {
+                            lines.push('Tiền hoàn thấp hơn ' + ccMoneyVnd(gap) + ' so với phương án hoàn tối đa trong các phương án tìm được.');
+                        } else {
+                            lines.push('Đạt mức hoàn tiền cao nhất trong các phương án tìm được.');
+                        }
+
+                        const fewer = this.fewerCardsAlternative();
+
+                        if (fewer) {
+                            const diff = Number(fewer.total_cashback) - chosenCashback;
+
+                            lines.push(diff < -0.5
+                                ? 'Có phương án dùng ít hơn (' + fewer.cards_count + ' so với ' + chosen.cards_count + ' thẻ) nhưng tiền hoàn thấp hơn ' + ccMoneyVnd(Math.abs(diff)) + '.'
+                                : 'Có phương án dùng ít hơn (' + fewer.cards_count + ' thẻ) với tiền hoàn không thấp hơn.');
+                        } else if (chosen.cards_count <= 1) {
+                            lines.push('Phương án đã dùng ít thẻ nhất có thể trong các phương án tìm được.');
+                        } else {
+                            lines.push('Không tìm được phương án dùng ít thẻ hơn so với phương án đề xuất.');
+                        }
+
+                        if (Number(chosen.new_cards) > 0) {
+                            lines.push('Chưa đủ dữ liệu để xác nhận điều kiện ưu đãi của ' + chosen.new_cards + ' thẻ mới cần cân nhắc mở.');
+                        }
+
+                        return lines;
                     },
                 };
             }

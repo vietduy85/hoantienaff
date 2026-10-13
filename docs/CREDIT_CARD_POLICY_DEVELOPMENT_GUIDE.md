@@ -199,6 +199,27 @@ Thực tế đợt đầu: 8/10 **HOÀN THÀNH**; `vpbank-reward-visa` → **CH�
 chính thức); `shinhan-cashback-visa` → **CẦN XÁC NHẬN** (3 hạng + T&C xung đột + ưu đãi cuối tuần không
 mô hình được). Test `reporter_flagged_products_are_not_seeded` chặn việc seed lầm 2 sản phẩm này.
 
+### 2.2 Phí thường niên hồ sơ MCC (bắt buộc khi tạo/cập nhật hồ sơ)
+
+Mỗi hồ sơ MCC khai 3 trường phí thường niên trên `credit_card_policy_mcc_profiles`
+(`annual_fee_primary`, `annual_fee_supplementary`, `annual_spend_for_annual_fee_waiver`; nullable,
+`decimal(16,2)`). Quy tắc nghiên cứu:
+
+- Chỉ ghi khi có **nguồn chính thức** đúng **sản phẩm + hạng** (biểu phí thẻ tín dụng của ngân hàng,
+  hoặc trang sản phẩm chính thức). Nguồn thứ cấp (sosanhthe, rcgv, fingo…) chỉ tham khảo.
+- **KHÔNG điền `0`** kể cả khi ngân hàng ghi "Miễn phí"; KHÔNG suy luận/sao chép giữa hồ sơ; thiếu
+  căn cứ ⇒ **NULL** + ghi lý do.
+- **Liệt kê riêng từng hạng/bậc — KHÔNG gộp.** Hồ sơ dùng chung nhiều hạng có phí khác nhau
+  (VIB One Card #2 — 3 hạng; VIB Max Card #14 — 4 hạng) ⇒ để NULL ("phụ thuộc hạng") và đề xuất
+  bảng hạng riêng; **KHÔNG** ghi một mức chung.
+- Phân biệt **thẻ chính** vs **thẻ phụ**; **phí gói/thành viên** (membership/package fee) là loại
+  phí khác; tách **năm đầu** vs **các năm tiếp theo** và **mức chuẩn** vs **ưu đãi thời hạn**.
+- Ghi nguồn (URL) + ngày hiệu lực trong báo cáo.
+- Bảng phí PDF nhiều cột: **đối chiếu toạ độ cột** (hoặc mở trực tiếp) trước khi ghi; số liệu
+  "đáng ngờ" ⇒ NULL.
+- ⚠️ `shinhanfinance.com.vn` = Shinhan **Finance** (SVFC), KHÔNG phải Shinhan Bank VN.
+- Quy trình đầy đủ + trạng thái từng hồ sơ: `docs/CREDIT_CARD_MCC_WORKFLOW.md` Phần I.
+
 ---
 
 ## 3. Quy trình tạo System Template (bằng code thực tế)
