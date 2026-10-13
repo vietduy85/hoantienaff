@@ -4,10 +4,14 @@ namespace Tests\Feature\Admin;
 
 use App\Models\CreditCard\MccCode;
 use App\Models\CreditCard\PolicyMccProfile;
+use App\Models\CreditCard\PolicyMccProfileDocument;
 use App\Models\CreditCard\PolicyMccProfileRow;
 use App\Models\CreditCard\PolicyMccProfileRowCode;
 use App\Models\CreditCard\PolicyTemplate;
 use App\Models\User;
+use App\Services\CreditCard\PolicyMccProfileService;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\Test;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
@@ -423,5 +427,79 @@ class CreditCardMccManagementTest extends TestCase
 
         $this->assertSame(1, PolicyMccProfile::query()->count());
         $this->assertTrue(PolicyTemplate::query()->whereKey($template->id)->exists());
+    }
+
+    // =====================================================================
+    // Tải tài liệu hồ sơ (endpoint admin) — hồi quy: luồng quản trị không đổi
+    // =====================================================================
+
+    #[Test]
+    public function admin_viewer_can_download_an_attached_profile_document(): void
+    {
+        Storage::fake(PolicyMccProfileService::DOCUMENT_DISK);
+
+        $template = $this->makeSystemTemplate(['name' => 'Thẻ tài liệu admin']);
+
+        $profile = PolicyMccProfile::create([
+            'policy_template_id' => $template->id,
+            'name' => 'MCC tài liệu',
+        ]);
+
+        $path = 'credit-card-mcc/'.Str::uuid().'.pdf';
+        Storage::disk(PolicyMccProfileService::DOCUMENT_DISK)->put($path, 'admin-pdf');
+
+        $document = PolicyMccProfileDocument::create([
+            'policy_mcc_profile_id' => $profile->id,
+            'disk' => PolicyMccProfileService::DOCUMENT_DISK,
+            'path' => $path,
+            'original_name' => 'admin-doc.pdf',
+            'mime' => 'application/pdf',
+            'extension' => 'pdf',
+            'size' => strlen('admin-pdf'),
+            'uploaded_by' => null,
+        ]);
+
+        $response = $this->actingAs($this->viewer)->get(
+            route('admin.credit-card.mcc.documents.download', [$profile->id, $document->id])
+        );
+
+        $response->assertOk();
+        $this->assertSame('admin-pdf', $response->streamedContent());
+        $this->assertStringContainsString(
+            'attachment; filename=admin-doc.pdf',
+            (string) $response->headers->get('content-disposition')
+        );
+    }
+
+    #[Test]
+    public function admin_document_download_requires_view_permission(): void
+    {
+        Storage::fake(PolicyMccProfileService::DOCUMENT_DISK);
+
+        $template = $this->makeSystemTemplate(['name' => 'Thẻ tài liệu admin']);
+
+        $profile = PolicyMccProfile::create([
+            'policy_template_id' => $template->id,
+            'name' => 'MCC tài liệu',
+        ]);
+
+        $path = 'credit-card-mcc/'.Str::uuid().'.pdf';
+        Storage::disk(PolicyMccProfileService::DOCUMENT_DISK)->put($path, 'admin-pdf');
+
+        $document = PolicyMccProfileDocument::create([
+            'policy_mcc_profile_id' => $profile->id,
+            'disk' => PolicyMccProfileService::DOCUMENT_DISK,
+            'path' => $path,
+            'original_name' => 'admin-doc.pdf',
+            'mime' => 'application/pdf',
+            'extension' => 'pdf',
+            'size' => strlen('admin-pdf'),
+            'uploaded_by' => null,
+        ]);
+
+        // Không có quyền `credit-cards.view` ⇒ bị chặn trước khi chạm tới file.
+        $this->actingAs($this->member)
+            ->get(route('admin.credit-card.mcc.documents.download', [$profile->id, $document->id]))
+            ->assertForbidden();
     }
 }

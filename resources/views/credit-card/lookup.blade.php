@@ -207,7 +207,8 @@
                                         <template x-for="(row, ri) in (profile.included || [])" :key="'in' + ri">
                                             <div class="text-sm leading-relaxed text-gray-600">
                                                 <span class="font-medium text-gray-700" x-show="row.category_name" x-text="row.category_name + ': '"></span>
-                                                <span class="font-mono text-emerald-700" x-text="(row.codes || []).join(', ')"></span>
+                                                <span class="font-mono text-emerald-700" x-show="(row.codes || []).length" x-text="(row.codes || []).join(', ')"></span>
+                                                <span class="italic text-gray-400" x-show="!(row.codes || []).length" x-cloak>Chưa có thông tin mã MCC</span>
                                                 <span class="block text-gray-400" x-show="row.description || row.note" x-text="row.description || row.note"></span>
                                             </div>
                                         </template>
@@ -218,7 +219,8 @@
                                         <template x-for="(row, ri) in (profile.excluded || [])" :key="'ex' + ri">
                                             <div class="text-sm leading-relaxed text-gray-600">
                                                 <span class="font-medium text-gray-700" x-show="row.category_name" x-text="row.category_name + ': '"></span>
-                                                <span class="font-mono text-rose-700" x-text="(row.codes || []).join(', ')"></span>
+                                                <span class="font-mono text-rose-700" x-show="(row.codes || []).length" x-text="(row.codes || []).join(', ')"></span>
+                                                <span class="italic text-gray-400" x-show="!(row.codes || []).length" x-cloak>Chưa có thông tin mã MCC</span>
                                                 <span class="block text-gray-400" x-show="row.description || row.note" x-text="row.description || row.note"></span>
                                             </div>
                                         </template>
@@ -309,7 +311,7 @@
 
                     <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-3">
                         <h4 class="font-semibold text-gray-800 text-sm">
-                            Chính sách liên quan
+                            Các thẻ hoàn tiền
                             <span class="ml-1 font-medium text-gray-400" x-text="'(' + mccResult.matches.length + ')'"></span>
                         </h4>
 
@@ -323,11 +325,11 @@
                                     <div class="flex items-start justify-between gap-3">
                                         <div class="min-w-0">
                                             <p class="font-medium text-gray-800 truncate" x-text="row.policy_name"></p>
-                                            <p class="mt-1">
-                                                <span class="rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                                                      :class="ccRelationClass(row.relation)"
-                                                      x-text="row.relation_label"></span>
-                                            </p>
+                                             <p class="mt-1" x-show="row.relation !== 'group'">
+                                                 <span class="rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                                                       :class="ccRelationClass(row.relation)"
+                                                       x-text="row.relation_label"></span>
+                                             </p>
                                         </div>
                                     </div>
 
@@ -409,13 +411,7 @@
                                        x-show="(row.mcc_codes || []).length"
                                        x-text="'Mã trong nhóm: ' + (row.mcc_codes || []).join(', ')"></p>
 
-                                    {{-- Hồ sơ MCC admin nhập + phạm vi loại trừ --}}
-                                    <p class="text-[11px] text-gray-600"
-                                       x-show="row.profile_name"
-                                       x-text="'Hồ sơ MCC: ' + row.profile_name"></p>
-                                    <p class="text-[11px] text-gray-500"
-                                       x-show="row.group_reference_name"
-                                       x-text="'Nhóm trong hồ sơ: ' + row.group_reference_name"></p>
+                                    {{-- Phạm vi loại trừ theo hồ sơ MCC (không hiển thị tên hồ sơ/nhóm nội bộ). --}}
                                     <p class="text-[11px] text-rose-600"
                                        x-show="row.exclusion_scope === 'policy'"
                                        x-text="'Loại trừ theo hồ sơ MCC của chính sách'"></p>
@@ -423,9 +419,20 @@
                                        x-show="row.note && (! row.cashback || row.cashback.status !== 'excluded')"
                                        x-text="row.note"></p>
 
-                                    <p class="text-[11px] text-gray-400"
-                                       x-show="row.source_pdf"
-                                       x-text="'Nguồn: ' + row.source_pdf + (row.source_page ? ' · trang ' + row.source_page : '')"></p>
+                                    {{-- File tài liệu của hồ sơ: mỗi tài liệu MỘT liên kết riêng, tải
+                                         qua endpoint kiểm tra quyền (không lộ đường dẫn disk private).
+                                         Không có file tải được ⇒ báo rõ, không tạo liên kết giả. --}}
+                                    <div class="text-[11px] leading-relaxed" x-show="(row.documents || []).length">
+                                        <template x-for="doc in row.documents" :key="'rowdoc-' + row.id + '-' + doc.id">
+                                            <a :href="doc.url"
+                                               class="mr-2 font-medium underline text-blue-600 hover:text-blue-800">
+                                                <span>File liên quan</span><template x-if="(row.documents || []).length > 1"><span class="font-normal"> — <span x-text="doc.name"></span></span></template>
+                                            </a>
+                                        </template>
+                                    </div>
+                                    <p class="text-[11px] text-gray-400 italic"
+                                       x-show="!(row.documents || []).length"
+                                       x-cloak>Chưa có thông tin</p>
                                 </li>
                             </template>
                         </ul>

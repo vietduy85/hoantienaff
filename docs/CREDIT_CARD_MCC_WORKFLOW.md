@@ -299,6 +299,8 @@ Nguồn: `CardPolicyLookupService::lookupMcc()` (CHỈ ĐỌC; không tạo kỳ
 - `resources/views/credit-card/lookup.blade.php` (tab Tra cứu MCC): khi có `cashback.highest`, hiển thị
   khối nổi bật **"Hoàn tối đa <tỷ lệ>"** kèm **điều kiện** và **trần**; nếu là kết quả sản phẩm dùng chung
   nhiều hạng (`product_name`) thì liệt kê **đủ các bậc**.
+- **Dòng hồ sơ không có mã MCC** (hồ sơ mô tả, ví dụ VPBank Super Shopee): cột mã hiển thị nhãn
+  **"Chưa có thông tin mã MCC"** thay vì để trống — tránh hiểu nhầm là đã kiểm tra đầy đủ.
 
 ---
 
@@ -365,8 +367,10 @@ Chạy: `php artisan test --filter "CardLookupTest|CardLookupMccProfileTest"`.
 3. **Tên danh mục hồ sơ không khớp blueprint (VIB dùng combo).** *Xử lý:* tra cứu đọc từ bảng
    `credit_card_policy_mcc_row_benefits` đã lưu, **không** name-match blueprint; `attachCashback` bỏ qua
    kết quả hồ sơ MCC để không ghi đè.
-4. **Chỉ có tên ĐVCNT/danh mục, không có mã MCC** (VPBank Super Shopee, template #7). *Xử lý:*
-   "chưa đủ căn cứ" ⇒ không tạo hồ sơ, không suy đoán MCC.
+4. **Chỉ có tên ĐVCNT/danh mục, không có mã MCC** (VPBank Super Shopee, template #7). *Xử lý (cập nhật):*
+   tạo **hồ sơ MÔ TẢ** — dòng included/excluded **không gắn mã**, kèm tài liệu gốc và note rõ "ngân hàng không
+   công bố mã MCC"; **KHÔNG** suy đoán/gán mã. Tab "Tra cứu thẻ" hiển thị nhãn **"Chưa có thông tin mã MCC"**
+   cho dòng không mã (xem báo cáo kiểm toán Phần K).
 5. **PDF giải nén báo "lỗi font".** *Xử lý:* chỉ do codepage console Windows; bản PDF gốc hợp lệ, đã đọc
    đúng Phụ lục (ví dụ Shinhan Phụ lục 1).
 6. **Bậc thừa khi rút gọn dữ liệu.** *Xử lý:* trình nhập xoá bậc có `tier_order >=` số bậc mới

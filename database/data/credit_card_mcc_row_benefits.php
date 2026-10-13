@@ -1379,4 +1379,85 @@ return [
             ],
         ],
     ],
+
+    // =====================================================================
+    // #7 — VPBank Super Shopee Platinum Visa ("Thể lệ ưu đãi dài hạn")
+    // HỒ SƠ MÔ TẢ: VPBank KHÔNG công bố danh sách mã MCC cụ thể; các dòng
+    // included chỉ mô tả quyền lợi theo danh mục/ĐVCNT.
+    // =====================================================================
+    'vpbank-super-shopee-platinum-visa' => [
+        'source_doc' => 'vpbank-super-shopee-terms',
+        'source_page' => '7.1',
+        'rows' => [
+            'Giao dịch tại Shopee, ShopeeFood' => [
+                [
+                    'pct' => 10,
+                    'min' => 4000000,
+                    'cap' => 400000,
+                    'cap_period' => 'kỳ sao kê',
+                    'cap_unit' => 'VND',
+                    'cond' => 'Tổng doanh số giao dịch của Khách hàng đạt từ 4.000.000đ trong kỳ sao kê xét hoàn tiền; số tiền hoàn tối đa 400.000đ/kỳ sao kê.',
+                ],
+            ],
+            'Giao dịch ăn uống, siêu thị (Co.op, BigC, Lottemart, Winmart), Grab/Be' => [
+                [
+                    'pct' => 2,
+                    'min' => 4000000,
+                    'cap' => 200000,
+                    'cap_period' => 'kỳ sao kê',
+                    'cap_unit' => 'VND',
+                    'cond' => 'Tổng doanh số giao dịch của Khách hàng đạt từ 4.000.000đ trong kỳ sao kê xét hoàn tiền; số tiền hoàn tối đa 200.000đ/kỳ sao kê.',
+                ],
+            ],
+            'Tất cả giao dịch còn lại' => [
+                [
+                    'pct' => 0.1,
+                    'cond' => 'Hoàn 0,1% cho toàn bộ giao dịch còn lại; không giới hạn số tiền hoàn.',
+                ],
+            ],
+        ],
+    ],
+
+    // =====================================================================
+    // #34 — VIB Online Plus 2in1 (Chương trình điểm thưởng/hoàn tiền VIB, mục 2.6)
+    // HỒ SƠ MÔ TẢ theo KÊNH giao dịch; VIB công bố loại trừ MCC 4900, 4814.
+    // =====================================================================
+    'vib-online-plus-2in1' => [
+        'source_page' => '2.6',
+        'rows' => [
+            'Chi tiêu trực tuyến nước ngoài' => [
+                [
+                    'pct' => 5,
+                    'cap' => 600000,
+                    'cap_period' => 'kỳ sao kê',
+                    'cap_unit' => 'điểm',
+                    'cond' => 'Giao dịch chi tiêu trực tuyến tại ĐVCNT ngoài lãnh thổ Việt Nam và thực hiện bằng ngoại tệ; điểm thưởng tối đa 600.000 điểm/kỳ sao kê.',
+                ],
+            ],
+            'Chi tiêu trực tuyến khác' => [
+                [
+                    'pct' => 3,
+                    'cap' => 600000,
+                    'cap_period' => 'kỳ sao kê',
+                    'cap_unit' => 'điểm',
+                    'cond' => 'Giao dịch chi tiêu trực tuyến còn lại; điểm thưởng tối đa 600.000 điểm/kỳ sao kê.',
+                ],
+            ],
+            'Giao dịch chi tiêu còn lại' => [
+                [
+                    'pct' => 0.1,
+                    'cond' => 'Toàn bộ giá trị giao dịch chi tiêu còn lại trong kỳ (không phải giao dịch thanh toán trực tuyến), gồm cả thanh toán hóa đơn phí bảo hiểm Prudential của Chủ Thẻ cho chính Chủ Thẻ qua MyVIB; tối đa 600.000 điểm/kỳ sao kê.',
+                ],
+            ],
+            'Giao dịch có lưu thông tin Thẻ (card-on-file)' => [
+                [
+                    'cap' => 100000,
+                    'cap_period' => 'kỳ sao kê',
+                    'cap_unit' => 'VND',
+                    'cond' => 'Hoàn tiền 50.000đ/giao dịch lưu thông tin Thẻ tại ĐVCNT trực tuyến (Grab, Netflix, Tiki, Agoda, Booking.com, iTunes, CH Play, Spotify, Traveloka). Giao dịch từ ngày phát hành thẻ đến trước ngày lập bảng sao kê của kỳ sao kê thứ 03.',
+                    'exc' => 'Số tiền hoàn tối đa 100.000đ/kỳ sao kê và tối đa 300.000đ/Khách hàng. Đây là hoàn tiền, không phải điểm thưởng.',
+                ],
+            ],
+        ],
+    ],
 ];

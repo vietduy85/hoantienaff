@@ -8,6 +8,7 @@ use App\Models\CreditCard\PolicyTemplate;
 use App\Models\CreditCard\PolicyTier;
 use App\Models\CreditCard\PolicyTierCategory;
 use App\Models\CreditCard\PolicyVersion;
+use App\Models\CreditCard\UserCard;
 use App\Models\User;
 use App\Services\CreditCard\Optimizer\PortfolioOptimizerService;
 use PHPUnit\Framework\Attributes\Test;
@@ -1285,6 +1286,277 @@ class CardPortfolioOptimizerTest extends TestCase
                 );
             }
         }
+    }
+
+    // =====================================================================
+    // 13. Nhận diện thẻ đang sở hữu theo sản phẩm (không tính là "thẻ mới")
+    // =====================================================================
+
+    /**
+     * Bug gốc: user sở hữu 2 thẻ cùng sản phẩm nhưng optimizer vẫn sinh 2
+     * instance "thẻ mới" và tổng kết "thẻ đang sở hữu được dùng: 0". Sau fix,
+     * thẻ đã sở hữu phải được nhận diện (is_owned = true) và KHÔNG sinh thêm bản
+     * sao "thẻ mới" cho phần đã sở hữu (mặc định scope = all).
+     */
+    #[Test]
+    public function owned_copies_of_same_product_are_recognized_and_not_duplicated_as_new(): void
+    {
+        $food = $this->makeSystemCategory(['name' => 'Ăn uống']);
+
+        $template = $this->makeTemplate('mDigi 20% (trần kỳ 300k)',
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => 300000]],
+            [['category_id' => $food->id, 'percent' => '20.000']]);
+
+        $tiers = [['name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => 300000]];
+        $rules = [['category_id' => $food->id, 'percent' => '20.000']];
+        $this->makeOwnedCardLinkedTo($template, 'mDigi của tôi 1', $tiers, $rules);
+        $this->makeOwnedCardLinkedTo($template, 'mDigi của tôi 2', $tiers, $rules);
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'max_copies_per_card' => 2,
+            'amounts' => [$food->id => 6000000],
+        ]));
+
+        $response->assertOk();
+        $this->assertSame('600000.00', $response->json('data.best_cashback'));
+
+        $plan = $response->json('data.plans.0');
+        $this->assertSame(2, (int) $plan['cards_count']);
+        $this->assertSame(1, (int) $plan['distinct_products']);
+        $this->assertSame(2, (int) $plan['owned_cards']);
+        $this->assertSame(0, (int) $plan['new_cards']);
+
+        foreach ($plan['cards'] as $card) {
+            $this->assertTrue($card['is_owned']);
+            $this->assertStringNotContainsString('mDigi 20%', $card['name']);
+        }
+    }
+
+    /**
+     * Sở hữu 1 thẻ + max_copies_per_card = 2 ⇒ phương án có 1 instance sở hữu và
+     * 1 instance "thẻ mới" của CÙNG sản phẩm (đánh số Thẻ 1/Thẻ 2), không phải
+     * tất cả đều là "thẻ mới".
+     */
+    #[Test]
+    public function second_instance_of_owned_product_is_marked_new(): void
+    {
+        $food = $this->makeSystemCategory(['name' => 'Siêu thị']);
+
+        $template = $this->makeTemplate('Uniq 20% (trần kỳ 300k)',
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => 300000]],
+            [['category_id' => $food->id, 'percent' => '20.000']]);
+
+        $this->makeOwnedCardLinkedTo(
+            $template,
+            'Uniq của tôi',
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => 300000]],
+            [['category_id' => $food->id, 'percent' => '20.000']],
+        );
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'compare',
+            'criterion' => 'max_cashback',
+            'max_copies_per_card' => 2,
+            'amounts' => [$food->id => 6000000],
+        ]));
+
+        $response->assertOk();
+
+        $plan = $response->json('data.plans.0');
+        $this->assertSame(2, (int) $plan['cards_count']);
+        $this->assertSame(1, (int) $plan['distinct_products']);
+        $this->assertSame(1, (int) $plan['owned_cards']);
+        $this->assertSame(1, (int) $plan['new_cards']);
+
+        $flags = array_map(fn (array $c): bool => (bool) $c['is_owned'], $plan['cards']);
+        sort($flags);
+        $this->assertSame([false, true], $flags);
+
+        $indexes = array_map(fn (array $c): int => (int) $c['instance_index'], $plan['cards']);
+        sort($indexes);
+        $this->assertSame([1, 2], $indexes);
+    }
+
+    /**
+     * scope = all: sản phẩm user đã sở hữu phải dùng POLICY của thẻ thật
+     * (không phải policy template hệ thống), và không bị tính là thẻ mới.
+     */
+    #[Test]
+    public function all_scope_uses_the_owned_policy_for_owned_products(): void
+    {
+        $food = $this->makeSystemCategory(['name' => 'Mua sắm trực tuyến']);
+
+        $template = $this->makeTemplate('Template 20%',
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $food->id, 'percent' => '20.000']]);
+
+        $this->makeOwnedCardLinkedTo(
+            $template,
+            'Thẻ của tôi 10%',
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $food->id, 'percent' => '10.000']],
+        );
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'max_copies_per_card' => 1,
+            'amounts' => [$food->id => 1000000],
+        ]));
+
+        $response->assertOk();
+        $this->assertSame('100000.00', $response->json('data.best_cashback'));
+        $this->assertSame(0, (int) $response->json('data.plans.0.new_cards'));
+
+        $card = $response->json('data.plans.0.cards.0');
+        $this->assertTrue($card['is_owned']);
+        $this->assertSame('Thẻ của tôi 10%', $card['name']);
+    }
+
+    /**
+     * scope = owned không bao giờ chứa instance "thẻ mới".
+     */
+    #[Test]
+    public function owned_scope_never_includes_new_instances(): void
+    {
+        $food = $this->makeSystemCategory(['name' => 'Ăn uống']);
+
+        $template = $this->makeTemplate('Template 20%',
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $food->id, 'percent' => '20.000']]);
+
+        $this->makeOwnedCardLinkedTo(
+            $template,
+            'Thẻ của tôi 10%',
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $food->id, 'percent' => '10.000']],
+        );
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'owned',
+            'criterion' => 'max_cashback',
+            'max_copies_per_card' => 2,
+            'amounts' => [$food->id => 6000000],
+        ]));
+
+        $response->assertOk();
+        $this->assertSame(0, (int) $response->json('data.plans.0.new_cards'));
+
+        foreach ($response->json('data.plans.0.cards') as $card) {
+            $this->assertTrue($card['is_owned']);
+        }
+    }
+
+    /**
+     * Số thẻ đang sở hữu là SÀN: max_copies_per_card nhỏ hơn (mặc định = 1)
+     * KHÔNG được giới hạn bớt số thẻ sở hữu cùng sản phẩm.
+     */
+    #[Test]
+    public function owned_count_is_a_floor_regardless_of_max_copies(): void
+    {
+        $food = $this->makeSystemCategory(['name' => 'Ăn uống']);
+
+        $template = $this->makeTemplate('Template 20% (trần kỳ 300k)',
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => 300000]],
+            [['category_id' => $food->id, 'percent' => '20.000']]);
+
+        $tiers = [['name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => 300000]];
+        $rules = [['category_id' => $food->id, 'percent' => '20.000']];
+        $this->makeOwnedCardLinkedTo($template, 'Thẻ của tôi 1', $tiers, $rules);
+        $this->makeOwnedCardLinkedTo($template, 'Thẻ của tôi 2', $tiers, $rules);
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'compare',
+            'criterion' => 'max_cashback',
+            'max_copies_per_card' => 1,
+            'amounts' => [$food->id => 6000000],
+        ]));
+
+        $response->assertOk();
+        $this->assertSame(2, (int) $response->json('data.plans.0.cards_count'));
+        $this->assertSame(2, (int) $response->json('data.plans.0.owned_cards'));
+        $this->assertSame(0, (int) $response->json('data.plans.0.new_cards'));
+    }
+
+    /**
+     * Thẻ sở hữu KHÔNG gắn template (policy riêng) vẫn là thẻ của bạn và đứng
+     * riêng, không bị gộp nhầm với bất kỳ sản phẩm hệ thống nào.
+     */
+    #[Test]
+    public function owned_card_without_template_link_stays_owned_and_distinct(): void
+    {
+        $food = $this->makeSystemCategory(['name' => 'Ăn uống']);
+
+        $card = $this->makeUserCard($this->owner->id, ['name' => 'Thẻ rời của tôi']);
+        $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $food->id, 'percent' => '15.000']],
+        );
+
+        $this->makeTemplate('Template 10%',
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $food->id, 'percent' => '10.000']]);
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'compare',
+            'criterion' => 'max_cashback',
+            'amounts' => [$food->id => 1000000],
+        ]));
+
+        $response->assertOk();
+        $this->assertSame('150000.00', $response->json('data.best_cashback'));
+
+        $card0 = $response->json('data.plans.0.cards.0');
+        $this->assertTrue($card0['is_owned']);
+        $this->assertStringStartsWith('owned:', $card0['product_key']);
+    }
+
+    /**
+     * Việc nhận diện sở hữu chỉ đổi NHÃN, KHÔNG nhân tiền hoàn: trần theo kỳ vẫn
+     * áp riêng cho từng thẻ sở hữu.
+     */
+    #[Test]
+    public function ownership_label_does_not_inflate_cashback_beyond_per_card_caps(): void
+    {
+        $food = $this->makeSystemCategory(['name' => 'Ăn uống']);
+
+        $template = $this->makeTemplate('Template 20% (trần kỳ 300k)',
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => 300000]],
+            [['category_id' => $food->id, 'percent' => '20.000']]);
+
+        $tiers = [['name' => 'Bậc 1', 'min' => 0, 'max' => null, 'cap_period' => 300000]];
+        $rules = [['category_id' => $food->id, 'percent' => '20.000']];
+        $this->makeOwnedCardLinkedTo($template, 'Thẻ của tôi 1', $tiers, $rules);
+        $this->makeOwnedCardLinkedTo($template, 'Thẻ của tôi 2', $tiers, $rules);
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'max_copies_per_card' => 2,
+            'amounts' => [$food->id => 5000000],
+        ]));
+
+        $response->assertOk();
+        $this->assertSame('600000.00', $response->json('data.best_cashback'));
+        $this->assertSame(2, (int) $response->json('data.plans.0.owned_cards'));
+    }
+
+    /**
+     * Thẻ đang sở hữu gắn policy (clone) của một template hệ thống: liên kết để
+     * optimizer nhận diện sản phẩm đã sở hữu chính là `template_id` của policy.
+     *
+     * @param  array<int, array{name?:string,min:float,max:float|null,cap_period?:string|null}>  $tiers
+     * @param  array<int, array{category_id:int,percent:string,cap_tx?:float|null,cap_cat?:float|null}>  $rules
+     */
+    private function makeOwnedCardLinkedTo(PolicyTemplate $template, string $name, array $tiers, array $rules): UserCard
+    {
+        $card = $this->makeUserCard($this->owner->id, ['name' => $name]);
+        $this->makePolicyForCard($card, $tiers, $rules, ['template_id' => $template->id]);
+
+        return $card;
     }
 
     // =====================================================================

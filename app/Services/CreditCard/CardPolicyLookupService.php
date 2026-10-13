@@ -299,7 +299,7 @@ class CardPolicyLookupService
     private function adminProfileMatches(string $code): array
     {
         $profiles = PolicyMccProfile::query()
-            ->with(['template:id,name', 'rows.codes', 'rows.benefits.document'])
+            ->with(['template:id,name', 'documents', 'rows.codes', 'rows.benefits.document'])
             ->orderBy('policy_template_id')
             ->orderBy('name')
             ->orderBy('id')
@@ -403,6 +403,10 @@ class CardPolicyLookupService
             'verification_status' => null,
             'source_pdf' => $source?->original_name,
             'source_page' => $row->benefits->first()?->source_page,
+            // Tài liệu ngân hàng TẢI ĐƯỢC của CHÍNH hồ sơ này (disk private, tải
+            // qua endpoint kiểm tra quyền). Chỉ gồm file còn tồn tại — không tạo
+            // liên kết giả; hồ sơ không có tài liệu ⇒ [].
+            'documents' => $this->profileDocumentsPayload($profile),
             // Tỷ lệ/bậc hoàn tiền trích từ tài liệu gốc (chỉ để tra cứu) — KHÔNG
             // suy diễn, KHÔNG lấy từ blueprint.
             'cashback' => $this->benefitCashback($row, $relation),

@@ -771,6 +771,40 @@ class CardLookupMccProfileTest extends TestCase
             ->assertNotFound();
     }
 
+    // =====================================================================
+    // Hồ sơ MÔ TẢ không mã (VPBank Super Shopee) — dòng chỉ có tên/mô tả.
+    // =====================================================================
+
+    #[Test]
+    public function policy_lookup_reports_descriptive_row_without_codes(): void
+    {
+        $user = User::factory()->create();
+        $template = $this->makeSystemTemplate(['name' => 'VPBank Super Shopee']);
+
+        // Dòng included mô tả quyền lợi nhưng KHÔNG gắn mã MCC nào.
+        $this->makeIncludedProfile($template, 'Giao dịch tại Shopee, ShopeeFood', []);
+
+        $response = $this->actingAs($user)->getJson(
+            route('credit-cards.lookup.policy', ['template_id' => $template->id])
+        )->assertOk();
+
+        $response->assertJsonPath('data.mcc_profiles.0.included.0.category_name', 'Giao dịch tại Shopee, ShopeeFood');
+        $response->assertJsonPath('data.mcc_profiles.0.included.0.codes', []);
+    }
+
+    #[Test]
+    public function lookup_page_shows_placeholder_for_rows_without_mcc_codes(): void
+    {
+        $user = User::factory()->create();
+        $this->makeSystemTemplate(['name' => 'VPBank Super Shopee']);
+
+        $html = $this->actingAs($user)->get(route('credit-cards.lookup'))->assertOk()->getContent();
+
+        // Dòng không có mã MCC phải hiển thị nhãn "Chưa có thông tin mã MCC",
+        // KHÔNG để trống gây hiểu nhầm là đã kiểm tra đầy đủ.
+        $this->assertStringContainsString('Chưa có thông tin mã MCC', $html);
+    }
+
     #[Test]
     public function lookup_page_removed_the_duplicate_mcc_related_block(): void
     {
@@ -884,5 +918,176 @@ class CardLookupMccProfileTest extends TestCase
         $this->assertCount(1, $matches);
         $this->assertSame('excluded', $matches[0]['relation']);
         $this->assertSame('policy_mcc_profile', $matches[0]['source']);
+    }
+
+    // =====================================================================
+    // Tab "Tra cứu MCC" — giao diện "Các thẻ hoàn tiền" + liên kết tài liệu
+    // =====================================================================
+
+    #[Test]
+    public function mcc_lookup_result_section_is_renamed_and_hides_internal_profile_labels(): void
+    {
+        $user = User::factory()->create();
+        $this->makeSystemTemplate(['name' => 'Thẻ giao diện']);
+
+        $html = $this->actingAs($user)->get(route('credit-cards.lookup'))->assertOk()->getContent();
+
+        // (1) Tiêu đề mới "Các thẻ hoàn tiền" + số lượng kết quả thực tế.
+        $this->assertStringContainsString('Các thẻ hoàn tiền', $html);
+        $this->assertStringContainsString('mccResult.matches.length', $html);
+        $this->assertStringNotContainsString('Chính sách liên quan', $html);
+
+        // (2) Bỏ nhãn quan hệ "Thuộc nhóm MCC" (chỉ ẩn khi relation = group).
+        $this->assertStringContainsString("row.relation !== 'group'", $html);
+        $this->assertStringNotContainsString('Thuộc nhóm MCC', $html);
+
+        // (3) Bỏ thông tin hồ sơ nội bộ khỏi giao diện.
+        $this->assertStringNotContainsString('Hồ sơ MCC:', $html);
+        $this->assertStringNotContainsString('Nhóm trong hồ sơ:', $html);
+
+        // (4) Thay dòng "Nguồn: <source_pdf>" bằng liên kết gạch chân "File liên quan".
+        $this->assertStringNotContainsString("'Nguồn: ' + row.source_pdf", $html);
+        $this->assertStringContainsString('File liên quan', $html);
+        $this->assertStringContainsString('underline text-blue-600', $html);
+        $this->assertStringContainsString(':href="doc.url"', $html);
+
+        // Không có tài liệu ⇒ báo "Chưa có thông tin", không tạo liên kết giả.
+        $this->assertStringContainsString('Chưa có thông tin', $html);
+    }
+
+    #[Test]
+    public function mcc_lookup_match_exposes_downloadable_document_for_its_profile(): void
+    {
+        $user = User::factory()->create();
+        $this->seedMcc('5411');
+        $template = $this->makeSystemTemplate(['name' => 'Thẻ có tài liệu']);
+
+        Storage::fake(PolicyMccProfileService::DOCUMENT_DISK);
+
+        $profile = $this->makeIncludedProfile($template, 'Mua sắm', ['5411']);
+        $document = $this->makeDocument($profile, 'dieu-kien.pdf', 'noi dung');
+
+        $response = $this->actingAs($user)
+            ->getJson(route('credit-cards.lookup.mcc', ['mcc' => '5411']))
+            ->assertOk();
+
+        $response->assertJsonPath('data.matches.0.source', 'policy_mcc_profile');
+        $response->assertJsonPath('data.matches.0.documents.0.id', $document->id);
+        $response->assertJsonPath('data.matches.0.documents.0.name', 'dieu-kien.pdf');
+
+        // URL trỏ tới endpoint kiểm tra quyền, KHÔNG lộ đường dẫn disk private.
+        $url = (string) $response->json('data.matches.0.documents.0.url');
+        $this->assertStringContainsString('/tra-cuu/tai-lieu/'.$profile->id.'/', $url);
+        $this->assertStringNotContainsString('credit-card-mcc', $url);
+        $this->assertStringNotContainsString('storage/app', $url);
+
+        // Nhấp liên kết tải ĐÚNG tài liệu của hồ sơ.
+        $download = $this->actingAs($user)->get($url);
+        $download->assertOk();
+        $this->assertSame('noi dung', $download->streamedContent());
+        $this->assertStringContainsString(
+            'attachment; filename=dieu-kien.pdf',
+            (string) $download->headers->get('content-disposition')
+        );
+    }
+
+    #[Test]
+    public function mcc_lookup_reports_no_document_when_profile_has_none(): void
+    {
+        $user = User::factory()->create();
+        $this->seedMcc('5411');
+        $template = $this->makeSystemTemplate(['name' => 'Thẻ không tài liệu']);
+
+        Storage::fake(PolicyMccProfileService::DOCUMENT_DISK);
+
+        $this->makeIncludedProfile($template, 'Mua sắm', ['5411']);
+
+        $response = $this->actingAs($user)
+            ->getJson(route('credit-cards.lookup.mcc', ['mcc' => '5411']))
+            ->assertOk();
+
+        // Không có tài liệu ⇒ danh sách rỗng, giao diện hiển thị "Chưa có thông tin".
+        $response->assertJsonPath('data.matches.0.source', 'policy_mcc_profile');
+        $response->assertJsonPath('data.matches.0.documents', []);
+    }
+
+    #[Test]
+    public function mcc_lookup_hides_document_whose_file_is_missing(): void
+    {
+        $user = User::factory()->create();
+        $this->seedMcc('5411');
+        $template = $this->makeSystemTemplate(['name' => 'Thẻ file mất']);
+
+        Storage::fake(PolicyMccProfileService::DOCUMENT_DISK);
+
+        $profile = $this->makeIncludedProfile($template, 'Mua sắm', ['5411']);
+        $this->makeDocumentRecordWithoutFile($profile, 'missing.pdf');
+
+        $response = $this->actingAs($user)
+            ->getJson(route('credit-cards.lookup.mcc', ['mcc' => '5411']))
+            ->assertOk();
+
+        // Không tạo link chết: tài liệu không còn file bị bỏ ra khỏi payload.
+        $response->assertJsonPath('data.matches.0.documents', []);
+    }
+
+    #[Test]
+    public function mcc_lookup_returns_each_policys_own_document_without_duplication(): void
+    {
+        $user = User::factory()->create();
+        $this->seedMcc('5411');
+
+        Storage::fake(PolicyMccProfileService::DOCUMENT_DISK);
+
+        $templateA = $this->makeSystemTemplate(['name' => 'Thẻ A']);
+        $templateB = $this->makeSystemTemplate(['name' => 'Thẻ B']);
+
+        $profileA = $this->makeIncludedProfile($templateA, 'Mua sắm', ['5411']);
+        $profileB = $this->makeIncludedProfile($templateB, 'Mua sắm', ['5411']);
+        $this->makeDocument($profileA, 'A.pdf', 'noi dung A');
+        $this->makeDocument($profileB, 'B.pdf', 'noi dung B');
+
+        $response = $this->actingAs($user)
+            ->getJson(route('credit-cards.lookup.mcc', ['mcc' => '5411']))
+            ->assertOk();
+
+        $matches = $response->json('data.matches');
+        $this->assertCount(2, $matches);
+
+        $documentNameByPolicy = [];
+
+        foreach ($matches as $match) {
+            // Mỗi thẻ CHỈ mang tài liệu của hồ sơ tương ứng — không trộn/lặp.
+            $this->assertCount(1, $match['documents']);
+            $documentNameByPolicy[$match['policy_name']] = $match['documents'][0]['name'];
+        }
+
+        $this->assertSame('A.pdf', $documentNameByPolicy['Thẻ A']);
+        $this->assertSame('B.pdf', $documentNameByPolicy['Thẻ B']);
+    }
+
+    #[Test]
+    public function mcc_lookup_shows_shared_product_document_only_once(): void
+    {
+        $user = User::factory()->create();
+        $this->seedMcc('5252');
+
+        Storage::fake(PolicyMccProfileService::DOCUMENT_DISK);
+
+        $starter = $this->makeSystemTemplate(['name' => 'VIB Max Card Visa - Starter']);
+        $elite = $this->makeSystemTemplate(['name' => 'VIB Max Card Visa - Elite']);
+
+        $starterProfile = $this->makeIncludedProfile($starter, 'Mua sắm', ['5252'], ['product_name' => 'VIB Max Card Visa']);
+        $this->makeIncludedProfile($elite, 'Mua sắm', ['5252'], ['product_name' => 'VIB Max Card Visa']);
+        $this->makeDocument($starterProfile, 'shared.pdf', 'noi dung');
+
+        $response = $this->actingAs($user)
+            ->getJson(route('credit-cards.lookup.mcc', ['mcc' => '5252']))
+            ->assertOk();
+
+        // Sản phẩm dùng chung ⇒ MỘT kết quả, tài liệu hiển thị MỘT lần (không nhân bản).
+        $matches = $response->json('data.matches');
+        $this->assertCount(1, $matches);
+        $this->assertCount(1, $matches[0]['documents']);
     }
 }

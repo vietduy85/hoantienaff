@@ -240,17 +240,45 @@ class PortfolioOptimizerService
      */
     private function buildCandidates(int $userId, string $scope, int $maxCopies): array
     {
-        $candidates = [];
+        $owned = $this->ownedScaffolds($userId);
 
-        if ($scope === OptimizerScope::OWNED || $scope === OptimizerScope::COMPARE) {
-            foreach ($this->ownedScaffolds($userId) as $scaffold) {
-                $candidates[$scaffold->key] = $scaffold;
+        if ($scope === OptimizerScope::OWNED) {
+            return $owned;
+        }
+
+        // Nhóm thẻ đang sở hữu theo sản phẩm (template của policy version) để
+        // KHÔNG sinh thêm bản sao "thẻ mới" cho sản phẩm người dùng đã có.
+        $ownedByTemplate = [];
+
+        foreach ($owned as $scaffold) {
+            if ($scaffold->templateId !== null) {
+                $ownedByTemplate[$scaffold->templateId][] = $scaffold;
             }
         }
 
-        if ($scope === OptimizerScope::ALL || $scope === OptimizerScope::COMPARE) {
-            $this->mergeDistinct($candidates, $this->marketScaffolds($maxCopies));
+        $candidates = [];
+
+        if ($scope === OptimizerScope::COMPARE) {
+            // Toàn bộ thẻ của người dùng (kể cả sản phẩm không có template hệ thống).
+            $candidates = $owned;
         }
+
+        $marketTemplateIds = [];
+
+        $market = $this->marketScaffolds($maxCopies, $ownedByTemplate, $marketTemplateIds);
+
+        if ($scope === OptimizerScope::ALL) {
+            // Phạm vi "all" chỉ gồm sản phẩm hệ thống; thẻ đang sở hữu thuộc một
+            // sản phẩm hệ thống phải được nhận diện là thẻ của bạn, không phải thẻ mới.
+            foreach ($owned as $scaffold) {
+                if ($scaffold->templateId !== null
+                    && in_array($scaffold->templateId, $marketTemplateIds, true)) {
+                    $candidates[$scaffold->key] = $scaffold;
+                }
+            }
+        }
+
+        $this->mergeDistinct($candidates, $market);
 
         return $candidates;
     }
@@ -284,6 +312,7 @@ class PortfolioOptimizerService
         $todayIso = $today->toDateString();
 
         $scaffolds = [];
+        $indexByTemplate = [];
 
         foreach ($cards as $card) {
             $cardId = (int) $card->id;
@@ -301,13 +330,25 @@ class PortfolioOptimizerService
                 ->with(['conditions.category', 'conditions.excludedCategories'])
                 ->first();
 
+            // Liên kết thẻ sở hữu với sản phẩm qua template của policy version.
+            // Nhờ đó thẻ đã có và các bản sao "thẻ mới" của cùng sản phẩm được
+            // nhóm chung, và optimizer biết người dùng đã sở hữu sản phẩm nào.
+            $templateId = $version->template_id !== null ? (int) $version->template_id : null;
+            $productKey = $templateId !== null ? $this->marketKey($templateId) : $this->ownedKey($cardId);
+            $instanceIndex = 1;
+
+            if ($templateId !== null) {
+                $indexByTemplate[$templateId] = ($indexByTemplate[$templateId] ?? 0) + 1;
+                $instanceIndex = $indexByTemplate[$templateId];
+            }
+
             $scaffolds[$this->ownedKey($cardId)] = new CardScaffold(
                 key: $this->ownedKey($cardId),
                 isOwned: true,
                 name: (string) $card->name,
                 bankName: $card->bank?->name,
                 cardId: $cardId,
-                templateId: null,
+                templateId: $templateId,
                 version: $version,
                 tiers: $this->tiers->tiersOfVersion($version),
                 rulesByTier: $this->rulesByTier($version),
@@ -321,8 +362,8 @@ class PortfolioOptimizerService
                 qualificationNotice: $qualification === null ? null : 'Thẻ có điều kiện hoàn tiền đặc biệt: kết quả đã xác nhận theo giả định chi tiêu của kỳ.',
                 marketAssumption: '',
                 idNumber: $cardId,
-                instanceIndex: 1,
-                productKey: $this->ownedKey($cardId),
+                instanceIndex: $instanceIndex,
+                productKey: $productKey,
             );
         }
 
@@ -330,9 +371,11 @@ class PortfolioOptimizerService
     }
 
     /**
+     * @param  array<int, list<CardScaffold>>  $ownedByTemplate  templateId => thẻ đang sở hữu
+     * @param  list<int>  $marketTemplateIds  (out) id các template hệ thống đang hoạt động
      * @return array<string, CardScaffold>
      */
-    private function marketScaffolds(int $maxCopies): array
+    private function marketScaffolds(int $maxCopies, array $ownedByTemplate, array &$marketTemplateIds): array
     {
         $templates = PolicyTemplate::query()
             ->system()
@@ -343,7 +386,7 @@ class PortfolioOptimizerService
             ->get();
 
         $scaffolds = [];
-        $now = CarbonImmutable::now();
+        $maxCopies = self::clampCopies($maxCopies);
 
         foreach ($templates as $template) {
             $version = $template->defaultBlueprint();
@@ -351,6 +394,9 @@ class PortfolioOptimizerService
             if ($version === null) {
                 continue;
             }
+
+            $templateId = (int) $template->id;
+            $marketTemplateIds[] = $templateId;
 
             $hasCondition = SpendQualification::query()
                 ->where('policy_version_id', $version->id)
@@ -366,11 +412,15 @@ class PortfolioOptimizerService
             $capsByTier = $this->capsByTier($version);
             $allRules = $this->tiers->allEnabledRulesFor($version);
 
-            $productKey = $this->marketKey((int) $template->id);
-            $copies = self::clampCopies($maxCopies);
+            $productKey = $this->marketKey($templateId);
 
-            for ($copy = 1; $copy <= $copies; $copy++) {
-                $key = $copy === 1 ? $productKey : $productKey.'#'.$copy;
+            // Thẻ người dùng đã sở hữu KHÔNG tính là "thẻ mới": chỉ sinh bản sao
+            // mới cho phần vượt quá số thẻ đang sở hữu của sản phẩm này.
+            $ownedCount = count($ownedByTemplate[$templateId] ?? []);
+            $total = max($maxCopies, $ownedCount);
+
+            for ($index = $ownedCount + 1; $index <= $total; $index++) {
+                $key = $index === 1 ? $productKey : $productKey.'#'.$index;
 
                 $scaffolds[$key] = new CardScaffold(
                     key: $key,
@@ -378,7 +428,7 @@ class PortfolioOptimizerService
                     name: (string) $template->name,
                     bankName: $template->applicableBank?->name,
                     cardId: null,
-                    templateId: (int) $template->id,
+                    templateId: $templateId,
                     version: $version,
                     tiers: $tiers,
                     rulesByTier: $rulesByTier,
@@ -391,8 +441,8 @@ class PortfolioOptimizerService
                     qualification: null,
                     qualificationNotice: $hasConditionNotice,
                     marketAssumption: 'Mô phỏng thẻ mới chưa có chi tiêu trong kỳ; bậc áp dụng sẽ phụ thuộc tổng chi thực tế khi bạn mở và dùng thẻ.',
-                    idNumber: (int) $template->id,
-                    instanceIndex: $copy,
+                    idNumber: $templateId,
+                    instanceIndex: $index,
                     productKey: $productKey,
                 );
             }
