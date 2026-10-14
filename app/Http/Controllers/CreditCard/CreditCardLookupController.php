@@ -17,10 +17,12 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 /**
  * /thetindung/tra-cuu — module "Tra cứu" cho Thẻ tín dụng.
  *
- * Hai chức năng, đều CHỈ ĐỌC:
+ * Ba chức năng, đều CHỈ ĐỌC:
  *   1. Tra cứu thẻ: chọn một chính sách hoàn tiền (template hệ thống hoặc riêng
  *      của user) → xem tóm tắt + danh sách MCC đã mapping.
  *   2. Tra cứu MCC: nhập mã 4 ký tự → xem mô tả + các chính sách liên quan.
+ *   3. Tra cứu danh mục: chọn một danh mục (gom từ HỒ SƠ MCC) → xem các thẻ hoàn
+ *      tiền cho danh mục đó.
  *
  * Mọi truy vấn scope theo `auth()->id()`: chỉ chính sách user được phép thấy
  * (hệ thống + riêng của họ) mới tra cứu được. Không đụng engine cashback.
@@ -31,7 +33,7 @@ class CreditCardLookupController extends Controller
         private readonly CardPolicyLookupService $lookup,
     ) {}
 
-    /** Trang /thetindung/tra-cuu — hai tab "Tra cứu thẻ" và "Tra cứu MCC". */
+    /** Trang /thetindung/tra-cuu — ba tab: "Tra cứu thẻ", "Tra cứu MCC", "Tra cứu danh mục". */
     public function index(): View
     {
         $templates = $this->lookup
@@ -46,6 +48,7 @@ class CreditCardLookupController extends Controller
 
         return view('credit-card.lookup', [
             'policyTemplates' => $templates,
+            'categoryOptions' => $this->lookup->categoryOptions(),
         ]);
     }
 
@@ -89,6 +92,23 @@ class CreditCardLookupController extends Controller
 
         return response()->json([
             'data' => $this->lookup->lookupMcc((string) $validated['mcc']),
+        ]);
+    }
+
+    /**
+     * GET /thetindung/tra-cuu/danh-muc — các thẻ hoàn tiền cho MỘT danh mục.
+     *
+     * `category` là khoá danh mục (nhóm chuẩn hoá hoặc `raw:*`) do dropdown gửi
+     * lên; service chỉ tra trong dòng INCLUDED của hồ sơ MCC.
+     */
+    public function category(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'category' => ['required', 'string', 'max:191'],
+        ]);
+
+        return response()->json([
+            'data' => $this->lookup->lookupCategory((string) $validated['category']),
         ]);
     }
 

@@ -29,8 +29,13 @@ final class CardScenario
         public readonly string $marketAssumption,
         public readonly int $instanceIndex = 1,
         public readonly ?string $productKey = null,
-    ) {
-    }
+        /** Số giao dịch giả định đã dùng cho thẻ (mỗi danh mục ≥ 1 dòng). */
+        public readonly int $simulatedTransactions = 0,
+        /** Kết quả có phụ thuộc việc CHIA khoản chi thành nhiều giao dịch không. */
+        public readonly bool $dependsOnSplitting = false,
+        /** Kết quả có phụ thuộc giả định khoản chi được THANH TOÁN TRỰC TUYẾN không. */
+        public readonly bool $dependsOnOnline = false,
+    ) {}
 
     /** Khoá nhóm bản sao của cùng một sản phẩm (mặc định = key). */
     public function groupKey(): string

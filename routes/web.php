@@ -147,6 +147,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/tra-cuu', [CreditCardLookupController::class, 'index'])->name('lookup');
         Route::get('/tra-cuu/chinh-sach', [CreditCardLookupController::class, 'policy'])->name('lookup.policy');
         Route::get('/tra-cuu/mcc', [CreditCardLookupController::class, 'mcc'])->name('lookup.mcc');
+        Route::get('/tra-cuu/danh-muc', [CreditCardLookupController::class, 'category'])->name('lookup.category');
         // Tài liệu hồ sơ MCC của "Tra cứu thẻ" — file disk private, tải qua
         // endpoint kiểm tra quyền (`lookup.document`). Ràng buộc SỐ để không
         // nuốt các đường tĩnh cùng tiền tố `/tra-cuu`.

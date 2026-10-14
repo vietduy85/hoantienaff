@@ -13,6 +13,7 @@ use App\Models\CreditCard\PolicyVersion;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 /**
  * CardPolicyLookupService — "Tra cứu" cho module Thẻ tín dụng.
@@ -229,6 +230,271 @@ class CardPolicyLookupService
             'matches' => $matches,
             'note' => $this->lookupNote($known, $matches),
         ];
+    }
+
+    /**
+     * Danh sách lựa chọn danh mục cho tab "Tra cứu danh mục".
+     *
+     * Nguồn: TÊN DANH MỤC trong các dòng INCLUDED của mọi HỒ SƠ MCC. Tên được
+     * chuẩn hoá rồi gom nhóm theo `config/credit_card_mcc_categories.php`; tên
+     * chưa khai báo giữ RIÊNG một lựa chọn (key `raw:*`) — không tự gộp. Nhờ đó
+     * hồ sơ mới tự xuất hiện mà không cần sửa code.
+     *
+     * @return array<int, array{id:string, label:string, sublabel:?string}>
+     */
+    public function categoryOptions(): array
+    {
+        $aliases = $this->categoryAliasMap();
+        $groups = $this->categoryGroupLabels();
+        $rank = array_flip(array_keys($groups));
+
+        $options = [];
+
+        PolicyMccProfile::query()
+            ->with(['rows' => fn ($query) => $query->where('row_type', PolicyMccProfileRow::TYPE_INCLUDED)])
+            ->get()
+            ->each(function (PolicyMccProfile $profile) use (&$options, $aliases, $groups): void {
+                foreach ($profile->rows as $row) {
+                    foreach ($this->categoryKeysFor($row->category_name, $aliases) as $key) {
+                        if (isset($options[$key])) {
+                            continue;
+                        }
+
+                        $options[$key] = [
+                            'id' => $key,
+                            'label' => $groups[$key] ?? (string) $row->category_name,
+                            'sublabel' => null,
+                        ];
+                    }
+                }
+            });
+
+        uasort($options, function (array $a, array $b) use ($rank): int {
+            $rankA = $rank[$a['id']] ?? PHP_INT_MAX;
+            $rankB = $rank[$b['id']] ?? PHP_INT_MAX;
+
+            if ($rankA !== $rankB) {
+                return $rankA <=> $rankB;
+            }
+
+            return strcmp($a['label'], $b['label']);
+        });
+
+        return array_values($options);
+    }
+
+    /**
+     * Tra cứu các thẻ hoàn tiền theo MỘT danh mục (đã chuẩn hoá).
+     *
+     * CHỈ xét dòng INCLUDED — dòng loại trừ KHÔNG tạo kết quả. Một thẻ có nhiều
+     * dòng cùng danh mục được gộp về MỘT kết quả; chương trình dùng chung nhiều
+     * hạng thẻ (`product_name`) gộp một kết quả nhưng giữ mọi khác biệt bậc
+     * (không dùng bậc của hạng khác, không nhân bản thẻ).
+     *
+     * @return array{category:array{key:string, label:string, matched_names:array<int, string>}, matches:array<int, array<string, mixed>>, found:bool}
+     */
+    public function lookupCategory(string $categoryKey): array
+    {
+        $aliases = $this->categoryAliasMap();
+        $groups = $this->categoryGroupLabels();
+
+        $matches = [];
+        $matchedNames = [];
+
+        PolicyMccProfile::query()
+            ->with(['template:id,name', 'documents', 'rows.codes', 'rows.benefits.document'])
+            ->orderBy('policy_template_id')
+            ->orderBy('name')
+            ->orderBy('id')
+            ->get()
+            ->each(function (PolicyMccProfile $profile) use ($categoryKey, $aliases, &$matches, &$matchedNames): void {
+                $rows = $profile->rows
+                    ->where('row_type', PolicyMccProfileRow::TYPE_INCLUDED)
+                    ->filter(fn (PolicyMccProfileRow $row): bool => in_array($categoryKey, $this->categoryKeysFor($row->category_name, $aliases), true))
+                    ->values();
+
+                if ($rows->isEmpty()) {
+                    return;
+                }
+
+                foreach ($rows as $row) {
+                    if ($row->category_name !== null && $row->category_name !== '') {
+                        $matchedNames[(string) $row->category_name] = true;
+                    }
+                }
+
+                $matches[] = $this->categoryProfileMatch($profile, $rows);
+            });
+
+        // Gộp chương trình dùng chung nhiều hạng thẻ về một kết quả đại diện.
+        $matches = $this->mergeProductMatches($matches);
+
+        usort($matches, fn (array $a, array $b): int => strcmp((string) $a['policy_name'], (string) $b['policy_name']));
+
+        return [
+            'category' => [
+                'key' => $categoryKey,
+                'label' => $groups[$categoryKey] ?? (array_key_first($matchedNames) ?? $categoryKey),
+                'matched_names' => array_keys($matchedNames),
+            ],
+            'matches' => $matches,
+            'found' => $matches !== [],
+        ];
+    }
+
+    /**
+     * Một kết quả "thẻ hoàn tiền" cho tab danh mục: gộp MỌI dòng included của
+     * hồ sơ thuộc danh mục đang tra về một kết quả (không nhân bản thẻ), hợp
+     * nhất bậc/tỷ lệ để giữ khác biệt giữa các hạng.
+     *
+     * @param  Collection<int, PolicyMccProfileRow>  $rows
+     * @return array<string, mixed>
+     */
+    private function categoryProfileMatch(PolicyMccProfile $profile, $rows): array
+    {
+        $productName = $profile->product_name;
+
+        $tiers = [];
+        $seenTiers = [];
+        $codes = [];
+        $names = [];
+
+        foreach ($rows as $row) {
+            if ($row->category_name !== null && $row->category_name !== '') {
+                $names[(string) $row->category_name] = (string) $row->category_name;
+            }
+
+            foreach ($row->codes as $codeRow) {
+                $codes[(string) $codeRow->mcc] = (string) $codeRow->mcc;
+            }
+
+            foreach ($row->benefits as $benefit) {
+                $tier = $this->benefitTierPayload($benefit);
+                $tierKey = implode('|', [
+                    $tier['cashback_percent'] ?? '',
+                    $tier['rate_label'] ?? '',
+                    $tier['min_total_spend'] ?? '',
+                    $tier['max_total_spend'] ?? '',
+                    $tier['cap_amount'] ?? '',
+                    $tier['note'] ?? '',
+                ]);
+
+                if (isset($seenTiers[$tierKey])) {
+                    continue;
+                }
+
+                $seenTiers[$tierKey] = true;
+                $tiers[] = $tier;
+            }
+        }
+
+        ksort($codes);
+        $codeList = array_values($codes);
+        $categoryLabel = implode(', ', array_values($names));
+
+        $cashback = $tiers === []
+            ? ['status' => 'missing', 'category_name' => $categoryLabel, 'tiers' => [], 'highest' => null, 'reason' => 'no_data']
+            : ['status' => 'available', 'category_name' => $categoryLabel, 'tiers' => $tiers, 'highest' => $this->highestTier($tiers), 'reason' => null];
+
+        // Dòng theo MÔ TẢ (không có mã MCC): ghi rõ để không hiểu nhầm là đã
+        // kiểm tra danh sách mã MCC đầy đủ.
+        $descriptiveNote = null;
+
+        if ($codeList === []) {
+            $descriptiveNote = ($profile->note !== null && $profile->note !== '')
+                ? $profile->note
+                : 'Quyền lợi theo mô tả của ngân hàng — chưa có danh sách mã MCC cụ thể.';
+        }
+
+        return [
+            'id' => 'category#'.$profile->id,
+            'source' => 'policy_mcc_profile',
+            'policy_template_id' => (int) $profile->policy_template_id,
+            'policy_name' => ($productName !== null && $productName !== '') ? $productName : $profile->template?->name,
+            'product_name' => $productName,
+            'relation' => 'group',
+            'relation_label' => $this->relationLabel('group'),
+            'exclusion_scope' => null,
+            'profile_name' => $profile->name,
+            'group_reference_name' => $categoryLabel,
+            'mcc' => null,
+            'match_type' => 'category',
+            'category_id' => null,
+            'category_name' => $categoryLabel,
+            'note' => null,
+            'descriptive_note' => $descriptiveNote,
+            'profile_note' => $profile->note,
+            'verification_status' => null,
+            'source_pdf' => $rows->first()?->benefits->first()?->document?->original_name,
+            'source_page' => null,
+            'documents' => $this->profileDocumentsPayload($profile),
+            'cashback' => $cashback,
+            'mcc_group' => null,
+            'mcc_codes' => $codeList,
+        ];
+    }
+
+    /**
+     * Bản đồ tên gốc đã chuẩn hoá => khoá chuẩn (hoặc mảng khoá).
+     *
+     * @return array<string, string|array<int, string>>
+     */
+    private function categoryAliasMap(): array
+    {
+        $map = [];
+
+        foreach ((array) config('credit_card_mcc_categories.aliases', []) as $raw => $value) {
+            $normalized = $this->normalizeCategoryKey((string) $raw);
+
+            if ($normalized !== '') {
+                $map[$normalized] = $value;
+            }
+        }
+
+        return $map;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function categoryGroupLabels(): array
+    {
+        return (array) config('credit_card_mcc_categories.groups', []);
+    }
+
+    /**
+     * Khoá danh mục chuẩn của một TÊN GỐC: theo `aliases`, ngược lại giữ riêng
+     * dưới khoá `raw:<tên-chuẩn-hoá>`.
+     *
+     * @param  array<string, string|array<int, string>>  $aliases
+     * @return array<int, string>
+     */
+    private function categoryKeysFor(?string $name, array $aliases): array
+    {
+        $normalized = $this->normalizeCategoryKey((string) $name);
+
+        if ($normalized === '') {
+            return [];
+        }
+
+        if (isset($aliases[$normalized])) {
+            return array_values(array_unique((array) $aliases[$normalized]));
+        }
+
+        return ['raw:'.$normalized];
+    }
+
+    /**
+     * Chuẩn hoá tên danh mục để gom nhóm: thường hoá, bỏ dấu, bỏ dấu câu, gộp
+     * khoảng trắng. KHÔNG đổi tên gốc lưu trong hồ sơ.
+     */
+    private function normalizeCategoryKey(string $value): string
+    {
+        $value = Str::lower(trim($value));
+        $value = Str::ascii($value);
+        $value = preg_replace('/[^a-z0-9]+/', ' ', $value) ?? $value;
+
+        return trim(preg_replace('/\s+/', ' ', $value) ?? $value);
     }
 
     /**

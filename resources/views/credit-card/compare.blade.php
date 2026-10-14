@@ -500,6 +500,12 @@
 
                                         <p class="text-xs text-gray-400 mt-2" x-show="card.scenario_reason" x-text="ccReasonLabel(card.scenario_reason)"></p>
                                         <p class="text-xs text-amber-700 mt-1" x-show="card.qualification_notice" x-text="card.qualification_notice"></p>
+                                        <p class="text-xs text-amber-700 mt-1"
+                                           x-show="card.depends_on_splitting"
+                                           x-text="'Ưu đãi giả định chia khoản chi thành ' + card.simulated_transactions + ' giao dịch để dùng trần hoàn tiền theo giao dịch.'"></p>
+                                        <p class="text-xs text-amber-700 mt-1"
+                                           x-show="card.depends_on_online"
+                                           x-text="'Có phần chi tiêu giả định thanh toán trực tuyến; tổng chi không đổi.'"></p>
                                         <p class="text-xs text-gray-400 mt-1" x-show="card.market_assumption" x-text="card.market_assumption"></p>
                                     </li>
                                 </template>

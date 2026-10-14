@@ -77,7 +77,7 @@ Cột "sau TT" = trạng thái sau đợt thực thi.
 | 3 | mb-ultimate-jcb | 4 | 3/0 | 26/0 | 3 | 1 | |
 | 4 | vpbank-stepup-mastercars | 5 | 2/1 | 5/11 | 6 | 1 | |
 | 5 | vpbank-lady-mastercard | 6 | 5/1 | 30/11 | 10 | 1 | |
-| 6 | vpbank-z-card-jcb | 7 | 3/0 | 10/0 | 3 | 1 | |
+| 6 | vpbank-z-card-jcb | 7 | 4/13 | 11/0 | 4 | 1 | **Cập nhật thể lệ 27/08/2026–31/12/2027** (L): 15%/500k ×3 nhóm + tổng 1tr/kỳ; thêm MCC **5462**, thêm dòng "Ngành hàng khác" 0%, thêm 13 dòng loại trừ |
 | 7 | vpbank-super-shopee-platinum-visa | **29** | 3/14 | 0/0 | 3 | 1 | **Hồ sơ MÔ TẢ không mã** (VPBank không công bố MCC); tạo trong đợt TT2 (K) |
 | 8 | msb-mdigi-mastercard | 8 | 3/0 | 12/0 | 3 | 1 | |
 | 9 | msb-online-visa | 9 | 2/0 | 16/0 | 2 | 1 | |
@@ -417,6 +417,69 @@ Cột "sau TT" = trạng thái sau đợt thực thi.
 
 ---
 
+## L. Nhật ký thực thi 3 (2026-10-14) — cập nhật hồ sơ VPBank Z Card JCB theo thể lệ mới
+
+### L.1 Bối cảnh & nguồn
+
+- **Hồ sơ #7** ("VPBank Z Card JCB - Thể lệ ưu đãi dài hạn", template **#6** `vpbank-z-card-jcb`) trước đây
+  theo bản thể lệ **2025** (10%/4 triệu/200k–100k) — **cùng một sản phẩm** nhưng đã bị thay bằng thể lệ mới.
+- **Nguồn:** VPBank — "Thể lệ ưu đãi dài hạn dành cho chủ thẻ tín dụng VPBank Z JCB"
+  (`The-le-uu-dai-dai-han-danh-cho-chu-the-tin-dung-VPBank-Z-JCB-Web.pdf`, truy cập 14/10/2026).
+- **Hiệu lực:** từ **27/08/2026** đến hết **31/12/2027**.
+- **BIN:** 35677200.
+
+### L.2 Nội dung ưu đãi mới (mục 9.2.2)
+
+| Nhóm | Tỷ lệ | Trần/nhóm | MCC (Bảng 1) |
+|---|---|---|---|
+| Ăn uống | 15% | 500.000 đ/kỳ sao kê | 5811, 5812, 5813, 5921, **5462** |
+| Giải trí & Fitness | 15% | 500.000 đ/kỳ sao kê | 5734, 5735, 7832, 7997 |
+| Di chuyển & đặt đồ ăn | 15% | 500.000 đ/kỳ sao kê | 4121, 5814 |
+| Ngành hàng khác | 0% | — | — |
+
+- **Tổng hạn mức hoàn tiền cả 3 nhóm: 1.000.000 đ/kỳ sao kê** (trần chung, mục 9.2.2 + 9.2.3).
+- **Loại trừ (giao dịch không hợp lệ):** rút tiền mặt; phí & lãi; thuế hàng hóa dịch vụ; giao dịch nghi ngờ rút
+  tiền mặt/gian lận; hủy/hoàn (charge back); chuyển khoản dư nợ; ví điện tử; mua bán chứng khoán/ngoại hối;
+  qua VPBank NEO; chuyển tiền trên trang điện tử; nạp tiền thẻ thanh toán trước; chuyển đổi ngoại tệ; **và các
+  giao dịch khác do Ngân hàng quy định** — mô tả theo loại giao dịch, **không gán mã MCC**.
+
+### L.3 Thay đổi dữ liệu (trước → sau)
+
+- **Đặc thù:** cả **danh mục mã MCC** lẫn **tỷ lệ/trần** đều thay đổi ⇒ **không** chỉnh tại chỗ mà **tái tạo**
+  toàn bộ dòng của hồ sơ theo thể lệ mới (tránh sót dữ liệu cũ 10%/4 triệu trái thể lệ).
+- **Included:** thêm **5462** vào nhóm "Ăn uống"; đổi tên "Giải trí và Fitness" → **"Giải trí & Fitness"**,
+  "Di chuyển và đặt đồ ăn" → **"Di chuyển & đặt đồ ăn"**; thêm dòng **"Ngành hàng khác"** (0%). Trần mỗi nhóm
+  **200k/200k/100k → 500k/500k/500k**; tỷ lệ **10% → 15%**; **bỏ điều kiện tối thiểu 4 triệu** (thể lệ mới không nêu).
+- **Excluded:** **0 → 13** dòng mô tả theo loại giao dịch (không mã).
+- **Tài liệu:** gỡ bản cũ `vpbank_zcard.pdf` (2025, đã hết hiệu lực) và gắn bản mới
+  `vpbank-z-card-jcb-uu-dai-dai-han-2026.pdf` (395.052 bytes, disk `local`, path `credit-card-mcc/7/…pdf`).
+- **Bậc hoàn tiền:** nạp lại **4 bậc** qua `credit-card:import-mcc-row-benefits` (mục `vpbank-z-card-jcb`).
+
+### L.4 Giới hạn / lệch dữ liệu cần lưu ý
+
+- **Trần TỔNG 1.000.000 đ/kỳ** (trần chung của cả 3 nhóm) **CHƯA có trường riêng** ở cấp hồ sơ MCC
+  (`credit_card_policy_mcc_profiles` chỉ có `note`, `annual_fee_*`). Hiện **ghi nhận tại `note` của hồ sơ** và
+  **trường `condition_note` của từng bậc**; cấp dòng vẫn lưu trần **500.000 đ/nhóm** đúng mô hình. *Đề xuất tối
+  thiểu (chưa thực hiện):* thêm cột `cashback_cap_per_period` (decimal, nullable) cho hồ sơ — **không đụng engine/
+  blueprint**.
+- **Lệch nhãn MCC 5734/5735:** tài liệu ghi `5734 = "Record Shops"`, `5735 = "Record Stores"`; master hệ thống
+  hiển thị `5734 = "Computer Software Stores"`, `5735 = "Record Stores"`. **Cả hai mã đều tồn tại**; chỉ khác
+  nhãn mô tả (không tạo mã, không sửa master).
+- **Mã MCC:** thể lệ nêu **11 mã** cho 3 nhóm; tất cả **đã có trong master** ⇒ **0 mã thiếu** (không tạo mã mới).
+
+### L.5 Tệp thay đổi
+
+- **Mới:** migration `2026_10_14_000009_update_vpbank_z_card_jcb_mcc_profile.php`;
+  `database/data/credit_card_documents/vpbank-z-card-jcb-uu-dai-dai-han-2026.pdf`;
+  báo cáo `docs/CREDIT_CARD_MCC_VPBANK_Z_CARD_JCB_UPDATE_REPORT.md`.
+- **Sửa:** `database/data/credit_card_mcc_row_benefits.php` (mục `vpbank-z-card-jcb`);
+  `config/credit_card_mcc_categories.php` (thêm alias `Giải trí & Fitness`, `Di chuyển & đặt đồ ăn`, `Ngành hàng khác`).
+- **Áp dụng:** `php artisan credit-card:migrate` (**000009 DONE**) rồi
+  `php artisan credit-card:import-mcc-row-benefits` (hồ sơ 26, dòng 80, **4 bậc tạo mới**).
+- **Trước khi commit:** hạ tầng Diff/Pint/tests OK (xem báo cáo riêng). **Không** commit/push/deploy.
+
+---
+
 ## Phụ lục — Lệnh & đường dẫn nhanh
 
 - CSDL: `hoantien_creditcard` (connection `creditcard`).
@@ -432,3 +495,5 @@ Cột "sau TT" = trạng thái sau đợt thực thi.
 - Nguồn VPBank Super Shopee (TT2): `database/data/credit_card_documents/vpbank-super-shopee-terms.pdf`
   (Thể lệ ưu đãi dài hạn Super Shopee Platinum).
 - Migration đợt TT2: `database/migrations/creditcard/2026_10_13_000008_seed_vpbank_super_shopee_and_complete_vib_online_plus_mcc_profiles.php`.
+- Nguồn VPBank Z Card JCB (đợt TT3, cập nhật): `database/data/credit_card_documents/vpbank-z-card-jcb-uu-dai-dai-han-2026.pdf`
+  (thể lệ hiệu lực 27/08/2026–31/12/2027); migration `database/migrations/creditcard/2026_10_14_000009_update_vpbank_z_card_jcb_mcc_profile.php`.

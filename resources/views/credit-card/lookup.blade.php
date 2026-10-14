@@ -5,6 +5,8 @@
       1. Tra cứu thẻ   — chọn chính sách hoàn tiền đang có trong hệ thống rồi xem
          tóm tắt + danh sách MCC đã mapping với chính sách đó.
       2. Tra cứu MCC   — nhập mã 4 ký tự để xem mô tả và các chính sách liên quan.
+      3. Tra cứu danh mục — chọn một danh mục (gom từ HỒ SƠ MCC) rồi xem các thẻ
+         hoàn tiền cho danh mục đó (CHỈ dòng included).
 
     CHỈ ĐỌC: mọi dữ liệu đến từ `CardPolicyLookupService`; trang không tạo kỳ sao
     kê, không ghi snapshot, không đụng engine cashback của "Lựa chọn thẻ".
@@ -17,7 +19,7 @@
     subtitle="Tra cứu chính sách hoàn tiền và mã MCC (Merchant Category Code)"
     active="lookup">
 
-    <div x-data="cardLookup(@js(['policyEndpoint' => route('credit-cards.lookup.policy'), 'mccEndpoint' => route('credit-cards.lookup.mcc')]))"
+    <div x-data="cardLookup(@js(['policyEndpoint' => route('credit-cards.lookup.policy'), 'mccEndpoint' => route('credit-cards.lookup.mcc'), 'categoryEndpoint' => route('credit-cards.lookup.category')]))"
          class="space-y-4 sm:space-y-5">
 
         {{-- ===== Chuyển chế độ ===== --}}
@@ -42,6 +44,16 @@
                     :class="tab === 'mcc' ? 'bg-emerald-500 text-white shadow-sm' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'">
                 <span aria-hidden="true">🔢</span>
                 <span>Tra cứu MCC</span>
+            </button>
+            <button type="button"
+                    role="tab"
+                    data-testid="cc-lookup-tab-category"
+                    @click="tab = 'category'"
+                    :aria-selected="tab === 'category' ? 'true' : 'false'"
+                    class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 h-11 rounded-xl text-sm font-semibold transition-colors"
+                    :class="tab === 'category' ? 'bg-emerald-500 text-white shadow-sm' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'">
+                <span aria-hidden="true">🗂️</span>
+                <span>Tra cứu danh mục</span>
             </button>
         </div>
 
@@ -320,124 +332,66 @@
                         </p>
 
                         <ul class="space-y-2">
-                            <template x-for="(row, index) in mccResult.matches" :key="row.id">
-                                <li class="rounded-xl border border-gray-100 p-3 sm:p-4 space-y-2">
-                                    <div class="flex items-start justify-between gap-3">
-                                        <div class="min-w-0">
-                                            <p class="font-medium text-gray-800 truncate" x-text="row.policy_name"></p>
-                                             <p class="mt-1" x-show="row.relation !== 'group'">
-                                                 <span class="rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                                                       :class="ccRelationClass(row.relation)"
-                                                       x-text="row.relation_label"></span>
-                                             </p>
-                                        </div>
-                                    </div>
-
-                                    {{-- Tóm tắt hoàn tiền lấy từ blueprint: bậc + tỷ lệ + điều kiện + hạn mức. --}}
-                                    <div class="rounded-xl border p-3" :class="ccCashbackBoxClass(row.cashback)">
-                                        <template x-if="row.cashback && row.cashback.status === 'excluded'">
-                                            <div>
-                                                <p class="text-sm font-semibold text-rose-700">Không được hoàn tiền — MCC bị loại trừ</p>
-                                                <p class="text-xs text-rose-600 mt-0.5" x-show="row.note" x-text="row.note"></p>
-                                            </div>
-                                        </template>
-
-                                        <template x-if="row.cashback && row.cashback.status === 'available'">
-                                            <div class="space-y-2">
-                                                <p class="text-xs text-gray-500">
-                                                    Danh mục:
-                                                    <span class="font-semibold text-gray-800" x-text="row.cashback.category_name || row.category_name || '—'"></span>
-                                                </p>
-
-                                                {{-- Tỷ lệ hoàn tiền CAO NHẤT + điều kiện của nó (trích tài liệu gốc). --}}
-                                                <template x-if="row.cashback.highest">
-                                                    <div class="rounded-lg border border-emerald-100 bg-emerald-50/70 px-3 py-2">
-                                                        <div class="flex items-start justify-between gap-3">
-                                                            <p class="text-sm font-bold text-emerald-700">
-                                                                Hoàn tối đa
-                                                                <span x-text="ccBenefitRate(row.cashback.highest)"></span>
-                                                            </p>
-                                                            <p class="shrink-0 text-[11px] text-gray-500"
-                                                               x-show="ccBenefitCap(row.cashback.highest)"
-                                                               x-text="ccBenefitCap(row.cashback.highest)"></p>
-                                                        </div>
-                                                        <p class="mt-0.5 text-[11px] text-gray-600"
-                                                           x-show="row.cashback.highest.note"
-                                                           x-text="row.cashback.highest.note"></p>
-                                                    </div>
-                                                </template>
-
-                                                {{-- Bậc chi tiết: hiện khi KHÔNG có tỷ lệ cao nhất, hoặc khi kết quả là
-                                                     SẢN PHẨM dùng chung nhiều hạng thẻ — để bảo toàn khác biệt tỷ lệ theo hạng. --}}
-                                                <template x-if="! row.cashback.highest || row.product_name">
-                                                    <div class="space-y-2">
-                                                        <template x-for="(tier, ti) in row.cashback.tiers" :key="'tier-' + row.id + '-' + ti">
-                                                            <div class="flex items-start justify-between gap-3">
-                                                                <div class="min-w-0">
-                                                                    <p class="text-xs text-gray-700" x-text="tier.name"></p>
-                                                                    <p class="text-[11px] text-gray-400" x-show="tier.has_rule"
-                                                                       x-text="ccTierRange(tier.min_total_spend, tier.max_total_spend)"></p>
-                                                                    <p class="text-[11px] text-gray-400" x-show="! tier.has_rule">Không áp dụng cho danh mục này</p>
-                                                                    <p class="text-[11px] text-gray-500 mt-0.5" x-show="tier.note" x-text="tier.note"></p>
-                                                                    <p class="text-[11px] text-rose-600 mt-0.5" x-show="tier.exception" x-text="tier.exception"></p>
-                                                                </div>
-                                                                <div class="text-right shrink-0">
-                                                                    <p class="text-sm font-semibold text-emerald-700" x-show="tier.has_rule"
-                                                                       x-text="ccBenefitRate(tier)"></p>
-                                                                    <p class="text-[11px] text-gray-400"
-                                                                       x-show="tier.has_rule && ccBenefitCap(tier)"
-                                                                       x-text="ccBenefitCap(tier)"></p>
-                                                                </div>
-                                                            </div>
-                                                        </template>
-                                                    </div>
-                                                </template>
-                                            </div>
-                                        </template>
-
-                                        <template x-if="! row.cashback || row.cashback.status === 'missing'">
-                                            <p class="text-xs text-amber-700">Chưa có dữ liệu tỷ lệ hoàn tiền</p>
-                                        </template>
-                                    </div>
-
-                                    <p class="text-xs text-gray-600" x-show="row.condition_note" x-text="row.condition_note"></p>
-                                    <p class="text-xs text-rose-700" x-show="row.exclusion_reason" x-text="'Loại trừ: ' + row.exclusion_reason"></p>
-
-                                    {{-- Chi tiết quy tắc nhóm MCC của dữ liệu import. --}}
-                                    <p class="text-[11px] text-gray-500"
-                                       x-show="row.match_type === 'group' && row.mcc_group"
-                                       x-text="'Nhóm: ' + row.mcc_group"></p>
-                                    <p class="text-[11px] text-gray-500"
-                                       x-show="(row.mcc_codes || []).length"
-                                       x-text="'Mã trong nhóm: ' + (row.mcc_codes || []).join(', ')"></p>
-
-                                    {{-- Phạm vi loại trừ theo hồ sơ MCC (không hiển thị tên hồ sơ/nhóm nội bộ). --}}
-                                    <p class="text-[11px] text-rose-600"
-                                       x-show="row.exclusion_scope === 'policy'"
-                                       x-text="'Loại trừ theo hồ sơ MCC của chính sách'"></p>
-                                    <p class="text-[11px] text-gray-500"
-                                       x-show="row.note && (! row.cashback || row.cashback.status !== 'excluded')"
-                                       x-text="row.note"></p>
-
-                                    {{-- File tài liệu của hồ sơ: mỗi tài liệu MỘT liên kết riêng, tải
-                                         qua endpoint kiểm tra quyền (không lộ đường dẫn disk private).
-                                         Không có file tải được ⇒ báo rõ, không tạo liên kết giả. --}}
-                                    <div class="text-[11px] leading-relaxed" x-show="(row.documents || []).length">
-                                        <template x-for="doc in row.documents" :key="'rowdoc-' + row.id + '-' + doc.id">
-                                            <a :href="doc.url"
-                                               class="mr-2 font-medium underline text-blue-600 hover:text-blue-800">
-                                                <span>File liên quan</span><template x-if="(row.documents || []).length > 1"><span class="font-normal"> — <span x-text="doc.name"></span></span></template>
-                                            </a>
-                                        </template>
-                                    </div>
-                                    <p class="text-[11px] text-gray-400 italic"
-                                       x-show="!(row.documents || []).length"
-                                       x-cloak>Chưa có thông tin</p>
-                                </li>
-                            </template>
+                            @include('credit-card.partials.mcc-match', ['matches' => 'mccResult.matches', 'codesLabel' => 'Mã trong nhóm'])
                         </ul>
                     </section>
                 </div>
+            </template>
+        </section>
+
+        {{-- ===== Tra cứu danh mục ===== --}}
+        <section x-show="tab === 'category'" x-cloak class="space-y-4 sm:space-y-5">
+            <form class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4"
+                  @submit.prevent="runCategory()">
+                <div>
+                    <h3 class="font-semibold text-gray-800 text-sm">Chọn danh mục</h3>
+                </div>
+
+                <div class="space-y-1.5">
+                    <x-credit-card.searchable-select
+                        id="cc-lookup-category"
+                        testid="cc-lookup-category-select"
+                        x-model="categoryKey"
+                        :options="$categoryOptions"
+                        placeholder="— Chọn danh mục —"
+                        search-placeholder="Tìm theo tên danh mục…"
+                        empty-text="Không tìm thấy danh mục nào khớp." />
+                    <p class="text-xs text-gray-500" x-show="{{ count($categoryOptions) === 0 ? 'true' : 'false' }}" x-cloak>
+                        Chưa có danh mục nào trong dữ liệu MCC.
+                    </p>
+                    <p class="text-xs text-red-600" x-show="categoryError" x-cloak x-text="categoryError"></p>
+                </div>
+
+                <div class="flex items-center gap-3">
+                    <button type="button"
+                            data-testid="cc-lookup-category-submit"
+                            @click="runCategory()"
+                            :disabled="categoryLoading"
+                            class="inline-flex items-center gap-2 px-4 h-11 rounded-xl bg-emerald-600 text-white text-sm font-semibold shadow-sm hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed">
+                        <span x-show="! categoryLoading">Tra cứu</span>
+                        <span x-show="categoryLoading" x-cloak>Đang tra…</span>
+                    </button>
+                    <p class="text-xs text-gray-500">Chỉ tra cứu — không thay đổi dữ liệu.</p>
+                </div>
+            </form>
+
+            <p class="text-sm text-red-600" x-show="categoryFetchError" x-cloak x-text="categoryFetchError"></p>
+
+            <template x-if="categoryResult">
+                <section data-testid="cc-lookup-category-result" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-3">
+                    <h4 class="font-semibold text-gray-800 text-sm">
+                        Các thẻ hoàn tiền
+                        <span class="ml-1 font-medium text-gray-400" x-text="'(' + categoryResult.matches.length + ')'"></span>
+                    </h4>
+
+                    <p class="text-sm text-gray-500" x-show="categoryResult.matches.length === 0" x-cloak>
+                        Chưa có chính sách nào quy định hoàn tiền cho danh mục này trong dữ liệu đã nhập.
+                    </p>
+
+                    <ul class="space-y-2">
+                        @include('credit-card.partials.mcc-match', ['matches' => 'categoryResult.matches', 'codesLabel' => 'Mã MCC liên quan'])
+                    </ul>
+                </section>
             </template>
         </section>
 
@@ -582,6 +536,7 @@
                     tab: 'policy',
                     policyEndpoint: config.policyEndpoint,
                     mccEndpoint: config.mccEndpoint,
+                    categoryEndpoint: config.categoryEndpoint,
 
                     policyId: '',
                     policyLoading: false,
@@ -594,6 +549,12 @@
                     mccError: '',
                     mccFetchError: '',
                     mccResult: null,
+
+                    categoryKey: '',
+                    categoryLoading: false,
+                    categoryError: '',
+                    categoryFetchError: '',
+                    categoryResult: null,
 
                     async runPolicy() {
                         this.policyError = '';
@@ -644,6 +605,32 @@
                             this.mccResult = payload.data;
                         } finally {
                             this.mccLoading = false;
+                        }
+                    },
+
+                    async runCategory() {
+                        this.categoryError = '';
+                        this.categoryFetchError = '';
+
+                        if (this.categoryKey === '' || this.categoryKey === null) {
+                            this.categoryError = 'Vui lòng chọn danh mục cần tra cứu.';
+
+                            return;
+                        }
+
+                        this.categoryLoading = true;
+
+                        try {
+                            const url = new URL(this.categoryEndpoint, window.location.origin);
+                            url.searchParams.set('category', this.categoryKey);
+
+                            const payload = await this.request(url, 'categoryFetchError');
+
+                            if (payload === null) return;
+
+                            this.categoryResult = payload.data;
+                        } finally {
+                            this.categoryLoading = false;
                         }
                     },
 

@@ -428,37 +428,42 @@ return [
     // #7 — VPBank Z Card JCB
     // =====================================================================
     'vpbank-z-card-jcb' => [
-        'source_doc' => 'vpbank_zcard',
+        'source_doc' => 'vpbank-z-card-jcb-uu-dai-dai-han-2026',
         'source_page' => '9.2',
         'rows' => [
             'Ăn uống' => [
                 [
-                    'pct' => 10,
-                    'min' => 4000000,
-                    'cap' => 200000,
+                    'pct' => 15,
+                    'cap' => 500000,
                     'cap_period' => 'kỳ sao kê',
                     'cap_unit' => 'VND',
-                    'cond' => 'Tổng chi tiêu đạt từ 4 triệu VND trong kỳ sao kê xét hoàn tiền',
+                    'cond' => 'Tổng số tiền hoàn tối đa trong kỳ sao kê cho cả 3 nhóm ưu đãi: 1.000.000 VNĐ.',
                 ],
             ],
-            'Giải trí và Fitness' => [
+            'Giải trí & Fitness' => [
                 [
-                    'pct' => 10,
-                    'min' => 4000000,
-                    'cap' => 200000,
+                    'pct' => 15,
+                    'cap' => 500000,
                     'cap_period' => 'kỳ sao kê',
                     'cap_unit' => 'VND',
-                    'cond' => 'Tổng chi tiêu đạt từ 4 triệu VND trong kỳ sao kê xét hoàn tiền',
+                    'cond' => 'Bao gồm trò chơi điện tử (game), xem phim, âm nhạc trực tuyến… và các MCC tại Bảng 1. Tổng số tiền hoàn tối đa trong kỳ sao kê cho cả 3 nhóm ưu đãi: 1.000.000 VNĐ.',
                 ],
             ],
-            'Di chuyển và đặt đồ ăn' => [
+            'Di chuyển & đặt đồ ăn' => [
                 [
-                    'pct' => 10,
-                    'min' => 4000000,
-                    'cap' => 100000,
+                    'pct' => 15,
+                    'cap' => 500000,
                     'cap_period' => 'kỳ sao kê',
                     'cap_unit' => 'VND',
-                    'cond' => 'Tổng chi tiêu đạt từ 4 triệu VND trong kỳ sao kê xét hoàn tiền',
+                    'cond' => 'Bao gồm nền tảng gọi xe & giao đồ ăn như Be, Grab, ShopeeFood… và các MCC tại Bảng 1. Tổng số tiền hoàn tối đa trong kỳ sao kê cho cả 3 nhóm ưu đãi: 1.000.000 VNĐ.',
+                ],
+            ],
+            'Ngành hàng khác' => [
+                [
+                    'pct' => 0,
+                    'cap_period' => 'kỳ sao kê',
+                    'cap_unit' => 'VND',
+                    'cond' => 'Các ngành hàng không thuộc 3 nhóm ưu đãi: hoàn 0%.',
                 ],
             ],
         ],

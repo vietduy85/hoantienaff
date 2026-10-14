@@ -8,6 +8,9 @@ use App\Models\CreditCard\PolicyTemplate;
 use App\Models\CreditCard\PolicyTier;
 use App\Models\CreditCard\PolicyTierCategory;
 use App\Models\CreditCard\PolicyVersion;
+use App\Models\CreditCard\SpendQualification;
+use App\Models\CreditCard\SpendQualificationCondition;
+use App\Models\CreditCard\SpendQualificationConditionExcludedCategory;
 use App\Models\CreditCard\UserCard;
 use App\Models\User;
 use App\Services\CreditCard\Optimizer\PortfolioOptimizerService;
@@ -856,6 +859,11 @@ class CardPortfolioOptimizerTest extends TestCase
         $this->assertStringContainsString('ccMoneyVnd(card.allocated_total)', $html);
         $this->assertStringContainsString('ccMoneyVnd(proposed().total_allocated)', $html);
         $this->assertStringContainsString('ccMoneyVnd(optimizeResult.total_input_number)', $html);
+
+        // Cảnh báo giả định chia nhỏ giao dịch + thanh toán trực tuyến.
+        $this->assertStringContainsString('x-show="card.depends_on_splitting"', $html);
+        $this->assertStringContainsString('card.simulated_transactions', $html);
+        $this->assertStringContainsString('x-show="card.depends_on_online"', $html);
     }
 
     #[Test]
@@ -1557,6 +1565,319 @@ class CardPortfolioOptimizerTest extends TestCase
         $this->makePolicyForCard($card, $tiers, $rules, ['template_id' => $template->id]);
 
         return $card;
+    }
+
+    // =====================================================================
+    // 9. Chia khoản chi thành nhiều giao dịch (trần hoàn tiền theo giao dịch)
+    // =====================================================================
+
+    /**
+     * Trần hoàn tiền THEO TỪNG GIAO DỊCH: dồn cả khoản chi vào một giao dịch thì
+     * chỉ được tối đa bằng trần; chia thành nhiều giao dịch chạm trần nhiều lần.
+     *
+     *   20% × 1.000.000, trần/giao dịch 50k:
+     *     - 1 giao dịch   ⇒ 200k bị cắt còn 50k
+     *     - 4 × 250k      ⇒ 4 × 50k = 200k  (mốc 250k = 50k / 20%)
+     */
+    #[Test]
+    public function it_splits_a_transaction_to_use_a_per_transaction_cap_more_than_once(): void
+    {
+        $grocery = $this->makeSystemCategory(['name' => 'Siêu thị']);
+
+        $this->makeTemplate('Thẻ giống Cake 20% (trần GD 50k)',
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $grocery->id, 'percent' => '20.000', 'cap_tx' => 50000]]);
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'amounts' => [$grocery->id => 1000000],
+        ]));
+
+        $response->assertOk();
+        $this->assertSame('200000.00', $response->json('data.best_cashback'));
+
+        $card = $response->json('data.plans.0.cards.0');
+        $this->assertTrue($card['depends_on_splitting']);
+        $this->assertSame(4, (int) $card['simulated_transactions']);
+    }
+
+    /**
+     * Chia giao dịch KHÔNG được nhân trần danh mục·kỳ: dù chia nhỏ, tổng hoàn cho
+     * danh mục vẫn bị chặn ở `max_cashback_per_category_per_period`.
+     */
+    #[Test]
+    public function splitting_does_not_inflate_cashback_beyond_the_category_period_cap(): void
+    {
+        $grocery = $this->makeSystemCategory(['name' => 'Siêu thị']);
+
+        $this->makeTemplate('Thẻ 20% (trần GD 50k, trần danh mục 150k)',
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $grocery->id, 'percent' => '20.000', 'cap_tx' => 50000, 'cap_cat' => 150000]]);
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'amounts' => [$grocery->id => 1000000],
+        ]));
+
+        $response->assertOk();
+        $this->assertSame('150000.00', $response->json('data.best_cashback'));
+        $this->assertSame(150000.0, $this->categoryCashback(
+            $response->json('data.plans.0.cards'),
+            $grocery->id,
+        ));
+    }
+
+    /**
+     * Thẻ KHÔNG có trần giao dịch (rule hay bậc) ⇒ không chia, không gắn cờ giả định.
+     */
+    #[Test]
+    public function cards_without_transaction_caps_are_not_flagged_as_split(): void
+    {
+        $grocery = $this->makeSystemCategory(['name' => 'Siêu thị']);
+
+        $this->makeTemplate('Thẻ siêu thị 20%',
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $grocery->id, 'percent' => '20.000']]);
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'amounts' => [$grocery->id => 1000000],
+        ]));
+
+        $response->assertOk();
+        $this->assertSame('200000.00', $response->json('data.best_cashback'));
+
+        $card = $response->json('data.plans.0.cards.0');
+        $this->assertFalse($card['depends_on_splitting']);
+        $this->assertSame(1, (int) $card['simulated_transactions']);
+    }
+
+    // =====================================================================
+    // 10. Giả định thanh toán TRỰC TUYẾN (chia khoản chi sang danh mục online)
+    // =====================================================================
+
+    /**
+     * Thẻ chỉ hoàn cho danh mục online. Khoản chi ở danh mục gốc "có thể chi
+     * online" được chuyển sang danh mục online ⇒ có hoàn tiền; tổng chi KHÔNG đổi.
+     */
+    #[Test]
+    public function it_moves_spend_online_to_unlock_an_online_reward_without_inflating_the_budget(): void
+    {
+        config([
+            'credit_card_online.enabled' => true,
+            'credit_card_online.verified' => ['thoi-trang' => 'mua-sam-truc-tuyen'],
+        ]);
+
+        $fashion = $this->makeSystemCategory(['name' => 'Thời trang', 'slug' => 'thoi-trang']);
+        $online = $this->makeSystemCategory(['name' => 'Mua sắm trực tuyến', 'slug' => 'mua-sam-truc-tuyen']);
+
+        $this->makeTemplate('Thẻ online 10%',
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $online->id, 'percent' => '10.000']]);
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'amounts' => [$fashion->id => 1000000],
+        ]));
+
+        $response->assertOk();
+        $this->assertSame('100000.00', $response->json('data.best_cashback'));
+
+        $card = $response->json('data.plans.0.cards.0');
+        $this->assertTrue($card['depends_on_online']);
+
+        // Ngân sách KHÔNG bị nhân: khoản chi vẫn đúng bằng số đã nhập.
+        $this->assertSame('1000000.00', $response->json('data.total_input'));
+        $this->assertSame(1000000.0, $this->amountForCategory([$card], $card['name'], $fashion->id));
+    }
+
+    /**
+     * Khi cấu hình trống (mặc định `verified = []`) thì KHÔNG áp giả định online ⇒
+     * chỉ nhận hoàn tiền của danh mục gốc, không gắn cờ online.
+     */
+    #[Test]
+    public function online_assumption_is_off_when_not_configured(): void
+    {
+        $fashion = $this->makeSystemCategory(['name' => 'Thời trang', 'slug' => 'thoi-trang']);
+
+        $this->makeTemplate('Thẻ thời trang 5%',
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $fashion->id, 'percent' => '5.000']]);
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'amounts' => [$fashion->id => 1000000],
+        ]));
+
+        $response->assertOk();
+        $this->assertSame('50000.00', $response->json('data.best_cashback'));
+        $this->assertFalse($response->json('data.plans.0.cards.0.depends_on_online'));
+    }
+
+    /**
+     * Online chỉ dùng khi thẻ THỰC SỰ có rule phủ danh mục online; nếu thẻ không
+     * có ưu đãi online thì dù cấu hình có cặp mapping cũng không đổi kết quả.
+     */
+    #[Test]
+    public function online_assumption_is_ignored_when_the_card_has_no_online_rule(): void
+    {
+        config([
+            'credit_card_online.enabled' => true,
+            'credit_card_online.verified' => ['thoi-trang' => 'mua-sam-truc-tuyen'],
+        ]);
+
+        $fashion = $this->makeSystemCategory(['name' => 'Thời trang', 'slug' => 'thoi-trang']);
+        $this->makeSystemCategory(['name' => 'Mua sắm trực tuyến', 'slug' => 'mua-sam-truc-tuyen']);
+
+        $this->makeTemplate('Thẻ thời trang 5%',
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $fashion->id, 'percent' => '5.000']]);
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'amounts' => [$fashion->id => 1000000],
+        ]));
+
+        $response->assertOk();
+        $this->assertSame('50000.00', $response->json('data.best_cashback'));
+        $this->assertFalse($response->json('data.plans.0.cards.0.depends_on_online'));
+    }
+
+    // =====================================================================
+    // 11. Kích hoạt điều kiện hoàn tiền đặc biệt (gate theo chi tiêu thực tế)
+    // =====================================================================
+
+    /**
+     * Thẻ chỉ hoàn tiền khi đạt mức chi tối thiểu ở nhóm chi TIÊU THỰC TẾ. Xét
+     * riêng danh mục được thưởng, thẻ "0 đồng" vì chưa đạt điều kiện ⇒ optimizer
+     * thường bỏ qua. Allocator CHỦ ĐỘNG dồn khoản chi đủ điều kiện (rút từ nơi có
+     * giá trị thấp nhất) sang thẻ để mở khoá ưu đãi 10% — nhưng KHÔNG nhân ngân sách.
+     *
+     *   Thẻ "MB Ultimate": Y tế 10%, điều kiện "other ≥ 2tr, LOẠI TRỪ Y tế".
+     *   Nhập: Y tế 2tr, Siêu thị 3tr. Thẻ siêu thị khác 5%.
+     *     - Không kích hoạt: Siêu thị 3tr × 5% = 150k; Y tế 0        ⇒ 150k
+     *     - Kích hoạt:       Siêu thị 2tr sang thẻ (mở điều kiện) ⇒
+     *                        Y tế 2tr × 10% = 200k + Siêu thị 1tr × 5% = 50k ⇒ 250k
+     */
+    #[Test]
+    public function it_activates_a_spend_condition_to_unlock_a_reward_without_inflating_the_budget(): void
+    {
+        $medical = $this->makeSystemCategory(['name' => 'Y tế']);
+        $grocery = $this->makeSystemCategory(['name' => 'Siêu thị']);
+
+        $card = $this->makeUserCard($this->owner->id, ['name' => 'MB Ultimate']);
+        $policy = $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $medical->id, 'percent' => '10.000']],
+        );
+
+        $qualification = SpendQualification::create([
+            'policy_version_id' => $policy->id,
+            'name' => 'Điều kiện kỳ',
+            'enabled' => true,
+        ]);
+
+        $condition = SpendQualificationCondition::create([
+            'qualification_id' => $qualification->id,
+            'condition_type' => SpendQualificationCondition::TYPE_OTHER,
+            'min_spend' => '2000000.00',
+            'is_enabled' => true,
+            'sort_order' => 0,
+        ]);
+
+        SpendQualificationConditionExcludedCategory::create([
+            'condition_id' => $condition->id,
+            'category_id' => $medical->id,
+        ]);
+
+        $this->makeTemplate('Thẻ siêu thị 5%',
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $grocery->id, 'percent' => '5.000']]);
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'compare',
+            'criterion' => 'max_cashback',
+            'amounts' => [$medical->id => 2000000, $grocery->id => 3000000],
+        ]));
+
+        $response->assertOk();
+        $this->assertSame('250000.00', $response->json('data.best_cashback'));
+
+        $owned = collect($response->json('data.plans.0.cards'))
+            ->firstWhere('name', 'MB Ultimate');
+
+        $this->assertNotNull($owned);
+        $this->assertSame(2000000.0, $this->amountForCategory([$owned], 'MB Ultimate', $medical->id));
+        $this->assertSame(2000000.0, $this->amountForCategory([$owned], 'MB Ultimate', $grocery->id));
+
+        // Ngân sách mỗi danh mục KHÔNG bị nhân: tổng Siêu thị vẫn 3tr, tổng vào 5tr.
+        $groceryPortions = $this->portionsForCategory($response->json('data.plans.0.cards'), $grocery->id);
+        $this->assertSame(3000000.0, array_sum($groceryPortions));
+        $this->assertSame('5000000.00', $response->json('data.total_input'));
+    }
+
+    /**
+     * Khi khoản chi đủ điều kiện QUÁ ÍT để đạt mức tối thiểu thì KHÔNG được bịa
+     * thêm chi tiêu: thẻ vẫn 0 đồng cho danh mục được thưởng.
+     *
+     *   Y tế 2tr (bị loại trừ), Siêu thị 500k (đủ điều kiện) — cần 2tr ⇒ không đạt.
+     */
+    #[Test]
+    public function it_does_not_invent_qualifying_spend_when_the_minimum_is_unreachable(): void
+    {
+        $medical = $this->makeSystemCategory(['name' => 'Y tế']);
+        $grocery = $this->makeSystemCategory(['name' => 'Siêu thị']);
+
+        $card = $this->makeUserCard($this->owner->id, ['name' => 'MB Ultimate']);
+        $policy = $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $medical->id, 'percent' => '10.000']],
+        );
+
+        $qualification = SpendQualification::create([
+            'policy_version_id' => $policy->id,
+            'name' => 'Điều kiện kỳ',
+            'enabled' => true,
+        ]);
+
+        $condition = SpendQualificationCondition::create([
+            'qualification_id' => $qualification->id,
+            'condition_type' => SpendQualificationCondition::TYPE_OTHER,
+            'min_spend' => '2000000.00',
+            'is_enabled' => true,
+            'sort_order' => 0,
+        ]);
+
+        SpendQualificationConditionExcludedCategory::create([
+            'condition_id' => $condition->id,
+            'category_id' => $medical->id,
+        ]);
+
+        $this->makeTemplate('Thẻ siêu thị 5%',
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $grocery->id, 'percent' => '5.000']]);
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'compare',
+            'criterion' => 'max_cashback',
+            'amounts' => [$medical->id => 2000000, $grocery->id => 500000],
+        ]));
+
+        $response->assertOk();
+
+        // Chỉ có Siêu thị 500k × 5% = 25k; Y tế 0 vì điều kiện bất khả thi.
+        $this->assertSame('25000.00', $response->json('data.best_cashback'));
+
+        // KHÔNG được bịa chi tiêu: không thẻ nào thu hoàn tiền cho Y tế.
+        $this->assertSame(0.0, $this->categoryCashback($response->json('data.plans.0.cards'), $medical->id));
     }
 
     // =====================================================================

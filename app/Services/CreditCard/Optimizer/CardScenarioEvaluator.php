@@ -19,16 +19,32 @@ use Carbon\CarbonImmutable;
  * engine hiện hành quyết định — lớp này KHÔNG nhân rate, KHÔNG chọn rule, KHÔNG
  * tự tính cap.
  *
+ * ---------------------------------------------------------------------------
+ * HAI GIẢ ĐỊNH MÔ PHỎNG (đều do engine xác nhận con số cuối cùng)
+ * ---------------------------------------------------------------------------
+ *   1. CHIA GIAO DỊCH: khi policy có trần theo TỪNG giao dịch, cùng tổng chi
+ *      nhưng chia thành nhiều giao dịch nhỏ có thể hoàn nhiều hơn.
+ *   2. THANH TOÁN TRỰC TUYẾN: một khoản chi ở danh mục gốc có thể được chia một
+ *      phần sang danh mục "online" (nếu thẻ có ưu đãi online), tổng KHÔNG đổi.
+ *
+ * Mỗi danh mục được thử vài biến thể (giữ nguyên / chia nhỏ / chuyển phần sang
+ * online); biến thể tốt nhất theo TOÀN scenario được giữ lại. Khi kết quả phụ
+ * thuộc một giả định, scenario gắn cờ tương ứng để tầng trình bày nêu rõ.
+ *
  * Giao dịch giả định xếp CUỐI (ngày cuối kỳ với id base cố định) như
  * `CardRecommendationService` để cap được phân bổ theo phần CÒN LẠI sau giao
  * dịch thực của kỳ — đúng ngữ nghĩa "thêm khoản chi này vào kỳ hiện tại".
  */
 class CardScenarioEvaluator
 {
+    private const SPLIT_EPSILON = 0.001;
+
     public function __construct(
         private readonly TierResolverService $tiers,
         private readonly CashbackCalculator $calculator,
         private readonly SpendQualificationService $qualifications,
+        private readonly TransactionSplitter $splitter,
+        private readonly OnlinePaymentEligibilityResolver $online,
     ) {}
 
     /**
@@ -48,21 +64,7 @@ class CardScenarioEvaluator
             }
         }
 
-        $hypoIds = [];
-        $hypoLines = [];
-
-        foreach ($perCategories as $categoryId => $amount) {
-            $id = $this->hypoId($scaffold, (int) $categoryId);
-            $hypoIds[(int) $categoryId] = $id;
-            $hypoLines[] = new TransactionLine(
-                id: $id,
-                transactionDate: $this->hypoDate($scaffold),
-                categoryId: (int) $categoryId,
-                amount: (string) $amount,
-            );
-        }
-
-        if ($hypoLines === []) {
+        if ($perCategories === []) {
             return $this->emptyScenario($scaffold);
         }
 
@@ -79,10 +81,211 @@ class CardScenarioEvaluator
             return $this->scenarioIneligible($scaffold, $base, 'no_policy_version', null, $perCategories);
         }
 
-        $lines = array_merge($scaffold->realLines, $hypoLines);
+        $baseline = $this->evaluateSpecs($scaffold, $base, $perCategories, $this->singleSpecs($perCategories), false, false);
+
+        if ($baseline->scenarioReason !== null) {
+            return $baseline;
+        }
+
+        $chosen = [];
+        $dependsOnSplitting = false;
+        $dependsOnOnline = false;
+        $bestTotal = (float) $baseline->totalCashback;
+
+        foreach ($perCategories as $categoryId => $amount) {
+            $categoryId = (int) $categoryId;
+            $bestVariant = null;
+            $variantSplit = false;
+            $variantOnline = false;
+
+            foreach ($this->variantsFor($scaffold, $categoryId, $amount) as $variant) {
+                $specs = $this->specsWithOverride($perCategories, $categoryId, $variant['specs']);
+                $scenario = $this->evaluateSpecs(
+                    $scaffold,
+                    $base,
+                    $perCategories,
+                    $specs,
+                    $variant['splitting'],
+                    $variant['online'],
+                );
+
+                if ($scenario->scenarioReason !== null) {
+                    continue;
+                }
+
+                if ((float) $scenario->totalCashback > $bestTotal + self::SPLIT_EPSILON) {
+                    $bestTotal = (float) $scenario->totalCashback;
+                    $bestVariant = $variant['specs'];
+                    $variantSplit = $variant['splitting'];
+                    $variantOnline = $variant['online'];
+                }
+            }
+
+            if ($bestVariant !== null) {
+                $chosen[$categoryId] = $bestVariant;
+                $dependsOnSplitting = $dependsOnSplitting || $variantSplit;
+                $dependsOnOnline = $dependsOnOnline || $variantOnline;
+            }
+        }
+
+        if ($chosen === []) {
+            return $baseline;
+        }
+
+        $specs = $this->singleSpecs($perCategories);
+
+        foreach ($chosen as $categoryId => $override) {
+            $specs = $this->specsWithOverride($perCategories, (int) $categoryId, $override);
+        }
+
+        $combined = $this->evaluateSpecs($scaffold, $base, $perCategories, $specs, $dependsOnSplitting, $dependsOnOnline);
+
+        if ($combined->scenarioReason !== null
+            || (float) $combined->totalCashback <= (float) $baseline->totalCashback + self::SPLIT_EPSILON) {
+            return $baseline;
+        }
+
+        return $combined;
+    }
+
+    /**
+     * Các biến thể dòng cho MỘT danh mục (giữ nguyên không nằm trong đây vì nó là
+     * baseline). Bao gồm chia nhỏ (theo trần giao dịch) và chuyển phần sang online.
+     *
+     * @return list<array{specs: list<array{category_id:int,original:int,amount:int}>,splitting:bool,online:bool}>
+     */
+    private function variantsFor(CardScaffold $scaffold, int $categoryId, int $amount): array
+    {
+        $variants = [];
+
+        if ($amount <= 0) {
+            return $variants;
+        }
+
+        if ($this->splitter->hasPotential($scaffold) && $this->splitter->supportsCategory($scaffold, $categoryId)) {
+            foreach ($this->splitter->candidateChunkSizes($scaffold, $categoryId, $amount) as $size) {
+                if ($size >= $amount) {
+                    continue;
+                }
+
+                $specs = [];
+
+                foreach ($this->splitter->splitInto($amount, $size) as $chunk) {
+                    $specs[] = ['category_id' => $categoryId, 'original' => $categoryId, 'amount' => $chunk];
+                }
+
+                $variants[] = ['specs' => $specs, 'splitting' => true, 'online' => false];
+            }
+        }
+
+        $onlineId = $this->online->targetForBase($categoryId);
+
+        if ($onlineId !== null && $this->online->coversCategory($scaffold, $onlineId)) {
+            foreach ($this->online->baseFractions() as $fraction) {
+                $baseAmount = (int) floor($amount * $fraction);
+                $onlineAmount = $amount - $baseAmount;
+
+                if ($onlineAmount <= 0 || $baseAmount >= $amount) {
+                    continue;
+                }
+
+                $specs = [];
+
+                if ($baseAmount > 0) {
+                    $specs[] = ['category_id' => $categoryId, 'original' => $categoryId, 'amount' => $baseAmount];
+                }
+
+                $specs[] = ['category_id' => $onlineId, 'original' => $categoryId, 'amount' => $onlineAmount];
+
+                $variants[] = ['specs' => $specs, 'splitting' => false, 'online' => true];
+            }
+        }
+
+        return $variants;
+    }
+
+    /**
+     * @param  array<int, int>  $perCategories
+     * @return list<array{category_id:int,original:int,amount:int}>
+     */
+    private function singleSpecs(array $perCategories): array
+    {
+        $specs = [];
+
+        foreach ($perCategories as $categoryId => $amount) {
+            $specs[] = ['category_id' => (int) $categoryId, 'original' => (int) $categoryId, 'amount' => (int) $amount];
+        }
+
+        return $specs;
+    }
+
+    /**
+     * @param  array<int, int>  $perCategories
+     * @param  list<array{category_id:int,original:int,amount:int}>  $override
+     * @return list<array{category_id:int,original:int,amount:int}>
+     */
+    private function specsWithOverride(array $perCategories, int $categoryId, array $override): array
+    {
+        $specs = [];
+
+        foreach ($perCategories as $id => $amount) {
+            $id = (int) $id;
+
+            if ($id === $categoryId) {
+                foreach ($override as $spec) {
+                    $specs[] = $spec;
+                }
+
+                continue;
+            }
+
+            $specs[] = ['category_id' => $id, 'original' => $id, 'amount' => (int) $amount];
+        }
+
+        return $specs;
+    }
+
+    /**
+     * @param  array<string, mixed>  $base
+     * @param  array<int, int>  $perCategories
+     * @param  list<array{category_id:int,original:int,amount:int}>  $specs
+     */
+    private function evaluateSpecs(
+        CardScaffold $scaffold,
+        array $base,
+        array $perCategories,
+        array $specs,
+        bool $dependsOnSplitting,
+        bool $dependsOnOnline,
+    ): CardScenario {
+        $hypoLines = [];
+        $counter = 0;
+
+        foreach ($specs as $spec) {
+            $amount = (int) $spec['amount'];
+
+            if ($amount <= 0) {
+                continue;
+            }
+
+            $hypoLines[] = [
+                'line' => new TransactionLine(
+                    id: $this->hypoId($scaffold, $counter++),
+                    transactionDate: $this->hypoDate($scaffold),
+                    categoryId: (int) $spec['category_id'],
+                    amount: (string) $amount,
+                ),
+                'original' => (int) $spec['original'],
+            ];
+        }
+
+        if ($hypoLines === []) {
+            return $this->emptyScenario($scaffold);
+        }
+
+        $lines = array_merge($scaffold->realLines, array_map(fn (array $entry): TransactionLine => $entry['line'], $hypoLines));
         $totalEligible = $this->totalEligibleSpend($scaffold, $lines);
 
-        // Retroactive: tổng KHÔNG phụ thuộc bậc, bậc phụ thuộc tổng.
         $tier = $this->tiers->resolveTierFromTiers($scaffold->tiers, $totalEligible);
 
         if ($tier === null && $totalEligible > 0) {
@@ -110,18 +313,45 @@ class CardScenarioEvaluator
         $perCategory = [];
 
         foreach ($perCategories as $categoryId => $amount) {
-            $result = $this->resultFor($results, $hypoIds[(int) $categoryId]);
-            $cashback = (float) ($result?->cashbackAmount ?? 0.0);
-            $total += $cashback;
+            $categoryId = (int) $categoryId;
+            $sum = 0.0;
+            $eligible = false;
+            $reason = null;
+            $percent = null;
+            $caps = [];
 
-            $perCategory[(int) $categoryId] = [
+            foreach ($hypoLines as $entry) {
+                if ($entry['original'] !== $categoryId) {
+                    continue;
+                }
+
+                $result = $this->resultFor($results, $entry['line']->id);
+                $sum += (float) ($result?->cashbackAmount ?? 0.0);
+
+                if ($result?->isEligible) {
+                    $eligible = true;
+                } else {
+                    $reason ??= $result?->ineligibleReason;
+                }
+
+                $percent ??= $result?->cashbackPercent;
+
+                foreach ($this->appliedCaps($result) as $capType) {
+                    $caps[$capType] = true;
+                }
+            }
+
+            $cashback = number_format($sum, 2, '.', '');
+            $total += $sum;
+
+            $perCategory[$categoryId] = [
                 'amount' => Decimal::money((string) $amount),
-                'cashback' => Decimal::money($result?->cashbackAmount ?? '0.00'),
-                'rate' => $this->rate($result?->cashbackAmount ?? '0.00', $amount),
-                'percent' => $result?->cashbackPercent,
-                'eligible' => $result?->isEligible ?? false,
-                'reason' => $result?->ineligibleReason,
-                'caps_applied' => $this->appliedCaps($result),
+                'cashback' => Decimal::money($cashback),
+                'rate' => $this->rate($cashback, $amount),
+                'percent' => $percent,
+                'eligible' => $eligible,
+                'reason' => $reason,
+                'caps_applied' => array_keys($caps),
             ];
         }
 
@@ -144,6 +374,9 @@ class CardScenarioEvaluator
             marketAssumption: $scaffold->marketAssumption,
             instanceIndex: $scaffold->instanceIndex,
             productKey: $scaffold->productKey,
+            simulatedTransactions: count($hypoLines),
+            dependsOnSplitting: $dependsOnSplitting,
+            dependsOnOnline: $dependsOnOnline,
         );
     }
 
@@ -248,9 +481,9 @@ class CardScenarioEvaluator
         return 0.0;
     }
 
-    private function hypoId(CardScaffold $scaffold, int $categoryId): int
+    private function hypoId(CardScaffold $scaffold, int $lineIndex): int
     {
-        return CardScaffold::hypoIdBase($scaffold->isOwned) + $scaffold->idNumber * 1000 + $categoryId;
+        return CardScaffold::hypoIdBase($scaffold->isOwned) + $scaffold->idNumber * 100000 + $lineIndex;
     }
 
     private function hypoDate(CardScaffold $scaffold): string

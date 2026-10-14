@@ -464,6 +464,81 @@ hồ sơ **một hạng** (tương thích ngược, không phá tra cứu). Khô
 
 ---
 
+## PHẦN J — TAB "TRA CỨU DANH MỤC" (tra theo NHÓM ngành, chỉ đọc)
+
+Tab thứ ba của màn tra cứu: người dùng **chọn một danh mục** rồi xem **mọi thẻ có hoàn tiền
+cho danh mục đó**. Dữ liệu **100% tái sử dụng** từ các dòng `included` đã nhập — **không tạo
+bảng danh mục mới**, **không đổi tên gốc** trong hồ sơ.
+
+- Giao diện: tab thứ ba trong `resources/views/credit-card/lookup.blade.php`.
+- Endpoint dữ liệu: `GET /thetindung/tra-cuu/danh-muc` — route `credit-cards.lookup.category`,
+  controller `CreditCardLookupController::category()`.
+- Service: `CardPolicyLookupService::lookupCategory()` (CHỈ ĐỌC, không tạo kỳ sao kê/snapshot).
+
+### J.1 Nguồn chuẩn hoá — `config/credit_card_mcc_categories.php`
+
+| Khoá | Ý nghĩa |
+|---|---|
+| `groups` | Danh sách **danh mục chuẩn** `key => nhãn tiếng Việt`; **thứ tự trong mảng = thứ tự hiển thị** trong dropdown. |
+| `aliases` | Bản đồ **tên gốc (đã chuẩn hoá tại thời điểm chạy) => một khoá chuẩn HOẶC mảng khoá chuẩn**. |
+
+- Tên gốc **không map** trong `aliases` vẫn xuất hiện, giữ **riêng** một lựa chọn với khoá
+  `raw:<tên-đã-chuẩn-hoá>` — **KHÔNG tự gộp** hai danh mục chỉ vì tên "na ná".
+- Một tên gốc có thể ánh xạ **nhiều** khoá chuẩn (dòng mô tả combo, ví dụ
+  "Giao dịch ăn uống, siêu thị (…), Grab/Be" ⇒ `[food, supermarket, transport]`), nên nó xuất
+  hiện ở **nhiều** danh mục — đúng bản chất dòng gộp.
+- Các dòng **đặc thù/không phải ngành** (ví dụ "Chi tiêu quốc tế", "Chi tiêu trực tuyến nước
+  ngoài", "Giao dịch có lưu thông tin Thẻ (card-on-file)", "Hoàn tiền cố định",
+  "Nhóm ưu đãi được chọn (mặc định: Ăn uống)") **cố ý để `raw:`** — không gán bừa vào danh mục
+  ngành nào.
+
+### J.2 Chuẩn hoá & gom nhóm
+
+- `normalizeCategoryKey()`: `Str::lower` → `Str::ascii` (bỏ dấu) → thay mọi ký tự không phải
+  `[a-z0-9]` bằng dấu cách → gộp khoảng trắng. **Không bao giờ sửa tên gốc trong DB.**
+- `categoryKeysFor($name)`: có trong `aliases` ⇒ trả **các khoá chuẩn**; ngược lại trả
+  `['raw:'.$normalized]`.
+- `categoryOptions()`: quét **mọi dòng `included`** của mọi hồ sơ để dựng dropdown ⇒ **tự động
+  cập nhật** khi thêm hồ sơ/dòng mới, **không hard-code** ngân hàng/thẻ. Sắp theo thứ tự `groups`,
+  rồi theo nhãn.
+
+### J.3 Tra cứu (`lookupCategory()`)
+
+1. Chỉ xét dòng **`included`**; dòng **`excluded` KHÔNG tạo kết quả** (loại trừ không chứng minh
+   có hoàn tiền — quy tắc chung Phần F).
+2. Một hồ sơ có **nhiều dòng cùng danh mục** ⇒ gộp về **MỘT kết quả** (không nhân bản thẻ):
+   - Hợp nhất **mã MCC** (khử trùng lặp, sắp tăng dần).
+   - Hợp nhất **bậc/tỷ lệ**, khử trùng lặp theo khoá
+     `cashback_percent|rate_label|min_total_spend|max_total_spend|cap_amount|note` ⇒ **giữ mọi
+     khác biệt bậc**, không gán một mức chung.
+3. Chương trình **dùng chung nhiều hạng** (`product_name`, xem Phần G) tiếp tục gộp một kết quả
+   qua `mergeProductMatches()`.
+4. **Dòng mô tả không có mã MCC**: `descriptive_note` = ghi chú hồ sơ nếu có, ngược lại nhãn
+   "Quyền lợi theo mô tả của ngân hàng — chưa có danh sách mã MCC cụ thể." (không hiểu nhầm là đã
+   kiểm tra đủ mã).
+5. Kết quả: `relation = 'group'`, `match_type = 'category'`, kèm `cashback` (đọc từ
+   `credit_card_policy_mcc_row_benefits` như F.3), `documents` tải được, danh sách mã, và
+   `matched_names` (tên gốc đã khớp — phục vụ truy vết). Rỗng ⇒ `found = false`.
+
+### J.4 Giao diện & tái sử dụng
+
+- Khối kết quả chia sẻ partial `resources/views/credit-card/partials/mcc-match.blade.php`
+  (tham số `$matches` — biểu thức Alpine, `$codesLabel`). Tab MCC dùng nhãn `Mã trong nhóm`;
+  tab danh mục dùng nhãn `Mã MCC liên quan`.
+- Tiêu đề kết quả **"Các thẻ hoàn tiền (n)"**; ghi chú thao tác **"Chỉ tra cứu — không thay đổi
+  dữ liệu."**; nhãn dòng mô tả hiển thị qua `descriptive_note`.
+- Tiền/trần/phí dùng `ccMoneyVnd`, trường trống = **"Chưa cập nhật"** (không `0 đ`).
+
+### J.5 Kiểm thử tham chiếu
+
+`tests/Feature/CreditCard/CardLookupCategoryTest.php` (17 test): dựng dropdown từ dòng included,
+bỏ qua excluded, gom nhóm chuẩn hoá, giữ tên lạ dưới `raw:`, tra cứu trả thẻ included, loại
+excluded-only, một thẻ một kết quả, giữ đủ bậc, gộp chương trình dùng chung, trạng thái rỗng,
+validate 422, dòng theo kênh không lọt danh mục khác, dòng mô tả được gắn cờ, tài liệu tải được.
+Chạy: `php artisan test --filter CardLookupCategoryTest`.
+
+---
+
 ## PHỤ LỤC — LỆNH & ĐƯỜNG DẪN NHANH
 
 | Mục đích | Lệnh / đường dẫn |
@@ -473,7 +548,8 @@ hồ sơ **một hạng** (tương thích ngược, không phá tra cứu). Khô
 | Nạp bậc hoàn tiền theo dòng | `php artisan credit-card:import-mcc-row-benefits [--file=]` |
 | Admin quản lý MCC | `/credit-card/mcc` (index/create/show/edit) |
 | Tải tài liệu ngân hàng | `GET /credit-card/mcc/{profile}/documents/{document}` |
-| Trang tra cứu | `/thetindung/tra-cuu` (tab MCC: `/thetindung/tra-cuu/mcc`) |
+| Trang tra cứu | `/thetindung/tra-cuu` (tab MCC: `/thetindung/tra-cuu/mcc`; tab danh mục: `/thetindung/tra-cuu/danh-muc`) |
+| Danh mục chuẩn & alias | `config/credit_card_mcc_categories.php` |
 | Bộ dữ liệu bậc hoàn tiền | `database/data/credit_card_mcc_row_benefits.php` |
 | Service ghi hồ sơ | `app/Services/CreditCard/PolicyMccProfileService.php` |
 | Service tra cứu | `app/Services/CreditCard/CardPolicyLookupService.php` |
@@ -488,3 +564,5 @@ hồ sơ **một hạng** (tương thích ngược, không phá tra cứu). Khô
 - KHÔNG tự tạo MCC master; KHÔNG liên kết `category_name` với `credit_card_categories`.
 - KHÔNG xoá/sửa tài liệu gốc hay dữ liệu bậc đã có khi không có căn cứ.
 - KHÔNG suy diễn quan hệ/tỷ lệ từ tên hiển thị hoặc tên danh mục.
+- Danh mục tra cứu (Phần J) chỉ gom theo `config/credit_card_mcc_categories.php`; tên chưa chắc
+  chắn ⇒ giữ riêng `raw:` (không tự gộp); dòng `excluded` không bao giờ tạo kết quả.

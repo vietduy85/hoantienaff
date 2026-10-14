@@ -92,11 +92,19 @@ class PortfolioOptimizerService
      */
     private const BALANCE_TOLERANCE_RATIO = 0.002;
 
+    /**
+     * Dung sai (đồng) khi so sánh phương án "kích hoạt điều kiện đặc biệt" với
+     * phương án thường — chỉ nhận khi thực sự cao hơn.
+     */
+    private const ACTIVATION_EPSILON = 0.001;
+
     public function __construct(
         private readonly StatementPeriodService $periods,
         private readonly PolicyEngineService $engine,
         private readonly TierResolverService $tiers,
         private readonly CardScenarioEvaluator $evaluator,
+        private readonly OnlinePaymentEligibilityResolver $online,
+        private readonly SpendingConditionAllocator $conditions,
     ) {}
 
     /** Chuẩn hoá số bản/sản phẩm về khoảng [1, MAX_COPIES_LIMIT]. */
@@ -573,6 +581,20 @@ class PortfolioOptimizerService
             }
         }
 
+        // Giả định online: một danh mục gốc cũng "có thể dương" nếu thẻ có ưu đãi
+        // cho danh mục online mà danh mục gốc đó có thể chuyển sang.
+        foreach ($this->online->baseCategoryIds() as $baseId) {
+            $target = $this->online->targetForBase($baseId);
+
+            if ($target === null) {
+                continue;
+            }
+
+            if ($anyAll || isset($cats[$target])) {
+                $cats[$baseId] = true;
+            }
+        }
+
         return ['any_all' => $anyAll, 'cats' => $cats];
     }
 
@@ -674,8 +696,63 @@ class PortfolioOptimizerService
             return null;
         }
 
-        // Cải thiện cục bộ: lặp lại theo thứ tự danh mục, mỗi lượt thử
-        // chuyển/tách cho từng danh mục, cho tới khi hết cải thiện (chặn số vòng).
+        $allocation = $this->improveAllocation($config, $candidates, $positiveMap, $singles, $amounts, $allocation);
+
+        // Kích hoạt "điều kiện hoàn tiền đặc biệt": chủ động dồn phần chi tiêu đủ
+        // điều kiện sang thẻ đang có điều kiện, rồi cải thiện lại; chỉ nhận nếu
+        // tổng hoàn tiền THẬT cao hơn.
+        $evalCache = [];
+        $best = $allocation;
+        $bestTotal = $this->allocationValue($candidates, $best, $evalCache)['total'];
+
+        foreach ($candidates as $scaffold) {
+            if ($scaffold->qualification === null) {
+                continue;
+            }
+
+            $activated = $this->conditions->activate($scaffold, $best, $amounts, $singles);
+
+            if ($activated === null) {
+                continue;
+            }
+
+            $activated = $this->improveAllocation($config, $candidates, $positiveMap, $singles, $amounts, $activated);
+
+            if ($activated === []) {
+                continue;
+            }
+
+            $total = $this->allocationValue($candidates, $activated, $evalCache)['total'];
+
+            if ($total > $bestTotal + self::ACTIVATION_EPSILON) {
+                $best = $activated;
+                $bestTotal = $total;
+            }
+        }
+
+        return $best;
+    }
+
+    /**
+     * Vòng cải thiện cục bộ từng danh mục (kể cả thử tách cho hai thẻ) cho tới khi
+     * hết cải thiện (chặn số vòng).
+     *
+     * @param  array<string, CardScaffold>  $candidates
+     * @param  array<string, array{any_all: bool, cats: array<int, true>}>  $positiveMap
+     * @param  array<string, array<int, array<string, mixed>>>  $singles
+     * @param  array<int, int>  $amounts
+     * @param  array{order: list<int>, criterion: string, prefer_owned: bool, prefer_market: bool, spread: bool}  $config
+     * @param  array<string, array<int, int>>  $allocation
+     * @return array<string, array<int, int>>
+     */
+    private function improveAllocation(
+        array $config,
+        array $candidates,
+        array $positiveMap,
+        array $singles,
+        array $amounts,
+        array $allocation,
+    ): array {
         $evalCache = [];
 
         for ($pass = 0; $pass < self::MAX_IMPROVE_PASSES; $pass++) {
@@ -1840,6 +1917,9 @@ class PortfolioOptimizerService
                 'qualification_notice' => $scenario->qualificationNotice,
                 'market_assumption' => $scenario->marketAssumption,
                 'scenario_reason' => $scenario->scenarioReason,
+                'simulated_transactions' => $scenario->simulatedTransactions,
+                'depends_on_splitting' => $scenario->dependsOnSplitting,
+                'depends_on_online' => $scenario->dependsOnOnline,
                 'categories' => $categories,
             ];
         }
@@ -1940,6 +2020,29 @@ class PortfolioOptimizerService
 
         if ($hasCopies) {
             $notes[] = 'Phương án dùng nhiều thẻ CÙNG một sản phẩm: hệ thống áp trần/quota theo TỪNG thẻ như mô hình chính sách hiện hành. Nếu sản phẩm có giới hạn cấp khách hàng/sản phẩm chưa được mô hình hóa, tiền hoàn thực tế có thể thấp hơn.';
+        }
+
+        $usesSplitting = false;
+        $usesOnline = false;
+
+        foreach ($plans as $plan) {
+            foreach ($plan['scenarios'] as $scenario) {
+                if ($scenario->dependsOnSplitting) {
+                    $usesSplitting = true;
+                }
+
+                if ($scenario->dependsOnOnline) {
+                    $usesOnline = true;
+                }
+            }
+        }
+
+        if ($usesSplitting) {
+            $notes[] = 'Một số thẻ giả định CHIA khoản chi thành nhiều giao dịch để tận dụng trần hoàn tiền theo từng giao dịch; tiền hoàn thực tế có thể thấp hơn nếu bạn không chia giao dịch như mô phỏng.';
+        }
+
+        if ($usesOnline) {
+            $notes[] = 'Một số thẻ giả định khoản chi được THANH TOÁN TRỰC TUYẾN để hưởng ưu đãi online; tổng chi tiêu vẫn đúng bằng số bạn nhập. Nếu bạn thanh toán tại quầy, tiền hoàn có thể thấp hơn.';
         }
 
         $notes[] = 'Phương án là ước tính theo chính sách hoàn tiền hiện hành; chưa xác minh điều kiện mở thẻ mới (hồ sơ, phí) và các điều kiện đặc biệt khác.';
