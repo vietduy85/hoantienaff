@@ -59,11 +59,21 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 8px;
+            gap: 10px;
             margin-bottom: 20px;
         }
-        .brand-logo { font-size: 26px; line-height: 1; }
-        .brand-name { font-weight: 800; font-size: 18px; color: var(--brand); }
+        .brand-logo { width: 30px; height: 30px; flex: 0 0 auto; display: block; }
+        .brand-name {
+            display: inline-flex;
+            align-items: baseline;
+            font-weight: 800;
+            font-size: 23px;
+            line-height: 1.15;
+            letter-spacing: -0.01em;
+            white-space: nowrap;
+        }
+        .brand-name-base { color: #172033; }
+        .brand-name-xyz { color: var(--brand); }
 
         .login-title {
             font-size: 26px;
@@ -325,14 +335,16 @@
         @media (min-width: 480px) {
             .login-card { padding: 36px 32px 32px; }
             .login-title { font-size: 28px; }
+            .brand-logo { width: 34px; height: 34px; }
+            .brand-name { font-size: 26px; }
         }
     </style>
 </head>
 <body>
     <main class="login-card" role="main">
         <div class="brand">
-            <span class="brand-logo" aria-hidden="true">💰</span>
-            <span class="brand-name">Hoàn Tiền Aff</span>
+            <img class="brand-logo" src="/icon-192.png" width="30" height="30" alt="" aria-hidden="true">
+            <span class="brand-name"><span class="brand-name-base">hoantien.</span><span class="brand-name-xyz">xyz</span></span>
         </div>
 
         <h1 class="login-title">Đăng nhập</h1>

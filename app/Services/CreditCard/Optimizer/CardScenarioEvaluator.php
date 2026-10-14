@@ -190,7 +190,9 @@ class CardScenarioEvaluator
             return $this->emptyScenario($scaffold);
         }
 
-        $lines = array_merge($scaffold->realLines, $hypoLines);
+        // Kỳ mô phỏng mới: CHỈ dùng các dòng giả định của phương án đang xét.
+        // Giao dịch thực của kỳ KHÔNG được trộn vào để không làm giảm quota/đổi bậc.
+        $lines = $hypoLines;
         $totalEligible = $this->totalEligibleSpend($scaffold, $lines);
         $tier = $this->tiers->resolveTierFromTiers($scaffold->tiers, $totalEligible);
 
@@ -486,7 +488,9 @@ class CardScenarioEvaluator
             return $this->emptyScenario($scaffold);
         }
 
-        $lines = array_merge($scaffold->realLines, array_map(fn (array $entry): TransactionLine => $entry['line'], $hypoLines));
+        // Kỳ mô phỏng mới: CHỈ dùng các dòng giả định của phương án đang xét.
+        // Giao dịch thực của kỳ KHÔNG được trộn vào để không làm giảm quota/đổi bậc.
+        $lines = array_map(fn (array $entry): TransactionLine => $entry['line'], $hypoLines);
         $totalEligible = $this->totalEligibleSpend($scaffold, $lines);
 
         $tier = $this->tiers->resolveTierFromTiers($scaffold->tiers, $totalEligible);
