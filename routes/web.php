@@ -55,7 +55,7 @@ Route::get('/', function () {
         return redirect()->route('dashboard');
     }
 
-    return view('welcome');
+    return view('auth.login');
 });
 
 Route::get('/auth/google', [GoogleController::class, 'redirect'])->name('google.redirect');

@@ -44,7 +44,7 @@ class PromotionNewsHomepageTest extends TestCase
         $response = $this->get('/');
 
         $response->assertOk();
-        $response->assertViewIs('welcome');
+        $response->assertViewIs('auth.login');
         $response->assertDontSee('Tin tức khuyến mãi');
         $response->assertDontSee('promo-card', false);
         Http::assertNothingSent();

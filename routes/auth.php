@@ -17,8 +17,11 @@ Route::middleware('guest')->group(function () {
 
     Route::post('register', [RegisteredUserController::class, 'store']);
 
-    Route::get('login', [AuthenticatedSessionController::class, 'create'])
-        ->name('login');
+    // GET /login không còn hiển thị form Breeze; trang đăng nhập chính là `/`.
+    // Giữ NGUYÊN route name `login` (auth middleware, GoogleController và
+    // NewPasswordController đang dùng `route('login')` làm đích redirect).
+    // POST /login giữ nguyên handler + authentication backend hiện có.
+    Route::get('login', fn () => redirect('/'))->name('login');
 
     Route::post('login', [AuthenticatedSessionController::class, 'store']);
 

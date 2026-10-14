@@ -11,11 +11,46 @@ class AuthenticationTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_login_screen_can_be_rendered(): void
+    public function test_login_screen_is_served_from_home_for_guests(): void
+    {
+        $response = $this->get('/');
+
+        $response->assertOk();
+        $response->assertViewIs('auth.login');
+    }
+
+    public function test_legacy_login_get_redirects_to_home(): void
     {
         $response = $this->get('/login');
 
-        $response->assertStatus(200);
+        $response->assertRedirect('/');
+    }
+
+    public function test_home_renders_login_ui_with_username_email_and_google(): void
+    {
+        $response = $this->get('/');
+
+        $response->assertOk();
+        $response->assertViewIs('auth.login');
+        $response->assertSee('Bạn chưa có tài khoản?');
+        $response->assertSee('Nhập Username/Email');
+        $response->assertSee('Nhập mật khẩu');
+        $response->assertSee('Quên mật khẩu?');
+        $response->assertSee('Hoặc đăng nhập bằng Google');
+        // Post tới backend login hiện có; không tạo luồng xác thực mới.
+        $response->assertSee('action="'.route('login').'"', false);
+        // Tái sử dụng route Google OAuth hiện có + route đăng ký hiện có.
+        $response->assertSee(route('google.redirect'), false);
+        $response->assertSee(route('register'), false);
+    }
+
+    public function test_authenticated_user_visiting_login_does_not_see_form(): void
+    {
+        $user = User::factory()->create();
+
+        $response = $this->actingAs($user)->get('/login');
+
+        $response->assertRedirect(route('dashboard'));
     }
 
     public function test_users_can_authenticate_using_email(): void
