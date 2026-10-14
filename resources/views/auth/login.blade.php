@@ -57,23 +57,31 @@
 
         .brand {
             display: flex;
+            flex-direction: column;
             align-items: center;
-            justify-content: center;
-            gap: 10px;
-            margin-bottom: 20px;
+            margin-bottom: 26px;
         }
-        .brand-logo { width: 30px; height: 30px; flex: 0 0 auto; display: block; }
+        .brand-logo { width: 68px; height: 68px; flex: 0 0 auto; display: block; }
         .brand-name {
             display: inline-flex;
             align-items: baseline;
+            margin-top: 12px;
             font-weight: 800;
-            font-size: 23px;
+            font-size: 32px;
             line-height: 1.15;
             letter-spacing: -0.01em;
             white-space: nowrap;
         }
         .brand-name-base { color: #172033; }
         .brand-name-xyz { color: var(--brand); }
+        .brand-slogan {
+            margin-top: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            line-height: 1.3;
+            color: #647084;
+            text-align: center;
+        }
 
         .login-title {
             font-size: 26px;
@@ -335,16 +343,18 @@
         @media (min-width: 480px) {
             .login-card { padding: 36px 32px 32px; }
             .login-title { font-size: 28px; }
-            .brand-logo { width: 34px; height: 34px; }
-            .brand-name { font-size: 26px; }
+            .brand-logo { width: 84px; height: 84px; }
+            .brand-name { font-size: 36px; }
+            .brand-slogan { font-size: 16px; }
         }
     </style>
 </head>
 <body>
     <main class="login-card" role="main">
         <div class="brand">
-            <img class="brand-logo" src="/icon-192.png" width="30" height="30" alt="" aria-hidden="true">
+            <img class="brand-logo" src="/icon-192.png" width="68" height="68" alt="" aria-hidden="true">
             <span class="brand-name"><span class="brand-name-base">hoantien.</span><span class="brand-name-xyz">xyz</span></span>
+            <p class="brand-slogan">Mua sắm thông minh hoàn tiền tối đa</p>
         </div>
 
         <h1 class="login-title">Đăng nhập</h1>

@@ -24,14 +24,15 @@ use Carbon\CarbonImmutable;
  * 3 phương án thực khác nhau.
  *
  * ---------------------------------------------------------------------------
- * CHỈ ĐỌC + TÁI SỬ DỤNG ENGINE HIỆN HÀNH
+ * KỲ MÔ PHỎNG MỚI — KHÔNG PHỤ THUỘC LỊCH SỬ THỰC
  * ---------------------------------------------------------------------------
- * Lớp này KHÔNG ghi DB. Mọi giá trị hoàn tiền đều do `CardScenarioEvaluator`
- * (đi qua đúng `CashbackCalculator`) tính trên các giao dịch GIẢ ĐỊNH hợp thành
- * tập dòng của kỳ — vì vậy cap giao dịch/danh mục/kỳ và tiêu thụ của giao dịch
- * thực trong kỳ hiện tại của thẻ đều được phản ánh, đúng ngữ nghĩa của tab
- * "Lựa chọn thẻ". Không gọi `CashbackQuotaService` riêng (engine đã trừ phần đã
- * dùng trong kỳ qua các dòng thực).
+ * Mỗi lần tối ưu là một kỳ mô phỏng mới: giả định TẤT CẢ thẻ đều chưa phát sinh
+ * chi tiêu trong kỳ. Do đó, hạn mức/trần cashback của mọi thẻ được giữ đầy đủ
+ * theo chính sách, bậc áp dụng và điều kiện chi tiêu chỉ phụ thuộc vào các khoản
+ * phân bổ đang mô phỏng. Dữ liệu giao dịch thực tế của kỳ hiện tại KHÔNG được
+ * trộn vào việc tính toán của phương án mô phỏng. Lớp này không ghi DB; mọi giá
+ * trị hoàn tiền đều do `CardScenarioEvaluator` (qua `CashbackCalculator`) tính
+ * trên các dòng giả định hợp thành tập phân bổ.
  *
  * ---------------------------------------------------------------------------
  * SINH PHƯƠNG ÁN THEO TIÊU CHÍ ĐANG CHỌN
@@ -316,7 +317,6 @@ class PortfolioOptimizerService
             $boundaries[(int) $card->id] = $this->periods->currentBoundaries($card, $today);
         }
 
-        $realLines = $this->transactionLinesByCard($boundaries);
         $todayIso = $today->toDateString();
         $templateSlugs = PolicyTemplate::query()->pluck('slug', 'id')->all();
 
@@ -331,8 +331,7 @@ class PortfolioOptimizerService
                 continue;
             }
 
-            [$start, $end] = $boundaries[$cardId];
-
+            [, $end] = $boundaries[$cardId];
             $qualification = SpendQualification::query()
                 ->where('policy_version_id', $version->id)
                 ->where('enabled', true)
@@ -364,7 +363,6 @@ class PortfolioOptimizerService
                 rulesByTier: $this->rulesByTier($version),
                 capsByTier: $this->capsByTier($version),
                 allEnabledRules: $this->tiers->allEnabledRulesFor($version),
-                realLines: $realLines[$cardId] ?? [],
                 periodEnd: $end,
                 minTotalSpend: (float) $version->min_total_spend,
                 roundingMode: (string) $version->rounding_mode,
@@ -445,7 +443,6 @@ class PortfolioOptimizerService
                     rulesByTier: $rulesByTier,
                     capsByTier: $capsByTier,
                     allEnabledRules: $allRules,
-                    realLines: [],
                     periodEnd: null,
                     minTotalSpend: (float) $version->min_total_spend,
                     roundingMode: (string) $version->rounding_mode,

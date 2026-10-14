@@ -31,9 +31,17 @@ use Carbon\CarbonImmutable;
  * online); biến thể tốt nhất theo TOÀN scenario được giữ lại. Khi kết quả phụ
  * thuộc một giả định, scenario gắn cờ tương ứng để tầng trình bày nêu rõ.
  *
- * Giao dịch giả định xếp CUỐI (ngày cuối kỳ với id base cố định) như
- * `CardRecommendationService` để cap được phân bổ theo phần CÒN LẠI sau giao
- * dịch thực của kỳ — đúng ngữ nghĩa "thêm khoản chi này vào kỳ hiện tại".
+ * ---------------------------------------------------------------------------
+ * KỲ MÔ PHỎNG ĐỘC LẬP (giả định "chưa chi tiêu")
+ * ---------------------------------------------------------------------------
+ * Mỗi lần tối ưu là một KỲ MÔ PHỎNG MỚI: tuyệt đối KHÔNG trộn giao dịch THỰC đã
+ * phát sinh của kỳ hiện tại vào tập dòng. Nhờ vậy hạn mức/trần cashback của mọi
+ * thẻ đều đầy đủ theo chính sách, và bậc/điều kiện chi tiêu được xác định THUẦN
+ * từ các khoản phân bổ đang mô phỏng. Việc này KHÔNG ảnh hưởng luồng tính cashback
+ * thực tế (ngoài optimizer).
+ *
+ * Giao dịch giả định dùng id base cố định (`CardScaffold::hypoIdBase`) và ngày
+ * cuối kỳ để engine phân bổ cap theo thứ tự tất định giữa các dòng giả định.
  */
 class CardScenarioEvaluator
 {

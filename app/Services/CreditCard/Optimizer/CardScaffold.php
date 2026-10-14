@@ -4,7 +4,6 @@ namespace App\Services\CreditCard\Optimizer;
 
 use App\Models\CreditCard\PolicyVersion;
 use App\Models\CreditCard\SpendQualification;
-use App\Services\CreditCard\TransactionLine;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 
@@ -15,6 +14,9 @@ use Illuminate\Support\Collection;
  * chạy (nhiều tiêu chí / nhiều config). Mọi dữ liệu phụ thuộc bậc được gom sẵn
  * theo version (rules theo tier, caps giao dịch theo tier, rule positive) để phần
  * đánh giá thực thi thuần như `CashbackCalculator` — không query DB.
+ *
+ * Scaffold CỐ Ý không mang giao dịch thực của kỳ: optimizer chạy trên kỳ mô phỏng
+ * mới nên mọi hạn mức/trần cashback đều đầy đủ theo chính sách.
  */
 final class CardScaffold
 {
@@ -38,8 +40,6 @@ final class CardScaffold
         public readonly array $capsByTier,
         /** @var array<int, array<string, mixed>> */
         public readonly array $allEnabledRules,
-        /** @var list<TransactionLine> */
-        public readonly array $realLines,
         public readonly ?CarbonImmutable $periodEnd,
         public readonly float $minTotalSpend,
         public readonly string $roundingMode,
