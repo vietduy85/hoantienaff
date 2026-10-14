@@ -392,7 +392,7 @@ class SystemPolicyCloneTest extends TestCase
     }
 
     #[Test]
-    public function non_edited_blueprints_preserve_business_metadata(): void
+    public function non_edited_blueprints_keep_lifecycle_metadata_but_not_source_identity(): void
     {
         $source = $this->makeSourcePolicy();
 
@@ -407,8 +407,11 @@ class SystemPolicyCloneTest extends TestCase
             $this->assertSame($sourceBlueprint->effective_to?->toDateString(), $copy->effective_to?->toDateString());
             $this->assertSame((string) $sourceBlueprint->min_total_spend, (string) $copy->min_total_spend);
             $this->assertSame((string) $sourceBlueprint->rounding_mode, (string) $copy->rounding_mode);
-            $this->assertSame((string) $sourceBlueprint->max_cashback_total_per_period, (string) $copy->max_cashback_total_per_period);
-            $this->assertSame((string) $sourceBlueprint->note, (string) $copy->note);
+            // Bản clone ĐỘC LẬP: KHÔNG kế thừa trần hoàn tổng legacy của nguồn...
+            $this->assertNull($copy->max_cashback_total_per_period, 'Clone không được mang trần hoàn tổng của nguồn.');
+            // ...và ghi chú phải trỏ TÊN TEMPLATE ĐÍCH, không phải nguồn.
+            $this->assertStringContainsString('Giữ metadata version', (string) $copy->note);
+            $this->assertStringNotContainsString((string) $source->name, (string) $copy->note);
 
             $sourceTiers = $sourceBlueprint->tiers()->orderBy('sort_order')->get();
             $copyTiers = $copy->tiers()->orderBy('sort_order')->get();
@@ -459,7 +462,10 @@ class SystemPolicyCloneTest extends TestCase
         $this->assertSame('2027-01-01', $cloneV2->effective_from->toDateString());
         $this->assertSame('1000.00', number_format((float) $cloneV2->min_total_spend, 2, '.', ''));
         $this->assertSame('9000000.00', $cloneV2->tiers()->first()->max_cashback_per_period);
-        $this->assertSame((string) $sourceV2->max_cashback_total_per_period, (string) $cloneV2->max_cashback_total_per_period, 'Cột legacy vẫn được copy (backward compat), không gửi trong payload editor.');
+        $this->assertNull(
+            $cloneV2->max_cashback_total_per_period,
+            'Bản clone không kế thừa trần hoàn tổng legacy của nguồn (payload editor không gửi khoá này).',
+        );
         $this->assertSame('ceil', $cloneV2->rounding_mode);
         $this->assertCount(1, $cloneV2->tiers()->get());
         $this->assertSame('Bậc chi tiêu 5% của bản sao', $cloneV2->tiers()->first()->name);

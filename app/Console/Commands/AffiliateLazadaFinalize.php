@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Log;
  * orchestrator share the exact same idempotent business logic.
  *
  * NOT scheduled via Laravel Scheduler — Windows Task Scheduler owns the
- * frequency (affiliate:sync-all every 6 hours).
+ * frequency (affiliate:sync-all every 3 hours).
  */
 class AffiliateLazadaFinalize extends Command
 {

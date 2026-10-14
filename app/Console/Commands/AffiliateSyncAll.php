@@ -9,13 +9,16 @@ use App\Services\ShopeeFood\ShopeeFoodOrderSyncService;
 use App\Services\TikTok\TikTokOrderSyncService;
 use App\Services\WalletService;
 use App\Support\AffiliateSyncLock;
+use App\Support\AffiliateSyncStatus;
 use Illuminate\Console\Command;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 /**
  * Aggregate affiliate sync orchestrator — drives the full multi-platform
- * workflow in ONE Windows Task Scheduler run:
+ * workflow in ONE Windows Task Scheduler run (task `WindowScheduleSync`,
+ * every 3 hours: 00/03/06/09/12/15/18/21):
  *
  *   [1/5] TikTok Sync
  *   [2/5] Lazada Sync
@@ -23,11 +26,23 @@ use Illuminate\Support\Facades\Log;
  *   [4/5] ShopeeFood Sync
  *   [5/5] Shopee/AddLiveTag API Sync
  *
+ * This is the SINGLE scheduled entry point for affiliate sync: the standalone
+ * `HoanTien-TikTok-Sync` Windows task is disabled (TikTok runs here as step
+ * [1/5] via the SAME TikTokOrderSyncService). The shared `affiliate:sync:lock`
+ * is taken ONCE here at the top — the inner steps call their services directly
+ * (no nested lock) so an inner step can never be skipped by lock contention.
+ *
  * Windows Task Scheduler invokes `php artisan affiliate:sync-all` (no Laravel
  * Scheduler / schedule:run anywhere). Each platform calls its own service
  * DIRECTLY (no nested artisan processes) and runs inside an isolated
  * try/catch so one failure is logged and reported without losing the other
  * platforms' already-synced data.
+ *
+ * After each platform step finishes SUCCESSFULLY (even with 0 records) it
+ * records a last-run marker via App\Support\AffiliateSyncStatus — this is what
+ * the admin "Lần đồng bộ gần nhất" labels read, instead of the row-write
+ * timestamps (`last_<platform>_sync_at`) that never move for protected feeds.
+ * A failed/skipped step records nothing (never a fake success).
  *
  * Hard rules preserved from the underlying services (NOT reimplemented here):
  *   - idempotent upserts (no duplicate orders / credits / WalletTransactions)
@@ -52,7 +67,8 @@ class AffiliateSyncAll extends Command
                             {--shopee-apply : Deprecated no-op: applying rows + crediting is now the default}
                             {--shopee-from= : Shopee from date YYYY-MM-DD (default 14 days ago)}
                             {--shopee-to= : Shopee to date YYYY-MM-DD (optional)}
-                            {--shopee-only : Run ONLY step 5 (Shopee/AddLiveTag), skips steps 1-4}';
+                            {--shopee-only : Run ONLY step 5 (Shopee/AddLiveTag), skips steps 1-4}
+                            {--lock-wait=120 : Số giây tối đa chờ lock chống chạy chồng lấn (0 = không chờ)}';
 
     protected $description = 'Đồng bộ toàn bộ affiliate: TikTok → Lazada (sync + finalize) → ShopeeFood → Shopee/AddLiveTag API. Dành cho Windows Task Scheduler.';
 
@@ -75,11 +91,20 @@ class AffiliateSyncAll extends Command
         Log::info('Affiliate Sync All started', ['started_at' => $started->format('Y-m-d H:i:s')]);
 
         $lock = Cache::lock(AffiliateSyncLock::KEY, AffiliateSyncLock::SECONDS);
+        $lockWaitSeconds = max(0, (int) $this->option('lock-wait'));
 
-        if (! $lock->get()) {
-            $this->error('[BLOCK] Một phiên đồng bộ affiliate khác (sync-all / admin sync / import CSV) đang thực hiện — bỏ qua lần này (chống chạy chồng lấn).');
-            Log::warning('Affiliate Sync All skipped (lock held)', [
+        // Bounded wait: nếu một phiên sync khác (admin sync / import CSV / lượt
+        // chạy trước) đang giữ lock, CHỜ tối đa $lockWaitSeconds giây để chạy
+        // tiếp thay vì bỏ qua cả lượt. Hết thời gian chờ → thất bại rõ ràng
+        // (KHÔNG báo thành công khi thực tế chưa đồng bộ). Lock vẫn đảm bảo
+        // không có hai phiên ghi đơn/cashback chồng lấn.
+        try {
+            $lock->block($lockWaitSeconds);
+        } catch (LockTimeoutException) {
+            $this->error("[BLOCK] Một phiên đồng bộ affiliate khác đang giữ lock > {$lockWaitSeconds}s — bỏ qua lần này (chống chạy chồng lấn).");
+            Log::warning('Affiliate Sync All skipped (lock timeout)', [
                 'started_at' => $started->format('Y-m-d H:i:s'),
+                'lock_wait_seconds' => $lockWaitSeconds,
             ]);
 
             return self::FAILURE;
@@ -129,11 +154,13 @@ class AffiliateSyncAll extends Command
         }
 
         $finished = now();
+        $duration = round($started->diffInMilliseconds($finished) / 1000, 3);
 
         if ($hasError) {
             $this->box("Affiliate Sync All completed WITH ERRORS\nFinished: {$finished->format('Y-m-d H:i:s')}");
             Log::error('Affiliate Sync All completed with errors', [
                 'finished_at' => $finished->format('Y-m-d H:i:s'),
+                'duration_seconds' => $duration,
             ]);
 
             return self::FAILURE;
@@ -142,6 +169,7 @@ class AffiliateSyncAll extends Command
         $this->box("Affiliate Sync All completed\nFinished: {$finished->format('Y-m-d H:i:s')}");
         Log::info('Affiliate Sync All completed', [
             'finished_at' => $finished->format('Y-m-d H:i:s'),
+            'duration_seconds' => $duration,
         ]);
 
         return self::SUCCESS;
@@ -186,6 +214,11 @@ class AffiliateSyncAll extends Command
                 'step' => $step,
                 'finished_at' => now()->format('Y-m-d H:i:s'),
             ]);
+        } else {
+            Log::info("{$label} completed", [
+                'step' => $step,
+                'finished_at' => now()->format('Y-m-d H:i:s'),
+            ]);
         }
 
         return $ok;
@@ -220,6 +253,10 @@ class AffiliateSyncAll extends Command
 
             return false;
         }
+
+        // Success marker for the admin "last sync" display. Independent of
+        // whether any row changed (see App\Support\AffiliateSyncStatus).
+        AffiliateSyncStatus::record(AffiliateSyncStatus::TIKTOK);
 
         $this->info('TikTok Sync completed');
 
@@ -256,6 +293,10 @@ class AffiliateSyncAll extends Command
 
             return false;
         }
+
+        // Success marker — recorded even when records_fetched = 0, so the
+        // admin "last sync" time reflects the RUN, not the last row write.
+        AffiliateSyncStatus::record(AffiliateSyncStatus::LAZADA);
 
         $this->info('Lazada Sync completed');
 
@@ -318,6 +359,8 @@ class AffiliateSyncAll extends Command
 
             return false;
         }
+
+        AffiliateSyncStatus::record(AffiliateSyncStatus::SHOPEEFOOD);
 
         $this->info('ShopeeFood Sync completed');
 
@@ -389,6 +432,10 @@ class AffiliateSyncAll extends Command
 
             return false;
         }
+
+        // Real apply path only — dry-run returned earlier, so verification
+        // runs never masquerade as a completed Shopee sync.
+        AffiliateSyncStatus::record(AffiliateSyncStatus::SHOPEE);
 
         $this->info('Shopee/AddLiveTag sync applied + wallet credit pass completed.');
 

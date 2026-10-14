@@ -16,6 +16,7 @@ use App\Services\TikTok\TikTokOrderSyncService;
 use App\Services\TikTok\TikTokSyncResult;
 use App\Services\WalletService;
 use App\Support\AffiliateSyncLock;
+use App\Support\AffiliateSyncStatus;
 use DOMDocument;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request as HttpRequest;
@@ -31,11 +32,13 @@ use Tests\TestCase;
 /**
  * `affiliate:sync-all` orchestrator + Windows Task Scheduler contract.
  *
- *  [1/4] TikTok Sync → [2/4] Lazada Sync → [3/4] Lazada Finalize (ONLY after a
- *  fully successful Lazada Sync) → [4/4] ShopeeFood Sync.
+ *  [1/5] TikTok Sync → [2/5] Lazada Sync → [3/5] Lazada Finalize (ONLY after a
+ *  fully successful Lazada Sync) → [4/5] ShopeeFood Sync → [5/5] Shopee/AddLiveTag.
  *
  * Windows Task Scheduler runs `C:\xampp\php\php.exe artisan affiliate:sync-all`
- * every 6 hours (XML: C:\Users\Administrator\Downloads\WindowScheduleSync.xml).
+ * every 3 hours — the SINGLE scheduled entry point (the standalone
+ * `HoanTien-TikTok-Sync` task is disabled; TikTok runs here as step [1/5]).
+ * XML: C:\Users\Administrator\Downloads\WindowScheduleSync.xml.
  * Laravel Scheduler (schedule:run / withSchedule) is intentionally NOT used.
  */
 class AffiliateSyncAllTest extends TestCase
@@ -239,6 +242,37 @@ class AffiliateSyncAllTest extends TestCase
         $this->assertArrayHasKey('affiliate:sync-all', Artisan::all());
     }
 
+    public function test_sync_all_invokes_tiktok_step_exactly_once(): void
+    {
+        $tikTokCalls = 0;
+
+        $tikTok = Mockery::mock(TikTokOrderSyncService::class);
+        $tikTok->shouldReceive('run')->once()->with(null, null, [], null, true)
+            ->andReturnUsing(function () use (&$tikTokCalls): TikTokSyncResult {
+                $tikTokCalls++;
+
+                return new TikTokSyncResult;
+            });
+
+        $lazadaSync = Mockery::mock(LazadaOrderSyncService::class);
+        $lazadaSync->shouldReceive('run')->once()->with(null, null, true, true)
+            ->andReturn(new LazadaSyncResult);
+
+        $finalizer = Mockery::mock(LazadaFinalizeService::class);
+        $finalizer->shouldReceive('run')->once()->with(Mockery::type(WalletService::class))
+            ->andReturn($this->finalizeCounts());
+
+        $shopeeFood = $this->okShopeeFood();
+
+        $this->bindAll($tikTok, $lazadaSync, $finalizer, $shopeeFood);
+
+        $this->artisan('affiliate:sync-all')->assertExitCode(0);
+
+        // Consolidation contract: TikTok must run exactly ONCE inside sync-all
+        // (the standalone HoanTien-TikTok-Sync task is disabled).
+        $this->assertSame(1, $tikTokCalls, 'TikTok must be invoked exactly once by affiliate:sync-all');
+    }
+
     public function test_successful_run_calls_tiktok_then_lazada_sync_then_finalize_then_shopeefood_and_exits_zero(): void
     {
         $calls = [];
@@ -364,8 +398,10 @@ class AffiliateSyncAllTest extends TestCase
     //  Orchestrator lock (no overlapping runs)
     // ------------------------------------------------------------------
 
-    public function test_running_while_another_run_holds_the_lock_is_blocked(): void
+    public function test_running_while_another_run_holds_the_lock_times_out_and_exits_non_zero(): void
     {
+        $log = $this->swapLog();
+
         $tikTok = Mockery::mock(TikTokOrderSyncService::class)->shouldNotReceive('run')->getMock();
         $lazadaSync = Mockery::mock(LazadaOrderSyncService::class)->shouldNotReceive('run')->getMock();
         $finalizer = Mockery::mock(LazadaFinalizeService::class)->shouldNotReceive('run')->getMock();
@@ -377,10 +413,14 @@ class AffiliateSyncAllTest extends TestCase
         $lock->get();
 
         try {
-            $this->artisan('affiliate:sync-all')->assertExitCode(1);
+            // Bounded lock wait: --lock-wait=0 means no wait; a held lock must
+            // produce a clear timeout log + non-zero exit (never a false success).
+            $this->artisan('affiliate:sync-all', ['--lock-wait' => 0])->assertExitCode(1);
         } finally {
             $lock->forceRelease();
         }
+
+        $this->assertLogHas($log, 'warning', ['Affiliate Sync All skipped (lock timeout)']);
     }
 
     // ------------------------------------------------------------------
@@ -454,6 +494,12 @@ class AffiliateSyncAllTest extends TestCase
 
         $this->freeze('2026-09-01 00:00:00'); // far past the 10-day window
 
+        // Snapshot the frozen row + wallet so we can prove the new last-run
+        // markers never touch order rows / money (only the `settings` table).
+        $updatedAtBefore = $item->updated_at;
+        $lastLazadaSyncBefore = $item->last_lazada_sync_at;
+        $walletCountBefore = WalletTransaction::count();
+
         $this->app->instance(LazadaOrderSyncService::class, new LazadaOrderSyncService(new LazadaApiClient));
         $this->app->instance(LazadaFinalizeService::class, app(LazadaFinalizeService::class));
 
@@ -467,7 +513,117 @@ class AffiliateSyncAllTest extends TestCase
         $this->assertSame(AffiliateOrderItem::STATUS_COMPLETED, $item->affiliate_status);
         $this->assertSame(5000.0, (float) $item->cashback_amount);
         $this->assertSame(1, WalletTransaction::count(), 'no new transaction for the historical row');
+
+        // The last-run marker feature must be a pure `settings` write: the
+        // protected order row (incl. updated_at / last_lazada_sync_at) and the
+        // wallet transaction count stay byte-for-byte identical.
+        $this->assertTrue(
+            $item->updated_at->equalTo($updatedAtBefore),
+            'last-run markers must not rewrite affiliate_order_items rows',
+        );
+        $this->assertSame($lastLazadaSyncBefore, $item->last_lazada_sync_at);
+        $this->assertSame($walletCountBefore, WalletTransaction::count());
         $this->assertSame(0.0, (float) $member->fresh()->wallet_balance);
+    }
+
+    // ------------------------------------------------------------------
+    //  Per-platform last-run markers (admin "Lần đồng bộ gần nhất")
+    // ------------------------------------------------------------------
+
+    public function test_lazada_zero_records_still_records_last_run_marker(): void
+    {
+        $this->freeze('2026-10-14 12:00:00');
+
+        $tikTok = $this->okTikTok();
+        $shopeeFood = $this->okShopeeFood();
+
+        // 0 records, 0 errors — the exact production "Lazada trả 0 record" case.
+        $lazadaSync = Mockery::mock(LazadaOrderSyncService::class);
+        $lazadaSync->shouldReceive('run')->once()->with(null, null, true, true)
+            ->andReturn(new LazadaSyncResult);
+
+        $finalizer = Mockery::mock(LazadaFinalizeService::class);
+        $finalizer->shouldReceive('run')->once()->with(Mockery::type(WalletService::class))
+            ->andReturn($this->finalizeCounts());
+
+        $this->bindAll($tikTok, $lazadaSync, $finalizer, $shopeeFood);
+
+        $this->artisan('affiliate:sync-all')->assertExitCode(0);
+
+        $marker = AffiliateSyncStatus::lastRun(AffiliateSyncStatus::LAZADA);
+        $this->assertNotNull($marker, 'last-run marker must be recorded even when 0 records are fetched');
+        $this->assertTrue($marker->equalTo(Carbon::parse('2026-10-14 12:00:00')));
+    }
+
+    public function test_platform_last_run_markers_are_independent_and_failures_record_nothing(): void
+    {
+        $this->freeze('2026-10-14 12:00:00');
+
+        $tikTok = $this->okTikTok();
+        $shopeeFood = $this->okShopeeFood();
+
+        // Lazada fails → its marker must stay untouched while the others record.
+        $lazadaSync = Mockery::mock(LazadaOrderSyncService::class);
+        $lazadaSync->shouldReceive('run')->once()->with(null, null, true, true)
+            ->andThrow(new \RuntimeException('Lazada API boom'));
+
+        $finalizer = Mockery::mock(LazadaFinalizeService::class);
+        $finalizer->shouldNotReceive('run');
+
+        $this->bindAll($tikTok, $lazadaSync, $finalizer, $shopeeFood);
+
+        $this->artisan('affiliate:sync-all')->assertExitCode(1);
+
+        $this->assertNotNull(AffiliateSyncStatus::lastRun(AffiliateSyncStatus::TIKTOK));
+        $this->assertNotNull(AffiliateSyncStatus::lastRun(AffiliateSyncStatus::SHOPEEFOOD));
+        $this->assertNull(
+            AffiliateSyncStatus::lastRun(AffiliateSyncStatus::LAZADA),
+            'a failed step must never be recorded as a successful run',
+        );
+    }
+
+    public function test_shopee_only_run_does_not_mark_skipped_platforms(): void
+    {
+        $this->freeze('2026-10-14 12:00:00');
+
+        $tikTok = Mockery::mock(TikTokOrderSyncService::class)->shouldNotReceive('run')->getMock();
+        $lazadaSync = Mockery::mock(LazadaOrderSyncService::class)->shouldNotReceive('run')->getMock();
+        $finalizer = Mockery::mock(LazadaFinalizeService::class)->shouldNotReceive('run')->getMock();
+        $shopeeFood = Mockery::mock(ShopeeFoodOrderSyncService::class)->shouldNotReceive('run')->getMock();
+
+        $this->bindAll($tikTok, $lazadaSync, $finalizer, $shopeeFood);
+
+        $this->artisan('affiliate:sync-all', ['--shopee-only' => true])->assertExitCode(0);
+
+        $this->assertNull(AffiliateSyncStatus::lastRun(AffiliateSyncStatus::TIKTOK));
+        $this->assertNull(AffiliateSyncStatus::lastRun(AffiliateSyncStatus::LAZADA));
+        $this->assertNull(AffiliateSyncStatus::lastRun(AffiliateSyncStatus::SHOPEEFOOD));
+        $this->assertNotNull(AffiliateSyncStatus::lastRun(AffiliateSyncStatus::SHOPEE));
+    }
+
+    public function test_shopee_dry_run_does_not_record_shopee_run_marker(): void
+    {
+        $this->freeze('2026-10-14 12:00:00');
+
+        $tikTok = $this->okTikTok();
+        $shopeeFood = $this->okShopeeFood();
+
+        $lazadaSync = Mockery::mock(LazadaOrderSyncService::class);
+        $lazadaSync->shouldReceive('run')->once()->with(null, null, true, true)
+            ->andReturn(new LazadaSyncResult);
+
+        $finalizer = Mockery::mock(LazadaFinalizeService::class);
+        $finalizer->shouldReceive('run')->once()->with(Mockery::type(WalletService::class))
+            ->andReturn($this->finalizeCounts());
+
+        $this->bindAll($tikTok, $lazadaSync, $finalizer, $shopeeFood);
+
+        $this->artisan('affiliate:sync-all', ['--shopee-dry-run' => true])->assertExitCode(0);
+
+        $this->assertNull(
+            AffiliateSyncStatus::lastRun(AffiliateSyncStatus::SHOPEE),
+            'a read-only dry-run must not look like a completed Shopee sync',
+        );
     }
 
     // ------------------------------------------------------------------
@@ -516,15 +672,22 @@ class AffiliateSyncAllTest extends TestCase
         $this->assertSame('C:\xampp\htdocs\hoantienaff', $workingDir);
     }
 
-    public function test_windows_task_xml_repeats_every_six_hours_indefinitely(): void
+    public function test_windows_task_xml_repeats_every_three_hours_indefinitely(): void
     {
         $doc = new DOMDocument;
         $doc->load(self::XML_PATH);
 
-        $this->assertSame('PT6H', $this->xmlText($doc, 'Interval'));
+        $this->assertSame('PT3H', $this->xmlText($doc, 'Interval'));
         $this->assertSame('P1D', $this->xmlText($doc, 'Duration'));
-        $this->assertSame('false', $this->xmlText($doc, 'StopAtDurationEnd'));
         $this->assertSame('1', $this->xmlText($doc, 'DaysInterval'));
+
+        // StopAtDurationEnd is optional: Windows omits it when false (the
+        // default). Treat a missing node as false, never as true.
+        $stopAtDurationEnd = $doc->getElementsByTagNameNS(self::XML_NS, 'StopAtDurationEnd')->item(0);
+        $this->assertTrue(
+            $stopAtDurationEnd === null || $stopAtDurationEnd->textContent === 'false',
+            'StopAtDurationEnd must be false or omitted'
+        );
     }
 
     public function test_windows_task_xml_ignores_new_instances(): void

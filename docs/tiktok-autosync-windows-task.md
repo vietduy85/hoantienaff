@@ -1,19 +1,29 @@
-# Tiktok Auto Sync — Windows Task Scheduler
+# TikTok Auto Sync — Windows Task Scheduler
 
-## Architecture
+> **ĐÃ GỘP (2026-10-14).** TikTok **không còn task riêng**. Task
+> `HoanTien-TikTok-Sync` đã **DISABLED** (giữ lại, không xóa, để rollback).
+> TikTok nay chạy là **bước [1/5]** trong `affiliate:sync-all` — entry point
+> lập lịch DUY NHẤT: `WindowScheduleSync` → `php artisan affiliate:sync-all`
+> **mỗi 3 giờ** (00/03/06/09/12/15/18/21). Xem `docs/CODEMAP.md` §6g.
+> Các mục bên dưới mô tả thiết lập standalone gốc và vẫn đúng cho các lần chạy
+> **thủ công** `affiliate:tiktok-sync --sync`.
+
+## Architecture (hiện tại — đã gộp)
 
 ```
-Windows Task Scheduler
-        |
-        | mỗi 3 giờ
-        v
-C:\xampp\php\php.exe artisan affiliate:tiktok-sync --sync
+Windows Task Scheduler  (WindowScheduleSync — mỗi 3 giờ)
         |
         v
-Laravel command  (app/Console/Commands/AffiliateTikTokSync.php)
+C:\xampp\php\php.exe artisan affiliate:sync-all
         |
-        v
-TikTokOrderSyncService  (app/Services/TikTok/TikTokOrderSyncService.php)
+        +--> [1/5] TikTok Sync          <-- tài liệu này
+        +--> [2/5] Lazada Sync
+        +--> [3/5] Lazada Finalize      (chỉ khi Lazada Sync thành công)
+        +--> [4/5] ShopeeFood Sync
+        +--> [5/5] Shopee/AddLiveTag API Sync
+        |
+[1/5] -> AffiliateSyncAll::syncTikTok()
+        -> TikTokOrderSyncService::run(creditWallet: true)
         |
         +--> RioHub API
         +--> import/update affiliate_order_items
@@ -23,8 +33,16 @@ TikTokOrderSyncService  (app/Services/TikTok/TikTokOrderSyncService.php)
         +--> last_tiktok_sync_at
 ```
 
-Laravel Scheduler (`everyThreeHours()` / `schedule:run` / `schedule:work`) **KHÔNG được dùng** cho TikTok auto sync.
-Windows Task Scheduler chịu trách nhiệm tần suất 3 giờ.
+```
+(Legacy — task standalone, nay KHÔNG còn lập lịch)
+Windows Task Scheduler  (HoanTien-TikTok-Sync — mỗi 3 giờ)  [DISABLED]
+        |
+        v
+C:\xampp\php\php.exe artisan affiliate:tiktok-sync --sync
+```
+
+Laravel Scheduler (`everyThreeHours()` / `schedule:run` / `schedule:work`) **KHÔNG được dùng** cho affiliate auto sync.
+Windows Task Scheduler (`WindowScheduleSync`) chịu trách nhiệm tần suất 3 giờ.
 
 Kiểm chứng: `php artisan schedule:list` báo `No scheduled tasks have been defined.` — là EXPECTED.
 

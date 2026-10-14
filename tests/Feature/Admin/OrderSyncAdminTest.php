@@ -5,9 +5,13 @@ namespace Tests\Feature\Admin;
 use App\Models\AffiliateOrderItem;
 use App\Models\User;
 use App\Models\WalletTransaction;
+use App\Services\Lazada\LazadaException;
+use App\Services\Lazada\LazadaOrderSyncService;
+use App\Support\AffiliateSyncStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Mockery;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\Concerns\StubsAddLiveTagApi;
@@ -203,6 +207,82 @@ class OrderSyncAdminTest extends TestCase
             ->assertOk()
             ->assertSee('Lần đồng bộ Shopee gần nhất')
             ->assertSee('08/10/2026 09:30:00');
+    }
+
+    public function test_get_index_prefers_last_run_marker_over_row_write_column(): void
+    {
+        // New mechanism: the label reflects the last sync RUN (settings key).
+        AffiliateSyncStatus::record(
+            AffiliateSyncStatus::LAZADA,
+            \Illuminate\Support\Carbon::parse('2026-10-14 12:00:00'),
+        );
+
+        // Stale row-write column must NOT win over the run marker.
+        AffiliateOrderItem::factory()->create([
+            'platform' => 'Lazada',
+            'last_lazada_sync_at' => '2026-09-12 10:35:50',
+        ]);
+
+        $this->actingAs($this->admin)
+            ->get(route('admin.tiktok-order-sync.index'))
+            ->assertOk()
+            ->assertSee('Lần đồng bộ Lazada gần nhất')
+            ->assertSee('14/10/2026 12:00:00')
+            ->assertDontSee('12/09/2026 10:35:50');
+    }
+
+    public function test_get_index_falls_back_to_row_write_column_without_run_marker(): void
+    {
+        // Legacy install: no run marker yet → show the historical row-write max.
+        AffiliateOrderItem::factory()->create([
+            'platform' => 'Lazada',
+            'last_lazada_sync_at' => '2026-09-12 10:35:50',
+        ]);
+
+        $this->actingAs($this->admin)
+            ->get(route('admin.tiktok-order-sync.index'))
+            ->assertOk()
+            ->assertSee('Lần đồng bộ Lazada gần nhất')
+            ->assertSee('12/09/2026 10:35:50');
+    }
+
+    public function test_post_records_last_run_markers_for_successful_platforms(): void
+    {
+        $this->fakeRioHubPaged([
+            [
+                'order_id' => 'ORD-777',
+                'product_id' => '777001',
+                'product_name' => 'Sản phẩm 777001',
+                'content_id' => '7495366414587628324',
+                'status' => 2,
+                'settlement_status' => 'SETTLED',
+                'tt_order_status' => 103,
+                'commission_gmv' => 100000,
+                'actual_commission' => 5000,
+                'est_commission' => 5000,
+                'time_created' => '2026-07-28 10:00:00',
+            ],
+        ]);
+
+        $this->fakeShopeeFood([$this->shopeeCheckout('SPF-9', 'tintuctonghop103')]);
+
+        // Force the Lazada step to fail deterministically (no credentials in a
+        // clean env) so we can assert a failed feed records NO marker — and to
+        // guarantee the suite never reaches the real Lazada API.
+        $lazada = Mockery::mock(LazadaOrderSyncService::class);
+        $lazada->shouldReceive('run')->andThrow(new LazadaException('no credentials'));
+        $this->app->instance(LazadaOrderSyncService::class, $lazada);
+
+        $this->actingAs($this->admin)
+            ->post(route('admin.tiktok-order-sync.sync'))
+            ->assertRedirect(route('admin.tiktok-order-sync.index'));
+
+        $this->assertNotNull(AffiliateSyncStatus::lastRun(AffiliateSyncStatus::TIKTOK));
+        $this->assertNotNull(AffiliateSyncStatus::lastRun(AffiliateSyncStatus::SHOPEEFOOD));
+        $this->assertNotNull(AffiliateSyncStatus::lastRun(AffiliateSyncStatus::SHOPEE));
+
+        // Lazada errored out → no fake success marker (never a false "just synced").
+        $this->assertNull(AffiliateSyncStatus::lastRun(AffiliateSyncStatus::LAZADA));
     }
 
     public function test_get_index_does_not_call_any_api_and_does_not_change_db(): void

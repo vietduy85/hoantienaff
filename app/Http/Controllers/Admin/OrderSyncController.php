@@ -16,8 +16,10 @@ use App\Services\TikTok\TikTokOrderSyncService;
 use App\Services\TikTok\TikTokServiceException;
 use App\Services\TikTok\TikTokSyncResult;
 use App\Support\AffiliateSyncLock;
+use App\Support\AffiliateSyncStatus;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
@@ -79,23 +81,15 @@ class OrderSyncController extends Controller
             ],
         ];
 
-        $lastTikTokSyncAt = AffiliateOrderItem::where('platform', 'TikTok')
-            ->whereNotNull('last_tiktok_sync_at')
-            ->max('last_tiktok_sync_at');
-
-        $lastShopeeFoodSyncAt = AffiliateOrderItem::where('platform', 'ShopeeFood')
-            ->whereNotNull('last_shopeefood_sync_at')
-            ->max('last_shopeefood_sync_at');
-
-        $lastLazadaSyncAt = AffiliateOrderItem::where('platform', 'Lazada')
-            ->whereNotNull('last_lazada_sync_at')
-            ->max('last_lazada_sync_at');
-
-        // Shopee reuses the SAME tracking column ConversionsImporter::apply()
-        // stamps on every created/updated row — no new table / no new mechanism.
-        $lastShopeeSyncAt = AffiliateOrderItem::where('platform', 'Shopee')
-            ->whereNotNull('last_shopee_sync_at')
-            ->max('last_shopee_sync_at');
+        // "Lần đồng bộ gần nhất" = the last time the platform's sync STEP
+        // finished successfully (recorded in `settings`), NOT the last time an
+        // order row was written. Rows that are protected/unchanged would
+        // otherwise freeze this label (Lazada 720/721/722). For old data that
+        // predates the run markers, fall back to the legacy row-write max.
+        $lastTikTokSyncAt = $this->lastRunAt(AffiliateSyncStatus::TIKTOK, 'TikTok', 'last_tiktok_sync_at');
+        $lastShopeeFoodSyncAt = $this->lastRunAt(AffiliateSyncStatus::SHOPEEFOOD, 'ShopeeFood', 'last_shopeefood_sync_at');
+        $lastLazadaSyncAt = $this->lastRunAt(AffiliateSyncStatus::LAZADA, 'Lazada', 'last_lazada_sync_at');
+        $lastShopeeSyncAt = $this->lastRunAt(AffiliateSyncStatus::SHOPEE, 'Shopee', 'last_shopee_sync_at');
 
         return view('admin.order-sync.index', compact(
             'recentOrders',
@@ -106,6 +100,29 @@ class OrderSyncController extends Controller
             'lastShopeeSyncAt',
             'backupStatus',
         ));
+    }
+
+    /**
+     * Resolve the admin "last sync" time for a platform.
+     *
+     * Prefers the run marker written by the sync pipeline
+     * (App\Support\AffiliateSyncStatus, key `affiliate.last_run.<platform>`);
+     * falls back to the legacy MAX(last_<platform>_sync_at) row-write column
+     * so historical installs still show something before the first new run.
+     */
+    private function lastRunAt(string $platform, string $platformLabel, string $column): ?Carbon
+    {
+        $run = AffiliateSyncStatus::lastRun($platform);
+
+        if ($run !== null) {
+            return $run;
+        }
+
+        $fallback = AffiliateOrderItem::where('platform', $platformLabel)
+            ->whereNotNull($column)
+            ->max($column);
+
+        return $fallback ? Carbon::parse($fallback) : null;
     }
 
     public function sync(Request $request): RedirectResponse
@@ -155,6 +172,10 @@ class OrderSyncController extends Controller
                 $result->toArray(),
             ));
 
+            if ($result->errors === 0) {
+                AffiliateSyncStatus::record(AffiliateSyncStatus::TIKTOK);
+            }
+
             $request->session()->flash('tiktok_sync_result', $this->formatTikTokSummary($result));
         } catch (TikTokServiceException $e) {
             Log::error('[Admin Sync][TikTok] RioHub error', ['error' => $e->getMessage()]);
@@ -173,6 +194,10 @@ class OrderSyncController extends Controller
                 'sync_type' => $request->user()->hasRole('Operator') ? 'manual_operator' : 'manual_admin',
                 'result' => $result->toArray(),
             ]);
+
+            if ($result->errors === 0) {
+                AffiliateSyncStatus::record(AffiliateSyncStatus::SHOPEEFOOD);
+            }
 
             $request->session()->flash('shopeefood_sync_result', $this->formatShopeeFoodSummary($result));
         } catch (ShopeeFoodException $e) {
@@ -193,6 +218,10 @@ class OrderSyncController extends Controller
                 'sync_type' => $request->user()->hasRole('Operator') ? 'manual_operator' : 'manual_admin',
                 'result' => $result->toArray(),
             ]);
+
+            if ($result->errors === 0) {
+                AffiliateSyncStatus::record(AffiliateSyncStatus::LAZADA);
+            }
 
             $request->session()->flash('lazada_sync_result', $this->formatLazadaSummary($result));
         } catch (LazadaException $e) {
@@ -234,6 +263,8 @@ class OrderSyncController extends Controller
                 'credit' => $result['credit'],
                 'duration' => $result['duration'],
             ]);
+
+            AffiliateSyncStatus::record(AffiliateSyncStatus::SHOPEE);
 
             $request->session()->flash('shopee_sync_result', $this->formatShopeeSummary($result));
         } catch (\Throwable $e) {
