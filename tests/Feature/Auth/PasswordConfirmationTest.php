@@ -4,6 +4,7 @@ namespace Tests\Feature\Auth;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
 class PasswordConfirmationTest extends TestCase
@@ -34,6 +35,35 @@ class PasswordConfirmationTest extends TestCase
     public function test_password_is_not_confirmed_with_invalid_password(): void
     {
         $user = User::factory()->create();
+
+        $response = $this->actingAs($user)->post('/confirm-password', [
+            'password' => 'wrong-password',
+        ]);
+
+        $response->assertSessionHasErrors();
+    }
+
+    public function test_password_can_be_confirmed_by_user_without_email(): void
+    {
+        $user = User::factory()->create([
+            'email' => null,
+            'password' => Hash::make('password'),
+        ]);
+
+        $response = $this->actingAs($user)->post('/confirm-password', [
+            'password' => 'password',
+        ]);
+
+        $response->assertRedirect();
+        $response->assertSessionHasNoErrors();
+    }
+
+    public function test_password_is_not_confirmed_for_user_without_email_with_invalid_password(): void
+    {
+        $user = User::factory()->create([
+            'email' => null,
+            'password' => Hash::make('password'),
+        ]);
 
         $response = $this->actingAs($user)->post('/confirm-password', [
             'password' => 'wrong-password',

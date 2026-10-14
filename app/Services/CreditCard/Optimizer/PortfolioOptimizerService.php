@@ -318,6 +318,7 @@ class PortfolioOptimizerService
 
         $realLines = $this->transactionLinesByCard($boundaries);
         $todayIso = $today->toDateString();
+        $templateSlugs = PolicyTemplate::query()->pluck('slug', 'id')->all();
 
         $scaffolds = [];
         $indexByTemplate = [];
@@ -343,6 +344,7 @@ class PortfolioOptimizerService
             // nhóm chung, và optimizer biết người dùng đã sở hữu sản phẩm nào.
             $templateId = $version->template_id !== null ? (int) $version->template_id : null;
             $productKey = $templateId !== null ? $this->marketKey($templateId) : $this->ownedKey($cardId);
+            $templateSlug = $templateId !== null ? ($templateSlugs[$templateId] ?? null) : null;
             $instanceIndex = 1;
 
             if ($templateId !== null) {
@@ -372,6 +374,7 @@ class PortfolioOptimizerService
                 idNumber: $cardId,
                 instanceIndex: $instanceIndex,
                 productKey: $productKey,
+                templateSlug: $templateSlug,
             );
         }
 
@@ -452,6 +455,7 @@ class PortfolioOptimizerService
                     idNumber: $templateId,
                     instanceIndex: $index,
                     productKey: $productKey,
+                    templateSlug: $template->slug,
                 );
             }
         }
@@ -1619,14 +1623,23 @@ class PortfolioOptimizerService
                 continue;
             }
 
+            // Đánh giá theo phân bổ THÔ để bậc/min-spend đúng (tổng chi quyết định
+            // bậc). Với thẻ Cake Freedom, chỉ CẮT phần HIỂN THỊ về ngân sách hữu
+            // dụng (trần danh mục / tỷ lệ) — hoàn tiền đã được evaluator mô phỏng.
             $scenario = $this->cachedScenario($candidates, $evalCache, $key, $cats);
 
             if ($scenario->scenarioReason !== null) {
                 continue;
             }
 
+            $display = CakeFreedomRule::clampAllocation($candidates[$key], $cats);
+
+            if ($display === []) {
+                continue;
+            }
+
             $scenarios[$key] = $scenario;
-            $clean[$key] = $cats;
+            $clean[$key] = $display;
             $total += (float) $scenario->totalCashback;
             $minSpendScore += $scenario->tierMinTotalSpend === null
                 ? 0.0

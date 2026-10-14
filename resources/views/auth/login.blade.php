@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="csrf-token" content="{{ csrf_token() }}">
 
-    @include('components.pwa-meta')
+    @include('components.pwa-meta', ['themeColor' => '#F7F8FA'])
 
     <title>Đăng nhập - Hoàn Tiền Aff</title>
     <meta name="robots" content="noindex, nofollow">
@@ -25,11 +25,18 @@
             --muted: #6b7280;
             --line: #e5e7eb;
             --danger: #dc2626;
+            --page-bg: #F7F8FA;
+        }
+
+        html {
+            background: var(--page-bg);
+            background-color: var(--page-bg);
         }
 
         body {
             font-family: 'Be Vietnam Pro', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
-            background: linear-gradient(160deg, #FFF6F1 0%, #FFEDE3 100%);
+            background: var(--page-bg);
+            background-color: var(--page-bg);
             color: var(--ink);
             min-height: 100vh;
             min-height: 100dvh;

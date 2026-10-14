@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
@@ -24,10 +24,11 @@ class ConfirmablePasswordController extends Controller
      */
     public function store(Request $request): RedirectResponse
     {
-        if (! Auth::guard('web')->validate([
-            'email' => $request->user()->email,
-            'password' => $request->password,
-        ])) {
+        // Kiểm tra trực tiếp trên hash của user hiện tại thay vì
+        // Auth::guard()->validate(['email' => ...]) — tài khoản KHÔNG có email
+        // (email NULL) sẽ bị `where email is null` khớp sang người dùng khác và
+        // xác nhận mật khẩu sai.
+        if (! Hash::check((string) $request->password, $request->user()->password)) {
             throw ValidationException::withMessages([
                 'password' => __('auth.password'),
             ]);

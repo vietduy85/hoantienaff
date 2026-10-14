@@ -3,6 +3,11 @@
         {{ __('Forgot your password? No problem. Just let us know your email address and we will email you a password reset link that will allow you to choose a new one.') }}
     </div>
 
+    <div class="mb-4 text-sm text-gray-600 rounded-md bg-gray-50 border border-gray-200 p-3">
+        Nếu bạn đăng ký tài khoản <strong>không kèm email</strong>, bạn sẽ không thể đặt lại mật khẩu qua email.
+        Vui lòng liên hệ bộ phận hỗ trợ của Hoàn Tiền Aff để được trợ giúp.
+    </div>
+
     <!-- Session Status -->
     <x-auth-session-status class="mb-4" :status="session('status')" />
 

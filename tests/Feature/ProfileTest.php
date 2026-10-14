@@ -96,4 +96,62 @@ class ProfileTest extends TestCase
 
         $this->assertNotNull($user->fresh());
     }
+
+    public function test_profile_can_be_updated_without_email(): void
+    {
+        $user = User::factory()->create(['email' => null, 'email_verified_at' => null]);
+
+        $response = $this
+            ->actingAs($user)
+            ->patch('/profile', [
+                'name' => 'No Email User',
+                'email' => '',
+            ]);
+
+        $response
+            ->assertSessionHasNoErrors()
+            ->assertRedirect('/profile');
+
+        $user->refresh();
+        $this->assertSame('No Email User', $user->name);
+        $this->assertNull($user->email);
+    }
+
+    public function test_user_without_email_can_add_email_later(): void
+    {
+        $user = User::factory()->create(['email' => null, 'email_verified_at' => null]);
+
+        $response = $this
+            ->actingAs($user)
+            ->patch('/profile', [
+                'name' => 'No Email User',
+                'email' => 'added@example.com',
+            ]);
+
+        $response
+            ->assertSessionHasNoErrors()
+            ->assertRedirect('/profile');
+
+        $user->refresh();
+        $this->assertSame('added@example.com', $user->email);
+        // Không tự đánh dấu email mới là đã xác minh.
+        $this->assertNull($user->email_verified_at);
+    }
+
+    public function test_profile_update_rejects_email_already_taken(): void
+    {
+        User::factory()->create(['email' => 'taken@example.com']);
+        $user = User::factory()->create(['email' => null]);
+
+        $response = $this
+            ->actingAs($user)
+            ->from('/profile')
+            ->patch('/profile', [
+                'name' => 'No Email User',
+                'email' => 'taken@example.com',
+            ]);
+
+        $response->assertSessionHasErrors('email');
+        $this->assertNull($user->refresh()->email);
+    }
 }

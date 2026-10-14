@@ -17,6 +17,7 @@ class UsersGenerateUsername extends Command
 
         if ($users->isEmpty()) {
             $this->info('All users already have a username.');
+
             return self::SUCCESS;
         }
 
@@ -24,15 +25,15 @@ class UsersGenerateUsername extends Command
         $bar->start();
 
         foreach ($users as $user) {
-            $base = strtolower(explode('@', $user->email)[0]);
+            $base = strtolower(explode('@', (string) $user->email)[0]);
             $base = preg_replace('/[^a-z0-9_]/', '', $base);
             if (strlen($base) < 3) {
-                $base = 'user' . $base;
+                $base = 'user'.$base;
             }
             $username = $base;
             $counter = 2;
             while (User::where('username', $username)->exists()) {
-                $username = $base . $counter;
+                $username = $base.$counter;
                 $counter++;
             }
             $user->username = $username;
@@ -42,7 +43,7 @@ class UsersGenerateUsername extends Command
 
         $bar->finish();
         $this->newLine();
-        $this->info('Usernames generated successfully for ' . $users->count() . ' users.');
+        $this->info('Usernames generated successfully for '.$users->count().' users.');
 
         return self::SUCCESS;
     }

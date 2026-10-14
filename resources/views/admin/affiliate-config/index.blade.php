@@ -7,6 +7,7 @@
 
     <div class="py-6 px-4 max-w-xl mx-auto"
          x-data="{
+             tab: 'extension',
              extensionEnabled: '{{ $settings['extension_enabled'] }}',
              dashboardStrategy: '{{ $settings['extension_enabled'] === 'true' ? $settings['dashboard_strategy'] : 'direct' }}',
              adminStrategy: '{{ $settings['extension_enabled'] === 'true' ? $settings['admin_strategy'] : 'direct' }}'
@@ -19,6 +20,24 @@
             </div>
         @endif
 
+        {{-- Tabs --}}
+        <div class="flex gap-1 p-1 bg-gray-100 rounded-xl mb-4" role="tablist">
+            <button type="button" role="tab" @click="tab = 'extension'"
+                    :class="tab === 'extension' ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+                    :aria-selected="tab === 'extension' ? 'true' : 'false'"
+                    class="flex-1 h-10 text-sm font-semibold rounded-lg transition-colors">
+                Extension
+            </button>
+            <button type="button" role="tab" @click="tab = 'partner'"
+                    :class="tab === 'partner' ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+                    :aria-selected="tab === 'partner' ? 'true' : 'false'"
+                    class="flex-1 h-10 text-sm font-semibold rounded-lg transition-colors">
+                Connect Partner AFF
+            </button>
+        </div>
+
+        {{-- Tab: Extension (giữ nguyên cấu hình & hành vi hiện tại) --}}
+        <div x-show="tab === 'extension'" class="space-y-4">
         <form method="POST" action="{{ route('admin.affiliate-config.update') }}" class="space-y-4">
             @csrf
             @method('PUT')
@@ -185,5 +204,11 @@
                 </button>
             </div>
         </form>
+        </div>{{-- /Tab Extension --}}
+
+        {{-- Tab: Connect Partner AFF (read-only) --}}
+        <div x-show="tab === 'partner'" x-cloak>
+            @include('admin.affiliate-config._connect-partner', ['providers' => $providers])
+        </div>
     </div>
 </x-app-layout>

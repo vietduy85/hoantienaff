@@ -48,9 +48,15 @@ class CardPortfolioOptimizerTest extends TestCase
     // Fixture: blueprint template hệ thống (PolicyVersion rời + bậc + rule)
     // =====================================================================
 
-    private function makeTemplate(string $name, array $tiers, array $rules): PolicyTemplate
+    private function makeTemplate(string $name, array $tiers, array $rules, ?string $slug = null): PolicyTemplate
     {
-        $template = $this->makeSystemTemplate(['name' => $name]);
+        $attributes = ['name' => $name];
+
+        if ($slug !== null) {
+            $attributes['slug'] = $slug;
+        }
+
+        $template = $this->makeSystemTemplate($attributes);
 
         $version = PolicyVersion::create([
             'user_card_id' => null,
@@ -1653,6 +1659,186 @@ class CardPortfolioOptimizerTest extends TestCase
         $card = $response->json('data.plans.0.cards.0');
         $this->assertFalse($card['depends_on_splitting']);
         $this->assertSame(1, (int) $card['simulated_transactions']);
+    }
+
+    // =====================================================================
+    // 9b. Cake Freedom — quy tắc mô phỏng đơn giản (không dò chia nhỏ)
+    // =====================================================================
+
+    /**
+     * Cake Freedom: 20% × 1.000.000 chạm trần danh mục 200k, KHÔNG cần chia nhỏ
+     * giao dịch dù có trần/giao dịch 50k.
+     */
+    #[Test]
+    public function cake_freedom_allocates_up_to_one_million_per_category(): void
+    {
+        $food = $this->makeSystemCategory(['name' => 'Ăn uống']);
+
+        $this->makeTemplate('Cake Freedom', [['name' => 'Bậc 1', 'min' => 0]], [
+            ['category_id' => $food->id, 'percent' => '20.000', 'cap_tx' => 50000, 'cap_cat' => 200000],
+        ], slug: 'vpbank-cake-freedom-visa');
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'amounts' => [$food->id => 1000000],
+        ]));
+
+        $response->assertOk();
+        $this->assertSame('200000.00', $response->json('data.best_cashback'));
+
+        $card = $response->json('data.plans.0.cards.0');
+        $this->assertFalse($card['depends_on_splitting']);
+        $this->assertFalse($card['depends_on_online']);
+    }
+
+    /**
+     * Phân bổ vượt 1.000.000 cho một danh mục Cake bị cắt về đúng ngân sách hữu
+     * dụng (trần danh mục / tỷ lệ = 200.000 / 20% = 1.000.000), không bơm thêm.
+     */
+    #[Test]
+    public function cake_freedom_caps_allocation_at_one_million_per_category(): void
+    {
+        $food = $this->makeSystemCategory(['name' => 'Ăn uống']);
+
+        $this->makeTemplate('Cake Freedom', [['name' => 'Bậc 1', 'min' => 0]], [
+            ['category_id' => $food->id, 'percent' => '20.000', 'cap_tx' => 50000, 'cap_cat' => 200000],
+        ], slug: 'vpbank-cake-freedom-visa');
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'amounts' => [$food->id => 3000000],
+        ]));
+
+        $response->assertOk();
+        $this->assertSame('200000.00', $response->json('data.best_cashback'));
+        $this->assertSame(1000000.0, $this->amountForCategory(
+            $response->json('data.plans.0.cards'),
+            'Cake Freedom',
+            $food->id,
+        ));
+    }
+
+    /**
+     * Giới hạn Cake áp RIÊNG cho từng danh mục, không dồn thành một hạn mức chung:
+     * hai danh mục 2.000.000 mỗi danh mục ⇒ mỗi danh mục còn 1.000.000 ⇒ 400k.
+     */
+    #[Test]
+    public function cake_freedom_limits_each_category_independently(): void
+    {
+        $food = $this->makeSystemCategory(['name' => 'Ăn uống']);
+        $grocery = $this->makeSystemCategory(['name' => 'Siêu thị']);
+
+        $this->makeTemplate('Cake Freedom', [['name' => 'Bậc 1', 'min' => 0, 'cap_period' => '1000000.00']], [
+            ['category_id' => $food->id, 'percent' => '20.000', 'cap_tx' => 50000, 'cap_cat' => 200000],
+            ['category_id' => $grocery->id, 'percent' => '20.000', 'cap_tx' => 50000, 'cap_cat' => 200000],
+        ], slug: 'vpbank-cake-freedom-visa');
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'amounts' => [$food->id => 2000000, $grocery->id => 2000000],
+        ]));
+
+        $response->assertOk();
+        $this->assertSame('400000.00', $response->json('data.best_cashback'));
+
+        $cards = $response->json('data.plans.0.cards');
+        $this->assertSame(1000000.0, $this->amountForCategory($cards, 'Cake Freedom', $food->id));
+        $this->assertSame(1000000.0, $this->amountForCategory($cards, 'Cake Freedom', $grocery->id));
+    }
+
+    /**
+     * Danh mục KHÔNG có rule hoàn tiền trên Cake ⇒ 0 đồng, không bịa hoàn tiền.
+     */
+    #[Test]
+    public function cake_freedom_ignores_ineligible_categories(): void
+    {
+        $food = $this->makeSystemCategory(['name' => 'Ăn uống']);
+        $fuel = $this->makeSystemCategory(['name' => 'Xăng dầu']);
+
+        $this->makeTemplate('Cake Freedom', [['name' => 'Bậc 1', 'min' => 0]], [
+            ['category_id' => $food->id, 'percent' => '20.000', 'cap_tx' => 50000, 'cap_cat' => 200000],
+        ], slug: 'vpbank-cake-freedom-visa');
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'amounts' => [$food->id => 1000000, $fuel->id => 1000000],
+        ]));
+
+        $response->assertOk();
+        $this->assertSame('200000.00', $response->json('data.best_cashback'));
+        $this->assertSame(200000.0, $this->cashbackForCategory(
+            $response->json('data.plans.0.cards'),
+            'Cake Freedom',
+            $food->id,
+        ));
+        $this->assertSame(0.0, $this->categoryCashback($response->json('data.plans.0.cards'), $fuel->id));
+    }
+
+    /**
+     * Bậc Cake theo mức chi: dưới 5.000.000 chưa vào bậc có rule ⇒ 0 đồng; từ
+     * 5.000.000 trở lên mới hoàn (đúng ngữ nghĩa min_spend).
+     */
+    #[Test]
+    public function cake_freedom_respects_minimum_total_spend(): void
+    {
+        $food = $this->makeSystemCategory(['name' => 'Ăn uống']);
+
+        $this->makeTemplate('Cake Freedom', [
+            ['name' => 'Bậc 0', 'min' => 0, 'max' => 4999999.99],
+            ['name' => 'Bậc 1', 'min' => 5000000],
+        ], [
+            ['category_id' => $food->id, 'percent' => '20.000', 'cap_tx' => 50000, 'cap_cat' => 200000, 'only_tier' => 1],
+        ], slug: 'vpbank-cake-freedom-visa');
+
+        $below = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'amounts' => [$food->id => 1000000],
+        ]));
+
+        $below->assertOk();
+        $this->assertSame('0.00', $below->json('data.best_cashback'));
+
+        $above = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'amounts' => [$food->id => 5000000],
+        ]));
+
+        $above->assertOk();
+        $this->assertSame('200000.00', $above->json('data.best_cashback'));
+    }
+
+    /**
+     * Thẻ KHÔNG phải Cake giữ nguyên hành vi cũ: phân bổ KHÔNG bị cắt về
+     * `trần danh mục / tỷ lệ` (chỉ có trần danh mục chặn HOÀN TIỀN).
+     */
+    #[Test]
+    public function non_cake_cards_keep_full_allocation_behaviour(): void
+    {
+        $food = $this->makeSystemCategory(['name' => 'Ăn uống']);
+
+        $this->makeTemplate('Thẻ 20% trần danh mục 300k (không phải Cake)',
+            [['name' => 'Bậc 1', 'min' => 0]],
+            [['category_id' => $food->id, 'percent' => '20.000', 'cap_cat' => 300000]]);
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'amounts' => [$food->id => 3000000],
+        ]));
+
+        $response->assertOk();
+        $this->assertSame('300000.00', $response->json('data.best_cashback'));
+        $this->assertSame(3000000.0, $this->amountForCategory(
+            $response->json('data.plans.0.cards'),
+            'Thẻ 20% trần danh mục 300k (không phải Cake)',
+            $food->id,
+        ));
     }
 
     // =====================================================================

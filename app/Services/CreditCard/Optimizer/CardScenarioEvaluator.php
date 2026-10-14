@@ -81,6 +81,12 @@ class CardScenarioEvaluator
             return $this->scenarioIneligible($scaffold, $base, 'no_policy_version', null, $perCategories);
         }
 
+        // Thẻ Cake Freedom dùng quy tắc mô phỏng đơn giản (không dò chia nhỏ giao
+        // dịch). Mọi sản phẩm khác giữ nguyên đường đánh giá hiện hành.
+        if (CakeFreedomRule::appliesTo($scaffold)) {
+            return $this->evaluateCakeFreedom($scaffold, $base, $perCategories);
+        }
+
         $baseline = $this->evaluateSpecs($scaffold, $base, $perCategories, $this->singleSpecs($perCategories), false, false);
 
         if ($baseline->scenarioReason !== null) {
@@ -146,6 +152,203 @@ class CardScenarioEvaluator
         }
 
         return $combined;
+    }
+
+    /**
+     * Đánh giá thẻ Cake Freedom theo quy tắc mô phỏng ĐƠN GIẢN: mỗi danh mục đủ
+     * điều kiện chỉ được phân bổ tối đa `trần danh mục / tỷ lệ`, và hoàn mô phỏng
+     * = min(tỷ lệ × chi, trần danh mục). KHÔNG dò tổ hợp chia nhỏ giao dịch.
+     *
+     * Bậc vẫn resolve theo tổng chi THÔ (tổng chi quyết định bậc); tỷ lệ/trần lấy
+     * từ rule của BẬC đã resolve. Ngân sách mô phỏng chính là hệ quả của rule thật
+     * (200.000 / 20% = 1.000.000), không hardcode.
+     *
+     * @param  array<string, mixed>  $base
+     * @param  array<int, int>  $perCategories
+     */
+    private function evaluateCakeFreedom(CardScaffold $scaffold, array $base, array $perCategories): CardScenario
+    {
+        $hypoLines = [];
+        $counter = 0;
+
+        foreach ($perCategories as $categoryId => $amount) {
+            $amount = (int) $amount;
+
+            if ($amount <= 0) {
+                continue;
+            }
+
+            $hypoLines[] = new TransactionLine(
+                id: $this->hypoId($scaffold, $counter++),
+                transactionDate: $this->hypoDate($scaffold),
+                categoryId: (int) $categoryId,
+                amount: (string) $amount,
+            );
+        }
+
+        if ($hypoLines === []) {
+            return $this->emptyScenario($scaffold);
+        }
+
+        $lines = array_merge($scaffold->realLines, $hypoLines);
+        $totalEligible = $this->totalEligibleSpend($scaffold, $lines);
+        $tier = $this->tiers->resolveTierFromTiers($scaffold->tiers, $totalEligible);
+
+        if ($tier === null && $totalEligible > 0) {
+            return $this->scenarioIneligible($scaffold, $base, 'no_matching_tier', null, $perCategories);
+        }
+
+        if ($scaffold->isOwned && ! $this->qualificationPasses($scaffold, $lines)) {
+            return $this->scenarioIneligible($scaffold, $base, 'qualification_not_met', $tier, $perCategories);
+        }
+
+        $tierId = $tier === null ? -1 : (int) $tier->id;
+        $tierRules = $scaffold->rulesByTier[$tierId] ?? [];
+
+        $perCategory = [];
+        $total = 0.0;
+
+        foreach ($perCategories as $categoryId => $rawAmount) {
+            $categoryId = (int) $categoryId;
+            $rawAmount = (int) $rawAmount;
+            $rule = $this->cakeRuleFor($tierRules, $categoryId);
+
+            if ($rule === null) {
+                $perCategory[$categoryId] = [
+                    'amount' => Decimal::money((string) $rawAmount),
+                    'cashback' => '0.00',
+                    'rate' => 0.0,
+                    'percent' => null,
+                    'eligible' => false,
+                    'reason' => 'category_not_eligible',
+                    'caps_applied' => [],
+                ];
+
+                continue;
+            }
+
+            $percent = (float) $rule['cashback_percent'];
+            $capCat = $rule['max_cashback_per_category_per_period'] ?? null;
+            $capCat = $capCat === null ? null : (float) $capCat;
+            $budget = CakeFreedomRule::categoryBudgetCap([$rule]);
+            $modeled = $budget === null ? $rawAmount : (int) min($rawAmount, (int) round($budget));
+            $cashback = CakeFreedomRule::categoryCashback($percent, $capCat, (float) $modeled);
+            $total += $cashback;
+
+            $perCategory[$categoryId] = [
+                'amount' => Decimal::money((string) $modeled),
+                'cashback' => Decimal::money(number_format($cashback, 2, '.', '')),
+                'rate' => $this->rate(number_format($cashback, 2, '.', ''), $modeled),
+                'percent' => $percent,
+                'eligible' => true,
+                'reason' => null,
+                'caps_applied' => $this->cakeAppliedCaps($percent, $capCat, (float) $modeled),
+            ];
+        }
+
+        $periodCap = $tier?->max_cashback_per_period === null
+            ? null
+            : (float) $tier->max_cashback_per_period;
+
+        if ($periodCap !== null && $periodCap > 0.0 && $total > $periodCap) {
+            [$perCategory, $total] = $this->scaleToPeriodCap($perCategory, $total, $periodCap);
+        }
+
+        return new CardScenario(
+            key: $base['key'],
+            isOwned: $base['is_owned'],
+            name: $base['name'],
+            bankName: $base['bank_name'],
+            cardId: $base['card_id'],
+            templateId: $base['template_id'],
+            totalCashback: Decimal::money(number_format($total, 2, '.', '')),
+            perCategory: $perCategory,
+            scenarioReason: null,
+            tierLabel: $this->tierLabel($tier),
+            tierMinTotalSpend: $tier === null
+                ? null
+                : Decimal::money((string) $tier->min_total_spend),
+            minTotalSpendMet: $scaffold->minTotalSpend <= $totalEligible,
+            qualificationNotice: $scaffold->qualificationNotice,
+            marketAssumption: $scaffold->marketAssumption,
+            instanceIndex: $scaffold->instanceIndex,
+            productKey: $scaffold->productKey,
+            simulatedTransactions: count($hypoLines),
+            dependsOnSplitting: false,
+            dependsOnOnline: false,
+        );
+    }
+
+    /**
+     * Rule hoàn tiền DƯƠNG khớp một danh mục trong tập rule của bậc. Bỏ qua rule
+     * `other` vì ưu đãi Cake gắn với danh mục cụ thể.
+     *
+     * @param  array<int, array<string, mixed>>  $rules
+     * @return array<string, mixed>|null
+     */
+    private function cakeRuleFor(array $rules, int $categoryId): ?array
+    {
+        foreach ($rules as $rule) {
+            if ((float) ($rule['cashback_percent'] ?? 0.0) <= 0.0) {
+                continue;
+            }
+
+            if (($rule['scope_type'] ?? 'category') === 'other') {
+                continue;
+            }
+
+            $members = $rule['combo_category_ids'] ?? [];
+
+            if ($members !== []) {
+                if (in_array($categoryId, array_map('intval', $members), true)) {
+                    return $rule;
+                }
+
+                continue;
+            }
+
+            if ((int) ($rule['category_id'] ?? 0) === $categoryId) {
+                return $rule;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function cakeAppliedCaps(float $percent, ?float $capCat, float $modeled): array
+    {
+        if ($capCat === null || $capCat <= 0.0) {
+            return [];
+        }
+
+        return $modeled * ($percent / 100.0) > $capCat + self::SPLIT_EPSILON
+            ? ['category']
+            : [];
+    }
+
+    /**
+     * Co giãn hoàn tiền các danh mục theo tỷ lệ để tổng khớp trần kỳ.
+     *
+     * @param  array<int, array<string, mixed>>  $perCategory
+     * @return array{0: array<int, array<string, mixed>>, 1: float}
+     */
+    private function scaleToPeriodCap(array $perCategory, float $total, float $periodCap): array
+    {
+        $factor = $periodCap / $total;
+        $scaled = 0.0;
+
+        foreach ($perCategory as $categoryId => $detail) {
+            $cashback = (float) $detail['cashback'] * $factor;
+            $scaled += $cashback;
+
+            $perCategory[$categoryId]['cashback'] = Decimal::money(number_format($cashback, 2, '.', ''));
+            $perCategory[$categoryId]['rate'] = $this->rate(number_format($cashback, 2, '.', ''), (int) $detail['amount']);
+        }
+
+        return [$perCategory, $scaled];
     }
 
     /**

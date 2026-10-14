@@ -7,6 +7,7 @@ use Illuminate\Auth\Events\Lockout;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -46,7 +47,11 @@ class LoginRequest extends FormRequest
         $identifier = $this->string('login')->toString();
         $user = $this->resolveUser($identifier);
 
-        if (! $user || ! Auth::attempt(['email' => $user->email, 'password' => $this->string('password')], $this->boolean('remember'))) {
+        // Xác thực trực tiếp trên user đã resolve (theo username HOẶC email).
+        // Cách này xử lý đúng tài khoản KHÔNG có email: nếu dùng
+        // Auth::attempt(['email' => null, ...]) thì Eloquent sẽ khớp
+        // `where email is null` và lấy NHẦM người dùng đầu tiên không email.
+        if (! $user || ! Hash::check($this->string('password'), $user->password)) {
             RateLimiter::hit($this->throttleKey());
 
             throw ValidationException::withMessages([
@@ -54,16 +59,21 @@ class LoginRequest extends FormRequest
             ]);
         }
 
+        Auth::login($user, $this->boolean('remember'));
+
         RateLimiter::clear($this->throttleKey());
     }
 
     /**
      * Resolve the user by email or username.
+     *
+     * Chuỗi chứa '@' ⇒ tìm theo email; chuỗi khác ⇒ tìm theo username.
+     * Tài khoản có email NULL vẫn đăng nhập được bằng username.
      */
     protected function resolveUser(string $identifier): ?User
     {
         if (str_contains($identifier, '@')) {
-            return User::where('email', $identifier)->first();
+            return User::whereNotNull('email')->where('email', $identifier)->first();
         }
 
         return User::where('username', $identifier)->first();

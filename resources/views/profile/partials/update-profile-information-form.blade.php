@@ -28,8 +28,9 @@
 
                     <div>
                         <x-input-label for="email" :value="__('Email')" />
-                        <x-text-input id="email" name="email" type="email" class="mt-1 block w-full" :value="old('email', $user->email)" required autocomplete="username" />
+                        <x-text-input id="email" name="email" type="email" class="mt-1 block w-full" :value="old('email', $user->email)" autocomplete="username" />
                         <x-input-error class="mt-2" :messages="$errors->get('email')" />
+                        <p class="mt-1 text-xs text-gray-400">Email không bắt buộc; dùng để khôi phục mật khẩu và nhận thông báo nếu được hỗ trợ.</p>
 
                         @if ($user instanceof \Illuminate\Contracts\Auth\MustVerifyEmail && ! $user->hasVerifiedEmail())
                             <div>

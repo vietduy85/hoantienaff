@@ -51,6 +51,8 @@ final class CardScaffold
         public readonly int $instanceIndex = 1,
         /** Khoá nhóm bản sao của cùng một sản phẩm (mặc định = key). */
         public readonly ?string $productKey = null,
+        /** Slug sản phẩm (policy template) — dùng để nhận diện sản phẩm đặc thù. */
+        public readonly ?string $templateSlug = null,
     ) {
     }
 

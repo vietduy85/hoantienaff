@@ -13,11 +13,12 @@
             <p id="username-msg" class="mt-1 text-xs text-gray-400">Username chỉ được chứa chữ cái, số và dấu gạch dưới (_). 3-30 ký tự.</p>
         </div>
 
-        <!-- Email Address -->
+        <!-- Email Address (không bắt buộc) -->
         <div class="mt-4">
-            <x-input-label for="email" :value="__('Email')" />
-            <x-text-input id="email" class="block mt-1 w-full" type="email" name="email" :value="old('email')" required autocomplete="username" />
+            <x-input-label for="email" :value="__('Email') . ' (' . __('không bắt buộc') . ')'" />
+            <x-text-input id="email" class="block mt-1 w-full" type="email" name="email" :value="old('email')" autocomplete="username" />
             <x-input-error :messages="$errors->get('email')" class="mt-2" />
+            <p class="mt-1 text-xs text-gray-400">Email không bắt buộc; dùng để khôi phục mật khẩu và nhận thông báo nếu được hỗ trợ.</p>
         </div>
 
         <!-- Password -->
@@ -30,6 +31,12 @@
                             required autocomplete="new-password" />
 
             <x-input-error :messages="$errors->get('password')" class="mt-2" />
+
+            {{-- Hướng dẫn luôn hiển thị khi chưa có lỗi; khi có lỗi thì nhường chỗ
+                 cho thông báo lỗi để tránh trùng lặp hai dòng. --}}
+            @if (! $errors->has('password'))
+                <p class="mt-1 text-xs text-gray-500">Mật khẩu cần ít nhất 8 ký tự.</p>
+            @endif
         </div>
 
         <!-- Confirm Password -->

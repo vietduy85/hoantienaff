@@ -29,12 +29,15 @@ class RegisteredUserController extends Controller
     {
         $request->merge([
             'username' => strtolower(trim($request->username)),
+            // Email KHÔNG bắt buộc: chuỗi rỗng / khoảng trắng ⇒ NULL (không tạo
+            // email giả, không gán email của người khác).
+            'email' => $request->filled('email') ? strtolower(trim((string) $request->email)) : null,
         ]);
 
         $request->validate(
             [
                 'username' => ['required', 'string', 'min:3', 'max:30', 'regex:/^[a-z0-9_]+$/', 'unique:'.User::class],
-                'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:'.User::class],
+                'email' => ['nullable', 'string', 'lowercase', 'email', 'max:255', 'unique:'.User::class],
                 'password' => ['required', 'confirmed', Rules\Password::defaults()],
             ],
             [

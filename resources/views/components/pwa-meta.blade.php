@@ -5,7 +5,10 @@
     $isCreditCardApp = request()->routeIs('credit-cards.*');
     $pwaManifest = $isCreditCardApp ? '/thetindung.webmanifest' : '/manifest.webmanifest';
     $pwaAppName = $isCreditCardApp ? 'Thẻ tín dụng' : 'Hoan Tien';
-    $pwaThemeColor = $isCreditCardApp ? '#0D9EF3' : '#FF6A00';
+    // Cho phep trang goi @include truyen `themeColor` de ghi de mau browser chrome
+    // (status bar / toolbar tren iOS Safari). Trang dang nhap dung mau trung tinh
+    // de khong con nen cam o tren/dau man hinh. Mac dinh giu nguyen mau thuong hieu.
+    $pwaThemeColor = $themeColor ?? ($isCreditCardApp ? '#0D9EF3' : '#FF6A00');
     // Tạm thời dùng chung bộ icon của Dashboard cho cả hai PWA.
     $pwaAppleIcon = '/apple-touch-icon-180.png';
 @endphp
