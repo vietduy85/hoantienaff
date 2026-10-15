@@ -25,6 +25,7 @@ use App\Services\Providers\PharmacityProvider;
 use App\Services\Providers\ShopeeProvider;
 use App\Services\Providers\TikTokProvider;
 use App\Services\Providers\TravelokaProvider;
+use App\Services\Url\AffiliateDetectRuleRepository;
 use App\View\Composers\PendingWithdrawBadgeComposer;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -37,6 +38,12 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        // Bind explicitly so PlatformResolver's optional repository dependency is
+        // injected. Without a binding, Laravel returns the parameter's default
+        // (null) for optional class params, which would silently disable the
+        // admin-managed detect-rule overlay.
+        $this->app->singleton(AffiliateDetectRuleRepository::class);
+
         $this->app->tag([
             ShopeeProvider::class,
             LazadaProvider::class,

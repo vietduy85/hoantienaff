@@ -158,25 +158,4 @@ class DashboardController extends Controller
     {
         return ShopeeFoodUrlParser::isShopeeFoodUrl($url);
     }
-
-    private function detectPlatform(string $url): string
-    {
-        $url = strtolower($url);
-
-        $platforms = [
-            'shopee' => 'Shopee',
-            'shp.ee' => 'Shopee',
-            'lazada' => 'Lazada',
-            'tiktok' => 'TikTok Shop',
-            'tiki' => 'Tiki',
-        ];
-
-        foreach ($platforms as $domain => $name) {
-            if (str_contains($url, $domain)) {
-                return $name;
-            }
-        }
-
-        return 'Khác';
-    }
 }

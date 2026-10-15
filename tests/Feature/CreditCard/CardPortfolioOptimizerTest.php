@@ -2067,8 +2067,619 @@ class CardPortfolioOptimizerTest extends TestCase
     }
 
     // =====================================================================
+    // 16. Phase I.15 — bảng phân bổ theo danh mục + chi tiêu hoàn thấp/chưa gán
+    // =====================================================================
+
+    /**
+     * `category_breakdown` phải nhất quán: ngân sách = đã phân bổ + chưa phân bổ;
+     * tổng splits theo danh mục = tiền thực gán trên thẻ (không đếm trùng hai lần).
+     */
+    #[Test]
+    public function category_breakdown_is_consistent_with_budget_and_card_rows(): void
+    {
+        [$catA, $catB] = $this->makeSplitThenWholeScenario();
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'amounts' => [$catA->id => 10000000, $catB->id => 2000000],
+        ]));
+
+        $response->assertOk();
+
+        $plan = $response->json('data.plans.0');
+        $rows = $plan['category_breakdown'];
+
+        // Giữ nguyên thứ tự danh mục người dùng nhập.
+        $this->assertSame(
+            [$catA->id, $catB->id],
+            array_map('intval', array_column($rows, 'category_id')),
+        );
+
+        $sumAllocated = 0.0;
+
+        foreach ($rows as $row) {
+            // Ngân sách = đã phân bổ + chưa phân bổ.
+            $this->assertEqualsWithDelta(
+                (float) $row['budget'],
+                (float) $row['allocated'] + (float) $row['unallocated'],
+                0.01,
+                'Ngân sách danh mục '.$row['category_id'].' không khớp.',
+            );
+
+            // Tổng các phần tách = tổng đã phân bổ của danh mục đó.
+            $splitSum = array_sum(array_map(static fn (array $s): float => (float) $s['amount'], $row['splits']));
+            $this->assertEqualsWithDelta((float) $row['allocated'], $splitSum, 0.01);
+
+            // Mỗi dòng phải mang tên danh mục chuẩn (không phải id trần).
+            $this->assertNotSame('', $row['category_name']);
+            $this->assertNotSame('Danh mục #'.$row['category_id'], $row['category_name']);
+
+            // Mỗi phần tách phải khớp đúng một dòng thẻ × danh mục.
+            foreach ($row['splits'] as $split) {
+                $cardAmount = $this->amountForCategory($plan['cards'], $split['card_name'], (int) $row['category_id']);
+                $this->assertNotNull($cardAmount, 'Không tìm thấy dòng thẻ cho phần tách.');
+                $this->assertEqualsWithDelta($cardAmount, (float) $split['amount'], 0.01);
+            }
+
+            $sumAllocated += (float) $row['allocated'];
+        }
+
+        // Không đếm trùng: tổng đã phân bổ theo danh mục = tổng tiền trên mọi thẻ.
+        $onCards = 0.0;
+
+        foreach ($plan['cards'] as $card) {
+            foreach ($card['categories'] as $r) {
+                $onCards += (float) $r['amount'];
+            }
+        }
+
+        $this->assertEqualsWithDelta($sumAllocated, $onCards, 0.01);
+    }
+
+    /**
+     * Mỗi phần tách trong `category_breakdown` phải phản chiếu ĐÚNG một dòng trên
+     * thẻ (không thừa, không thiếu) — không đếm trùng một khoản giữa nhiều thẻ.
+     */
+    #[Test]
+    public function category_breakdown_splits_mirror_card_rows_exactly(): void
+    {
+        [$catA, $catB] = $this->makeSplitThenWholeScenario();
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'amounts' => [$catA->id => 10000000, $catB->id => 2000000],
+        ]));
+
+        $response->assertOk();
+        $plan = $response->json('data.plans.0');
+
+        // Bảng dòng thẻ: "tên thẻ|category_id" => số tiền.
+        $cardRows = [];
+
+        foreach ($plan['cards'] as $card) {
+            foreach ($card['categories'] as $r) {
+                $cardRows[$card['name'].'|'.$r['category_id']] = (float) $r['amount'];
+            }
+        }
+
+        foreach ($plan['category_breakdown'] as $row) {
+            foreach ($row['splits'] as $split) {
+                $key = $split['card_name'].'|'.$row['category_id'];
+
+                $this->assertArrayHasKey($key, $cardRows, 'Phần tách không có dòng thẻ tương ứng.');
+                $this->assertEqualsWithDelta($cardRows[$key], (float) $split['amount'], 0.01);
+                unset($cardRows[$key]);
+            }
+        }
+
+        // Mọi dòng thẻ phải được phản ánh trong bảng danh mục.
+        $this->assertSame([], $cardRows, 'Còn dòng thẻ chưa xuất hiện trong bảng danh mục.');
+    }
+
+    /**
+     * Danh mục KHÔNG có thẻ nào hoàn > 0% phải để nguyên CHƯA PHÂN BỔ (không dồn
+     * vào một thẻ hoàn 0%), và xuất hiện ở cả `category_breakdown` lẫn nhóm B.
+     */
+    #[Test]
+    public function a_category_without_any_reward_card_is_left_unallocated(): void
+    {
+        $covered = $this->makeSystemCategory(['name' => 'Mua sắm trực tuyến']);
+        $uncovered = $this->makeSystemCategory(['name' => 'Giáo dục']);
+
+        $this->makeTemplate('Thẻ mua sắm 10%',
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $covered->id, 'percent' => '10.000']]);
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'amounts' => [$covered->id => 3000000, $uncovered->id => 2000000],
+        ]));
+
+        $response->assertOk();
+        $plan = $response->json('data.plans.0');
+
+        // Không thẻ nào giữ danh mục không có quyền lợi.
+        $this->assertSame([], $this->portionsForCategory($plan['cards'], $uncovered->id));
+
+        // Dòng danh mục ghi rõ chưa phân bổ toàn bộ ngân sách.
+        $row = null;
+
+        foreach ($plan['category_breakdown'] as $candidate) {
+            if ((int) $candidate['category_id'] === $uncovered->id) {
+                $row = $candidate;
+            }
+        }
+
+        $this->assertNotNull($row);
+        $this->assertSame('0.00', $row['allocated']);
+        $this->assertSame('2000000.00', $row['unallocated']);
+        $this->assertSame('2000000.00', $plan['unallocated_total']);
+
+        // Nhóm B nêu lý do không có thẻ hoàn tiền.
+        $unalloc = null;
+
+        foreach ($plan['low_rate_spend']['unallocated'] as $candidate) {
+            if ((int) $candidate['category_id'] === $uncovered->id) {
+                $unalloc = $candidate;
+            }
+        }
+
+        $this->assertNotNull($unalloc);
+        $this->assertSame('2000000.00', $unalloc['amount']);
+        $this->assertSame('Không có thẻ nào hoàn tiền cho danh mục này.', $unalloc['reason']);
+    }
+
+    /**
+     * Phần ngân sách KHÔNG thể sinh thêm hoàn (mọi thẻ đã chạm trần danh mục) để
+     * lại CHƯA PHÂN BỔ, không bị dồn vào thẻ hoàn thấp để "gán cho hết".
+     *
+     *   catB = 2tr; thẻ A 20% trần 100k (chạm trần ở 500k); thẻ B 10% trần 100k
+     *   (chạm trần ở 1tr). Dùng tối đa 1,5tr ⇒ 200k; 500k còn lại CHƯA PHÂN BỔ.
+     */
+    #[Test]
+    public function budget_beyond_caps_is_left_unallocated_not_dumped(): void
+    {
+        $cat = $this->makeSystemCategory(['name' => 'Mua sắm trực tuyến']);
+
+        $this->makeTemplate('Thẻ A 20% trần 100k',
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $cat->id, 'percent' => '20.000', 'cap_cat' => 100000]]);
+
+        $this->makeTemplate('Thẻ B 10% trần 100k',
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $cat->id, 'percent' => '10.000', 'cap_cat' => 100000]]);
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'amounts' => [$cat->id => 2000000],
+        ]));
+
+        $response->assertOk();
+
+        // 20% × 500k = 100k (chạm trần) + 10% × 1tr = 100k (chạm trần) = 200k.
+        $this->assertSame('200000.00', $response->json('data.best_cashback'));
+
+        $plan = $response->json('data.plans.0');
+
+        // Chỉ 1,5tr được gán; 500k còn lại để chưa phân bổ (không dồn vào thẻ khác).
+        $this->assertEqualsWithDelta(1500000.0, (float) $plan['total_allocated'], 0.01);
+        $this->assertSame('500000.00', $plan['unallocated_total']);
+
+        $row = null;
+
+        foreach ($plan['category_breakdown'] as $candidate) {
+            if ((int) $candidate['category_id'] === $cat->id) {
+                $row = $candidate;
+            }
+        }
+
+        $this->assertNotNull($row);
+        $this->assertSame('1500000.00', $row['allocated']);
+        $this->assertSame('500000.00', $row['unallocated']);
+    }
+
+    /**
+     * `low_rate_spend` phải tồn tại với hai nhánh `activation` và `unallocated`, và
+     * mọi khoản trong nhánh kích hoạt phải là chi tiêu hoàn 0% trên thẻ đang giữ.
+     */
+    #[Test]
+    public function low_rate_spend_exposes_activation_and_unallocated_branches(): void
+    {
+        [$catA, $catB] = $this->makeSplitThenWholeScenario();
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'amounts' => [$catA->id => 10000000, $catB->id => 2000000],
+        ]));
+
+        $response->assertOk();
+
+        $low = $response->json('data.plans.0.low_rate_spend');
+        $this->assertIsArray($low['activation']);
+        $this->assertIsArray($low['unallocated']);
+
+        foreach ($low['activation'] as $row) {
+            $this->assertSame(0.0, (float) $this->cashbackForCategory(
+                $response->json('data.plans.0.cards'),
+                $row['card_name'],
+                (int) $row['category_id'],
+            ), 'Mục "hoàn thấp" phải là khoản không sinh hoàn.');
+        }
+    }
+
+    /**
+     * Thẻ có ngưỡng tổng chi tối thiểu phải được BÙ TỪ NGUỒN KHÁC để mở ưu đãi khi
+     * việc bù làm TĂNG tổng hoàn. Chỉ chi tiêu mà THẺ ĐÍCH có quyền lợi mới tính
+     * vào ngưỡng (`totalEligibleSpend`), nên nguồn bù phải là danh mục thẻ đích
+     * cũng hoàn (giống LPBank 8tr với Y tế + Bảo hiểm).
+     *
+     *   Gate: Bậc1 (< 3tr) catA/catB 2%; Bậc2 (≥ 3tr) catA/catB 20% (trần 400k).
+     *   Open: catA 12%.
+     *   catA = 2tr, catB = 2tr:
+     *     - không bù: Open catA 2tr = 240k; Gate catB 2tr (Bậc1) = 40k ⇒ 280k
+     *     - bù:       Gate catA 2tr + catB 2tr = 4tr ⇒ Bậc2: 400k + 400k = 800k
+     *   ⇒ 800k > 280k nên thuật toán phải chọn "bù".
+     */
+    #[Test]
+    public function a_tier_minimum_card_is_filled_from_other_sources(): void
+    {
+        $catA = $this->makeSystemCategory(['name' => 'Mua sắm trực tuyến']);
+        $catB = $this->makeSystemCategory(['name' => 'Bảo hiểm']);
+
+        $this->makeTemplate('Thẻ Gate ngưỡng 3tr',
+            [
+                ['name' => 'Bậc 1', 'min' => 0, 'max' => 3000000],
+                ['name' => 'Bậc 2', 'min' => 3000000, 'max' => null],
+            ],
+            [
+                ['category_id' => $catA->id, 'percent' => '2.000', 'only_tier' => 0],
+                ['category_id' => $catA->id, 'percent' => '20.000', 'cap_cat' => 400000, 'only_tier' => 1],
+                ['category_id' => $catB->id, 'percent' => '2.000', 'only_tier' => 0],
+                ['category_id' => $catB->id, 'percent' => '20.000', 'cap_cat' => 400000, 'only_tier' => 1],
+            ]);
+
+        $this->makeTemplate('Thẻ Open mua sắm 12%',
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $catA->id, 'percent' => '12.000']]);
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'amounts' => [$catA->id => 2000000, $catB->id => 2000000],
+        ]));
+
+        $response->assertOk();
+        $this->assertSame('800000.00', $response->json('data.best_cashback'));
+
+        $cards = $response->json('data.plans.0.cards');
+
+        // Gate đạt ngưỡng 3tr và thu hoàn Bậc2 cho cả hai danh mục.
+        $this->assertEqualsWithDelta(400000.0, $this->cashbackForCategory($cards, 'Thẻ Gate ngưỡng 3tr', $catB->id), 0.01);
+        $this->assertEqualsWithDelta(400000.0, $this->cashbackForCategory($cards, 'Thẻ Gate ngưỡng 3tr', $catA->id), 0.01);
+    }
+
+    /**
+     * View tab tối ưu phải có markup cho bảng phân bổ theo danh mục và mục chi
+     * tiêu hoàn thấp / chưa phân bổ của từng phương án.
+     */
+    #[Test]
+    public function compare_page_renders_the_phase_i15_breakdown_markup(): void
+    {
+        $html = $this->actingAs($this->owner)
+            ->get(route('credit-cards.compare'))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('plan.category_breakdown', $html);
+        $this->assertStringContainsString('Phân bổ theo danh mục', $html);
+        $this->assertStringContainsString('plan.low_rate_spend.activation', $html);
+        $this->assertStringContainsString('plan.low_rate_spend.unallocated', $html);
+        $this->assertStringContainsString('Chi tiêu hoàn thấp / Chưa phân bổ', $html);
+        $this->assertStringContainsString('proposed().unallocated_total', $html);
+        $this->assertStringContainsString('Điều kiện chi tiêu và trạng thái kích hoạt', $html);
+        $this->assertStringContainsString('card.spending_condition', $html);
+        $this->assertStringContainsString('Chi tiết từng điều kiện chi tiêu', $html);
+        $this->assertStringContainsString('card.spending_condition.conditions', $html);
+        $this->assertStringContainsString('Thẻ bị loại vì chưa đạt điều kiện', $html);
+        $this->assertStringContainsString('plan.excluded_candidates', $html);
+        $this->assertStringContainsString('Nhật ký lựa chọn thẻ và phân bổ', $html);
+        $this->assertStringContainsString('plan.audit', $html);
+    }
+
+    /**
+     * Mỗi thẻ trong mỗi phương án phải kèm khối `spending_condition` với đầy đủ
+     * khoá cho mục "Điều kiện chi tiêu và trạng thái kích hoạt".
+     */
+    #[Test]
+    public function every_card_exposes_a_spending_condition_block(): void
+    {
+        [, $catB] = $this->makeSplitThenWholeScenario();
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'amounts' => [$catB->id => 2000000],
+        ]));
+
+        $response->assertOk();
+
+        $cards = $response->json('data.plans.0.cards');
+        $this->assertNotEmpty($cards);
+
+        foreach ($cards as $card) {
+            $this->assertArrayHasKey('spending_condition', $card);
+
+            $condition = $card['spending_condition'];
+            foreach ([
+                'card_name', 'required_min_spend', 'allocated_total', 'eligible_total',
+                'shortfall', 'status', 'status_label', 'expected_cashback', 'notes',
+                'kept_above_cap',
+            ] as $key) {
+                $this->assertArrayHasKey($key, $condition, "Thiếu khoá {$key} trong spending_condition.");
+            }
+        }
+    }
+
+    /**
+     * Cake Freedom: khi tổng chi đạt ngưỡng 5.000.000, khối điều kiện phải nêu
+     * bằng lời yêu cầu tối thiểu 5tr và minh bạch phần vượt trần được GIỮ để kích
+     * hoạt (`kept_above_cap`), KHÔNG ẩn.
+     */
+    #[Test]
+    public function cake_condition_states_the_five_million_gate_and_kept_above_cap(): void
+    {
+        $food = $this->makeSystemCategory(['name' => 'Ăn uống']);
+
+        $this->makeTemplate('Cake Freedom', [
+            ['name' => 'Bậc 0', 'min' => 0, 'max' => 4999999.99],
+            ['name' => 'Bậc 1', 'min' => 5000000],
+        ], [
+            ['category_id' => $food->id, 'percent' => '20.000', 'cap_tx' => 50000, 'cap_cat' => 200000, 'only_tier' => 1],
+        ], slug: 'vpbank-cake-freedom-visa');
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'amounts' => [$food->id => 5000000],
+        ]));
+
+        $response->assertOk();
+        $this->assertSame('200000.00', $response->json('data.best_cashback'));
+
+        $cards = $response->json('data.plans.0.cards');
+        $condition = $this->conditionForCard($cards, 'Cake Freedom');
+
+        $this->assertNotNull($condition, 'Thẻ Cake phải có khối spending_condition.');
+        $this->assertSame('5000000.00', $condition['required_min_spend']);
+        $this->assertSame('5000000.00', $condition['allocated_total']);
+        $this->assertSame('0.00', $condition['shortfall']);
+        $this->assertSame('met', $condition['status']);
+        $this->assertSame('Đã đạt', $condition['status_label']);
+        $this->assertSame('4000000.00', $condition['kept_above_cap']);
+
+        $notes = implode(' ', $condition['notes']);
+        $this->assertStringContainsString('Cần tối thiểu', $notes);
+        $this->assertStringContainsString('5000000', $notes);
+        $this->assertStringContainsString('GIỮ để đạt ngưỡng kích hoạt', $notes);
+    }
+
+    /**
+     * Mỗi thẻ phải kèm danh sách `conditions` (trạng thái TỪNG điều kiện), không
+     * chỉ trạng thái tổng. Ngưỡng bậc/chương trình xuất hiện dưới dạng `tier_min`
+     * với đầy đủ khoá để view tô đỏ/xanh.
+     */
+    #[Test]
+    public function every_card_exposes_per_condition_status_rows(): void
+    {
+        $insurance = $this->makeSystemCategory(['name' => 'Bảo hiểm']);
+
+        $this->makeTemplate('Thẻ Bảo hiểm bậc 15%',
+            [
+                ['name' => 'Bậc 1', 'min' => 0, 'max' => 8000000],
+                ['name' => 'Bậc 2', 'min' => 8000000, 'max' => null],
+            ],
+            [
+                ['category_id' => $insurance->id, 'percent' => '0.000', 'only_tier' => 0],
+                ['category_id' => $insurance->id, 'percent' => '15.000', 'cap_cat' => 400000, 'only_tier' => 1],
+            ]);
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'amounts' => [$insurance->id => 8000000],
+        ]));
+
+        $response->assertOk();
+        $condition = $this->conditionForCard($response->json('data.plans.0.cards'), 'Thẻ Bảo hiểm bậc 15%');
+
+        $this->assertNotNull($condition);
+        $this->assertNotEmpty($condition['conditions']);
+
+        $tierRow = collect($condition['conditions'])->firstWhere('type', 'tier_min');
+        $this->assertNotNull($tierRow);
+
+        foreach (['type', 'label', 'required', 'actual', 'shortfall', 'excess', 'met', 'status', 'status_label'] as $key) {
+            $this->assertArrayHasKey($key, $tierRow, "Thiếu khoá {$key} trong dòng điều kiện.");
+        }
+
+        $this->assertTrue($tierRow['met']);
+        $this->assertSame('met', $tierRow['status']);
+        $this->assertSame('8000000.00', $tierRow['required']);
+    }
+
+    /**
+     * Cake Freedom KHÔNG được đẩy quá 1.000.000đ/danh mục khi có ĐỦ 5 danh mục đủ
+     * điều kiện (mỗi danh mục 1tr) để đạt ngưỡng 5tr: phân bổ phải 1tr/danh mục,
+     * `kept_above_cap` = 0.
+     */
+    #[Test]
+    public function cake_fills_the_five_million_gate_without_exceeding_one_million_per_category(): void
+    {
+        $rules = [];
+        $amounts = [];
+
+        foreach (['A', 'B', 'C', 'D', 'E'] as $suffix) {
+            $cat = $this->makeSystemCategory(['name' => 'Cake cat '.$suffix]);
+            $rules[] = ['category_id' => $cat->id, 'percent' => '20.000', 'cap_tx' => 50000, 'cap_cat' => 200000, 'only_tier' => 1];
+            $amounts[$cat->id] = 1000000;
+        }
+
+        $this->makeTemplate('Cake Freedom', [
+            ['name' => 'Bậc 0', 'min' => 0, 'max' => 4999999.99],
+            ['name' => 'Bậc 1', 'min' => 5000000],
+        ], $rules, slug: 'vpbank-cake-freedom-visa');
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'amounts' => $amounts,
+        ]));
+
+        $response->assertOk();
+        $this->assertSame('1000000.00', $response->json('data.best_cashback'));
+
+        $cards = $response->json('data.plans.0.cards');
+        $condition = $this->conditionForCard($cards, 'Cake Freedom');
+
+        $this->assertNotNull($condition);
+        $this->assertSame('5000000.00', $condition['allocated_total']);
+        $this->assertSame('0.00', $condition['kept_above_cap']);
+
+        foreach ($cards as $card) {
+            foreach ($card['categories'] as $row) {
+                $this->assertLessThanOrEqual(1000000.0, (float) $row['amount'],
+                    'Không danh mục nào được vượt 1.000.000đ khi còn danh mục đủ điều kiện khác.');
+            }
+        }
+    }
+
+    /**
+     * Thẻ có điều kiện hoàn tiền đặc biệt nhưng KHÔNG được phân bổ (chưa đạt) phải
+     * xuất hiện trong `excluded_candidates` kèm điều kiện đỏ và số tiền còn thiếu.
+     */
+    #[Test]
+    public function excluded_candidates_lists_qualification_cards_with_unmet_conditions(): void
+    {
+        $medical = $this->makeSystemCategory(['name' => 'Y tế']);
+        $grocery = $this->makeSystemCategory(['name' => 'Siêu thị']);
+
+        $card = $this->makeUserCard($this->owner->id, ['name' => 'MB Ultimate']);
+        $policy = $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $medical->id, 'percent' => '10.000']],
+        );
+
+        $qualification = SpendQualification::create([
+            'policy_version_id' => $policy->id,
+            'name' => 'Điều kiện kỳ',
+            'enabled' => true,
+        ]);
+
+        $condition = SpendQualificationCondition::create([
+            'qualification_id' => $qualification->id,
+            'condition_type' => SpendQualificationCondition::TYPE_OTHER,
+            'min_spend' => '2000000.00',
+            'is_enabled' => true,
+            'sort_order' => 0,
+        ]);
+
+        SpendQualificationConditionExcludedCategory::create([
+            'condition_id' => $condition->id,
+            'category_id' => $medical->id,
+        ]);
+
+        $this->makeTemplate('Thẻ siêu thị 5%',
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $grocery->id, 'percent' => '5.000']]);
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'compare',
+            'criterion' => 'max_cashback',
+            'amounts' => [$medical->id => 2000000, $grocery->id => 500000],
+        ]));
+
+        $response->assertOk();
+
+        $excluded = $response->json('data.plans.0.excluded_candidates');
+        $this->assertIsArray($excluded);
+
+        $row = collect($excluded)->firstWhere('card_name', 'MB Ultimate');
+        $this->assertNotNull($row, 'Thẻ chưa đạt điều kiện phải nằm trong excluded_candidates.');
+        $this->assertSame('Chưa đạt', $row['status_label']);
+
+        $cond = $row['conditions'][0];
+        $this->assertSame('special_other', $cond['type']);
+        $this->assertFalse($cond['met']);
+        $this->assertSame('2000000.00', $cond['shortfall']);
+    }
+
+    /**
+     * Mỗi phương án phải kèm nhật ký có cấu trúc (`audit`) ghi lại các bước quyết
+     * định thật, theo đúng thứ tự chạy, kèm thông điệp người-đọc-được.
+     */
+    #[Test]
+    public function every_plan_exposes_a_structured_audit_trail(): void
+    {
+        [, $catB] = $this->makeSplitThenWholeScenario();
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'amounts' => [$catB->id => 9000000],
+        ]));
+
+        $response->assertOk();
+
+        $audit = $response->json('data.plans.0.audit');
+        $this->assertIsArray($audit);
+        $this->assertNotEmpty($audit);
+
+        $types = array_column($audit, 'type');
+        $this->assertContains('candidates', $types);
+        $this->assertContains('final', $types);
+
+        foreach ($audit as $entry) {
+            $this->assertArrayHasKey('order', $entry);
+            $this->assertArrayHasKey('message', $entry);
+            $this->assertNotSame('', (string) $entry['message']);
+        }
+
+        // Bước "reallocate" được gộp: mỗi danh mục tối đa một bước trong nhật ký.
+        $reallocCategories = [];
+
+        foreach ($audit as $entry) {
+            if (($entry['type'] ?? '') === 'reallocate') {
+                $reallocCategories[] = $entry['category_id'];
+            }
+        }
+
+        $this->assertSame(count($reallocCategories), count(array_unique($reallocCategories)));
+    }
+
+    // =====================================================================
     // Helpers — đọc phân bổ/hoàn tiền theo thẻ × danh mục từ payload plan
     // =====================================================================
+
+    /**
+     * @param  array<int, array<string, mixed>>  $cards
+     * @return array<string, mixed>|null
+     */
+    private function conditionForCard(array $cards, string $cardName): ?array
+    {
+        foreach ($cards as $card) {
+            if ($card['name'] === $cardName) {
+                return $card['spending_condition'] ?? null;
+            }
+        }
+
+        return null;
+    }
 
     /**
      * @param  array<int, array<string, mixed>>  $cards

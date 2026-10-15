@@ -343,10 +343,16 @@ class ShopeeFoodRoutingTest extends TestCase
                 'original_url' => 'https://fake-shopeefood.vn/now-food/shop/757850',
             ]);
 
-        $response->assertOk();
+        // Hostname-based resolver: `fake-shopeefood.vn` is neither a Shopee nor
+        // a ShopeeFood host, so it is unsupported (failed) — never deep-linked,
+        // and no longer mislabelled as "Shopee" via an old substring match.
+        $response->assertStatus(422);
 
         $link = LinkRequest::latest()->first();
         $this->assertNotEquals('ShopeeFood', $link->platform);
+        $this->assertSame('Khác', $link->platform);
+        $this->assertSame('failed', $link->status);
+        $this->assertNull($link->affiliate_url);
     }
 
     // ─── CASE G — real affiliate id + username, no foreign/fabricated ──

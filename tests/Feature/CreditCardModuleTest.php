@@ -155,6 +155,9 @@ class CreditCardModuleTest extends TestCase
             // API trạng thái thanh toán theo KỲ — dành cho kỳ chưa có statement:
             // đánh dấu "đã trả" phải tạo được dòng 0/0/0 thay vì bắt nhập trước.
             'credit-cards.api.statements.payment.update-period',
+            // API mốc chi tiêu lũy kế kỳ trước (tab "Phí thường niên và chi tiêu
+            // tích lũy" ở Sao kê) — ghi có nhật ký.
+            'credit-cards.api.cumulative-spend.update',
             // API thiết lập chung của user (nhắc thanh toán trước mấy ngày)
             'credit-cards.api.settings.payment-reminder.update',
             // API thiết lập đơn vị tiền hiển thị (đơn vị + ký tự) của user

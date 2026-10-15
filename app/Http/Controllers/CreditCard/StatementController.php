@@ -11,6 +11,7 @@ use App\Models\CreditCard\CreditCardUserSetting;
 use App\Models\CreditCard\StatementPeriod;
 use App\Models\CreditCard\UserCard;
 use App\Services\CreditCard\CreditCardCardSortService;
+use App\Services\CreditCard\CreditCardCumulativeSpendService;
 use App\Services\CreditCard\CreditCardStatementService;
 use App\Services\CreditCard\CreditCardUserSettingService;
 use App\Services\CreditCard\UserCardService;
@@ -54,6 +55,7 @@ class StatementController extends Controller
         private readonly CreditCardCardSortService $sort,
         private readonly UserCardService $cards,
         private readonly CreditCardUserSettingService $settings,
+        private readonly CreditCardCumulativeSpendService $cumulative,
     ) {
     }
 
@@ -85,8 +87,20 @@ class StatementController extends Controller
             ->map(fn (UserCard $card): array => $this->presentCard($card, $today, $request, $reminderDays))
             ->all();
 
+        // Tab "Phí thường niên và chi tiêu tích lũy" dùng CÙNG danh sách thẻ và CÙNG
+        // thứ tự sort, nhưng số liệu khác — dựng một lượt, read-only, ở service.
+        $feeRows = $this->sort
+            ->sort($sortMode, $cards, $today)
+            ->map(fn (UserCard $card): array => $this->cumulative->row($card, $today))
+            ->all();
+
         return view('credit-card.statements', [
             'rows' => $rows,
+            // Tab đang mở đọc từ query `?tab=fees` để link/bookmark vào thẳng tab phí
+            // được; thiếu/sai ⇒ tab Sao kê (mặc định cũ).
+            'activeTab' => $request->query('tab') === 'fees' ? 'fees' : 'statements',
+            'feeRows' => $feeRows,
+            'cumulativeSpendUrl' => route('credit-cards.api.cumulative-spend.update', ['userCard' => 0]),
             'sortMode' => $sortMode,
             'sortModes' => CreditCardCardSortService::modes(),
             'sortAction' => route('credit-cards.statements'),

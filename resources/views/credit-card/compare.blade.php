@@ -510,6 +510,236 @@
                                     </li>
                                 </template>
                             </ul>
+
+                            {{-- Bảng phân bổ theo danh mục --}}
+                            <div x-show="plan.category_breakdown && plan.category_breakdown.length"
+                                 class="rounded-xl border border-gray-100 overflow-hidden">
+                                <p class="px-3 sm:px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500 bg-gray-50">
+                                    Phân bổ theo danh mục
+                                </p>
+                                <div class="overflow-x-auto">
+                                    <table class="min-w-full text-xs">
+                                        <thead>
+                                            <tr class="text-left text-gray-500 border-b border-gray-100">
+                                                <th class="px-3 py-2 font-medium">Danh mục</th>
+                                                <th class="px-3 py-2 font-medium text-right">Ngân sách</th>
+                                                <th class="px-3 py-2 font-medium">Phân bổ vào thẻ</th>
+                                                <th class="px-3 py-2 font-medium text-right">Tiền hoàn</th>
+                                                <th class="px-3 py-2 font-medium text-right">Chưa phân bổ</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-100">
+                                            <template x-for="row in plan.category_breakdown" :key="row.category_id">
+                                                <tr>
+                                                    <td class="px-3 py-2 text-gray-700 align-top" x-text="row.category_name"></td>
+                                                    <td class="px-3 py-2 text-right tabular-nums text-gray-700 align-top" x-text="ccMoneyVnd(row.budget)"></td>
+                                                    <td class="px-3 py-2 align-top">
+                                                        <ul class="space-y-0.5">
+                                                            <template x-for="(split, si) in row.splits" :key="si">
+                                                                <li class="flex items-baseline justify-between gap-2">
+                                                                    <span class="text-gray-600 truncate" x-text="split.card_name"></span>
+                                                                    <span class="tabular-nums text-gray-700 shrink-0" x-text="ccMoneyVnd(split.amount)"></span>
+                                                                </li>
+                                                            </template>
+                                                            <li x-show="row.splits.length === 0" class="text-gray-400">Không gán cho thẻ nào</li>
+                                                        </ul>
+                                                    </td>
+                                                    <td class="px-3 py-2 text-right tabular-nums align-top"
+                                                        :class="Number(row.cashback) > 0 ? 'font-semibold text-emerald-700' : 'text-gray-400'"
+                                                        x-text="ccMoneyVnd(row.cashback)"></td>
+                                                    <td class="px-3 py-2 text-right tabular-nums align-top"
+                                                        :class="Number(row.unallocated) > 0 ? 'text-amber-700 font-medium' : 'text-gray-400'"
+                                                        x-text="Number(row.unallocated) > 0 ? ccMoneyVnd(row.unallocated) : '—'"></td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            {{-- Chi tiêu hoàn thấp / Chưa phân bổ --}}
+                            <div x-show="plan.low_rate_spend && (plan.low_rate_spend.activation.length || plan.low_rate_spend.unallocated.length)"
+                                 class="rounded-xl border border-amber-100 bg-amber-50/40 p-3 sm:p-4 space-y-3">
+                                <p class="text-xs font-semibold uppercase tracking-wide text-amber-700">Chi tiêu hoàn thấp / Chưa phân bổ</p>
+
+                                <div x-show="plan.low_rate_spend.activation.length">
+                                    <p class="text-xs font-medium text-gray-600">Dùng để kích hoạt ưu đãi (chưa sinh hoàn trực tiếp)</p>
+                                    <ul class="mt-1 space-y-1">
+                                        <template x-for="(row, i) in plan.low_rate_spend.activation" :key="i">
+                                            <li class="text-xs text-gray-600 flex items-baseline justify-between gap-3">
+                                                <span class="truncate">
+                                                    <span x-text="row.category_name"></span>
+                                                    <span class="text-gray-400"> → </span>
+                                                    <span x-text="row.card_name"></span>
+                                                    <span class="text-gray-400" x-show="row.condition" x-text="' · điều kiện: ' + row.condition"></span>
+                                                    <span class="text-amber-700" x-show="! row.met" x-text="' · còn thiếu ' + ccMoneyVnd(row.shortfall)"></span>
+                                                </span>
+                                                <span class="tabular-nums text-gray-700 shrink-0" x-text="ccMoneyVnd(row.amount)"></span>
+                                            </li>
+                                        </template>
+                                    </ul>
+                                </div>
+
+                                <div x-show="plan.low_rate_spend.unallocated.length">
+                                    <p class="text-xs font-medium text-gray-600">Chưa phân bổ (giữ lại, không tính hoàn)</p>
+                                    <ul class="mt-1 space-y-1">
+                                        <template x-for="(row, i) in plan.low_rate_spend.unallocated" :key="i">
+                                            <li class="text-xs text-gray-600 flex items-baseline justify-between gap-3">
+                                                <span class="truncate">
+                                                    <span x-text="row.category_name"></span>
+                                                    <span class="text-gray-400" x-text="' · ' + row.reason"></span>
+                                                </span>
+                                                <span class="tabular-nums text-amber-700 font-medium shrink-0" x-text="ccMoneyVnd(row.amount)"></span>
+                                            </li>
+                                        </template>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            {{-- Điều kiện chi tiêu và trạng thái kích hoạt từng thẻ --}}
+                            <div x-show="plan.cards && plan.cards.length"
+                                 class="rounded-xl border border-gray-100 overflow-hidden">
+                                <p class="px-3 sm:px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500 bg-gray-50">
+                                    Điều kiện chi tiêu và trạng thái kích hoạt
+                                </p>
+                                <div class="overflow-x-auto">
+                                    <table class="min-w-full text-xs">
+                                        <thead>
+                                            <tr class="text-left text-gray-500 border-b border-gray-100">
+                                                <th class="px-3 py-2 font-medium">Thẻ</th>
+                                                <th class="px-3 py-2 font-medium text-right">Chi tiêu tối thiểu</th>
+                                                <th class="px-3 py-2 font-medium text-right">Chi giả lập</th>
+                                                <th class="px-3 py-2 font-medium text-right">Đủ điều kiện</th>
+                                                <th class="px-3 py-2 font-medium text-right">Còn thiếu</th>
+                                                <th class="px-3 py-2 font-medium">Trạng thái</th>
+                                                <th class="px-3 py-2 font-medium text-right">Hoàn dự kiến</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-100">
+                                            <template x-for="card in plan.cards" :key="'cond-' + card.key">
+                                                <tr x-show="card.spending_condition">
+                                                    <td class="px-3 py-2 align-top">
+                                                        <span class="text-gray-700" x-text="card.spending_condition.card_name"></span>
+                                                        <span class="block text-gray-400" x-show="card.spending_condition.tier_label" x-text="card.spending_condition.tier_label"></span>
+                                                    </td>
+                                                    <td class="px-3 py-2 text-right tabular-nums text-gray-700 align-top"
+                                                        x-text="card.spending_condition.required_min_spend ? ccMoneyVnd(card.spending_condition.required_min_spend) : '—'"></td>
+                                                    <td class="px-3 py-2 text-right tabular-nums text-gray-700 align-top" x-text="ccMoneyVnd(card.spending_condition.allocated_total)"></td>
+                                                    <td class="px-3 py-2 text-right tabular-nums text-gray-700 align-top" x-text="ccMoneyVnd(card.spending_condition.eligible_total)"></td>
+                                                    <td class="px-3 py-2 text-right tabular-nums align-top"
+                                                        :class="Number(card.spending_condition.shortfall) > 0 ? 'text-amber-700 font-medium' : 'text-gray-400'"
+                                                        x-text="Number(card.spending_condition.shortfall) > 0 ? ccMoneyVnd(card.spending_condition.shortfall) : '—'"></td>
+                                                    <td class="px-3 py-2 align-top">
+                                                        <span class="font-medium"
+                                                              :class="card.spending_condition.status === 'met' ? 'text-emerald-700' : (card.spending_condition.status === 'not_met' ? 'text-amber-700' : 'text-gray-400')"
+                                                              x-text="card.spending_condition.status_label"></span>
+                                                    </td>
+                                                    <td class="px-3 py-2 text-right tabular-nums text-emerald-700 align-top" x-text="ccMoneyVnd(card.spending_condition.expected_cashback)"></td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <ul class="px-3 sm:px-4 py-2 space-y-0.5 border-t border-gray-100">
+                                    <template x-for="(card, ci) in plan.cards" :key="'condnote-' + ci">
+                                        <template x-for="(note, ni) in (card.spending_condition ? card.spending_condition.notes : [])" :key="'n-' + ci + '-' + ni">
+                                            <li class="text-xs text-gray-500">
+                                                <span class="font-medium text-gray-600" x-text="card.spending_condition.card_name + ': '"></span>
+                                                <span x-text="note"></span>
+                                            </li>
+                                        </template>
+                                    </template>
+                                </ul>
+                            </div>
+
+                            {{-- Chi tiết TỪNG điều kiện chi tiêu (đỏ/xanh theo từng điều kiện) --}}
+                            <div x-show="plan.cards && plan.cards.some(c => c.spending_condition && c.spending_condition.conditions && c.spending_condition.conditions.length)"
+                                 class="rounded-xl border border-gray-100 overflow-hidden">
+                                <p class="px-3 sm:px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500 bg-gray-50">
+                                    Chi tiết từng điều kiện chi tiêu
+                                </p>
+                                <div class="divide-y divide-gray-100">
+                                    <template x-for="card in plan.cards" :key="'conddetail-' + card.key">
+                                        <div x-show="card.spending_condition && card.spending_condition.conditions.length"
+                                             class="px-3 sm:px-4 py-2">
+                                            <p class="text-xs font-medium text-gray-700" x-text="card.spending_condition.card_name"></p>
+                                            <ul class="mt-1 space-y-1">
+                                                <template x-for="(cond, ci) in card.spending_condition.conditions" :key="'c-' + card.key + '-' + ci">
+                                                    <li class="flex items-baseline justify-between gap-3 text-xs">
+                                                        <span class="flex items-baseline gap-2 min-w-0">
+                                                            <span class="inline-block h-2 w-2 rounded-full shrink-0"
+                                                                  :class="cond.met ? 'bg-emerald-500' : 'bg-rose-500'"></span>
+                                                            <span class="truncate text-gray-600" x-text="cond.label"></span>
+                                                        </span>
+                                                        <span class="tabular-nums shrink-0"
+                                                              :class="cond.met ? 'text-emerald-700' : 'text-rose-600 font-medium'">
+                                                            <span x-text="'cần ' + ccMoneyVnd(cond.required)"></span>
+                                                            <span x-show="! cond.met" x-text="' · còn thiếu ' + ccMoneyVnd(cond.shortfall)"></span>
+                                                            <span x-show="cond.met" x-text="' · đạt (' + ccMoneyVnd(cond.actual) + ')'"></span>
+                                                        </span>
+                                                    </li>
+                                                </template>
+                                            </ul>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+
+                            {{-- Thẻ bị loại vì chưa đạt điều kiện hoàn tiền đặc biệt --}}
+                            <div x-show="plan.excluded_candidates && plan.excluded_candidates.length"
+                                 class="rounded-xl border border-rose-100 bg-rose-50/40 overflow-hidden">
+                                <p class="px-3 sm:px-4 py-2 text-xs font-semibold uppercase tracking-wide text-rose-700">
+                                    Thẻ bị loại vì chưa đạt điều kiện
+                                </p>
+                                <div class="divide-y divide-rose-100">
+                                    <template x-for="(row, i) in plan.excluded_candidates" :key="'excl-' + i">
+                                        <div class="px-3 sm:px-4 py-2">
+                                            <p class="text-xs font-medium text-gray-700">
+                                                <span x-text="row.card_name"></span>
+                                                <span class="text-rose-600" x-text="' · ' + row.status_label"></span>
+                                            </p>
+                                            <ul class="mt-1 space-y-0.5">
+                                                <template x-for="(cond, ci) in row.conditions" :key="'ec-' + i + '-' + ci">
+                                                    <li class="flex items-baseline justify-between gap-3 text-xs">
+                                                        <span class="flex items-baseline gap-2 min-w-0">
+                                                            <span class="inline-block h-2 w-2 rounded-full bg-rose-500 shrink-0"></span>
+                                                            <span class="truncate text-gray-600" x-text="cond.label"></span>
+                                                        </span>
+                                                        <span class="tabular-nums text-rose-600 font-medium shrink-0"
+                                                              x-text="'cần ' + ccMoneyVnd(cond.required) + ' · còn thiếu ' + ccMoneyVnd(cond.shortfall)"></span>
+                                                    </li>
+                                                </template>
+                                            </ul>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+
+                            {{-- Nhật ký lựa chọn thẻ và phân bổ (thu gọn) --}}
+                            <div x-show="plan.audit && plan.audit.length" x-data="{ open: false }"
+                                 class="rounded-xl border border-gray-100 overflow-hidden">
+                                <button type="button" @click="open = !open"
+                                        class="w-full px-3 sm:px-4 py-2 flex items-center justify-between text-left bg-gray-50">
+                                    <span class="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                        Nhật ký lựa chọn thẻ và phân bổ
+                                        <span class="ml-1 font-normal normal-case text-gray-400" x-text="'(' + plan.audit.length + ' bước)'"></span>
+                                    </span>
+                                    <span class="text-xs text-gray-400" x-text="open ? 'Thu gọn ▲' : 'Mở rộng ▼'"></span>
+                                </button>
+                                <ol x-show="open" class="px-3 sm:px-4 py-2 space-y-1 list-decimal list-inside">
+                                    <template x-for="(entry, ei) in plan.audit" :key="'audit-' + ei">
+                                        <li class="text-xs text-gray-600">
+                                            <span :class="{
+                                                    'text-gray-700 font-medium': entry.type === 'final',
+                                                    'text-rose-600': entry.type === 'reject_category' || entry.type === 'condition_unmet',
+                                                    'text-amber-700': entry.type === 'tier_fill' || entry.type === 'unallocated',
+                                                    'text-emerald-700': entry.type === 'seed',
+                                                }"
+                                                  x-text="entry.message"></span>
+                                        </li>
+                                    </template>
+                                </ol>
+                            </div>
                         </section>
                     </template>
 
@@ -573,6 +803,11 @@
                                         <dt>Chi tiêu chưa chắc chắn quyền lợi</dt>
                                         <dd class="font-medium text-gray-800 tabular-nums"
                                             x-text="Number(proposed().uncertain_total) > 0 ? ccMoneyVnd(proposed().uncertain_total) : 'Không có'"></dd>
+                                    </div>
+                                    <div class="flex items-center justify-between gap-3">
+                                        <dt>Chi tiêu chưa phân bổ</dt>
+                                        <dd class="font-medium text-gray-800 tabular-nums"
+                                            x-text="Number(proposed().unallocated_total) > 0 ? ccMoneyVnd(proposed().unallocated_total) : 'Không có'"></dd>
                                     </div>
                                 </dl>
                             </div>

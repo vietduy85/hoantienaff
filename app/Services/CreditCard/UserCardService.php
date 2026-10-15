@@ -109,6 +109,10 @@ class UserCardService
                 'card_number_last4' => $this->normalizeLast4($attributes['card_number_last4'] ?? null),
                 'credit_limit' => $this->normalizeMoney($attributes['credit_limit'] ?? null),
                 'desired_spend' => $this->normalizeMoney($attributes['desired_spend'] ?? null),
+                // Cấu hình phí thường niên của thẻ (user tự khai, tuỳ chọn).
+                'annual_fee' => $this->normalizeMoney($attributes['annual_fee'] ?? null),
+                'annual_fee_waiver_spend' => $this->normalizeMoney($attributes['annual_fee_waiver_spend'] ?? null),
+                'next_annual_fee_date' => $this->normalizeDate($attributes['next_annual_fee_date'] ?? null),
                 // `statement_day` là cột DERIVED của anchor, không phải input:
                 // xem `StatementPeriodService::anchorDay()`.
                 'statement_day' => $this->resolveStatementDay($periodStart, $attributes['statement_day'] ?? null),
@@ -168,6 +172,18 @@ class UserCardService
 
             if (array_key_exists('desired_spend', $attributes)) {
                 $card->desired_spend = $this->normalizeMoney($attributes['desired_spend']);
+            }
+
+            if (array_key_exists('annual_fee', $attributes)) {
+                $card->annual_fee = $this->normalizeMoney($attributes['annual_fee']);
+            }
+
+            if (array_key_exists('annual_fee_waiver_spend', $attributes)) {
+                $card->annual_fee_waiver_spend = $this->normalizeMoney($attributes['annual_fee_waiver_spend']);
+            }
+
+            if (array_key_exists('next_annual_fee_date', $attributes)) {
+                $card->next_annual_fee_date = $this->normalizeDate($attributes['next_annual_fee_date']);
             }
 
             if (array_key_exists('statement_day', $attributes)) {

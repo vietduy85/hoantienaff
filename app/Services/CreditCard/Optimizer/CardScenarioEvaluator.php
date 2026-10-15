@@ -208,8 +208,10 @@ class CardScenarioEvaluator
             return $this->scenarioIneligible($scaffold, $base, 'no_matching_tier', null, $perCategories);
         }
 
-        if ($scaffold->isOwned && ! $this->qualificationPasses($scaffold, $lines)) {
-            return $this->scenarioIneligible($scaffold, $base, 'qualification_not_met', $tier, $perCategories);
+        $qualificationSummary = $this->qualificationSummary($scaffold, $lines);
+
+        if ($scaffold->isOwned && ! $this->summaryPasses($qualificationSummary)) {
+            return $this->scenarioIneligible($scaffold, $base, 'qualification_not_met', $tier, $perCategories, $qualificationSummary);
         }
 
         $tierId = $tier === null ? -1 : (int) $tier->id;
@@ -281,6 +283,8 @@ class CardScenarioEvaluator
             minTotalSpendMet: $scaffold->minTotalSpend <= $totalEligible,
             qualificationNotice: $scaffold->qualificationNotice,
             marketAssumption: $scaffold->marketAssumption,
+            totalEligibleSpend: Decimal::money(number_format($totalEligible, 2, '.', '')),
+            qualificationSummary: $qualificationSummary,
             instanceIndex: $scaffold->instanceIndex,
             productKey: $scaffold->productKey,
             simulatedTransactions: count($hypoLines),
@@ -507,8 +511,10 @@ class CardScenarioEvaluator
             return $this->scenarioIneligible($scaffold, $base, 'no_matching_tier', null, $perCategories);
         }
 
-        if ($scaffold->isOwned && ! $this->qualificationPasses($scaffold, $lines)) {
-            return $this->scenarioIneligible($scaffold, $base, 'qualification_not_met', $tier, $perCategories);
+        $qualificationSummary = $this->qualificationSummary($scaffold, $lines);
+
+        if ($scaffold->isOwned && ! $this->summaryPasses($qualificationSummary)) {
+            return $this->scenarioIneligible($scaffold, $base, 'qualification_not_met', $tier, $perCategories, $qualificationSummary);
         }
 
         $tierId = $tier === null ? -1 : (int) $tier->id;
@@ -587,6 +593,8 @@ class CardScenarioEvaluator
             minTotalSpendMet: $scaffold->minTotalSpend <= $totalEligible,
             qualificationNotice: $scaffold->qualificationNotice,
             marketAssumption: $scaffold->marketAssumption,
+            totalEligibleSpend: Decimal::money(number_format($totalEligible, 2, '.', '')),
+            qualificationSummary: $qualificationSummary,
             instanceIndex: $scaffold->instanceIndex,
             productKey: $scaffold->productKey,
             simulatedTransactions: count($hypoLines),
@@ -630,6 +638,7 @@ class CardScenarioEvaluator
         string $reason,
         $tier,
         array $perCategories,
+        ?array $qualificationSummary = null,
     ): CardScenario {
         $perCategory = [];
 
@@ -662,6 +671,7 @@ class CardScenarioEvaluator
             minTotalSpendMet: false,
             qualificationNotice: $scaffold->qualificationNotice,
             marketAssumption: $scaffold->marketAssumption,
+            qualificationSummary: $qualificationSummary,
             instanceIndex: $scaffold->instanceIndex,
             productKey: $scaffold->productKey,
         );
@@ -711,16 +721,64 @@ class CardScenarioEvaluator
     }
 
     /**
+     * Tóm tắt "điều kiện hoàn tiền đặc biệt" của kỳ MÔ PHỎNG cho thẻ (null khi
+     * thẻ không có qualification, hoặc qualification bị tắt / không có điều kiện
+     * nào bật — cùng ngữ nghĩa `SpendQualificationService::summaryForPeriod`).
+     *
      * @param  list<TransactionLine>  $lines
+     * @return array{enabled: bool, conditions: array<int, array<string, mixed>>}|null
      */
-    private function qualificationPasses(CardScaffold $scaffold, array $lines): bool
+    private function qualificationSummary(CardScaffold $scaffold, array $lines): ?array
     {
         if ($scaffold->qualification === null) {
-            return true;
+            return null;
         }
 
-        $summary = $this->qualifications->summaryForPeriod($scaffold->qualification, collect($lines));
+        return $this->qualifications->summaryForPeriod($scaffold->qualification, collect($lines));
+    }
 
+    /**
+     * Dò "điều kiện hoàn tiền đặc biệt" của thẻ với một phân bổ CHO TRƯỚC mà
+     * KHÔNG chạy toàn bộ engine — chỉ dựng dòng giả định rồi gọi summary. Dùng
+     * cho mục "thẻ bị loại vì chưa đạt điều kiện" (mặc định phân bổ rỗng ⇒ actual
+     * = 0). Trả null khi thẻ không có điều kiện / điều kiện bị tắt.
+     *
+     * @param  array<int, int>  $cats
+     * @return array{enabled: bool, conditions: array<int, array<string, mixed>>}|null
+     */
+    public function probeQualificationSummary(CardScaffold $scaffold, array $cats = []): ?array
+    {
+        if ($scaffold->qualification === null) {
+            return null;
+        }
+
+        $lines = [];
+        $counter = 0;
+
+        foreach ($cats as $categoryId => $amount) {
+            $amount = (int) $amount;
+
+            if ($amount <= 0) {
+                continue;
+            }
+
+            $lines[] = new TransactionLine(
+                id: $this->hypoId($scaffold, $counter++),
+                transactionDate: $this->hypoDate($scaffold),
+                categoryId: (int) $categoryId,
+                amount: (string) $amount,
+            );
+        }
+
+        return $this->qualifications->summaryForPeriod($scaffold->qualification, collect($lines));
+    }
+
+    /**
+     * Qualification ĐẠT khi không có điều kiện nào (summary null) hoặc mọi điều
+     * kiện đều `met`.
+     */
+    private function summaryPasses(?array $summary): bool
+    {
         if ($summary === null) {
             return true;
         }

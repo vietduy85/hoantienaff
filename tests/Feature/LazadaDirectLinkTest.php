@@ -73,8 +73,13 @@ class LazadaDirectLinkTest extends TestCase
         });
     }
 
+    // Hostname is `example.com`; "lazada" only appears in the query string.
+    // From the PlatformResolver refactor the platform is decided by hostname,
+    // so this must NOT be mislabelled as Lazada and must not hit the Lazada API.
     public function test_non_lazada_url_is_rejected(): void
     {
+        Http::fake();
+
         $response = $this->actingAs($this->user)
             ->postJson('/link-requests', [
                 'original_url' => 'https://example.com/products/1?deal=lazada',
@@ -83,12 +88,14 @@ class LazadaDirectLinkTest extends TestCase
         $response->assertStatus(422);
         $response->assertJson([
             'success' => false,
-            'error' => 'Chỉ hỗ trợ link sản phẩm Lazada. Vui lòng dán đúng link Lazada.',
-            'platform' => 'Lazada',
+            'platform' => 'Khác',
         ]);
 
         $link = LinkRequest::latest()->first();
         $this->assertEquals('failed', $link->status);
+        $this->assertNull($link->affiliate_url);
+
+        Http::assertNothingSent();
     }
 
     public function test_product_not_found_is_friendly(): void

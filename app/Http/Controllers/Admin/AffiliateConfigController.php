@@ -3,13 +3,21 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\AffiliateDetectRule;
 use App\Models\Setting;
+use App\Services\AccessTrade\AccessTradeConfig;
+use App\Services\Url\CodeDetectRules;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 
 class AffiliateConfigController extends Controller
 {
+    public function __construct(
+        private readonly CodeDetectRules $codeDetectRules,
+        private readonly AccessTradeConfig $accessTradeConfig,
+    ) {}
+
     public function index(): View
     {
         $settings = [
@@ -22,14 +30,32 @@ class AffiliateConfigController extends Controller
 
         $providers = $this->buildProviders($settings);
 
-        return view('admin.affiliate-config.index', compact('settings', 'providers'));
+        $dbRules = AffiliateDetectRule::query()
+            ->orderBy('priority')
+            ->orderBy('id')
+            ->get();
+
+        $campaignSnapshot = json_decode((string) Setting::get('accesstrade.campaigns_snapshot', '[]'), true);
+
+        $accessTrade = [
+            'enabled' => $this->accessTradeConfig->enabled(),
+            'has_token' => $this->accessTradeConfig->hasToken(),
+            'masked_token' => $this->accessTradeConfig->maskedToken(),
+            'base_url' => $this->accessTradeConfig->baseUrl(),
+            'last_check_at' => $this->accessTradeConfig->lastCheckAt(),
+            'last_check_ok' => $this->accessTradeConfig->lastCheckOk(),
+            'last_check_message' => $this->accessTradeConfig->lastCheckMessage(),
+            'campaigns' => is_array($campaignSnapshot) ? $campaignSnapshot : [],
+        ];
+
+        return view('admin.affiliate-config.index', compact('settings', 'providers', 'dbRules', 'accessTrade'));
     }
 
     /**
-     * Read-only trạng thái nhà cung cấp / phương thức tạo link cho tab
-     * "Connect Partner AFF". CHỈ trả về nhãn trạng thái + boolean cấu hình,
-     * KHÔNG trả về giá trị API key/secret/cookie. Không đọc/ghi gì ngoài
-     * settings hiện có và config services (chỉ kiểm tra có/không).
+     * Read-only tráº¡ng thÃ¡i nhÃ  cung cáº¥p / phÆ°Æ¡ng thá»©c táº¡o link cho tab
+     * "Connect Partner AFF". CHá»ˆ tráº£ vá» nhÃ£n tráº¡ng thÃ¡i + boolean cáº¥u hÃ¬nh,
+     * KHÃ”NG tráº£ vá» giÃ¡ trá»‹ API key/secret/cookie. KhÃ´ng Ä‘á»c/ghi gÃ¬ ngoÃ i
+     * settings hiá»‡n cÃ³ vÃ  config services (chá»‰ kiá»ƒm tra cÃ³/khÃ´ng).
      *
      * @param  array<string, string>  $settings
      * @return array<int, array<string, mixed>>
@@ -53,7 +79,9 @@ class AffiliateConfigController extends Controller
         $shopeeFoodReady = filled(config('services.shopeefood.cookie'))
             || filled(config('services.shopeefood.base_url'));
 
-        $detectRules = $this->detectRules();
+        $detectRules = $this->codeDetectRules->all();
+
+        $accessTradeReady = $this->accessTradeConfig->enabled() && $this->accessTradeConfig->hasToken();
 
         return [
             [
@@ -62,7 +90,7 @@ class AffiliateConfigController extends Controller
                 'name' => 'Shopee',
                 'method' => $shopeeMethod,
                 'status' => $shopeeReady ? 'configured' : 'incomplete',
-                'status_label' => $shopeeReady ? 'Đã cấu hình' : 'Thiếu cấu hình',
+                'status_label' => $shopeeReady ? 'ÄÃ£ cáº¥u hÃ¬nh' : 'Thiáº¿u cáº¥u hÃ¬nh',
                 'methods' => [
                     ['label' => 'Direct Link', 'state' => $shopeeMethod === 'Direct Link' ? 'active' : 'available'],
                     ['label' => 'Extension Worker', 'state' => $shopeeMethod === 'Extension Worker' ? 'active' : 'available'],
@@ -75,7 +103,7 @@ class AffiliateConfigController extends Controller
                 'name' => 'TikTok Shop',
                 'method' => 'Direct Link (RioHub API)',
                 'status' => $riohubReady ? 'configured' : 'incomplete',
-                'status_label' => $riohubReady ? 'Đã cấu hình' : 'Thiếu cấu hình',
+                'status_label' => $riohubReady ? 'ÄÃ£ cáº¥u hÃ¬nh' : 'Thiáº¿u cáº¥u hÃ¬nh',
                 'methods' => [
                     ['label' => 'Direct Link (RioHub API)', 'state' => 'active'],
                     ['label' => 'AccessTrade API', 'state' => 'not_implemented'],
@@ -87,7 +115,7 @@ class AffiliateConfigController extends Controller
                 'name' => 'Lazada',
                 'method' => 'Direct Link (Lazada API)',
                 'status' => $lazadaReady ? 'configured' : 'incomplete',
-                'status_label' => $lazadaReady ? 'Đã cấu hình' : 'Thiếu cấu hình',
+                'status_label' => $lazadaReady ? 'ÄÃ£ cáº¥u hÃ¬nh' : 'Thiáº¿u cáº¥u hÃ¬nh',
                 'methods' => [
                     ['label' => 'Direct Link (Lazada API)', 'state' => 'active'],
                     ['label' => 'AccessTrade API', 'state' => 'not_implemented'],
@@ -99,7 +127,7 @@ class AffiliateConfigController extends Controller
                 'name' => 'ShopeeFood',
                 'method' => 'ShopeeFood Deep Link',
                 'status' => $shopeeFoodReady ? 'configured' : 'incomplete',
-                'status_label' => $shopeeFoodReady ? 'Đã cấu hình' : 'Thiếu cấu hình',
+                'status_label' => $shopeeFoodReady ? 'ÄÃ£ cáº¥u hÃ¬nh' : 'Thiáº¿u cáº¥u hÃ¬nh',
                 'methods' => [
                     ['label' => 'ShopeeFood Deep Link', 'state' => 'active'],
                     ['label' => 'AccessTrade API', 'state' => 'not_implemented'],
@@ -109,176 +137,12 @@ class AffiliateConfigController extends Controller
                 'key' => 'accesstrade',
                 'detect' => $detectRules['accesstrade'],
                 'name' => 'AccessTrade',
-                'method' => '—',
-                'status' => 'not_configured',
-                'status_label' => 'Chưa kết nối',
+                'method' => $accessTradeReady ? 'AccessTrade API' : 'â€”',
+                'status' => $accessTradeReady ? 'configured' : 'not_configured',
+                'status_label' => $accessTradeReady ? 'ÄÃ£ káº¿t ná»‘i' : 'ChÆ°a káº¿t ná»‘i',
                 'methods' => [
-                    ['label' => 'AccessTrade API', 'state' => 'not_implemented'],
+                    ['label' => 'AccessTrade API', 'state' => $accessTradeReady ? 'active' : 'not_implemented'],
                 ],
-            ],
-        ];
-    }
-
-    /**
-     * Chuỗi/hostname nhận diện URL THỰC TẾ của từng nhà cung cấp, tổng hợp
-     * từ code đang chạy (không suy đoán). Mỗi rule gồm:
-     *   - pattern : chuỗi hoặc hostname được so khớp
-     *   - match   : 'substring' | 'hostname'
-     *   - scope   : file/hàm sử dụng rule
-     *   - source  : 'code' | 'config' | 'database'
-     *   - method  : phương thức tạo link được gọi sau khi detect
-     *   - status  : 'active' | 'flow_only' | 'diagnostic' | 'legacy'
-     *
-     * KHÔNG chứa API key/token/secret. Read-only.
-     *
-     * @return array<string, array{rules: array<int, array<string, string>>, note: ?string}>
-     */
-    private function detectRules(): array
-    {
-        return [
-            'shopee' => [
-                'rules' => [
-                    [
-                        'pattern' => 'shopee',
-                        'match' => 'substring',
-                        'scope' => 'Dashboard Direct/Extension + Admin — detectPlatform()',
-                        'source' => 'code',
-                        'method' => 'Direct Link / Extension Worker',
-                        'status' => 'active',
-                    ],
-                    [
-                        'pattern' => 'shp.ee',
-                        'match' => 'substring',
-                        'scope' => 'Dashboard Direct/Extension + Admin — detectPlatform()',
-                        'source' => 'code',
-                        'method' => 'Direct Link / Extension Worker',
-                        'status' => 'active',
-                    ],
-                    [
-                        'pattern' => 's.shopee.vn, vn.shp.ee, s.shp.ee, shope.ee',
-                        'match' => 'hostname',
-                        'scope' => 'UrlResolverService::isShortLink() — resolve link rút gọn',
-                        'source' => 'code',
-                        'method' => 'Direct Link (→ s.shopee.vn/an_redir)',
-                        'status' => 'active',
-                    ],
-                    [
-                        'pattern' => 'shopee.vn',
-                        'match' => 'hostname',
-                        'scope' => 'UrlResolverService::isShopeeLanding() — xác thực landing',
-                        'source' => 'code',
-                        'method' => 'Direct Link',
-                        'status' => 'active',
-                    ],
-                    [
-                        'pattern' => 'shopee',
-                        'match' => 'substring',
-                        'scope' => 'ProviderFactory::detectPlatform() — /debug/provider + BenchmarkAffiliate',
-                        'source' => 'code',
-                        'method' => 'Providers/AffiliateService (không dùng ở luồng thật)',
-                        'status' => 'diagnostic',
-                    ],
-                ],
-                'note' => '4 nguồn thuộc luồng tạo link thật (3 bản detectPlatform trùng nhau + resolver). Chuỗi con khớp cả shopee.vn.example.com.',
-            ],
-            'tiktok' => [
-                'rules' => [
-                    [
-                        'pattern' => 'tiktok',
-                        'match' => 'substring',
-                        'scope' => 'Dashboard Direct Link — detectPlatform() (đặt nhãn platform)',
-                        'source' => 'code',
-                        'method' => '— (chỉ gán nhãn)',
-                        'status' => 'active',
-                    ],
-                    [
-                        'pattern' => 'tiktok',
-                        'match' => 'substring',
-                        'scope' => 'Dashboard Direct Link — nhánh non-Shopee: str_contains(original_url, "tiktok")',
-                        'source' => 'code',
-                        'method' => 'Direct Link (RioHub API)',
-                        'status' => 'active',
-                    ],
-                    [
-                        'pattern' => 'tiktok',
-                        'match' => 'substring',
-                        'scope' => 'ProviderFactory::detectPlatform() — /debug/provider + BenchmarkAffiliate',
-                        'source' => 'code',
-                        'method' => 'TikTokProvider (không dùng ở luồng thật)',
-                        'status' => 'diagnostic',
-                    ],
-                ],
-                'note' => 'Detect 2 lần trong cùng request (nhãn + dispatch); đều là substring trên toàn URL nên evil.com/tiktok cũng khớp.',
-            ],
-            'lazada' => [
-                'rules' => [
-                    [
-                        'pattern' => 'lazada',
-                        'match' => 'substring',
-                        'scope' => 'Dashboard Direct Link — detectPlatform() + nhánh non-Shopee',
-                        'source' => 'code',
-                        'method' => 'Direct Link (Lazada API)',
-                        'status' => 'active',
-                    ],
-                    [
-                        'pattern' => 'lazada.vn, lazada.sg, lazada.com.my, lazada.co.th, lazada.com.ph, lazada.co.id, lazada.shop',
-                        'match' => 'hostname',
-                        'scope' => 'LazadaUrlParser::DOMAINS / isLazadaHost() — validate trong LazadaLinkEstimateService',
-                        'source' => 'code',
-                        'method' => 'Direct Link (Lazada API)',
-                        'status' => 'active',
-                    ],
-                    [
-                        'pattern' => 'lazada',
-                        'match' => 'substring',
-                        'scope' => 'ProviderFactory::detectPlatform() — /debug/provider + BenchmarkAffiliate',
-                        'source' => 'code',
-                        'method' => 'LazadaProvider (không dùng ở luồng thật)',
-                        'status' => 'diagnostic',
-                    ],
-                ],
-                'note' => '2 nguồn trong luồng thật: substring (dispatch) + hostname (validate). Substring khớp cả lazada.evil.com.',
-            ],
-            'shopeefood' => [
-                'rules' => [
-                    [
-                        'pattern' => 'shopeefood.vn (+ subdomain)',
-                        'match' => 'hostname',
-                        'scope' => 'ShopeeFoodUrlParser::isShopeeFoodHost() → DashboardController::isShopeeFoodUrl() (chạy TRƯỚC khi chọn strategy)',
-                        'source' => 'code',
-                        'method' => 'ShopeeFood Deep Link',
-                        'status' => 'active',
-                    ],
-                    [
-                        'pattern' => 'spf.shopee.vn',
-                        'match' => 'hostname',
-                        'scope' => 'ShopeeFoodUrlParser::SPF_HOST + ShopeeFoodAffiliateResolver — resolve short link',
-                        'source' => 'code',
-                        'method' => 'ShopeeFood Deep Link',
-                        'status' => 'active',
-                    ],
-                    [
-                        'pattern' => 'shopeefood.shopee.vn',
-                        'match' => 'hostname',
-                        'scope' => 'ShopeeFoodUrlParser::AFFILIATE_HOST + ShopeeFoodOpenGraphService',
-                        'source' => 'code',
-                        'method' => 'ShopeeFood Deep Link',
-                        'status' => 'active',
-                    ],
-                    [
-                        'pattern' => 'shopeefood.shopee.vnnow-food',
-                        'match' => 'hostname',
-                        'scope' => 'ShopeeFoodUrlParser::VNNOW_HOST — normalize về host chuẩn',
-                        'source' => 'code',
-                        'method' => 'ShopeeFood Deep Link',
-                        'status' => 'active',
-                    ],
-                ],
-                'note' => 'BẮT BUỘC kiểm tra ShopeeFood TRƯỚC Shopee: chuỗi con "shopee" khớp cả "shopeefood"; đảo thứ tự sẽ nhận nhầm ShopeeFood thành Shopee.',
-            ],
-            'accesstrade' => [
-                'rules' => [],
-                'note' => 'Chưa cấu hình domain merchant/campaign. Không có rule detect nào trong code.',
             ],
         ];
     }
@@ -307,6 +171,6 @@ class AffiliateConfigController extends Controller
         Setting::set('affiliate.direct.resolve_shortlink', $validated['resolve']);
 
         return redirect()->route('admin.affiliate-config.index')
-            ->with('success', 'Đã lưu cấu hình.');
+            ->with('success', 'ÄÃ£ lÆ°u cáº¥u hÃ¬nh.');
     }
 }

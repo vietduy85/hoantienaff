@@ -144,16 +144,33 @@
     }
 
     /**
-     * Đọc chuỗi user vừa gõ trong ô nhập → SỐ VND (hoặc `''` khi ô rỗng).
+     * Đọc chuỗi user vừa gõ trong ô nhập → SỐ VND (hoặc `''` khi ô rỗng/không đọc
+     * được chữ số nào).
      *
-     * Dấu phẩy là dấu thập phân (vi-VN); dấu chấm khớp nhóm 3 chữ số từ phải là
-     * phân cách NGHÌN và bị bỏ (4.237.000 = 4.237.000, không phải 4,237), còn dấu
-     * chấm không khớp nhóm 3 là dấu thập phân (4237000.5). Tất cả dùng SỐ NGUYÊN
-     * để tránh lệch float khi đổi nghìn → đồng (1 nghìn = 1.000 đồng):
+     * Nhận diện các kiểu gõ tiền THÔNG DỤNG, không phụ thuộc việc user theo vi-VN
+     * hay en-US (trước đây luôn coi dấu phẩy là thập phân, nên "28,005,700" —
+     * dạng phân cách nghìn rất hay gặp — bị đọc thành 28):
+     *
+     *   - Chỉ chữ số:                     "28005700"    ⇒ 28005700
+     *   - Một loại dấu lặp lại (≥2):      "28,005,700"  ⇒ 28005700
+     *                                     "28.005.700"  ⇒ 28005700
+     *   - Có CẢ hai loại dấu ⇒ dấu XUẤT HIỆN SAU CÙNG là THẬP PHÂN, dấu còn lại là
+     *     phân cách nghìn:                "1.234,56"    ⇒ 1234.56
+     *                                     "1,234.56"    ⇒ 1234.56
+     *   - Một dấu duy nhất:
+     *       dấu phẩy                        ⇒ thập phân (vi-VN): "103,4" ⇒ 103.4
+     *       dấu chấm khớp nhóm 3 từ phải    ⇒ phân cách nghìn:   "4.237" ⇒ 4237
+     *       dấu chấm không khớp nhóm        ⇒ thập phân:         "4237000.5" ⇒ 4237000.5
+     *
+     * Tất cả dùng SỐ NGUYÊN để tránh lệch float khi đổi nghìn → đồng (1 nghìn =
+     * 1.000 đồng):
      *
      *   "4.237" (nghìn) ⇒ 4237 × 1000 + 0       = 4.237.000 đ
      *   "103,4" (nghìn) ⇒ 103 × 1000 + 400      = 103.400 đ
      *   "0,1005" (nghìn) ⇒ 0 × 1000 + 100,5     = 100,5 đ
+     *
+     * `''` khi ô rỗng HOẶC chuỗi không có chữ số: tầng gọi phải coi đó là "chưa
+     * nhập" và báo lỗi, KHÔNG âm thầm quy về 0.
      *
      * @return {number|string}
      */
@@ -164,38 +181,43 @@
             .replace(/[^\d.,-]/g, '');
 
         if (text === '') return '';
-        if (text === '-' || text === '.' || text === ',') return '';
 
         const sign = text.startsWith('-') ? -1 : 1;
         text = text.replace(/^-/, '');
 
+        if (text === '' || text === '.' || text === ',') return '';
+
         let integer = text;
         let decimal = '';
 
-        if (text.includes(',')) {
-            const parts = text.split(',');
-            integer = parts[0];
-            decimal = parts.slice(1).join('').replace(/\./g, '');
-        } else {
-            // Chấm đơn, khớp nhóm 3 ⇒ phân cách nghìn; không khớp ⇒ thập phân.
-            const grouped = /^\d{1,3}(\.\d{3})+$/.test(text);
+        const hasDot = text.includes('.');
+        const hasComma = text.includes(',');
 
-            if (grouped) {
+        if (hasDot && hasComma) {
+            // Hai loại dấu: dấu ở vị trí SAU CÙNG là dấu thập phân, phần còn lại
+            // là phân cách nghìn (bỏ hết).
+            const cut = Math.max(text.lastIndexOf('.'), text.lastIndexOf(','));
+            integer = text.slice(0, cut).replace(/[.,]/g, '');
+            decimal = text.slice(cut + 1).replace(/[.,]/g, '');
+        } else if (hasComma) {
+            const parts = text.split(',');
+
+            if (parts.length > 2) {
+                // Nhiều dấu phẩy ⇒ phân cách nghìn ("28,005,700").
+                integer = text.replace(/,/g, '');
+            } else {
+                // Một dấu phẩy ⇒ thập phân (vi-VN).
+                integer = parts[0];
+                decimal = parts[1];
+            }
+        } else if (hasDot) {
+            // Chấm đơn, khớp nhóm 3 ⇒ phân cách nghìn; không khớp ⇒ thập phân.
+            if (/^\d{1,3}(\.\d{3})+$/.test(text)) {
                 integer = text.replace(/\./g, '');
             } else {
                 const dot = text.lastIndexOf('.');
-
-                // Không có dấu chấm ⇒ TOÀN BỘ là phần nguyên. Đừng dùng
-                // `slice(0, dot)` khi `dot === -1` — nó cắt mất chữ số cuối và
-                // `slice(dot + 1)` trả cả chuỗi, biến "3900" thành 390 + 3900,
-                // lập tức cho ra 390.390 thay vì 3.900.000 đ.
-                if (dot === -1) {
-                    integer = text;
-                    decimal = '';
-                } else {
-                    integer = text.slice(0, dot);
-                    decimal = text.slice(dot + 1);
-                }
+                integer = text.slice(0, dot);
+                decimal = text.slice(dot + 1);
             }
         }
 
@@ -203,7 +225,8 @@
         if (integer === '') return '';
 
         const whole = Number(integer);
-        const fraction = Number((decimal || '').padEnd(window.ccMoneyUnit === 'THOUSAND_VND' ? 5 : 2, '0').slice(0, window.ccMoneyUnit === 'THOUSAND_VND' ? 5 : 2) || '0');
+        const digits = window.ccMoneyUnit === 'THOUSAND_VND' ? 5 : 2;
+        const fraction = Number((decimal || '').padEnd(digits, '0').slice(0, digits) || '0');
         const exponent = window.ccMoneyUnit === 'THOUSAND_VND' ? 100000 : 100;
 
         return sign * ((whole * exponent) + fraction) / 100;

@@ -4,6 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\LinkRequest;
 use App\Models\Setting;
+use App\Services\AccessTrade\AccessTradeConfig;
+use App\Services\AccessTrade\AccessTradeException;
+use App\Services\AccessTrade\AccessTradeLinkService;
 use App\Services\AffiliateCacheService;
 use App\Services\CashbackCalculator;
 use App\Services\Lazada\LazadaException;
@@ -11,6 +14,7 @@ use App\Services\Lazada\LazadaLinkEstimateService;
 use App\Services\ProductDataService;
 use App\Services\TikTok\TikTokLinkEstimateService;
 use App\Services\TikTok\TikTokServiceException;
+use App\Services\Url\PlatformResolver;
 use App\Services\UrlResolverService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -26,6 +30,9 @@ class DashboardCreateDirectLinkController extends Controller
         private readonly UrlResolverService $urlResolver,
         private readonly TikTokLinkEstimateService $tiktokLinkEstimate,
         private readonly LazadaLinkEstimateService $lazadaLinkEstimate,
+        private readonly PlatformResolver $platformResolver,
+        private readonly AccessTradeConfig $accessTradeConfig,
+        private readonly AccessTradeLinkService $accessTradeLink,
     ) {}
 
     public function store(Request $request): JsonResponse|RedirectResponse
@@ -35,8 +42,9 @@ class DashboardCreateDirectLinkController extends Controller
         ]);
 
         $user = auth()->user();
-        $platform = $this->detectPlatform($validated['original_url']);
-        $isShopee = str_contains(strtolower($platform), 'shopee');
+        $target = $this->platformResolver->resolve($validated['original_url']);
+        $platform = $target->platform;
+        $isShopee = $target->isShopee();
 
         // "Chế độ nhanh" (Fast Mode): chỉ tạo affiliate URL, không gọi ProductData,
         // không cache affiliate_cache, không dispatch closure sau response.
@@ -206,7 +214,7 @@ class DashboardCreateDirectLinkController extends Controller
                 })->afterResponse();
             }
         } else {
-            if (str_contains(strtolower($validated['original_url']), 'tiktok')) {
+            if ($target->isTikTok()) {
                 try {
                     $this->tiktokLinkEstimate->create($link, $validated['original_url'], $user);
                 } catch (TikTokServiceException $e) {
@@ -256,7 +264,7 @@ class DashboardCreateDirectLinkController extends Controller
 
                     return redirect()->route('dashboard')->with('error', $msg);
                 }
-            } elseif (str_contains(strtolower($validated['original_url']), 'lazada')) {
+            } elseif ($target->isLazada()) {
                 try {
                     $this->lazadaLinkEstimate->create($link, $validated['original_url'], $user);
                 } catch (LazadaException $e) {
@@ -307,6 +315,100 @@ class DashboardCreateDirectLinkController extends Controller
 
                     return redirect()->route('dashboard')->with('error', $msg);
                 }
+            } elseif ($target->isAccessTrade()
+                && $this->accessTradeConfig->enabled()
+                && $this->accessTradeConfig->hasToken()) {
+                // AccessTrade is used ONLY when the admin has explicitly enabled
+                // it AND a token is configured. It never intercepts Shopee /
+                // TikTok / Lazada / ShopeeFood, which are handled above.
+                try {
+                    $result = $this->accessTradeLink->createForUrl(
+                        $validated['original_url'],
+                        $target->campaignId,
+                        $user->affiliateSubId() ?? $user->username ?? null,
+                    );
+
+                    $link->update([
+                        'affiliate_url' => $result['affiliate_url'],
+                        'status' => 'completed',
+                        'data_source' => 'accesstrade-api',
+                    ]);
+                } catch (AccessTradeException $e) {
+                    $friendly = $this->accessTradeConfig->scrub($e->getUserMessage());
+
+                    $link->update([
+                        'status' => 'failed',
+                        'notes' => $friendly,
+                    ]);
+
+                    Log::warning('[DirectLink] AccessTrade link creation failed', [
+                        'url' => $validated['original_url'],
+                        'host' => $target->host,
+                        'user_id' => $user->id,
+                    ]);
+
+                    if ($request->expectsJson() || $request->ajax()) {
+                        return response()->json([
+                            'success' => false,
+                            'error' => $friendly,
+                            'request_id' => $link->id,
+                            'platform' => $platform,
+                        ], 422);
+                    }
+
+                    return redirect()->route('dashboard')->with('error', $friendly);
+                } catch (\Throwable $e) {
+                    $link->update([
+                        'status' => 'failed',
+                        'notes' => 'Lỗi hệ thống khi tạo link AccessTrade.',
+                    ]);
+
+                    Log::warning('[DirectLink] AccessTrade provider failed', [
+                        'url' => $validated['original_url'],
+                        'error' => $e->getMessage(),
+                    ]);
+
+                    $msg = 'Không thể kết nối AccessTrade lúc này, vui lòng thử lại sau.';
+
+                    if ($request->expectsJson() || $request->ajax()) {
+                        return response()->json([
+                            'success' => false,
+                            'error' => $msg,
+                            'request_id' => $link->id,
+                            'platform' => $platform,
+                        ], 502);
+                    }
+
+                    return redirect()->route('dashboard')->with('error', $msg);
+                }
+            } else {
+                // Platform recognised but no link-creation handler (Tiki, Khác,
+                // spoof host, or AccessTrade not enabled/configured). Must NOT be
+                // reported as `completed` with an empty affiliate_url.
+                $error = 'Nền tảng chưa được hỗ trợ tạo affiliate link. Vui lòng dán link Shopee, TikTok Shop hoặc Lazada.';
+
+                $link->update([
+                    'status' => 'failed',
+                    'notes' => $error,
+                ]);
+
+                Log::info('[DirectLink] Unsupported platform', [
+                    'url' => $validated['original_url'],
+                    'host' => $target->host,
+                    'reason' => $target->reason,
+                    'user_id' => $user->id,
+                ]);
+
+                if ($request->expectsJson() || $request->ajax()) {
+                    return response()->json([
+                        'success' => false,
+                        'error' => $error,
+                        'request_id' => $link->id,
+                        'platform' => $platform,
+                    ], 422);
+                }
+
+                return redirect()->route('dashboard')->with('error', $error);
             }
         }
 
@@ -377,27 +479,6 @@ class DashboardCreateDirectLinkController extends Controller
 
         return redirect()->route('dashboard')
             ->with('success', 'Đã tạo affiliate link (chế độ nhanh).');
-    }
-
-    private function detectPlatform(string $url): string
-    {
-        $url = strtolower($url);
-
-        $platforms = [
-            'shopee' => 'Shopee',
-            'shp.ee' => 'Shopee',
-            'lazada' => 'Lazada',
-            'tiktok' => 'TikTok Shop',
-            'tiki' => 'Tiki',
-        ];
-
-        foreach ($platforms as $domain => $name) {
-            if (str_contains($url, $domain)) {
-                return $name;
-            }
-        }
-
-        return 'Khác';
     }
 
     private function friendlyTikTokError(TikTokServiceException $e): string

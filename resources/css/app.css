@@ -70,3 +70,45 @@
         }
     }
 }
+
+/* ===========================================================================
+   SỐ TIỀN Ở KHU VỰC TIẾN ĐỘ (Tab Phí thường niên — Module Thẻ tín dụng)
+   ===========================================================================
+   Chuỗi dài nhất phải nằm GỌN MỘT DÒNG trên mobile là hai số tiền cạnh nhau:
+       "1.000.000.000 đ / 1.000.000.000 đ"
+   Đo advance width (Inter — cùng phương pháp `.cc-stat-amount` ở trên):
+       20 chữ số × 0.6743em  = 13.4860em
+       + 6 dấu chấm × 0.3340 =  2.0040em
+       + 2 NBSP     × 0.2368 =  0.4736em
+       + 2 "đ"      × 0.6304 =  1.2608em
+       + 1 "/"      × 0.4534 =  0.4534em
+       − 31 ký tự × 0.025em  = −0.7750em   (tracking-tight)
+       = 16,90em  ⇒ lấy hệ số 18 cho dư ~6% an toàn.
+
+   `100cqw − 14px`: chừa 2 lề `/` (`mx-1` = 4px mỗi bên) + sai số sub-pixel.
+   Sàn 12px / trần 32px. Ở 320px (ô ≈ 240px) ⇒ ≈12,6px; 430px ⇒ ≈18,7px;
+   desktop ⇒ chạm 32px. Hai đầu `/` dùng margin nên KHÔNG có cơ hội xuống dòng
+   giữa hai con số.
+   ======================================================================== */
+@layer components {
+    /* Ô bao ngoài là query container để `cqw` đo đúng bề rộng chứa số. */
+    .cc-progress-money {
+        container-type: inline-size;
+    }
+
+    .cc-progress-amount {
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.025em;
+        line-height: 1.15;
+        white-space: nowrap;
+
+        /* Nền cho trình duyệt chưa có container query (Safari < 16). */
+        font-size: clamp(12px, 4.4vw, 32px);
+    }
+
+    @supports (container-type: inline-size) {
+        .cc-progress-amount {
+            font-size: clamp(12px, calc((100cqw - 14px) / 18), 32px);
+        }
+    }
+}

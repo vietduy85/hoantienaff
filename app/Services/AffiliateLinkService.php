@@ -6,19 +6,19 @@ use App\Models\LinkRequest;
 use App\Models\Setting;
 use App\Services\Strategies\DirectLinkStrategy;
 use App\Services\Strategies\ExtensionStrategy;
+use App\Services\Url\PlatformResolver;
 
 class AffiliateLinkService
 {
     public function __construct(
         private readonly ExtensionStrategy $extensionStrategy,
         private readonly DirectLinkStrategy $directStrategy,
+        private readonly PlatformResolver $platformResolver,
     ) {}
 
     public function handle(LinkRequest $linkRequest, string $context = 'dashboard'): void
     {
-        $platform = strtolower($linkRequest->platform ?? '');
-
-        if (! str_contains($platform, 'shopee')) {
+        if (! $this->isShopeeLink($linkRequest)) {
             return;
         }
 
@@ -47,9 +47,7 @@ class AffiliateLinkService
 
     public function handleViaExtension(LinkRequest $linkRequest): void
     {
-        $platform = strtolower($linkRequest->platform ?? '');
-
-        if (! str_contains($platform, 'shopee')) {
+        if (! $this->isShopeeLink($linkRequest)) {
             return;
         }
 
@@ -60,5 +58,21 @@ class AffiliateLinkService
         }
 
         $this->extensionStrategy->handle($linkRequest);
+    }
+
+    /**
+     * Shopee links are identified by resolving the original URL hostname
+     * (never by a substring of the platform label), so `ShopeeFood` or spoof
+     * hosts are not misrouted into the Shopee strategy.
+     */
+    private function isShopeeLink(LinkRequest $linkRequest): bool
+    {
+        $url = (string) ($linkRequest->original_url ?? '');
+
+        if ($url === '') {
+            return false;
+        }
+
+        return $this->platformResolver->resolve($url)->isShopee();
     }
 }

@@ -7,6 +7,7 @@ use App\Services\AffiliateCacheService;
 use App\Services\AffiliateLinkService;
 use App\Services\CashbackCalculator;
 use App\Services\ProductDataService;
+use App\Services\Url\PlatformResolver;
 use App\Services\UrlResolverService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -21,6 +22,7 @@ class DashboardCreateExtensionLinkController extends Controller
         private readonly AffiliateCacheService $cacheService,
         private readonly UrlResolverService $urlResolver,
         private readonly AffiliateLinkService $affiliateLinkService,
+        private readonly PlatformResolver $platformResolver,
     ) {}
 
     public function store(Request $request): JsonResponse|RedirectResponse
@@ -30,8 +32,9 @@ class DashboardCreateExtensionLinkController extends Controller
         ]);
 
         $user = auth()->user();
-        $platform = $this->detectPlatform($validated['original_url']);
-        $isShopee = str_contains(strtolower($platform), 'shopee');
+        $target = $this->platformResolver->resolve($validated['original_url']);
+        $platform = $target->platform;
+        $isShopee = $target->isShopee();
 
         $link = LinkRequest::create([
             'user_id' => $user->id,
@@ -178,38 +181,47 @@ class DashboardCreateExtensionLinkController extends Controller
             }
         }
 
-        $this->affiliateLinkService->handle($link, 'dashboard');
+        if ($isShopee) {
+            $this->affiliateLinkService->handle($link, 'dashboard');
+
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json([
+                    'success' => true,
+                    'request_id' => $link->id,
+                    'platform' => $platform,
+                ]);
+            }
+
+            return redirect()->route('dashboard')
+                ->with('success', 'Đã nhận link. Đang tạo affiliate link...');
+        }
+
+        // Extension Worker only creates Shopee links. Any other platform
+        // (TikTok/Lazada/unsupported/spoof) must NOT be reported as
+        // `completed` with an empty affiliate_url.
+        $error = 'Phương thức Extension Worker chỉ hỗ trợ Shopee. Vui lòng chuyển sang Direct Link để tạo link nền tảng này.';
+
+        $link->update([
+            'status' => 'failed',
+            'notes' => $error,
+        ]);
+
+        Log::info('[ExtensionLink] Unsupported platform for extension strategy', [
+            'url' => $validated['original_url'],
+            'host' => $target->host,
+            'strategy' => $target->strategy,
+            'user_id' => $user->id,
+        ]);
 
         if ($request->expectsJson() || $request->ajax()) {
             return response()->json([
-                'success' => true,
+                'success' => false,
+                'error' => $error,
                 'request_id' => $link->id,
                 'platform' => $platform,
-            ]);
+            ], 422);
         }
 
-        return redirect()->route('dashboard')
-            ->with('success', 'Đã nhận link. Đang tạo affiliate link...');
-    }
-
-    private function detectPlatform(string $url): string
-    {
-        $url = strtolower($url);
-
-        $platforms = [
-            'shopee' => 'Shopee',
-            'shp.ee' => 'Shopee',
-            'lazada' => 'Lazada',
-            'tiktok' => 'TikTok Shop',
-            'tiki' => 'Tiki',
-        ];
-
-        foreach ($platforms as $domain => $name) {
-            if (str_contains($url, $domain)) {
-                return $name;
-            }
-        }
-
-        return 'Khác';
+        return redirect()->route('dashboard')->with('error', $error);
     }
 }

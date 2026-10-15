@@ -76,6 +76,21 @@ return [
         'max_sync_pages' => (int) env('ADDLIVETAG_MAX_SYNC_PAGES', 100),
     ],
 
+    /*
+     * AccessTrade affiliate network.
+     *
+     * The token is normally configured through the admin UI and stored
+     * encrypted in the `settings` table. These env values are only a fallback
+     * for headless deployments; never commit a real token.
+     */
+    'accesstrade' => [
+        'base_url' => env('ACCESSTRADE_BASE_URL', 'https://api.accesstrade.vn'),
+        'token' => env('ACCESSTRADE_TOKEN'),
+        'timeout' => (int) env('ACCESSTRADE_TIMEOUT', 15),
+        'connect_timeout' => (int) env('ACCESSTRADE_CONNECT_TIMEOUT', 8),
+        'max_retries' => (int) env('ACCESSTRADE_MAX_RETRIES', 2),
+    ],
+
     'lazada' => [
         'base_url' => env('LAZADA_BASE_URL', 'https://api.lazada.vn/rest'),
         'app_key' => env('LAZADA_APP_KEY'),

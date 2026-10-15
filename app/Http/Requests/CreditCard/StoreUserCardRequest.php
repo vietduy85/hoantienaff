@@ -51,6 +51,11 @@ class StoreUserCardRequest extends FormRequest
             'credit_limit' => ['nullable', 'numeric', 'min:0', 'max:99999999999999.99'],
             // Số tiền user MONG MUỐN chi — khác hạn mức `credit_limit` của ngân hàng.
             'desired_spend' => ['nullable', 'numeric', 'min:0'],
+            // Cấu hình phí thường niên của thẻ (tuỳ chọn): `decimal(16,2)` như
+            // `credit_limit`, `max` khớp sức chứa cột để không nổ lỗi SQL.
+            'annual_fee' => ['nullable', 'numeric', 'min:0', 'max:99999999999999.99'],
+            'annual_fee_waiver_spend' => ['nullable', 'numeric', 'min:0', 'max:99999999999999.99'],
+            'next_annual_fee_date' => ['nullable', 'date_format:Y-m-d'],
             'statement_day' => ['nullable', 'integer', 'between:1,31'],
             'payment_due_day' => ['nullable', 'integer', 'between:1,31'],
             'spending_deadline_day' => ['nullable', 'integer', 'between:1,31'],
@@ -89,6 +94,11 @@ class StoreUserCardRequest extends FormRequest
             'spending_deadline_day.between' => 'Ngày nên chi tiêu phải từ 1 đến 31.',
             'statement_date_basis.in' => 'Cách tính ngày chốt kỳ không hợp lệ.',
             'desired_spend.min' => 'Số tiền mong muốn chi không được âm.',
+            'annual_fee.min' => 'Phí thường niên không được âm.',
+            'annual_fee.max' => 'Phí thường niên vượt quá giới hạn lưu trữ.',
+            'annual_fee_waiver_spend.min' => 'Chi tiêu cần đạt không được âm.',
+            'annual_fee_waiver_spend.max' => 'Chi tiêu cần đạt vượt quá giới hạn lưu trữ.',
+            'next_annual_fee_date.date_format' => 'Ngày tính phí thường niên không hợp lệ.',
             'statement_period_start.date_format' => 'Ngày bắt đầu kỳ sao kê không hợp lệ.',
             'promotion_info.max' => 'Thông tin khuyến mãi tối đa 2.000 ký tự.',
         ]);
@@ -110,6 +120,9 @@ class StoreUserCardRequest extends FormRequest
             'card_number_last4' => $this->input('card_number_last4'),
             'credit_limit' => $this->input('credit_limit'),
             'desired_spend' => $this->input('desired_spend'),
+            'annual_fee' => $this->input('annual_fee'),
+            'annual_fee_waiver_spend' => $this->input('annual_fee_waiver_spend'),
+            'next_annual_fee_date' => $this->input('next_annual_fee_date'),
             'statement_day' => $this->input('statement_day'),
             'payment_due_day' => $this->input('payment_due_day'),
             'spending_deadline_day' => $this->input('spending_deadline_day'),

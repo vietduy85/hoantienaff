@@ -27,6 +27,16 @@ final class CardScenario
         public readonly bool $minTotalSpendMet,
         public readonly ?string $qualificationNotice,
         public readonly string $marketAssumption,
+        /** Tổng chi tiêu ĐỦ ĐIỀU KIỆN (gộp, TRƯỚC trần) — dùng cho ngưỡng min-spend/bậc. */
+        public readonly ?string $totalEligibleSpend = null,
+        /**
+         * Tóm tắt "điều kiện hoàn tiền đặc biệt" của kỳ MÔ PHỎNG dưới dạng
+         * `['enabled' => bool, 'conditions' => list<...>]` (cùng shape
+         * `SpendQualificationService::summaryForPeriod`), hoặc null khi thẻ không
+         * có điều kiện / điều kiện bị tắt. Dùng để trình bày trạng thái TỪNG điều
+         * kiện (đỏ/xanh) mà KHÔNG tính lại lệch evaluator.
+         */
+        public readonly ?array $qualificationSummary = null,
         public readonly int $instanceIndex = 1,
         public readonly ?string $productKey = null,
         /** Số giao dịch giả định đã dùng cho thẻ (mỗi danh mục ≥ 1 dòng). */

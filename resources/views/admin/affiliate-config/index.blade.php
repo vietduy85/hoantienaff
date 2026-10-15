@@ -7,7 +7,7 @@
 
     <div class="py-6 px-4 max-w-xl mx-auto"
          x-data="{
-             tab: 'extension',
+             tab: '{{ request('tab') === 'partner' ? 'partner' : 'extension' }}',
              extensionEnabled: '{{ $settings['extension_enabled'] }}',
              dashboardStrategy: '{{ $settings['extension_enabled'] === 'true' ? $settings['dashboard_strategy'] : 'direct' }}',
              adminStrategy: '{{ $settings['extension_enabled'] === 'true' ? $settings['admin_strategy'] : 'direct' }}'
@@ -206,9 +206,13 @@
         </form>
         </div>{{-- /Tab Extension --}}
 
-        {{-- Tab: Connect Partner AFF (read-only) --}}
+        {{-- Tab: Connect Partner AFF --}}
         <div x-show="tab === 'partner'" x-cloak>
-            @include('admin.affiliate-config._connect-partner', ['providers' => $providers])
+            @include('admin.affiliate-config._connect-partner', [
+                'providers' => $providers,
+                'dbRules' => $dbRules,
+                'accessTrade' => $accessTrade,
+            ])
         </div>
     </div>
 </x-app-layout>

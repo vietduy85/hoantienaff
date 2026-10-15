@@ -406,6 +406,8 @@ class FastModeTest extends TestCase
     // ─────────────────────────────────────────────────────────────
     // H. Non-Shopee + fast_mode=1 => cờ bị BỎ QUA hoàn toàn
     //    (không resolve, không trả fast_mode).
+    //    Từ refactor PlatformResolver: nền tảng không hỗ trợ (Tiki)
+    //    được đánh `failed` chứ KHÔNG còn `completed` giả.
     // ─────────────────────────────────────────────────────────────
     public function test_fast_mode_flag_is_ignored_for_non_shopee_urls(): void
     {
@@ -418,10 +420,13 @@ class FastModeTest extends TestCase
             'fast_mode'    => 1,
         ]);
 
-        $response->assertStatus(200);
+        $response->assertStatus(422);
         $this->assertNull($response->json('fast_mode'));
         $this->assertNull($response->json('shopeedirect_url'));
-        $this->assertSame('completed', LinkRequest::first()->status);
+
+        $link = LinkRequest::first();
+        $this->assertSame('failed', $link->status);
+        $this->assertNull($link->affiliate_url);
     }
 
     // ─────────────────────────────────────────────────────────────

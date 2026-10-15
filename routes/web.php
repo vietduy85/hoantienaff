@@ -1,6 +1,8 @@
 <?php
 
+use App\Http\Controllers\Admin\AccessTradeConfigController;
 use App\Http\Controllers\Admin\AffiliateConfigController;
+use App\Http\Controllers\Admin\AffiliateDetectRuleController;
 use App\Http\Controllers\Admin\AffiliateShortLinkController;
 use App\Http\Controllers\Admin\CreditCard\PolicyMccAdminController;
 use App\Http\Controllers\Admin\CreditCard\SpendQualificationAdminController;
@@ -19,6 +21,7 @@ use App\Http\Controllers\Api\PriceComparisonController;
 use App\Http\Controllers\Auth\CheckUsernameController;
 use App\Http\Controllers\Auth\CompleteProfileController;
 use App\Http\Controllers\Auth\GoogleController;
+use App\Http\Controllers\CreditCard\AnnualFeeController;
 use App\Http\Controllers\CreditCard\CategoryComboController;
 use App\Http\Controllers\CreditCard\CategoryController;
 use App\Http\Controllers\CreditCard\CategoryRuleController;
@@ -217,6 +220,13 @@ Route::middleware('auth')->group(function () {
             Route::patch('/the/{userCard}/sao-ke/thanh-toan', [StatementController::class, 'updatePaymentForPeriod'])->name('statements.payment.update-period');
             Route::delete('/sao-ke/{statement}', [StatementController::class, 'destroy'])->name('statements.destroy');
 
+            // MỐC CHI TIÊU LŨY KẾ KỲ TRƯỚC của thẻ — phục vụ tab "Phí thường niên
+            // và chi tiêu tích lũy" ở trang Sao kê. Ghi có nhật ký (bảng
+            // `credit_card_cumulative_spend_updates`); quyền qua `UserCardPolicy::update`.
+            // KHÔNG phải nghiệp vụ sao kê nên đứng riêng, không nhét vào
+            // `statements.update`.
+            Route::patch('/the/{userCard}/chi-tieu-luy-ke', [AnnualFeeController::class, 'update'])->name('cumulative-spend.update');
+
             // Thiết lập CHUNG của user (nhắc thanh toán trước mấy ngày). Route phẳng
             // không có `{id}`: dòng thiết lập luôn thuộc `auth()->id()`, không bao
             // giờ chỉ định theo id trên URL nên không có policy và không có đường nào
@@ -336,6 +346,23 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
     Route::put('/affiliate-config', [AffiliateConfigController::class, 'update'])
         ->middleware('role:Admin')
         ->name('affiliate-config.update');
+
+    Route::post('/affiliate-config/rules', [AffiliateDetectRuleController::class, 'store'])
+        ->middleware('role:Admin')
+        ->name('affiliate-config.rules.store');
+    Route::put('/affiliate-config/rules/{rule}', [AffiliateDetectRuleController::class, 'update'])
+        ->middleware('role:Admin')
+        ->name('affiliate-config.rules.update');
+    Route::delete('/affiliate-config/rules/{rule}', [AffiliateDetectRuleController::class, 'destroy'])
+        ->middleware('role:Admin')
+        ->name('affiliate-config.rules.destroy');
+
+    Route::post('/affiliate-config/accesstrade', [AccessTradeConfigController::class, 'update'])
+        ->middleware('role:Admin')
+        ->name('affiliate-config.accesstrade.update');
+    Route::post('/affiliate-config/accesstrade/test', [AccessTradeConfigController::class, 'test'])
+        ->middleware('role:Admin')
+        ->name('affiliate-config.accesstrade.test');
 
     Route::get('/finance', [FinanceController::class, 'index'])
         ->middleware('permission:withdrawals.view')

@@ -70,6 +70,9 @@
                     // ngân hàng/policy/product. Sửa thẻ ⇒ nạp đúng hạn mức hiện tại.
                     'credit_limit' => $card->credit_limit,
                     'desired_spend' => $card->desired_spend,
+                    'annual_fee' => $card->annual_fee,
+                    'annual_fee_waiver_spend' => $card->annual_fee_waiver_spend,
+                    'next_annual_fee_date' => $card->next_annual_fee_date?->toDateString(),
                     'promotion_info' => $card->promotion_info,
                     'note' => $card->note,
                 ])
@@ -544,6 +547,42 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                         <p class="text-xs text-gray-500">Mục tiêu cá nhân của bạn, khác với hạn mức thẻ.</p>
                     </div>
 
+                    {{-- ═══ Phí thường niên ═══
+                         Cấu hình RIÊNG của thẻ (`credit_card_user_cards.annual_fee`,
+                         `annual_fee_waiver_spend`, `next_annual_fee_date`). Cả ba ô
+                         TUỲ CHỌN — để trống lưu `NULL`, không phải 0. Dữ liệu này để
+                         module "Phí thường niên" dùng về sau, hiện CHƯA tính toán gì. --}}
+                    <fieldset class="space-y-3 border-t border-gray-100 pt-4">
+                        <legend class="text-sm font-semibold text-gray-700">Phí thường niên</legend>
+
+                        <div class="space-y-1.5">
+                            <label for="cc-annual-fee" class="block text-sm font-semibold text-gray-700">Phí thường niên</label>
+                            <x-credit-card.money-input
+                                id="cc-annual-fee"
+                                expr="form.annual_fee"
+                                example="500000"
+                                class="w-full h-12 rounded-xl border-gray-300 text-base px-4 shadow-sm focus:border-emerald-500 focus:ring-emerald-500" />
+                            <p class="text-xs text-gray-500">Phí thường niên hằng năm của thẻ. Ví dụ: 500.000đ/năm. Để trống nếu chưa biết.</p>
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label for="cc-annual-fee-waiver-spend" class="block text-sm font-semibold text-gray-700">Chi tiêu cần đạt</label>
+                            <x-credit-card.money-input
+                                id="cc-annual-fee-waiver-spend"
+                                expr="form.annual_fee_waiver_spend"
+                                example="60000000"
+                                class="w-full h-12 rounded-xl border-gray-300 text-base px-4 shadow-sm focus:border-emerald-500 focus:ring-emerald-500" />
+                            <p class="text-xs text-gray-500">Tổng chi tiêu cần đạt để đáp ứng điều kiện miễn phí thường niên. Ví dụ: 60.000.000đ. Để trống nếu chưa biết.</p>
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label for="cc-next-annual-fee-date" class="block text-sm font-semibold text-gray-700">Ngày tính phí tiếp theo</label>
+                            <input id="cc-next-annual-fee-date" type="date" x-model="form.next_annual_fee_date"
+                                   class="w-full h-12 rounded-xl border-gray-300 text-base px-4 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                            <p class="text-xs text-gray-500">Ngày dự kiến ngân hàng tính phí thường niên tiếp theo. Để trống nếu chưa biết.</p>
+                        </div>
+                    </fieldset>
+
                     {{-- Khuyến mãi --}}
                     <div class="space-y-1.5">
                         <label for="cc-promo" class="block text-sm font-semibold text-gray-700">Thông tin khuyến mãi</label>
@@ -884,6 +923,9 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                     spending_deadline_day: '',
                     credit_limit: '',
                     desired_spend: '',
+                    annual_fee: '',
+                    annual_fee_waiver_spend: '',
+                    next_annual_fee_date: '',
                     promotion_info: '',
                     note: '',
                 };
@@ -1331,6 +1373,9 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                             spending_deadline_day: card.spending_deadline_day ?? '',
                             credit_limit: card.credit_limit ?? '',
                             desired_spend: card.desired_spend ?? '',
+                            annual_fee: card.annual_fee ?? '',
+                            annual_fee_waiver_spend: card.annual_fee_waiver_spend ?? '',
+                            next_annual_fee_date: card.next_annual_fee_date ?? '',
                             promotion_info: card.promotion_info ?? '',
                             note: card.note ?? '',
                         };
@@ -1497,6 +1542,9 @@ Cấu trúc một hộp duy nhất: header dính đáy trên + vùng cuộn gi�
                             spending_deadline_day: this.form.spending_deadline_day === '' ? null : this.form.spending_deadline_day,
                             credit_limit: this.form.credit_limit === '' ? null : this.form.credit_limit,
                             desired_spend: this.form.desired_spend === '' ? null : this.form.desired_spend,
+                            annual_fee: this.form.annual_fee === '' ? null : this.form.annual_fee,
+                            annual_fee_waiver_spend: this.form.annual_fee_waiver_spend === '' ? null : this.form.annual_fee_waiver_spend,
+                            next_annual_fee_date: this.form.next_annual_fee_date || null,
                             promotion_info: this.form.promotion_info || null,
                             note: this.form.note || null,
                         };

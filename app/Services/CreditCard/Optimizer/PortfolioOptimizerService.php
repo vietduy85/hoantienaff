@@ -99,6 +99,19 @@ class PortfolioOptimizerService
      */
     private const ACTIVATION_EPSILON = 0.001;
 
+    /**
+     * Số biến thể bỏ-qua-từng-nguồn tối đa khi bù ngưỡng tổng chi tối thiểu — giữ
+     * chi phí đánh giá hữu hạn mà vẫn tránh được nguồn filler gây hại.
+     */
+    private const TIER_FILL_SKIPS = 6;
+
+    /**
+     * Số vòng bù ngưỡng tổng chi tối thiểu liên tiếp tối đa (dừng sớm khi không
+     * còn cải thiện) — cho phép các kích hoạt bậc hai (bù ngưỡng này mở đường bù
+     * ngưỡng khác).
+     */
+    private const TIER_FILL_PASSES = 2;
+
     public function __construct(
         private readonly StatementPeriodService $periods,
         private readonly PolicyEngineService $engine,
@@ -107,6 +120,12 @@ class PortfolioOptimizerService
         private readonly OnlinePaymentEligibilityResolver $online,
         private readonly SpendingConditionAllocator $conditions,
     ) {}
+
+    /**
+     * Nhật ký quyết định của lần chạy hiện tại — TÁI TẠO ở đầu mỗi `run()` và
+     * gắn vào phương án tương ứng trong `optimize()`. Null khi không trong `run`.
+     */
+    private ?OptimizationAudit $audit = null;
 
     /** Chuẩn hoá số bản/sản phẩm về khoảng [1, MAX_COPIES_LIMIT]. */
     public static function clampCopies(int $copies): int
@@ -143,15 +162,17 @@ class PortfolioOptimizerService
         $plans = [];
 
         foreach ($configs as $config) {
-            $allocation = $this->run($candidates, $positiveMap, $singles, $amounts, $config);
+            $result = $this->run($candidates, $positiveMap, $singles, $amounts, $config);
 
-            if ($allocation === null) {
+            if ($result === null) {
                 continue;
             }
 
-            $plan = $this->planFrom($candidates, $allocation);
+            $plan = $this->planFrom($candidates, $result['allocation']);
 
             if ($plan !== null) {
+                $plan['audit'] = $result['audit']->entries();
+                $plan['excluded'] = $this->excludedCandidates($candidates, $plan, $amounts);
                 $plans[] = $plan;
             }
         }
@@ -173,7 +194,7 @@ class PortfolioOptimizerService
         $rendered = [];
 
         foreach ($distinct as $index => $plan) {
-            $rendered[] = $this->renderPlan($criterion, $plan, $index + 1, $categoryNames);
+            $rendered[] = $this->renderPlan($criterion, $plan, $index + 1, $categoryNames, $amounts, $candidates);
         }
 
         return [
@@ -666,13 +687,22 @@ class PortfolioOptimizerService
      * @param  array<string, array<int, array<string, mixed>>>  $singles
      * @param  array<int, int>  $amounts
      * @param  array{order: list<int>, criterion: string, prefer_owned: bool, prefer_market: bool, spread: bool}  $config
-     * @return array<string, array<int, int>>|null cardKey => (categoryId => amount)
+     * @return array{allocation: array<string, array<int, int>>, audit: OptimizationAudit}|null
      */
     private function run(array $candidates, array $positiveMap, array $singles, array $amounts, array $config): ?array
     {
         if ($candidates === []) {
             return null;
         }
+
+        $this->audit = new OptimizationAudit();
+        $this->audit->record([
+            'type' => OptimizationAudit::STEP_CANDIDATES,
+            'candidate_count' => count($candidates),
+            'category_count' => count($amounts),
+            'criterion' => $config['criterion'],
+            'prefer_owned' => (bool) $config['prefer_owned'],
+        ]);
 
         $allocation = [];
 
@@ -687,10 +717,26 @@ class PortfolioOptimizerService
             $bestKey = $this->bestSeedKey($config, $candidates, $positiveMap, $singles, $allocation, (int) $categoryId, $amount);
 
             if ($bestKey === null) {
+                $this->audit->record([
+                    'type' => OptimizationAudit::STEP_REJECT_CATEGORY,
+                    'category_id' => (int) $categoryId,
+                    'amount' => $amount,
+                    'reason' => 'no_positive_candidate',
+                ]);
+
                 continue;
             }
 
             $allocation[$bestKey][(int) $categoryId] = $amount;
+            $this->audit->record([
+                'type' => OptimizationAudit::STEP_SEED,
+                'category_id' => (int) $categoryId,
+                'amount' => $amount,
+                'card_key' => $bestKey,
+                'card_name' => $candidates[$bestKey]->name,
+                'is_owned' => $candidates[$bestKey]->isOwned,
+                'single' => $singles[$bestKey][(int) $categoryId] ?? null,
+            ]);
         }
 
         if ($allocation === []) {
@@ -731,7 +777,228 @@ class PortfolioOptimizerService
             }
         }
 
+        // Kích hoạt NGƯỠNG TỔNG CHI TỐI THIỂU của bậc (`tier.min_total_spend`):
+        // bù đủ ngưỡng bằng cách CHUYỂN chi tiêu hoàn thấp/0% từ nơi ít giá trị
+        // nhất sang thẻ còn thiếu, rồi cải thiện lại. Chỉ nhận khi tổng hoàn tiền
+        // THẬT cao hơn — nhờ đó chi tiêu hoàn thấp chỉ dùng để kích hoạt khi có lợi.
+        $best = $this->expandToTierMinimums($config, $candidates, $positiveMap, $singles, $amounts, $best, $evalCache);
+
+        // Danh mục KHÔNG được thẻ nào giữ → giữ lại chưa phân bổ (ghi nhật ký).
+        foreach ($amounts as $categoryId => $amount) {
+            $allocated = 0;
+
+            foreach ($best as $cats) {
+                $allocated += (int) ($cats[(int) $categoryId] ?? 0);
+            }
+
+            if ($allocated <= 0) {
+                $this->audit->record([
+                    'type' => OptimizationAudit::STEP_UNALLOCATED,
+                    'category_id' => (int) $categoryId,
+                    'amount' => (int) $amount,
+                    'reason' => 'không thẻ nào hoàn tiền cho danh mục này.',
+                ]);
+            }
+        }
+
+        $this->audit->record([
+            'type' => OptimizationAudit::STEP_FINAL,
+            'card_count' => count($best),
+            'allocated_total' => array_sum(array_map('array_sum', $best)),
+            'total_cashback' => $this->allocationValue($candidates, $best, $evalCache)['total'],
+        ]);
+
+        return ['allocation' => $best, 'audit' => $this->audit];
+    }
+
+    /**
+     * Bù đủ ngưỡng tổng chi tối thiểu cho từng thẻ còn thiếu. Với mỗi thẻ, thử
+     * một số phương án "chuyển filler" (tham lam theo lợi ích biên thấp nhất, kèm
+     * các biến thể bỏ-qua-từng-nguồn để tránh nguồn gây hại), cải thiện lại toàn
+     * bộ rồi chỉ nhận nếu tổng hoàn tiền tăng.
+     *
+     * @param  array<string, CardScaffold>  $candidates
+     * @param  array<string, array{any_all: bool, cats: array<int, true>}>  $positiveMap
+     * @param  array<string, array<int, array<string, mixed>>>  $singles
+     * @param  array<int, int>  $amounts
+     * @param  array<string, array<int, int>>  $allocation
+     * @param  array<string, array<string, CardScenario>>  $evalCache
+     * @return array<string, array<int, int>>
+     */
+    private function expandToTierMinimums(
+        array $config,
+        array $candidates,
+        array $positiveMap,
+        array $singles,
+        array $amounts,
+        array $allocation,
+        array &$evalCache,
+    ): array {
+        $best = $allocation;
+        $bestTotal = $this->allocationValue($candidates, $best, $evalCache)['total'];
+
+        for ($pass = 0; $pass < self::TIER_FILL_PASSES; $pass++) {
+            $improved = false;
+
+            foreach ($candidates as $key => $scaffold) {
+                $current = array_sum($best[$key] ?? []);
+                $need = null;
+
+                foreach ($scaffold->tiers as $tier) {
+                    $min = (float) $tier->min_total_spend;
+
+                    if ($min > $current) {
+                        $need = (int) round($min - $current);
+                        break;
+                    }
+                }
+
+                if ($need === null || $need <= 0) {
+                    continue;
+                }
+
+                $sources = $this->fillerSources($candidates, $positiveMap, $evalCache, $best, $key);
+
+                if ($sources === []) {
+                    continue;
+                }
+
+                $this->audit?->record([
+                    'type' => OptimizationAudit::STEP_TIER_FILL,
+                    'card_key' => $key,
+                    'card_name' => $scaffold->name,
+                    'current' => $current,
+                    'need' => $need,
+                    'source_count' => count($sources),
+                    'pass' => $pass,
+                ]);
+
+                $variants = [$this->fillFromSources($best, $key, $need, $sources)];
+                $skipLimit = min(count($sources), self::TIER_FILL_SKIPS);
+
+                for ($skip = 0; $skip < $skipLimit; $skip++) {
+                    $filtered = $sources;
+                    array_splice($filtered, $skip, 1);
+                    $variants[] = $this->fillFromSources($best, $key, $need, $filtered);
+                }
+
+                foreach ($variants as $working) {
+                    if ($working === null) {
+                        continue;
+                    }
+
+                    $working = $this->improveAllocation($config, $candidates, $positiveMap, $singles, $amounts, $working);
+                    $total = $this->allocationValue($candidates, $working, $evalCache)['total'];
+
+                    if ($total > $bestTotal + self::ACTIVATION_EPSILON) {
+                        $best = $working;
+                        $bestTotal = $total;
+                        $improved = true;
+                    }
+                }
+            }
+
+            if (! $improved) {
+                break;
+            }
+        }
+
         return $best;
+    }
+
+    /**
+     * Chuyển dần từ các `$sources` (đã xếp lợi ích biên tăng dần) sang thẻ `$key`
+     * cho tới khi bù đủ `$need` (giữ nguyên tổng mỗi danh mục). Trả `null` nếu
+     * không đủ nguồn để bù đủ ngưỡng.
+     *
+     * @param  array<string, array<int, int>>  $allocation
+     * @param  list<array{key: string, category: int, amount: int, rate: float}>  $sources
+     * @return array<string, array<int, int>>|null
+     */
+    private function fillFromSources(array $allocation, string $key, int $need, array $sources): ?array
+    {
+        $working = $allocation;
+        $moved = 0;
+
+        foreach ($sources as $source) {
+            if ($moved >= $need) {
+                break;
+            }
+
+            $from = $source['key'];
+            $cat = $source['category'];
+            $have = (int) ($working[$from][$cat] ?? 0);
+
+            if ($have <= 0) {
+                continue;
+            }
+
+            $take = min($have, $need - $moved);
+            $working[$from][$cat] = $have - $take;
+
+            if ($working[$from][$cat] <= 0) {
+                unset($working[$from][$cat]);
+            }
+
+            if (($working[$from] ?? []) === []) {
+                unset($working[$from]);
+            }
+
+            $working[$key][$cat] = (int) ($working[$key][$cat] ?? 0) + $take;
+            $moved += $take;
+        }
+
+        return $moved >= $need ? $working : null;
+    }
+
+    /**
+     * Nguồn "filler" để bù ngưỡng: mọi phần phân bổ trên thẻ KHÁC. Xếp theo thứ
+     * tự: (1) danh mục thẻ ĐÍCH có rule dương trước (để tiền rót vào hưởng ưu đãi
+     * ngay), (2) rồi lợi ích biên hiện tại TĂNG DẦN — nơi hoàn thấp nhất chuyển
+     * trước để chi phí cơ hội nhỏ nhất.
+     *
+     * @param  array<string, CardScaffold>  $candidates
+     * @param  array<string, array{any_all: bool, cats: array<int, true>}>  $positiveMap
+     * @param  array<string, array<string, CardScenario>>  $evalCache
+     * @param  array<string, array<int, int>>  $allocation
+     * @return list<array{key: string, category: int, amount: int, rate: float, target_positive: int}>
+     */
+    private function fillerSources(array $candidates, array $positiveMap, array &$evalCache, array $allocation, string $targetKey): array
+    {
+        $targetMap = $positiveMap[$targetKey] ?? ['any_all' => false, 'cats' => []];
+        $sources = [];
+
+        foreach ($allocation as $from => $cats) {
+            if ($from === $targetKey || ($cats ?? []) === []) {
+                continue;
+            }
+
+            $scenario = $this->cachedScenario($candidates, $evalCache, $from, $cats);
+
+            foreach ($cats as $categoryId => $amount) {
+                $amount = (int) $amount;
+
+                if ($amount <= 0) {
+                    continue;
+                }
+
+                $row = $scenario->perCategory[(int) $categoryId] ?? [];
+                $targetPositive = $this->isPositive($targetMap, (int) $categoryId) ? 0 : 1;
+
+                $sources[] = [
+                    'key' => $from,
+                    'category' => (int) $categoryId,
+                    'amount' => $amount,
+                    'rate' => (float) ($row['rate'] ?? 0.0),
+                    'target_positive' => $targetPositive,
+                ];
+            }
+        }
+
+        usort($sources, fn (array $a, array $b): int => [$a['target_positive'], $a['rate'], -$a['amount'], $a['category']]
+            <=> [$b['target_positive'], $b['rate'], -$b['amount'], $b['category']]);
+
+        return $sources;
     }
 
     /**
@@ -797,7 +1064,7 @@ class PortfolioOptimizerService
         $heldCounts = $this->heldCounts($allocation);
         $scoreOf = function (?string $key) use ($singles, $candidates, $heldCounts, $categoryId, $config): float {
             if ($key === null) {
-                return PHP_FLOAT_MIN;
+                return -INF;
             }
 
             return $this->preferScore(
@@ -810,10 +1077,15 @@ class PortfolioOptimizerService
         };
 
         $best = null;
-        $bestScore = PHP_FLOAT_MIN;
+        $bestScore = -INF;
+        $hasPositive = false;
 
         foreach ($candidates as $key => $scaffold) {
             $positive = $this->isPositive($positiveMap[$key], $categoryId);
+
+            if ($positive) {
+                $hasPositive = true;
+            }
 
             if ($config['prefer_owned'] && $scaffold->isOwned && ! $positive) {
                 // "Thẻ của tôi trước": thẻ riêng có thể nhận từng danh mục dù 0%.
@@ -826,6 +1098,12 @@ class PortfolioOptimizerService
                 $best = $key;
                 $bestScore = $score;
             }
+        }
+
+        // Danh mục không có thẻ nào hoàn > 0% (và không ưu tiên thẻ sở hữu): để
+        // nguyên CHƯA PHÂN BỔ thay vì dồn cả danh mục vào một thẻ hoàn 0%.
+        if (! $hasPositive && ! $config['prefer_owned']) {
+            return null;
         }
 
         return $best;
@@ -984,9 +1262,45 @@ class PortfolioOptimizerService
             return false;
         }
 
+        $beforeHolders = $this->categoryHolders($allocation, $categoryId);
         $allocation = $bestConfig['allocation'];
+        $afterHolders = $this->categoryHolders($allocation, $categoryId);
+
+        // Chỉ ghi khi TẬP THẺ GIỮ danh mục đổi (ý nghĩa: chuyển danh mục sang
+        // thẻ khác) — bỏ qua các điều chỉnh số tiền nhỏ trong cùng một thẻ để
+        // nhật ký không bị nhiễu bởi các vòng rót nước nội bộ.
+        if (array_keys($beforeHolders) !== array_keys($afterHolders)) {
+            $this->audit?->record([
+                'type' => OptimizationAudit::STEP_REALLOCATE,
+                'category_id' => $categoryId,
+                'total' => $total,
+                'before' => $beforeHolders,
+                'after' => $afterHolders,
+            ]);
+        }
 
         return true;
+    }
+
+    /**
+     * Danh sách thẻ đang giữ một danh mục kèm số tiền, sắp theo thứ tự key.
+     *
+     * @param  array<string, array<int, int>>  $allocation
+     * @return array<string, int>
+     */
+    private function categoryHolders(array $allocation, int $categoryId): array
+    {
+        $holders = [];
+
+        foreach ($allocation as $key => $cats) {
+            $amount = (int) ($cats[$categoryId] ?? 0);
+
+            if ($amount > 0) {
+                $holders[$key] = $amount;
+            }
+        }
+
+        return $holders;
     }
 
     /**
@@ -1158,7 +1472,13 @@ class PortfolioOptimizerService
                     continue;
                 }
 
-                $chunk = $this->nextMarginalChunk($landmarks[$key], $assigned[$key], $delta);
+                $chunk = $this->nextMarginalChunk(
+                    $landmarks[$key]['points'],
+                    $landmarks[$key]['mins'],
+                    $assigned[$key],
+                    $delta,
+                    $total - $used,
+                );
                 $chunk = min($chunk, $total - $used);
 
                 if ($chunk <= 0) {
@@ -1197,16 +1517,18 @@ class PortfolioOptimizerService
             $used += $bestChunk;
         }
 
-        // Bảo toàn ĐÚNG ngân sách danh mục: dồn phần dư vào ứng viên cho lợi ích
-        // biên cao nhất ở phần dư; nếu mọi ứng viên đều 0 (danh mục không thẻ nào
-        // hoàn) vẫn phải cấp để không mất khoản chi — đúng ngữ nghĩa hiện hành.
+        // Chỉ gán phần ngân sách dư khi nó THỰC SỰ làm tăng hoàn tiền (thường là
+        // để chạm ngưỡng tối thiểu/điều kiện của một thẻ). Nếu mọi ứng viên đều
+        // 0%, GIỮ LẠI phần dư như "chưa phân bổ" thay vì dồn vào thẻ hoàn thấp.
         if ($used < $total) {
             $remainder = $total - $used;
-            $dumpKey = $this->bestRemainderKey(
+            $dump = $this->bestRemainderKey(
                 $candidates, $evalCache, $shortlist, $base, $assigned, $categoryId, $remainder,
             );
 
-            $assigned[$dumpKey] += $remainder;
+            if ($dump['gain'] > self::ACTIVATION_EPSILON) {
+                $assigned[$dump['key']] += $remainder;
+            }
         }
 
         foreach ($assigned as $key => $amount) {
@@ -1219,14 +1541,26 @@ class PortfolioOptimizerService
     }
 
     /**
-     * Bước kế tiếp cho một ứng viên: bám MỐC gần nhất KHÔNG vượt quá
-     * `$current + $delta` để không nhảy qua trần; nếu không có mốc nào thì đi đúng
-     * một `$delta`.
+     * Bước kế tiếp cho một ứng viên. Ưu tiên NHẢY THẲNG tới ngưỡng tổng chi tối
+     * thiểu (tier `min_total_spend`) gần nhất nếu còn dưới ngưỡng — vì chi tiêu
+     * dưới ngưỡng KHÔNG sinh hoàn nên phải nhảy qua, ngay cả khi khoảng nhảy lớn
+     * hơn `$delta`. Khi đã ở trên ngưỡng (hoặc không có ngưỡng) thì bám MỐC gần
+     * nhất KHÔNG vượt quá `$current + $delta` để không nhảy qua trần; nếu không có
+     * mốc nào thì đi đúng một `$delta`.
      *
      * @param  list<int>  $landmarks  danh sách mốc TĂNG DẦN
+     * @param  list<int>  $mins  danh sách ngưỡng tối thiểu TĂNG DẦN
      */
-    private function nextMarginalChunk(array $landmarks, int $current, int $delta): int
+    private function nextMarginalChunk(array $landmarks, array $mins, int $current, int $delta, int $available): int
     {
+        foreach ($mins as $min) {
+            if ($min > $current) {
+                $need = $min - $current;
+
+                return $need <= $available ? $need : $delta;
+            }
+        }
+
         $ceiling = $current + $delta;
 
         foreach ($landmarks as $landmark) {
@@ -1243,13 +1577,19 @@ class PortfolioOptimizerService
      * mục, trần kỳ của bậc, ngưỡng bậc) cộng các mốc 25/50/75%/toàn phần. Mốc chỉ
      * là ĐIỂM KHỞI ĐẦU để tìm kiếm — số hoàn thực vẫn do evaluator xác nhận.
      *
+     * Trả về:
+     *   - `points`: các mốc chung (cắt dần theo `$delta`) để không nhảy qua trần.
+     *   - `mins`: các NGƯỠNG tổng chi tối thiểu của bậc (đã trừ phần danh mục khác
+     *     thẻ đang giữ) mà bộ rót nước phải NHẢY thẳng tới khi còn dưới ngưỡng.
+     *
      * @param  array<string, mixed>  $single
      * @param  array<int, int>  $baseCats  danh mục khác thẻ đang giữ (để suy ngưỡng bậc)
-     * @return list<int>
+     * @return array{points: list<int>, mins: list<int>}
      */
     private function marginalLandmarks(CardScaffold $scaffold, array $single, array $baseCats, int $categoryId, int $total): array
     {
         $points = [$total];
+        $mins = [];
 
         $percent = (float) ($single['percent'] ?? 0.0);
         $rate = $percent / 100.0;
@@ -1279,7 +1619,12 @@ class PortfolioOptimizerService
             $min = (float) $tier->min_total_spend;
 
             if ($min > $baseSpend) {
-                $points[] = (int) round($min - $baseSpend);
+                $need = (int) round($min - $baseSpend);
+                $points[] = $need;
+
+                if ($need > 0 && $need <= $total) {
+                    $mins[$need] = true;
+                }
             }
         }
 
@@ -1302,7 +1647,10 @@ class PortfolioOptimizerService
             $list = $this->thinLandmarks($list, self::LANDMARK_LIMIT);
         }
 
-        return $list;
+        $minList = array_keys($mins);
+        sort($minList);
+
+        return ['points' => $list, 'mins' => $minList];
     }
 
     /**
@@ -1327,14 +1675,16 @@ class PortfolioOptimizerService
     }
 
     /**
-     * Ứng viên nhận phần ngân sách dư: lợi ích biên cao nhất; khi mọi ứng viên đều
-     * không tăng hoàn, trả ứng viên đầu shortlist để bảo toàn khoản chi.
+     * Ứng viên nhận phần ngân sách dư: lợi ích biên cao nhất, kèm mức tăng hoàn
+     * tiền tương ứng. Khi mọi ứng viên đều không tăng hoàn (gain 0) thì trả về
+     * ứng viên đầu shortlist với gain = 0 — để bên gọi biết mà GIỮ LẠI khoản dư.
      *
      * @param  array<string, CardScaffold>  $candidates
      * @param  array<string, array<string, CardScenario>>  $evalCache
      * @param  list<string>  $shortlist
      * @param  array<string, array<int, int>>  $base
      * @param  array<string, int>  $assigned
+     * @return array{key: string, gain: float}
      */
     private function bestRemainderKey(
         array $candidates,
@@ -1344,7 +1694,7 @@ class PortfolioOptimizerService
         array $assigned,
         int $categoryId,
         int $remainder,
-    ): string {
+    ): array {
         $best = $shortlist[0];
         $bestGain = -1.0;
 
@@ -1359,7 +1709,7 @@ class PortfolioOptimizerService
             }
         }
 
-        return $best;
+        return ['key' => $best, 'gain' => max(0.0, $bestGain)];
     }
 
     /**
@@ -1481,6 +1831,10 @@ class PortfolioOptimizerService
                 }
 
                 break;
+        }
+
+        if (abs($delta) > 1e-9) {
+            return $delta > 0.0;
         }
 
         return $aMetrics['total'] > $bMetrics['total'];
@@ -1620,23 +1974,39 @@ class PortfolioOptimizerService
                 continue;
             }
 
-            // Đánh giá theo phân bổ THÔ để bậc/min-spend đúng (tổng chi quyết định
-            // bậc). Với thẻ Cake Freedom, chỉ CẮT phần HIỂN THỊ về ngân sách hữu
-            // dụng (trần danh mục / tỷ lệ) — hoàn tiền đã được evaluator mô phỏng.
+            // Đánh giá theo phân bổ THÔ (tổng chi quyết định bậc/min-spend). Phân
+            // bổ HIỂN THỊ phải đúng bằng phân bổ đã được evaluator chấm điểm —
+            // KHÔNG cắt bớt riêng cho hiển thị (nếu cắt, phần bị ẩn trông như
+            // "chưa phân bổ" dù evaluator đã dùng nó để đạt điều kiện).
             $scenario = $this->cachedScenario($candidates, $evalCache, $key, $cats);
 
             if ($scenario->scenarioReason !== null) {
                 continue;
             }
 
-            $display = CakeFreedomRule::clampAllocation($candidates[$key], $cats);
+            // Bỏ phần chi tiêu CHỈ hưởng ưu đãi "các danh mục còn lại" (fallback)
+            // mà không phục vụ kích hoạt ngưỡng tổng chi tối thiểu: phần dư đó để
+            // CHƯA PHÂN BỔ thay vì dồn vào thẻ hoàn thấp cho "hết ngân sách".
+            $pruned = $this->pruneUnneededFallback(
+                $candidates[$key],
+                $cats,
+                $scenario->tierMinTotalSpend === null ? null : (float) $scenario->tierMinTotalSpend,
+            );
 
-            if ($display === []) {
+            if ($this->serializeAllocation($pruned) !== $this->serializeAllocation($cats)) {
+                $scenario = $this->cachedScenario($candidates, $evalCache, $key, $pruned);
+
+                if ($scenario->scenarioReason !== null) {
+                    continue;
+                }
+            }
+
+            if ($pruned === []) {
                 continue;
             }
 
             $scenarios[$key] = $scenario;
-            $clean[$key] = $display;
+            $clean[$key] = $pruned;
             $total += (float) $scenario->totalCashback;
             $minSpendScore += $scenario->tierMinTotalSpend === null
                 ? 0.0
@@ -1664,6 +2034,131 @@ class PortfolioOptimizerService
             'min_spend_score' => $minSpendScore,
             'fingerprint' => $this->fingerprint($clean),
         ];
+    }
+
+    /**
+     * Giới hạn phần chi tiêu CÒN SINH THÊM HOÀN trên một danh mục của thẻ:
+     *   - null  ⇒ không suy được/không giới hạn (giữ nguyên phần đã gán).
+     *   - 0.0   ⇒ danh mục chỉ hưởng ưu đãi "các danh mục còn lại" (fallback):
+     *             không mang lại lợi ích trực tiếp, chỉ hữu ích để kích hoạt.
+     *   - > 0   ⇒ trần hữu dụng (chỉ với Cake: trần danh mục / tỷ lệ).
+     *
+     * Với thẻ KHÔNG phải Cake, phân bổ được giữ nguyên như hành vi hiện hành
+     * (trần danh mục chỉ chặn HOÀN TIỀN, không cắt phần hiển thị).
+     */
+    private function cashbackCapacity(CardScaffold $scaffold, int $categoryId): ?float
+    {
+        $scope = $this->ruleScopeForCategory($scaffold, $categoryId);
+
+        if ($scope === 'other') {
+            return 0.0;
+        }
+
+        if ($scope === 'specific' && CakeFreedomRule::appliesTo($scaffold)) {
+            return CakeFreedomRule::budgetCapForCategory($scaffold, $categoryId);
+        }
+
+        return null;
+    }
+
+    /**
+     * Cắt phần chi tiêu VƯỢT khả năng sinh hoàn và KHÔNG phục vụ kích hoạt ngưỡng
+     * tổng chi tối thiểu của thẻ. Phần dư đó trả về ngân sách CHƯA PHÂN BỔ.
+     *
+     * Quy tắc (không dùng ngưỡng % cứng):
+     *   - Danh mục có capacity null ⇒ giữ nguyên.
+     *   - Danh mục có capacity > 0 (Cake) ⇒ giữ `min(số gán, capacity)`; phần vượt
+     *     chỉ được giữ nếu cần để đạt ngưỡng kích hoạt.
+     *   - Danh mục chỉ có fallback (capacity 0) ⇒ chỉ giữ phần cần cho ngưỡng.
+     *
+     * @param  array<int, int>  $cats
+     * @return array<int, int>
+     */
+    private function pruneUnneededFallback(CardScaffold $scaffold, array $cats, ?float $tierMin): array
+    {
+        $useful = 0.0;
+        $excess = [];
+
+        foreach ($cats as $categoryId => $amount) {
+            $amount = (int) $amount;
+
+            if ($amount <= 0) {
+                unset($cats[$categoryId]);
+
+                continue;
+            }
+
+            $capacity = $this->cashbackCapacity($scaffold, (int) $categoryId);
+
+            if ($capacity === null) {
+                $useful += $amount;
+
+                continue;
+            }
+
+            $cap = (int) min($amount, (int) round($capacity));
+            $cats[$categoryId] = $cap;
+            $useful += $cap;
+
+            if ($amount > $cap) {
+                $excess[(int) $categoryId] = $amount - $cap;
+            }
+        }
+
+        if ($excess === []) {
+            return array_filter($cats, fn (int $amount): bool => $amount > 0);
+        }
+
+        $required = (int) max(0.0, (float) ($tierMin ?? 0.0) - $useful);
+
+        foreach ($excess as $categoryId => $extra) {
+            if ($required <= 0) {
+                break;
+            }
+
+            $take = min($extra, $required);
+            $cats[$categoryId] += $take;
+            $required -= $take;
+        }
+
+        return array_filter($cats, fn (int $amount): bool => $amount > 0);
+    }
+
+    /**
+     * Vai trò rule của một danh mục trên thẻ: `specific` (danh mục/cụm cụ thể),
+     * `other` (chỉ fallback "các danh mục còn lại"), hoặc `none` (không rule).
+     */
+    private function ruleScopeForCategory(CardScaffold $scaffold, int $categoryId): string
+    {
+        $hasOther = false;
+
+        foreach ($scaffold->allEnabledRules as $rule) {
+            if ((float) ($rule['cashback_percent'] ?? 0.0) <= 0.0) {
+                continue;
+            }
+
+            if (($rule['scope_type'] ?? 'category') === 'other') {
+                $hasOther = true;
+
+                continue;
+            }
+
+            $members = $rule['combo_category_ids'] ?? [];
+
+            if ($members !== []) {
+                if (in_array($categoryId, array_map('intval', $members), true)) {
+                    return 'specific';
+                }
+
+                continue;
+            }
+
+            if ((int) ($rule['category_id'] ?? 0) === $categoryId) {
+                return 'specific';
+            }
+        }
+
+        return $hasOther ? 'other' : 'none';
     }
 
     /**
@@ -1846,15 +2341,22 @@ class PortfolioOptimizerService
     /**
      * @param  array<string, mixed>  $plan
      * @param  array<int, string>  $categoryNames
+     * @param  array<int, int>  $amounts
+     * @param  array<string, CardScaffold>  $candidates
      * @return array<string, mixed>
      */
-    private function renderPlan(string $criterion, array $plan, int $rank, array $categoryNames): array
+    private function renderPlan(string $criterion, array $plan, int $rank, array $categoryNames, array $amounts, array $candidates): array
     {
         $cards = [];
         $allocatedTotal = 0.0;
         $uncertainTotal = 0.0;
         $ownedCards = 0;
         $newCards = 0;
+
+        // catId => list các phần phân bổ của danh mục đó vào từng thẻ.
+        $splitsByCategory = [];
+        // "Chi tiêu hoàn thấp" dùng để kích hoạt điều kiện/ngưỡng của thẻ (nhóm A).
+        $activationRows = [];
 
         // Đếm số bản mỗi sản phẩm trong phương án để gắn nhãn "— Thẻ N" khi trùng.
         $groupCounts = [];
@@ -1866,6 +2368,7 @@ class PortfolioOptimizerService
 
         foreach ($plan['allocation'] as $key => $cats) {
             $scenario = $plan['scenarios'][$key];
+            $scaffold = $candidates[$key] ?? null;
             $categories = [];
             $cardAllocated = 0.0;
 
@@ -1876,6 +2379,51 @@ class PortfolioOptimizerService
                 $displayName .= ' — Thẻ '.$scenario->instanceIndex;
             }
 
+            $cardSpend = (float) array_sum($cats);
+            $eligibleTotal = (float) ($scenario->totalEligibleSpend ?? $cardSpend);
+            $activationExcess = 0.0;
+
+            // Ngưỡng chi tiêu tối thiểu (theo policy live) để mở ưu đãi của thẻ.
+            $requiredMin = $scaffold === null ? 0.0 : $this->activationThreshold($scaffold);
+
+            if ($scaffold === null) {
+                [$nextTierLabel, $nextTierMin] = [null, null];
+            } else {
+                [$nextTierLabel, $nextTierMin] = $this->nextTierInfo($scaffold, $eligibleTotal);
+            }
+
+            $conditionShortfall = max(0.0, $requiredMin - $eligibleTotal);
+
+            if ($requiredMin <= 0.0) {
+                $conditionStatus = 'no_condition';
+            } elseif ($eligibleTotal + 0.001 >= $requiredMin) {
+                $conditionStatus = 'met';
+            } else {
+                $conditionStatus = 'not_met';
+            }
+
+            // Ngưỡng dùng cho nhóm "chi tiêu kích hoạt": nếu thẻ có ngưỡng kích
+            // hoạt rõ ràng thì dùng nó; nếu thẻ vốn sinh hoàn từ 0 nhưng cần đạt
+            // một BẬC (tier) để tăng tỷ lệ thì lấy mức min của bậc hiện tại.
+            $activationRowThreshold = $requiredMin > 0.0
+                ? $requiredMin
+                : (float) ($scenario->tierMinTotalSpend ?? 0.0);
+            $activationRowShortfall = max(0.0, $activationRowThreshold - $eligibleTotal);
+            $activationRowMet = $activationRowThreshold <= 0.0
+                || $eligibleTotal + 0.001 >= $activationRowThreshold;
+
+            // "Hoàn tiền nếu đạt điều kiện": khi chưa đạt, thử đánh giá thêm phần
+            // còn thiếu vào danh mục có tỷ lệ cao nhất của thẻ để ước tính.
+            $expectedCashback = (string) $scenario->totalCashback;
+
+            if ($conditionStatus === 'not_met' && $scaffold !== null && $conditionShortfall > 0.0) {
+                $estimated = $this->estimateCashbackWhenReached($scaffold, $cats, $scenario, (int) ceil($conditionShortfall));
+
+                if ($estimated !== null) {
+                    $expectedCashback = $estimated;
+                }
+            }
+
             foreach ($cats as $categoryId => $amount) {
                 if ((int) $amount <= 0) {
                     continue;
@@ -1883,6 +2431,8 @@ class PortfolioOptimizerService
 
                 $row = $scenario->perCategory[(int) $categoryId] ?? [];
                 $eligible = (bool) ($row['eligible'] ?? false);
+                $cashback = (string) ($row['cashback'] ?? '0.00');
+                $categoryName = $categoryNames[(int) $categoryId] ?? ('Danh mục #'.(int) $categoryId);
 
                 $cardAllocated += (float) $amount;
                 $allocatedTotal += (float) $amount;
@@ -1895,15 +2445,59 @@ class PortfolioOptimizerService
 
                 $categories[] = [
                     'category_id' => (int) $categoryId,
-                    'category_name' => $categoryNames[(int) $categoryId] ?? ('Danh mục #'.(int) $categoryId),
+                    'category_name' => $categoryName,
                     'amount' => Decimal::money((string) $amount),
-                    'cashback' => (string) ($row['cashback'] ?? '0.00'),
+                    'cashback' => $cashback,
                     'rate' => (float) ($row['rate'] ?? 0.0),
                     'percent' => $row['percent'] ?? null,
                     'eligible' => $eligible,
                     'reason' => $row['reason'] ?? null,
                     'caps_applied' => $row['caps_applied'] ?? [],
                 ];
+
+                // Sổ phân bổ theo danh mục (dùng cho bảng "Phân bổ theo danh mục").
+                $splitsByCategory[(int) $categoryId][] = [
+                    'card_key' => $key,
+                    'card_name' => $displayName,
+                    'is_owned' => $scenario->isOwned,
+                    'amount' => Decimal::money((string) (int) $amount),
+                    'cashback' => $cashback,
+                    'eligible' => $eligible,
+                ];
+
+                // Nhóm A — chi tiêu KHÔNG sinh hoàn trực tiếp trên thẻ, dùng để
+                // chạm ngưỡng tổng chi tối thiểu (kích hoạt ưu đãi). Gồm cả khoản
+                // chỉ hưởng ưu đãi "các danh mục còn lại" (fallback) khi thẻ có
+                // ngưỡng, và khoản hoàn 0% nói chung.
+                $scopeRole = $scaffold === null ? 'none' : $this->ruleScopeForCategory($scaffold, (int) $categoryId);
+
+                // Phần vượt trần hoàn (ví dụ Cake quá 1.000.000/danh mục) vẫn được
+                // giữ nếu cần để đạt ngưỡng kích hoạt — nêu minh bạch, KHÔNG ẩn.
+                if ($scaffold !== null) {
+                    $capacity = $this->cashbackCapacity($scaffold, (int) $categoryId);
+
+                    if ($capacity !== null && $capacity > 0.0 && (float) $amount > $capacity) {
+                        $activationExcess += (float) $amount - $capacity;
+                    }
+                }
+
+                if ($scopeRole === 'other' || (float) $cashback <= 0.0) {
+                    $activationRows[] = [
+                        'category_id' => (int) $categoryId,
+                        'category_name' => $categoryName,
+                        'amount' => Decimal::money((string) (int) $amount),
+                        'card_key' => $key,
+                        'card_name' => $displayName,
+                        'is_owned' => $scenario->isOwned,
+                        'direct_percent' => $row['percent'] === null ? 0.0 : (float) $row['percent'],
+                        'condition' => $activationRowThreshold > 0.0
+                            ? ($scenario->tierLabel ?? ('Tổng chi tối thiểu '.Decimal::money((string) (int) round($activationRowThreshold))))
+                            : null,
+                        'shortfall' => Decimal::money((string) (int) round($activationRowShortfall)),
+                        'met' => $activationRowMet,
+                        'extra_cashback' => (string) $scenario->totalCashback,
+                    ];
+                }
             }
 
             if ($scenario->isOwned) {
@@ -1930,12 +2524,73 @@ class PortfolioOptimizerService
                 'simulated_transactions' => $scenario->simulatedTransactions,
                 'depends_on_splitting' => $scenario->dependsOnSplitting,
                 'depends_on_online' => $scenario->dependsOnOnline,
+                'spending_condition' => $this->spendingCondition(
+                    $scaffold,
+                    $displayName,
+                    $scenario,
+                    $cardSpend,
+                    $eligibleTotal,
+                    $requiredMin,
+                    $conditionShortfall,
+                    $conditionStatus,
+                    $nextTierLabel,
+                    $nextTierMin,
+                    $expectedCashback,
+                    $activationExcess,
+                ),
                 'categories' => $categories,
             ];
         }
 
         usort($cards, fn (array $a, array $b): int => [(float) $b['total_cashback'], (int) $b['is_owned']]
             <=> [(float) $a['total_cashback'], (int) $a['is_owned']]);
+
+        // Bảng phân bổ theo danh mục (giữ thứ tự danh mục người dùng nhập).
+        $categoryBreakdown = [];
+        // Nhóm B — ngân sách danh mục CHƯA được gán vào thẻ nào.
+        $unallocatedRows = [];
+        $unallocatedTotal = 0.0;
+
+        foreach ($amounts as $categoryId => $budget) {
+            $categoryId = (int) $categoryId;
+            $budget = (float) $budget;
+            $splits = $splitsByCategory[$categoryId] ?? [];
+            $allocated = 0.0;
+            $cashback = 0.0;
+
+            foreach ($splits as $split) {
+                $allocated += (float) $split['amount'];
+                $cashback += (float) $split['cashback'];
+            }
+
+            $unallocated = max(0.0, $budget - $allocated);
+            $categoryName = $categoryNames[$categoryId] ?? ('Danh mục #'.$categoryId);
+
+            $categoryBreakdown[] = [
+                'category_id' => $categoryId,
+                'category_name' => $categoryName,
+                'budget' => Decimal::money((string) (int) $budget),
+                'allocated' => Decimal::money((string) (int) $allocated),
+                'unallocated' => Decimal::money((string) (int) $unallocated),
+                'cashback' => Decimal::money(number_format($cashback, 2, '.', '')),
+                'rate' => $this->rate($cashback, $allocated),
+                'splits' => $splits,
+            ];
+
+            if ($unallocated > 0.5) {
+                $unallocatedTotal += $unallocated;
+
+                $unallocatedRows[] = [
+                    'category_id' => $categoryId,
+                    'category_name' => $categoryName,
+                    'amount' => Decimal::money((string) (int) $unallocated),
+                    'expected_cashback' => '0.00',
+                    'reason' => $splits === []
+                        ? 'Không có thẻ nào hoàn tiền cho danh mục này.'
+                        : 'Phần vượt trần/quota của các thẻ hoàn tiền hiện có.',
+                ];
+            }
+        }
 
         $totalCashback = Decimal::money(number_format((float) $plan['total'], 2, '.', ''));
         $totalInput = (float) array_sum(array_merge(...array_values($plan['allocation'])));
@@ -1947,11 +2602,19 @@ class PortfolioOptimizerService
             'total_cashback' => $totalCashback,
             'total_rate' => $this->rate($plan['total'], $totalInput),
             'total_allocated' => Decimal::money((string) (int) $allocatedTotal),
+            'unallocated_total' => Decimal::money((string) (int) $unallocatedTotal),
             'uncertain_total' => Decimal::money((string) (int) $uncertainTotal),
             'owned_cards' => $ownedCards,
             'new_cards' => $newCards,
             'criterion' => $criterion,
+            'category_breakdown' => $categoryBreakdown,
+            'low_rate_spend' => [
+                'activation' => $activationRows,
+                'unallocated' => $unallocatedRows,
+            ],
             'cards' => $cards,
+            'excluded_candidates' => $plan['excluded'] ?? [],
+            'audit' => $this->renderAudit($plan['audit'] ?? [], $categoryNames, $candidates),
         ];
     }
 
@@ -1963,6 +2626,420 @@ class PortfolioOptimizerService
         $totalInput = array_sum($cats);
 
         return $this->rate((float) $cashback, $totalInput);
+    }
+
+    /**
+     * Ngưỡng chi tiêu ĐỦ ĐIỀU KIỆN tối thiểu để mở ưu đãi hoàn tiền của thẻ,
+     * theo policy live: lấy mức cao nhất giữa vạch min-spend của version và
+     * `min_total_spend` của bậc THẤP NHẤT có rule hoàn tiền dương (bậc kích hoạt).
+     * Trả 0 khi thẻ không có điều kiện tối thiểu.
+     */
+    private function activationThreshold(CardScaffold $scaffold): float
+    {
+        $threshold = max(0.0, $scaffold->minTotalSpend);
+        $lowest = null;
+
+        foreach ($scaffold->tiers as $tier) {
+            if (! $this->tierHasPositiveRule($scaffold, (int) $tier->id)) {
+                continue;
+            }
+
+            $tierMin = (float) $tier->min_total_spend;
+
+            // Bậc ĐẦU TIÊN sinh hoàn: nếu có bậc hoàn tiền ngay từ mức 0 thì thẻ
+            // không có ngưỡng kích hoạt riêng (ngoài min-spend của version).
+            if ($tierMin <= 0.0) {
+                $lowest = 0.0;
+
+                break;
+            }
+
+            $lowest = $lowest === null ? $tierMin : min($lowest, $tierMin);
+        }
+
+        if ($lowest !== null) {
+            $threshold = max($threshold, $lowest);
+        }
+
+        return $threshold;
+    }
+
+    private function tierHasPositiveRule(CardScaffold $scaffold, int $tierId): bool
+    {
+        foreach ($scaffold->rulesByTier[$tierId] ?? [] as $rule) {
+            if ((float) ($rule['cashback_percent'] ?? 0.0) > 0.0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Bậc kế tiếp (mức min lớn hơn chi tiêu đủ điều kiện hiện tại) + nhãn bậc
+     * hiện tại. Dùng cho mục "điều kiện chi tiêu và trạng thái kích hoạt".
+     *
+     * @return array{0: ?string, 1: ?float}
+     */
+    private function nextTierInfo(CardScaffold $scaffold, float $eligibleTotal): array
+    {
+        $next = null;
+
+        foreach ($scaffold->tiers as $tier) {
+            $tierMin = (float) $tier->min_total_spend;
+
+            if ($tierMin <= $eligibleTotal + 0.001) {
+                continue;
+            }
+
+            if ($next === null || $tierMin < $next) {
+                $next = $tierMin;
+            }
+        }
+
+        return [$next === null ? null : $this->tierLabelForThreshold($scaffold, $next), $next];
+    }
+
+    private function tierLabelForThreshold(CardScaffold $scaffold, float $min): ?string
+    {
+        foreach ($scaffold->tiers as $tier) {
+            if (abs((float) $tier->min_total_spend - $min) < 0.001) {
+                return $tier->name;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Ước tính hoàn tiền của thẻ nếu ĐẠT ngưỡng: cộng phần còn thiếu vào danh mục
+     * có tỷ lệ cao nhất đang có trên thẻ, rồi đánh giá lại. Trả null nếu không ước
+     * tính được (thẻ không có danh mục hợp lệ).
+     *
+     * @param  array<int, int>  $cats
+     */
+    private function estimateCashbackWhenReached(
+        CardScaffold $scaffold,
+        array $cats,
+        CardScenario $scenario,
+        int $shortfall,
+    ): ?string {
+        if ($shortfall <= 0) {
+            return null;
+        }
+
+        $bestCat = null;
+        $bestPercent = -1.0;
+
+        foreach ($cats as $categoryId => $amount) {
+            $percent = (float) ($scenario->perCategory[(int) $categoryId]['percent'] ?? 0.0);
+
+            if ($percent > $bestPercent) {
+                $bestPercent = $percent;
+                $bestCat = (int) $categoryId;
+            }
+        }
+
+        if ($bestCat === null) {
+            return null;
+        }
+
+        $bumped = $cats;
+        $bumped[$bestCat] = (int) $bumped[$bestCat] + $shortfall;
+
+        $estimated = $this->evaluator->evaluate($scaffold, $bumped);
+
+        return $estimated->scenarioReason === null ? (string) $estimated->totalCashback : null;
+    }
+
+    /**
+     * Một dòng điều kiện chi tiêu: ngưỡng, thực tế, còn thiếu/vượt, trạng thái.
+     *
+     * @return array<string, mixed>
+     */
+    private function conditionRow(
+        string $type,
+        string $label,
+        float $required,
+        float $actual,
+        bool $met,
+        ?string $note = null,
+    ): array {
+        return [
+            'type' => $type,
+            'label' => $label,
+            'required' => Decimal::money((string) (int) round($required)),
+            'actual' => Decimal::money((string) (int) round($actual)),
+            'shortfall' => Decimal::money((string) (int) round(max(0.0, $required - $actual))),
+            'excess' => Decimal::money((string) (int) round(max(0.0, $actual - $required))),
+            'met' => $met,
+            'status' => $met ? 'met' : 'not_met',
+            'status_label' => $met ? 'Đã đạt' : 'Chưa đạt',
+            'note' => $note,
+        ];
+    }
+
+    /**
+     * Danh sách thẻ ỨNG VIÊN có "điều kiện hoàn tiền đặc biệt" nhưng KHÔNG xuất
+     * hiện trong phương án (thường vì chưa đạt điều kiện). Mỗi dòng nêu từng điều
+     * kiện còn thiếu và số tiền còn thiếu — nguồn cho mục "thẻ bị loại vì chưa
+     * đạt điều kiện" (§3) và cho nhật ký (§6). Đo trên phân bổ 0 (thẻ không được
+     * dùng trong phương án) nên phản ánh đúng trạng thái của phương án này.
+     *
+     * @param  array<string, CardScaffold>  $candidates
+     * @param  array<string, mixed>  $plan
+     * @param  array<int, int>  $amounts
+     * @return list<array<string, mixed>>
+     */
+    private function excludedCandidates(array $candidates, array $plan, array $amounts): array
+    {
+        $present = $plan['allocation'] ?? [];
+        $rows = [];
+
+        foreach ($candidates as $key => $scaffold) {
+            if (isset($present[$key]) || $scaffold->qualification === null) {
+                continue;
+            }
+
+            $summary = $this->evaluator->probeQualificationSummary($scaffold);
+
+            if ($summary === null || ($summary['conditions'] ?? []) === []) {
+                continue;
+            }
+
+            $conditions = [];
+            $unmet = false;
+
+            foreach ($summary['conditions'] as $condition) {
+                $met = (bool) ($condition['met'] ?? false);
+                $unmet = $unmet || ! $met;
+                $conditions[] = $this->conditionRow(
+                    type: ($condition['type'] ?? 'category') === 'other' ? 'special_other' : 'special_category',
+                    label: (string) ($condition['label'] ?? 'Điều kiện đặc biệt'),
+                    required: (float) ($condition['min_spend'] ?? 0.0),
+                    actual: (float) ($condition['actual_spend'] ?? 0.0),
+                    met: $met,
+                    note: 'Đo trên chi tiêu thực tế của kỳ giả lập; thẻ không được phân bổ nên bằng 0.',
+                );
+            }
+
+            if (! $unmet) {
+                continue;
+            }
+
+            $rows[] = [
+                'card_key' => $key,
+                'card_name' => $scaffold->name,
+                'bank_name' => $scaffold->bankName,
+                'is_owned' => $scaffold->isOwned,
+                'status' => 'not_met',
+                'status_label' => 'Chưa đạt',
+                'reason' => 'Không được phân bổ vào thẻ này trong phương án nên chưa đạt điều kiện hoàn tiền đặc biệt.',
+                'conditions' => $conditions,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Gắn thông điệp người-đọc-được cho từng bước nhật ký, dùng tên danh mục và
+     * tên thẻ — KHÔNG đổi dữ liệu gốc của bước nào. Nguồn hiển thị cho khối
+     * "Nhật ký lựa chọn thẻ và phân bổ".
+     *
+     * @param  list<array<string, mixed>>  $entries
+     * @param  array<int, string>  $categoryNames
+     * @param  array<string, CardScaffold>  $candidates
+     * @return list<array<string, mixed>>
+     */
+    private function renderAudit(array $entries, array $categoryNames, array $candidates): array
+    {
+        // Gộp "reallocate": giữ bước CUỐI cùng cho mỗi danh mục (các vòng rót nước
+        // nội bộ sinh rất nhiều bước trung gian) — nhật ký nêu đích đến CUỐI cùng.
+        $lastRealloc = [];
+
+        foreach ($entries as $i => $entry) {
+            if (($entry['type'] ?? '') === OptimizationAudit::STEP_REALLOCATE) {
+                $lastRealloc[(int) ($entry['category_id'] ?? -1)] = $i;
+            }
+        }
+
+        $rendered = [];
+
+        foreach ($entries as $i => $entry) {
+            if (($entry['type'] ?? '') === OptimizationAudit::STEP_REALLOCATE
+                && ($lastRealloc[(int) ($entry['category_id'] ?? -1)] ?? null) !== $i) {
+                continue;
+            }
+
+            $entry['message'] = $this->auditMessage($entry, $categoryNames, $candidates);
+            $rendered[] = $entry;
+        }
+
+        return $rendered;
+    }
+
+    /**
+     * @param  array<string, mixed>  $entry
+     * @param  array<int, string>  $categoryNames
+     * @param  array<string, CardScaffold>  $candidates
+     */
+    private function auditMessage(array $entry, array $categoryNames, array $candidates): string
+    {
+        $type = (string) ($entry['type'] ?? '');
+        $category = $this->auditCategoryLabel($entry['category_id'] ?? null, $categoryNames);
+        $cardName = static fn (?string $key): string => $key === null
+            ? '—'
+            : (string) ($candidates[$key]->name ?? $key);
+        $holders = function (array $holders) use ($candidates): string {
+            $parts = [];
+
+            foreach ($holders as $key => $amount) {
+                $name = (string) ($candidates[$key]->name ?? $key);
+                $parts[] = $name.' '.Decimal::money((string) (int) $amount).'đ';
+            }
+
+            return $parts === [] ? 'không thẻ nào' : implode(', ', $parts);
+        };
+
+        return match ($type) {
+            OptimizationAudit::STEP_CANDIDATES => 'Bắt đầu: xét '.($entry['candidate_count'] ?? 0).' thẻ ứng viên cho '.($entry['category_count'] ?? 0).' danh mục (tiêu chí '.($entry['criterion'] ?? '').').',
+
+            OptimizationAudit::STEP_SEED => 'Gieo '.$category.' ('.Decimal::money((string) (int) ($entry['amount'] ?? 0)).'đ) vào '.$cardName($entry['card_key'] ?? null)
+                .($this->auditSinglePercent($entry) !== null ? ' — tỷ lệ danh nghĩa '.$this->auditSinglePercent($entry).'% cho cả danh mục.' : '.'),
+
+            OptimizationAudit::STEP_REJECT_CATEGORY => $category.' ('.Decimal::money((string) (int) ($entry['amount'] ?? 0)).'đ): không có thẻ hoàn > 0% → để CHƯA PHÂN BỔ.',
+
+            OptimizationAudit::STEP_REALLOCATE => 'Chuyển '.$category.' từ ['.$holders($entry['before'] ?? []).'] sang ['.$holders($entry['after'] ?? []).'].',
+
+            OptimizationAudit::STEP_TIER_FILL => 'Bù ngưỡng tổng chi cho '.$cardName($entry['card_key'] ?? null).': hiện '.Decimal::money((string) (int) ($entry['current'] ?? 0)).'đ, còn thiếu '.Decimal::money((string) (int) ($entry['need'] ?? 0)).'đ — xét '.($entry['source_count'] ?? 0).' nguồn chi tiêu hoàn thấp.',
+
+            OptimizationAudit::STEP_CONDITION_UNMET => 'Điều kiện chưa đạt ở '.$cardName($entry['card_key'] ?? null).' — '.($entry['reason'] ?? ''),
+
+            OptimizationAudit::STEP_UNALLOCATED => $category.': giữ '.Decimal::money((string) (int) ($entry['amount'] ?? 0)).'đ chưa phân bổ — '.($entry['reason'] ?? ''),
+
+            OptimizationAudit::STEP_FINAL => 'Phương án cuối: '.($entry['card_count'] ?? 0).' thẻ, phân bổ '.Decimal::money((string) (int) ($entry['allocated_total'] ?? 0)).'đ, tổng hoàn '.Decimal::money(number_format((float) ($entry['total_cashback'] ?? 0.0), 2, '.', '')).'đ.',
+
+            default => $type,
+        };
+    }
+
+    /**
+     * @param  array<int, string>  $categoryNames
+     */
+    private function auditCategoryLabel(mixed $categoryId, array $categoryNames): string
+    {
+        if ($categoryId === null) {
+            return 'Danh mục';
+        }
+
+        $id = (int) $categoryId;
+
+        return $categoryNames[$id] ?? ('Danh mục #'.$id);
+    }
+
+    /**
+     * @param  array<string, mixed>  $entry
+     */
+    private function auditSinglePercent(array $entry): ?float
+    {
+        $percent = $entry['single']['percent'] ?? null;
+
+        return $percent === null ? null : (float) $percent;
+    }
+
+    /**
+     * Khối "Điều kiện chi tiêu và trạng thái kích hoạt" của một thẻ.
+     *
+     * @return array<string, mixed>
+     */
+    private function spendingCondition(
+        ?CardScaffold $scaffold,
+        string $displayName,
+        CardScenario $scenario,
+        float $cardSpend,
+        float $eligibleTotal,
+        float $requiredMin,
+        float $shortfall,
+        string $status,
+        ?string $nextTierLabel,
+        ?float $nextTierMin,
+        string $expectedCashback,
+        float $activationExcess,
+    ): array {
+        $notes = [];
+
+        if ($scaffold !== null && CakeFreedomRule::appliesTo($scaffold) && $requiredMin > 0.0) {
+            $notes[] = 'Cần tối thiểu '.Decimal::money((string) (int) round($requiredMin)).'đ chi tiêu đủ điều kiện trong kỳ giả lập để kích hoạt hoàn tiền theo chính sách đang áp dụng.';
+        }
+
+        if ($activationExcess > 0.5) {
+            $notes[] = 'Trong tổng chi trên thẻ có '.Decimal::money((string) (int) round($activationExcess)).'đ vượt trần hoàn mỗi danh mục nhưng được GIỮ để đạt ngưỡng kích hoạt (không sinh thêm hoàn).';
+        }
+
+        if ($scenario->qualificationNotice !== null) {
+            $notes[] = $scenario->qualificationNotice;
+        }
+
+        // Trạng thái TỪNG điều kiện (không chỉ trạng thái tổng): ngưỡng bậc/chương
+        // trình + các điều kiện hoàn tiền đặc biệt (đo trên chi tiêu thực tế kỳ).
+        $conditions = [];
+
+        if ($requiredMin > 0.0) {
+            $conditions[] = $this->conditionRow(
+                type: 'tier_min',
+                label: 'Tổng chi tiêu tối thiểu theo chương trình'
+                    .($scenario->tierLabel !== null ? ' ('.$scenario->tierLabel.')' : ''),
+                required: $requiredMin,
+                actual: $eligibleTotal,
+                met: $status === 'met',
+                note: 'Ngưỡng mở ưu đãi hoàn tiền của thẻ theo chính sách đang áp dụng.',
+            );
+        }
+
+        foreach (($scenario->qualificationSummary['conditions'] ?? []) as $condition) {
+            $met = (bool) ($condition['met'] ?? false);
+            $conditions[] = $this->conditionRow(
+                type: ($condition['type'] ?? 'category') === 'other' ? 'special_other' : 'special_category',
+                label: (string) ($condition['label'] ?? 'Điều kiện đặc biệt'),
+                required: (float) ($condition['min_spend'] ?? 0.0),
+                actual: (float) ($condition['actual_spend'] ?? 0.0),
+                met: $met,
+                note: 'Điều kiện hoàn tiền đặc biệt (đo trên chi tiêu thực tế của kỳ giả lập).',
+            );
+        }
+
+        return [
+            'card_key' => $scenario->key,
+            'card_name' => $displayName,
+            'is_owned' => $scenario->isOwned,
+            'version_min_spend' => $scaffold === null || $scaffold->minTotalSpend <= 0.0
+                ? null
+                : Decimal::money((string) (int) round($scaffold->minTotalSpend)),
+            'required_min_spend' => $requiredMin <= 0.0
+                ? null
+                : Decimal::money((string) (int) round($requiredMin)),
+            'allocated_total' => Decimal::money((string) (int) round($cardSpend)),
+            'eligible_total' => Decimal::money((string) (int) round($eligibleTotal)),
+            'kept_above_cap' => Decimal::money((string) (int) round($activationExcess)),
+            'shortfall' => Decimal::money((string) (int) round($shortfall)),
+            'status' => $status,
+            'status_label' => match ($status) {
+                'met' => 'Đã đạt',
+                'not_met' => 'Chưa đạt',
+                default => 'Không có điều kiện',
+            },
+            'tier_label' => $scenario->tierLabel,
+            'tier_min' => $scenario->tierMinTotalSpend,
+            'next_tier_label' => $nextTierLabel,
+            'next_tier_min' => $nextTierMin === null
+                ? null
+                : Decimal::money((string) (int) round($nextTierMin)),
+            'expected_cashback' => $expectedCashback,
+            'current_cashback' => (string) $scenario->totalCashback,
+            'conditions' => $conditions,
+            'notes' => $notes,
+        ];
     }
 
     private function rate(float $cashback, float $amount): float

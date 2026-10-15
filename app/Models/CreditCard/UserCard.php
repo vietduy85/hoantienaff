@@ -33,6 +33,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string $name
  * @property string|null $card_number_last4
  * @property string|null $credit_limit
+ * @property string|null $annual_fee
+ * @property string|null $annual_fee_waiver_spend
+ * @property CarbonImmutable|null $next_annual_fee_date
+ * @property string|null $cumulative_spend_baseline
+ * @property CarbonImmutable|null $cumulative_spend_baseline_date
+ * @property string|null $cumulative_spend_note
  * @property int $statement_day
  * @property int $payment_due_day
  * @property int|null $spending_deadline_day
@@ -63,6 +69,12 @@ class UserCard extends CreditCardModel
         'name',
         'card_number_last4',
         'credit_limit',
+        'annual_fee',
+        'annual_fee_waiver_spend',
+        'next_annual_fee_date',
+        'cumulative_spend_baseline',
+        'cumulative_spend_baseline_date',
+        'cumulative_spend_note',
         'statement_day',
         'payment_due_day',
         'spending_deadline_day',
@@ -93,6 +105,11 @@ class UserCard extends CreditCardModel
             'bank_id' => 'integer',
             'credit_limit' => 'decimal:2',
             'desired_spend' => 'decimal:2',
+            'annual_fee' => 'decimal:2',
+            'annual_fee_waiver_spend' => 'decimal:2',
+            'next_annual_fee_date' => 'date',
+            'cumulative_spend_baseline' => 'decimal:2',
+            'cumulative_spend_baseline_date' => 'date',
             'statement_day' => 'integer',
             'payment_due_day' => 'integer',
             'spending_deadline_day' => 'integer',
@@ -190,6 +207,17 @@ class UserCard extends CreditCardModel
     public function transactions(): HasMany
     {
         return $this->hasMany(Transaction::class, 'user_card_id');
+    }
+
+    /**
+     * Nhật ký các lần user đổi MỐC CHI TIÊU LŨY KẾ KỲ TRƯỚC của thẻ này.
+     *
+     * CHỈ đọc để tra lịch sử — nguồn sự thật của con số hiện tại là cột
+     * `cumulative_spend_baseline` trên chính thẻ này.
+     */
+    public function cumulativeSpendUpdates(): HasMany
+    {
+        return $this->hasMany(CumulativeSpendUpdate::class, 'user_card_id');
     }
 
     public function isActive(): bool

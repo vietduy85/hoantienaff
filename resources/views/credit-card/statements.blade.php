@@ -54,7 +54,55 @@
         'sortStorageKey' => $sortStorageKey,
     ])
 
+    {{-- ═══ HAI TAB: SAO KÊ / PHÍ THƯỜNG NIÊN & TÍCH LŨY ═══
+         Tab là Alpine CLIENT-SIDE (đổi tab không tải trang, giữ cả danh sách lẫn ô
+         tìm kiếm). Cả hai pane render ở SERVER; `x-show` chỉ ẩn/hiện.
+         Không JS: pane Sao kê vẫn hiện (x-show vô hiệu khi Alpine chưa chạy), pane
+         phí có `x-cloak` nên ẩn — trang vẫn dùng được ở chế độ cũ.
+         Tab bar nằm TRONG slot trang, KHÔNG thuộc nav chính `credit-card.partials.tabs`
+         (nav đó được test đếm đúng 6 mục). --}}
+    <div x-data="{ ccTab: @js($activeTab) }"
+         class="space-y-3 sm:space-y-4"
+         data-testid="statements-tabs">
+
+        <div role="tablist"
+             aria-label="Nội dung trang Sao kê"
+             class="flex items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <button type="button" role="tab"
+                    id="statements-tab-statements"
+                    aria-controls="statements-panel-statements"
+                    data-testid="statements-tab-statements"
+                    :aria-selected="ccTab === 'statements' ? 'true' : 'false'"
+                    @click="ccTab = 'statements'"
+                    :class="{
+                        'bg-emerald-600 text-white border-emerald-600': ccTab === 'statements',
+                        'bg-white text-gray-600 border-gray-200 hover:bg-gray-50': ccTab !== 'statements',
+                    }"
+                    class="inline-flex items-center h-10 px-4 rounded-xl border text-sm font-semibold
+                           whitespace-nowrap transition-colors">
+                Sao kê
+            </button>
+            <button type="button" role="tab"
+                    id="statements-tab-fees"
+                    aria-controls="statements-panel-fees"
+                    data-testid="statements-tab-fees"
+                    :aria-selected="ccTab === 'fees' ? 'true' : 'false'"
+                    @click="ccTab = 'fees'"
+                    :class="{
+                        'bg-emerald-600 text-white border-emerald-600': ccTab === 'fees',
+                        'bg-white text-gray-600 border-gray-200 hover:bg-gray-50': ccTab !== 'fees',
+                    }"
+                    class="inline-flex items-center h-10 px-4 rounded-xl border text-sm font-semibold
+                           whitespace-nowrap transition-colors">
+                Phí thường niên và chi tiêu tích lũy
+            </button>
+        </div>
+
     <div x-data="creditCardStatements(@js(['urls' => $urls, 'reminderDays' => $reminderDays]))"
+         id="statements-panel-statements"
+         role="tabpanel"
+         aria-labelledby="statements-tab-statements"
+         x-show="ccTab === 'statements'"
          class="space-y-3 sm:space-y-4"
          {{-- `x-ref="cardList"` là container `ccCardSearchMatchCount` đọc để đếm dòng
               khớp — phải bọc đúng các dòng `data-testid="statement-row"`. --}}
@@ -578,6 +626,323 @@
              class="bg-white rounded-2xl shadow-sm border border-gray-100 px-4 py-10 text-center">
             <p class="text-sm text-gray-500">Không tìm thấy thẻ phù hợp</p>
         </div>
+    </div>
+
+    {{-- ═══ TAB 2: PHÍ THƯỜNG NIÊN & CHI TIÊU TÍCH LŨY ═══
+         Cùng danh sách thẻ + thứ tự sort với tab Sao kê, nhưng số liệu khác: cấu
+         hình phí thường niên (user khai ở Quản lý thẻ) + tiến độ lũy kế tới ngưỡng
+         miễn phí. Lọc tìm kiếm là CLIENT-SIDE, độc lập với tab Sao kê: ô tìm kiếm
+         riêng (`feeQuery`) vì ô của Sao kê gắn cứng `x-model="cardQuery"` (được test
+         bất biến đếm đúng một lần trên toàn trang).
+         `x-cloak` để pane không loé lên trước khi Alpine chạy; không JS thì ẩn, và
+         tab Sao kê vẫn dùng được như cũ. --}}
+    <div x-data="creditCardAnnualFees(@js(['url' => $cumulativeSpendUrl]))"
+         id="statements-panel-fees"
+         role="tabpanel"
+         aria-labelledby="statements-tab-fees"
+         x-show="ccTab === 'fees'"
+         x-cloak
+         class="space-y-4 sm:space-y-5"
+         data-testid="fees-panel"
+         {{-- Container để `ccCardSearchMatchCount` đếm dòng `fee-row` của RIÊNG
+              component này; `$refs` được Alpine scope theo component nên không đụng
+              `x-ref="cardList"` của pane Sao kê. --}}
+         x-ref="cardList">
+
+        @php $ccFeeSuffix = \App\Support\CreditCard\CreditCardMoneyFormatter::suffix(auth()->id() ?? null); @endphp
+
+        <div x-show="error" x-cloak class="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+            <p class="text-sm text-red-700 break-words" x-text="error"></p>
+        </div>
+
+        @if (count($feeRows) > 0)
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 min-w-0">
+                <label class="relative block">
+                    <span class="sr-only">Tìm thẻ tín dụng</span>
+                    <span class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                        <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                            <path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clip-rule="evenodd" />
+                        </svg>
+                    </span>
+                    <input type="search"
+                           inputmode="search"
+                           x-model="feeQuery"
+                           data-testid="fee-search-input"
+                           placeholder="Tìm tên thẻ hoặc ngân hàng..."
+                           class="w-full h-11 pl-10 pr-3 rounded-xl border border-gray-200 bg-white text-base sm:text-sm text-gray-800 placeholder:text-gray-400 focus:border-emerald-500 focus:ring-emerald-500">
+                </label>
+            </div>
+        @endif
+
+        @forelse ($feeRows as $fee)
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-3 sm:p-4 space-y-3 sm:space-y-4 min-w-0"
+                 data-testid="fee-row"
+                 data-card-id="{{ $fee['id'] }}"
+                 {{-- `data-card-search` cùng chuẩn với tab Sao kê để `feeMatches()` đọc
+                      thẳng attribute server in sẵn. --}}
+                 data-card-search="{{ mb_strtolower(\Illuminate\Support\Str::ascii(($fee['name'] ?: 'Thẻ tín dụng').' '.($fee['bank'] ?? ''))) }}"
+                 x-show="feeMatches($el)">
+
+                {{-- Nhãn mốc dùng chung cho khối thông tin và form: ngày lấy từ
+                     ngày chốt sao kê của kỳ trước (server suy), không phải ngày
+                     hiện tại. Chưa xác định được thì nói rõ, không bịa ngày. --}}
+                @php
+                    $ccBaselineLabel = $fee['baseline_date_label'] === null
+                        ? 'Chi tiêu lũy kế tính đến hết kỳ trước (chưa xác định ngày chốt sao kê kỳ trước)'
+                        : 'Chi tiêu lũy kế tính đến hết kỳ trước (đến ngày '.$fee['baseline_date_label'].')';
+
+                    // Tiến độ chỉ có nghĩa khi đã có mốc lũy kế VÀ ngưỡng dương
+                    // (server trả `progress_percent` = null khi thiếu). Thanh luôn
+                    // kẹp 0–100%; phần trăm chữ vẫn là số thật (có thể > 100).
+                    $ccHasProgress = $fee['progress_percent'] !== null;
+                    $ccPercentText = $ccHasProgress
+                        ? \App\Support\CreditCard\CreditCardPercentFormatter::text($fee['progress_percent'])
+                        : null;
+                    $ccBarWidth = $ccHasProgress ? min(100, max(0, (float) $fee['progress_percent'])) : 0;
+
+                    // Dòng "còn N ngày" giờ đặt NGAY DƯỚI tiến độ (không còn nằm
+                    // trong ô ngày tính phí). Lấy nguyên trạng thái + số ngày server
+                    // đã tính, chỉ chọn màu nhấn: hổ phách khi đến hạn / sắp đến hạn
+                    // (≤30 ngày), xanh đậm khi còn nhiều ngày, xám khi chưa rõ.
+                    $ccFeeStatus = $fee['next_annual_fee_status'];
+                    $ccFeeDays = $fee['next_annual_fee_days'];
+                    $ccFeeDaysClass = match (true) {
+                        $ccFeeStatus === 'today' => 'text-amber-700',
+                        $ccFeeStatus === 'upcoming' && $ccFeeDays !== null && $ccFeeDays <= 30 => 'text-amber-700',
+                        $ccFeeStatus === 'upcoming' => 'text-emerald-700',
+                        default => 'text-gray-500',
+                    };
+                @endphp
+
+                {{-- Phân cấp: tên thẻ là tiêu đề vùng, ngân hàng + 4 số cuối là phụ.
+                     Cho phép xuống dòng khi tên dài, không tràn ngang. --}}
+                <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 min-w-0">
+                    <span class="text-base font-semibold text-gray-900 break-words">{{ $fee['name'] }}</span>
+                    @if ($fee['bank'] !== null && $fee['bank'] !== '')
+                        <span class="text-xs text-gray-500 break-words">{{ $fee['bank'] }}</span>
+                    @endif
+                    @if ($fee['card_number_last4'] !== null && $fee['card_number_last4'] !== '')
+                        <span class="text-xs text-gray-400 tabular-nums">•••• {{ $fee['card_number_last4'] }}</span>
+                    @endif
+                </div>
+
+                {{-- Ba chỉ số cấu hình phí thường niên (user khai ở Quản lý thẻ). --}}
+                <dl class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div class="rounded-xl bg-gray-50 px-3 py-2 min-w-0">
+                        <dt class="text-[11px] text-gray-500">Phí thường niên</dt>
+                        <dd class="text-sm font-semibold text-gray-800 tabular-nums">
+                            @if ($fee['annual_fee'] === null)
+                                <span class="text-gray-400 font-normal">Chưa khai</span>
+                            @else
+                                <x-credit-card.money :value="$fee['annual_fee']" />
+                            @endif
+                        </dd>
+                    </div>
+                    <div class="rounded-xl bg-gray-50 px-3 py-2 min-w-0">
+                        <dt class="text-[11px] text-gray-500">Ngày tính phí tiếp theo</dt>
+                        <dd class="text-sm font-semibold text-gray-800 tabular-nums">
+                            @if ($fee['next_annual_fee_date'] === null)
+                                <span class="text-gray-400 font-normal">Chưa khai</span>
+                            @else
+                                <span>{{ \Carbon\CarbonImmutable::parse($fee['next_annual_fee_date'])->format('d/m/Y') }}</span>
+                            @endif
+                        </dd>
+                    </div>
+                    <div class="rounded-xl bg-gray-50 px-3 py-2 min-w-0">
+                        <dt class="text-[11px] text-gray-500">Ngưỡng để miễn phí</dt>
+                        <dd class="text-sm font-semibold text-gray-800 tabular-nums">
+                            @if ($fee['threshold'] === null)
+                                <span class="text-gray-400 font-normal">Chưa khai</span>
+                            @else
+                                <x-credit-card.money :value="$fee['threshold']" />
+                            @endif
+                        </dd>
+                    </div>
+                </dl>
+
+                {{-- KHU VỰC TIẾN ĐỘ nổi bật: TỔNG CHI TIÊU LŨY KẾ HIỆN TẠI trên ngưỡng
+                     cần đạt. Số liệu lấy nguyên từ server (`cumulative`, `threshold`);
+                     thiếu mốc hoặc ngưỡng ⇒ nói rõ "chưa đủ dữ liệu", KHÔNG vẽ tiến
+                     độ giả từ số 0. Thanh kẹp 0–100% kể cả khi vượt ngưỡng. --}}
+                <div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 sm:px-4 py-3.5 space-y-3">
+                    <p class="text-xs font-medium text-emerald-800/80">Chi tiêu lũy kế hiện tại / Chi tiêu cần đạt</p>
+
+                    {{-- Cặp số tiền khoá trên MỘT DÒNG: cỡ chữ tự co theo BỀ RỘNG của
+                         chính ô này (`cc-progress-amount` — xem resources/css/app.css),
+                         nên `71.950.098đ / 120.000.000đ` không bị xuống dòng ở mobile. --}}
+                    <div class="cc-progress-money">
+                        <p class="cc-progress-amount font-bold text-gray-900">
+                            @if ($fee['cumulative'] === null)
+                                <span class="text-base font-normal text-gray-400">Chưa đủ dữ liệu để tính</span>
+                            @else
+                                <x-credit-card.money :value="$fee['cumulative']" /><span class="mx-1 font-normal text-gray-300">/</span>@if ($fee['threshold'] === null)
+                                    <span class="text-base font-normal text-gray-400">Chưa khai ngưỡng</span>
+                                @else
+                                    <x-credit-card.money :value="$fee['threshold']" />
+                                @endif
+                            @endif
+                        </p>
+                    </div>
+
+                    <div class="space-y-2">
+                        {{-- Thanh tiến độ dày 12px, nền xám đủ tương phản, bo tròn hai đầu.
+                             Phần đã hoàn thành tô xanh lá; bề rộng kẹp 0–100% ở @php. --}}
+                        <div class="h-3 rounded-full bg-gray-200 overflow-hidden">
+                            <div class="h-full rounded-full bg-emerald-500 transition-all duration-300"
+                                 style="width: {{ $ccBarWidth }}%"></div>
+                        </div>
+
+                        <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm">
+                            @if (! $ccHasProgress)
+                                <span class="text-gray-500">Chưa đủ dữ liệu để tính tiến độ</span>
+                            @elseif ($fee['reached'])
+                                <span class="font-semibold text-emerald-700">Đã đạt ngưỡng chi tiêu</span>
+                                <span class="text-gray-500 tabular-nums">{{ $ccPercentText }}</span>
+                            @else
+                                <span class="font-semibold text-gray-800">Đạt {{ $ccPercentText }}</span>
+                                <span class="text-gray-500">
+                                    Còn
+                                    <span class="font-semibold text-gray-800 tabular-nums"><x-credit-card.money :value="$fee['remaining']" /></span>
+                                </span>
+                            @endif
+                        </div>
+
+                        {{-- Dòng 2: số ngày tới kỳ tính phí thường niên. Lấy NGUYÊN trạng
+                             thái + số ngày server đã tính; chỉ đổi màu nhấn, không tự
+                             tính lại ở JS. Còn xa ⇒ xanh; gần/đến hạn ⇒ hổ phách; mơ hồ ⇒ xám. --}}
+                        <p class="text-xs font-semibold {{ $ccFeeDaysClass }}">
+                            @if ($ccFeeStatus === 'upcoming')
+                                <span aria-hidden="true">⏳</span> Còn {{ $ccFeeDays }} ngày đến kỳ tính phí thường niên
+                            @elseif ($ccFeeStatus === 'today')
+                                Đến hạn tính phí thường niên hôm nay
+                            @elseif ($ccFeeStatus === 'past')
+                                Đã qua ngày tính phí thường niên
+                            @else
+                                Chưa khai báo ngày tính phí thường niên
+                            @endif
+                        </p>
+                    </div>
+                </div>
+
+                {{-- Chi tiết cấu thành con số lũy kế: chi tiêu KỲ NÀY + mốc KỲ TRƯỚC. --}}
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div class="rounded-xl bg-gray-50 px-3 py-2 min-w-0">
+                        <p class="text-[11px] text-gray-500">Chi tiêu kỳ hiện tại</p>
+                        <p class="text-base font-bold text-gray-800 tabular-nums">
+                            <x-credit-card.money :value="$fee['period_spend']" />
+                        </p>
+                        <p class="mt-0.5 text-[11px] text-gray-400 tabular-nums">
+                            Kỳ {{ $fee['period']['start_label'] }} – {{ $fee['period']['end_label'] }}
+                        </p>
+                    </div>
+                    <div class="rounded-xl bg-gray-50 px-3 py-2 min-w-0">
+                        <p class="text-[11px] text-gray-500">{{ $ccBaselineLabel }}</p>
+                        <p class="text-base font-bold text-gray-800 tabular-nums">
+                            @if ($fee['baseline'] === null)
+                                <span class="text-gray-400 font-normal">Chưa đặt</span>
+                            @else
+                                <x-credit-card.money :value="$fee['baseline']" />
+                            @endif
+                        </p>
+                        {{-- Nút cập nhật chi tiêu lũy kế đặt NGAY CẠNH số liệu mốc để
+                             người dùng hiểu nó sửa đúng giá trị này. Mỗi thẻ một nút,
+                             mở form của RIÊNG thẻ qua `openEdit(id)`. --}}
+                        <button type="button"
+                                data-testid="fee-edit-{{ $fee['id'] }}"
+                                @click="openEdit({{ $fee['id'] }})"
+                                :disabled="busyId === {{ $fee['id'] }}"
+                                class="mt-2 inline-flex h-9 w-full sm:w-auto items-center justify-center gap-1.5 px-3 rounded-lg
+                                       bg-emerald-50 text-xs font-semibold text-emerald-700 hover:bg-emerald-100
+                                       focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-1
+                                       disabled:opacity-50">
+                            <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                            </svg>
+                            Cập nhật chi tiêu lũy kế
+                        </button>
+                    </div>
+                </div>
+
+                <p class="text-[11px] text-gray-400">
+                    Tiến độ chỉ dựa trên số bạn tự khai và chi tiêu trong kỳ hiện tại. Việc miễn phí thường niên còn
+                    tuỳ chính sách ngân hàng (loại trừ một số loại giao dịch), nên con số này chỉ để tham khảo.
+                </p>
+
+                @if ($fee['note'] !== null && $fee['note'] !== '')
+                    <p class="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 whitespace-pre-line">{{ $fee['note'] }}</p>
+                @endif
+
+                <div x-show="openId === {{ $fee['id'] }}" x-cloak class="border-t border-gray-100 pt-3">
+                    <form @submit.prevent="save({{ $fee['id'] }})" novalidate class="space-y-3">
+                        <div>
+                            <label for="fee-baseline-{{ $fee['id'] }}"
+                                   class="block text-sm font-medium text-gray-700">
+                                {{ $ccBaselineLabel }} <span class="text-red-500">*</span>
+                            </label>
+                            <div class="relative">
+                                <input id="fee-baseline-{{ $fee['id'] }}" name="cumulative_spend_baseline"
+                                       type="text" inputmode="decimal" autocomplete="off"
+                                       value="{{ \App\Support\CreditCard\CreditCardMoneyFormatter::input($fee['baseline'], auth()->id() ?? null) }}"
+                                       :disabled="busyId === {{ $fee['id'] }}"
+                                       class="mt-1 w-full h-11 px-3 {{ $ccFeeSuffix !== '' ? 'pr-10 ' : '' }}rounded-xl border-gray-200 text-sm tabular-nums
+                                              focus:border-emerald-500 focus:ring-emerald-500"
+                                       :class="errors.cumulative_spend_baseline ? 'border-red-400' : ''">
+                                @if ($ccFeeSuffix !== '')
+                                    <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-gray-400">{{ $ccFeeSuffix }}</span>
+                                @endif
+                            </div>
+                            <p class="mt-1 text-xs text-red-600" x-show="errors.cumulative_spend_baseline" x-cloak
+                               x-text="errors.cumulative_spend_baseline"></p>
+                        </div>
+
+                        <div>
+                            <label for="fee-note-{{ $fee['id'] }}"
+                                   class="block text-sm font-medium text-gray-700">
+                                Ghi chú (tuỳ chọn)
+                            </label>
+                            <textarea id="fee-note-{{ $fee['id'] }}" name="cumulative_spend_note" rows="2"
+                                      :disabled="busyId === {{ $fee['id'] }}"
+                                      class="mt-1 w-full px-3 py-2 rounded-xl border-gray-200 text-sm
+                                             focus:border-emerald-500 focus:ring-emerald-500">{{ $fee['note'] }}</textarea>
+                        </div>
+
+                        <p class="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+                            Ngày chốt sao kê do hệ thống tự xác định theo kỳ trước. Chi tiêu lũy kế hiện tại và tiến
+                            độ sẽ được tính lại ngay bằng số bạn vừa nhập.
+                        </p>
+
+                        <div class="flex items-center justify-end gap-2">
+                            <button type="button" @click="closeEdit({{ $fee['id'] }})"
+                                    class="h-10 px-4 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-100">
+                                Huỷ
+                            </button>
+                            <button type="submit"
+                                    :disabled="busyId === {{ $fee['id'] }}"
+                                    class="h-10 px-5 rounded-xl text-sm font-semibold text-white bg-emerald-600
+                                           hover:bg-emerald-700 disabled:opacity-60">
+                                <span x-text="busyId === {{ $fee['id'] }} ? 'Đang lưu…' : 'Lưu'"></span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        @empty
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 px-4 py-10 text-center">
+                <p class="text-sm text-gray-500">Bạn chưa có thẻ tín dụng nào để theo dõi phí thường niên.</p>
+                <a href="{{ route('credit-cards.manage') }}"
+                   class="mt-3 inline-flex items-center justify-center h-11 px-4 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold">
+                    Thêm thẻ ở Quản lý thẻ
+                </a>
+            </div>
+        @endforelse
+
+        <div x-show="feeQuery.trim() !== '' && feeMatchCount === 0"
+             x-cloak
+             data-testid="fee-search-empty"
+             class="bg-white rounded-2xl shadow-sm border border-gray-100 px-4 py-10 text-center">
+            <p class="text-sm text-gray-500">Không tìm thấy thẻ phù hợp</p>
+        </div>
+    </div>
     </div>
 </x-credit-card.layout>
 
@@ -1301,6 +1666,152 @@
                         if (Array.isArray(first)) return first[0];
                     }
                     return null;
+                },
+            };
+        }
+    </script>
+@endonce
+
+@once
+    <script>
+        /**
+         * Tab "Phí thường niên và chi tiêu tích lũy" — nhập MỐC chi tiêu lũy kế kỳ
+         * trước trên API.
+         *
+         * Khác tab Sao kê (ma trận lớn, tự vá từng ô), tab này mỗi thẻ chỉ có MỘT
+         * con số. Sau khi PATCH thành công, tải lại trang kèm `?tab=fees` để mọi số
+         * (tổng lũy kế, %, còn thiếu) đều là số SERVER vừa tính — không tự cộng ở
+         * trình duyệt, tránh lệch giữa hai phía. Không có đường nào ở client tính
+         * tiền.
+         */
+        function creditCardAnnualFees(state) {
+            return {
+                urlTemplate: state.url ?? '',
+                feeQuery: '',
+                openId: null,
+                busyId: null,
+                error: '',
+                errors: {},
+
+                feeMatches(el) {
+                    const keyword = ccNormalizeSearch(this.feeQuery);
+
+                    if (keyword === '') return true;
+
+                    return ccNormalizeSearch(el?.dataset?.cardSearch).includes(keyword);
+                },
+
+                get feeMatchCount() {
+                    return ccCardSearchMatchCount(this, 'fee-row');
+                },
+
+                openEdit(cardId) {
+                    this.error = '';
+                    this.errors = {};
+                    this.openId = this.openId === cardId ? null : cardId;
+                },
+
+                closeEdit(cardId) {
+                    if (this.busyId === cardId) return;
+                    if (this.openId === cardId) this.openId = null;
+                },
+
+                /** URL mẫu có `0` giữ chỗ; chỉ thay đúng số 0 đó. */
+                bind(template, id) {
+                    return String(template ?? '').replace(/\/0(?=\/|$)/, '/' + id);
+                },
+
+                async request(url, options = {}) {
+                    try {
+                        const response = await fetch(url, {
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest',
+                                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+                            },
+                            ...options,
+                        });
+
+                        const payload = await response.json().catch(() => ({}));
+
+                        if (! response.ok) {
+                            // 422 ⇒ gắn lỗi đúng ô để biết sửa chỗ nào, KHÔNG in
+                            // `message` mặc định của Laravel (tiếng Anh).
+                            if (payload.errors) {
+                                this.errors = {
+                                    cumulative_spend_baseline: this.firstOf(payload.errors.cumulative_spend_baseline),
+                                    cumulative_spend_note: this.firstOf(payload.errors.cumulative_spend_note),
+                                };
+                                this.error = 'Vui lòng kiểm tra lại các ô được đánh dấu.';
+                            } else {
+                                this.error = this.firstError(payload)
+                                    || `Yêu cầu thất bại (${response.status}).`;
+                            }
+
+                            return null;
+                        }
+
+                        return payload;
+                    } catch (e) {
+                        // KHÔNG lộ exception/stack trace ra UI.
+                        this.error = 'Không kết nối được máy chủ. Vui lòng thử lại.';
+                        return null;
+                    }
+                },
+
+                firstOf(list) {
+                    return Array.isArray(list) && list.length > 0 ? list[0] : '';
+                },
+
+                firstError(payload) {
+                    if (payload.message) return payload.message;
+                    if (payload.errors) {
+                        const first = Object.values(payload.errors)[0];
+                        if (Array.isArray(first)) return first[0];
+                    }
+                    return null;
+                },
+
+                async save(cardId) {
+                    if (this.busyId !== null) return;
+
+                    // Phải giới hạn vào dòng TAB PHÍ: `data-card-id` cũng có trên
+                    // dòng sao kê (tab kia), và dòng đó xuất hiện TRƯỚC trong DOM,
+                    // nên `[data-card-id]` trần sẽ bắt nhầm dòng sao kê (không có
+                    // ô mốc) ⇒ gửi rỗng ⇒ server báo "Vui lòng nhập…".
+                    const row = document.querySelector(`[data-testid="fee-row"][data-card-id="${cardId}"]`);
+                    if (! row) return;
+
+                    const input = row.querySelector('[name="cumulative_spend_baseline"]');
+                    const noteInput = row.querySelector('[name="cumulative_spend_note"]');
+
+                    // Ô nhập tiền là ĐƠN VỊ HIỂN THỊ của user; đổi về VND trước khi gửi.
+                    const baseline = ccMoneyParseInput(input?.value ?? '');
+
+                    // KHÔNG gửi ngày mốc: server tự suy từ ngày chốt sao kê kỳ trước.
+                    const body = {
+                        cumulative_spend_baseline: baseline === '' ? '' : baseline,
+                        cumulative_spend_note: noteInput?.value ?? '',
+                    };
+
+                    this.busyId = cardId;
+                    this.error = '';
+                    this.errors = {};
+
+                    const result = await this.request(this.bind(this.urlTemplate, cardId), {
+                        method: 'PATCH',
+                        body: JSON.stringify(body),
+                    });
+
+                    this.busyId = null;
+
+                    if (! result) return;
+
+                    // Số mới do server tính — tải lại để hiển thị đúng, giữ tab phí.
+                    const next = new URL(window.location.href);
+                    next.searchParams.set('tab', 'fees');
+                    window.location.assign(next.toString());
                 },
             };
         }
