@@ -12,6 +12,14 @@ namespace App\Services\AccessTrade;
  */
 class AccessTradeCampaignService
 {
+    /**
+     * AccessTrade rejects `limit` above 50 with a non-JSON body, so the list is
+     * always paged at the documented maximum instead of a single limit=200.
+     */
+    private const PAGE_LIMIT = 50;
+
+    private const MAX_PAGES = 20;
+
     public function __construct(
         private readonly AccessTradeClient $client,
         private readonly AccessTradeConfig $config,
@@ -23,7 +31,7 @@ class AccessTradeCampaignService
      * @return array<int, array{
      *     campaign_id: string, name: string, merchant: ?string, domain: ?string,
      *     approval: ?string, status: ?string, start_time: ?string, end_time: ?string,
-     *     min_commission: ?float, max_commission: ?float
+     *     min_commission: ?float, max_commission: ?float, max_com: ?string
      * }>
      */
     public function campaigns(): array
@@ -133,9 +141,41 @@ class AccessTradeCampaignService
      */
     private function fetch(string $path, array $query): array
     {
-        $query = array_merge(['page' => 1, 'limit' => 200], $query);
-        $data = $this->client->get($path, $query);
+        $items = [];
 
+        for ($page = 1; $page <= self::MAX_PAGES; $page++) {
+            $data = $this->client->get($path, array_merge($query, [
+                'page' => $page,
+                'limit' => self::PAGE_LIMIT,
+            ]));
+
+            $batch = $this->extractList($data);
+
+            if ($batch === []) {
+                break;
+            }
+
+            $items = array_merge($items, $batch);
+
+            $totalPages = (int) ($data['total_page'] ?? $page);
+
+            if ($page >= $totalPages) {
+                break;
+            }
+        }
+
+        return $items;
+    }
+
+    /**
+     * Extract the list of campaign rows from a list/detail response body,
+     * unwrapping the nested `campaigns` shape and dropping non-array rows.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<int, array<string, mixed>>
+     */
+    private function extractList(array $data): array
+    {
         $items = $data['data'] ?? null;
 
         // Some endpoints wrap the list one level deeper.
@@ -148,6 +188,68 @@ class AccessTradeCampaignService
         }
 
         return array_values(array_filter($items, 'is_array'));
+    }
+
+    /**
+     * Read one campaign's detail (including its commission policy) by id.
+     *
+     * Used to corroborate the advertised `max_com` against the campaign policy
+     * before showing an expected cashback amount.
+     *
+     * @return array{
+     *     campaign_id: string, name: string, merchant: ?string, approval: ?string,
+     *     status: ?string, max_commission: ?string, commission_policy: ?string,
+     *     domain: ?string
+     * }|null
+     */
+    public function detail(string $campaignId): ?array
+    {
+        $campaignId = trim($campaignId);
+
+        if ($campaignId === '') {
+            return null;
+        }
+
+        $data = $this->client->get('/v1/campaigns', [
+            'campaign_id' => $campaignId,
+            'limit' => 1,
+            'page' => 1,
+        ]);
+
+        $items = $this->extractList($data);
+        $item = $items[0] ?? null;
+
+        if (! is_array($item)) {
+            return null;
+        }
+
+        $description = is_array($item['description'] ?? null) ? $item['description'] : [];
+
+        return [
+            'campaign_id' => $this->stringOrNull($item['id'] ?? $item['campaign_id'] ?? null) ?? $campaignId,
+            'name' => (string) ($item['name'] ?? ''),
+            'merchant' => $this->stringOrNull($item['merchant'] ?? null),
+            'approval' => $this->stringOrNull($item['approval'] ?? null),
+            'status' => isset($item['status']) ? (string) $item['status'] : null,
+            'max_commission' => $this->stringOrNull($item['max_com'] ?? null),
+            'commission_policy' => $this->plainText($description['commission_policy'] ?? null),
+            'domain' => $this->hostFromUrl($item['url'] ?? null),
+        ];
+    }
+
+    private function plainText(mixed $html): ?string
+    {
+        $html = $this->stringOrNull($html);
+
+        if ($html === null) {
+            return null;
+        }
+
+        $text = html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = preg_replace('/\s+/u', ' ', $text) ?? $text;
+        $text = trim(str_replace("\u{FEFF}", '', $text));
+
+        return $text === '' ? null : $text;
     }
 
     /**
@@ -173,6 +275,7 @@ class AccessTradeCampaignService
             'end_time' => $this->stringOrNull($item['end_time'] ?? null),
             'min_commission' => null,
             'max_commission' => null,
+            'max_com' => $this->stringOrNull($item['max_com'] ?? null),
         ];
     }
 

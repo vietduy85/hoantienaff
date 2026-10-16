@@ -112,6 +112,21 @@ class PortfolioOptimizerService
      */
     private const TIER_FILL_PASSES = 2;
 
+    /**
+     * Số tổ hợp "mức chi danh mục sinh hoàn đặt lên thẻ đích" tối đa dựng cho mỗi
+     * thẻ có điều kiện hoàn tiền đặc biệt. Đây là phép TÌM KÍCH HOẠT PHỐI HỢP: đưa
+     * đồng thời danh mục SINH HOÀN và chi tiêu NỀN (filler) lên thẻ đích, khác với
+     * `SpendingConditionAllocator::activate()` chỉ dồn filler. Chặn để chi phí hữu
+     * hạn (mỗi thẻ chỉ có vài danh mục sinh hoàn).
+     */
+    private const ACTIVATION_COMBO_LIMIT = 36;
+
+    /**
+     * Số tổ hợp kích hoạt tốt nhất (theo điểm thô) được đưa vào tinh chỉnh đắt
+     * (`improveAllocation` + `expandToTierMinimums`) sau khi đánh giá nhanh.
+     */
+    private const ACTIVATION_REFINE_LIMIT = 2;
+
     public function __construct(
         private readonly StatementPeriodService $periods,
         private readonly PolicyEngineService $engine,
@@ -745,10 +760,16 @@ class PortfolioOptimizerService
 
         $allocation = $this->improveAllocation($config, $candidates, $positiveMap, $singles, $amounts, $allocation);
 
+        // Nạp đủ ngưỡng tổng chi tối thiểu của bậc TRƯỚC khi kích hoạt điều kiện
+        // hoàn tiền: điều kiện là GATE, chỉ đáng kích hoạt khi phần chi tiêu nền của
+        // thẻ đã ở trạng thái tốt (đã bù ngưỡng). Kích hoạt trên nền còn "thô" khiến
+        // các danh mục sinh hoàn bị đẩy về thẻ hoàn cao hơn và thẻ có điều kiện bị bỏ.
+        $evalCache = [];
+        $allocation = $this->expandToTierMinimums($config, $candidates, $positiveMap, $singles, $amounts, $allocation, $evalCache);
+
         // Kích hoạt "điều kiện hoàn tiền đặc biệt": chủ động dồn phần chi tiêu đủ
         // điều kiện sang thẻ đang có điều kiện, rồi cải thiện lại; chỉ nhận nếu
         // tổng hoàn tiền THẬT cao hơn.
-        $evalCache = [];
         $best = $allocation;
         $bestTotal = $this->allocationValue($candidates, $best, $evalCache)['total'];
 
@@ -763,7 +784,24 @@ class PortfolioOptimizerService
                 continue;
             }
 
+            // KÍCH HOẠT PHỐI HỢP: chỉ dồn filler (như `activate()`) là chưa đủ khi
+            // thẻ còn danh mục SINH HOÀN chưa đặt lên chính nó — cần đưa ĐỒNG THỜI
+            // chi tiêu nền + danh mục sinh hoàn lên thẻ đích, rồi bù lại ngưỡng của
+            // các thẻ nguồn bị hụt. Xem `injectActivationRewards()`.
+            $activated = $this->injectActivationRewards(
+                $config, $candidates, $positiveMap, $singles, $amounts, $activated, $scaffold->key, $evalCache,
+            );
+
             $activated = $this->improveAllocation($config, $candidates, $positiveMap, $singles, $amounts, $activated);
+
+            if ($activated === []) {
+                continue;
+            }
+
+            // Bù lại ngưỡng tổng chi tối thiểu của các thẻ nguồn vừa bị rút bớt khi
+            // đưa danh mục sinh hoàn sang thẻ đích (ví dụ thẻ gate 8tr bị hụt sau khi
+            // chuyển bớt danh mục, phải được nạp lại filler để giữ bậc).
+            $activated = $this->expandToTierMinimums($config, $candidates, $positiveMap, $singles, $amounts, $activated, $evalCache);
 
             if ($activated === []) {
                 continue;
@@ -999,6 +1037,460 @@ class PortfolioOptimizerService
             <=> [$b['target_positive'], $b['rate'], -$b['amount'], $b['category']]);
 
         return $sources;
+    }
+
+    /**
+     * KÍCH HOẠT PHỐI HỢP cho MỘT thẻ có "điều kiện hoàn tiền đặc biệt".
+     *
+     * `SpendingConditionAllocator::activate()` chỉ dồn ĐÚNG phần chi tiêu nền (filler)
+     * để đạt điều kiện — nhưng điều kiện là GATE, nên nếu thẻ đích còn danh mục SINH
+     * HOÀN chưa đặt lên chính nó thì việc dồn filler là VÔ NGHĨA (đạt điều kiện nhưng
+     * vẫn 0 đồng) và còn làm hụt hoàn ở thẻ nguồn. Hàm này đưa ĐỒNG THỜI:
+     *   (1) danh mục SINH HOÀN của thẻ đích lên chính nó (mức chi thử theo trần hữu
+     *       dụng + các mốc 25/50/75%/toàn phần và lượng từng thẻ nguồn đang giữ), và
+     *   (2) giữ nguyên phần chi tiêu nền đã dồn để điều kiện vẫn đạt;
+     * rồi BÙ LẠI ngưỡng tổng chi của các thẻ nguồn vừa bị rút bớt (filler khác).
+     *
+     * Chỉ nhận phương án làm TĂNG tổng hoàn thật (do `CardScenarioEvaluator` chấm),
+     * và tinh chỉnh lại bằng chính các bước cục bộ sẵn có.
+     *
+     * @param  array<string, CardScaffold>  $candidates
+     * @param  array<string, array{any_all: bool, cats: array<int, true>}>  $positiveMap
+     * @param  array<string, array<int, array<string, mixed>>>  $singles
+     * @param  array<int, int>  $amounts
+     * @param  array<string, array<int, int>>  $activation  phân bổ ĐÃ đạt điều kiện (filler đã dồn)
+     * @param  array<string, array<string, CardScenario>>  $evalCache
+     * @return array<string, array<int, int>>
+     */
+    private function injectActivationRewards(
+        array $config,
+        array $candidates,
+        array $positiveMap,
+        array $singles,
+        array $amounts,
+        array $activation,
+        string $targetKey,
+        array &$evalCache,
+    ): array {
+        $scaffold = $candidates[$targetKey] ?? null;
+
+        if ($scaffold === null || $scaffold->qualification === null) {
+            return $activation;
+        }
+
+        $rewardCats = [];
+
+        foreach ($amounts as $categoryId => $budget) {
+            if ((int) $budget > 0 && $this->isPositive($positiveMap[$targetKey], (int) $categoryId)) {
+                $rewardCats[] = (int) $categoryId;
+            }
+        }
+
+        if ($rewardCats === []) {
+            return $activation;
+        }
+
+        $best = $activation;
+        $bestTotal = $this->allocationValue($candidates, $best, $evalCache)['total'];
+
+        $options = [];
+
+        foreach ($rewardCats as $category) {
+            $options[$category] = $this->rewardAmountOptions($scaffold, $singles, $amounts, $category, $activation, $targetKey);
+        }
+
+        $ranked = [];
+
+        foreach ($this->rewardCombos($options, self::ACTIVATION_COMBO_LIMIT) as $desired) {
+            $trial = $activation;
+
+            foreach ($desired as $category => $amount) {
+                $this->setTargetHolding($trial, $targetKey, (int) $category, (int) $amount, $candidates, $evalCache);
+            }
+
+            $trial = $this->repairDroppedGates(
+                $trial, $activation, $candidates, $positiveMap, $singles, $amounts, $targetKey, $rewardCats, $evalCache,
+            );
+
+            $total = $this->allocationValue($candidates, $trial, $evalCache)['total'];
+
+            if ($total > $bestTotal + self::ACTIVATION_EPSILON) {
+                $ranked[] = ['allocation' => $trial, 'total' => $total];
+            }
+        }
+
+        if ($ranked === []) {
+            return $best;
+        }
+
+        usort($ranked, fn (array $a, array $b): int => $b['total'] <=> $a['total']);
+        $ranked = array_slice($ranked, 0, self::ACTIVATION_REFINE_LIMIT);
+
+        foreach ($ranked as $entry) {
+            $candidate = $this->improveAllocation(
+                $config, $candidates, $positiveMap, $singles, $amounts, $entry['allocation'],
+            );
+
+            $candidate = $this->expandToTierMinimums(
+                $config, $candidates, $positiveMap, $singles, $amounts, $candidate, $evalCache,
+            );
+
+            if ($candidate === []) {
+                continue;
+            }
+
+            $total = $this->allocationValue($candidates, $candidate, $evalCache)['total'];
+
+            if ($total > $bestTotal + self::ACTIVATION_EPSILON) {
+                $best = $candidate;
+                $bestTotal = $total;
+
+                $this->audit?->record([
+                    'type' => OptimizationAudit::STEP_ACTIVATION,
+                    'card_key' => $targetKey,
+                    'card_name' => $scaffold->name,
+                    'before' => $entry['total'],
+                    'after' => $total,
+                ]);
+            }
+        }
+
+        return $best;
+    }
+
+    /**
+     * Các mức chi tiềm năng đặt danh mục SINH HOÀN lên thẻ đích: 0, trần hữu dụng,
+     * toàn phần, các mốc 25/50/75%, và lượng từng thẻ nguồn đang giữ (để thử "rút
+     * trọn" một nguồn). Luôn nằm trong [0, ngân sách danh mục].
+     *
+     * @param  array<string, array<int, array<string, mixed>>>  $singles
+     * @param  array<int, int>  $amounts
+     * @param  array<string, array<int, int>>  $activation
+     * @return list<int>
+     */
+    private function rewardAmountOptions(
+        CardScaffold $scaffold,
+        array $singles,
+        array $amounts,
+        int $category,
+        array $activation,
+        string $targetKey,
+    ): array {
+        $budget = (int) ($amounts[$category] ?? 0);
+
+        if ($budget <= 0) {
+            return [0];
+        }
+
+        $options = [0, $budget];
+        $cap = $this->usefulCategoryCap($scaffold, $category, $budget);
+
+        if ($cap > 0 && $cap < $budget) {
+            $options[] = $cap;
+        }
+
+        foreach ([0.25, 0.5, 0.75] as $fraction) {
+            $options[] = (int) round($budget * $fraction);
+        }
+
+        foreach ($activation as $key => $cats) {
+            if ($key === $targetKey) {
+                continue;
+            }
+
+            $have = (int) ($cats[$category] ?? 0);
+
+            if ($have > 0) {
+                $options[] = $have;
+            }
+        }
+
+        $options = array_values(array_unique(array_filter(
+            $options,
+            fn (int $value): bool => $value >= 0 && $value <= $budget,
+        )));
+
+        sort($options);
+
+        return $options;
+    }
+
+    /**
+     * Trần chi tiêu HỮU DỤNG của một danh mục trên MỘT thẻ (điểm chạm trần hoàn
+     * danh mục, suy từ policy thật): `max_cashback_per_category/rate`. Không có
+     * trần ⇒ toàn bộ ngân sách.
+     */
+    private function usefulCategoryCap(CardScaffold $scaffold, int $category, int $budget): int
+    {
+        $cap = null;
+
+        foreach ($scaffold->allEnabledRules as $rule) {
+            $percent = (float) ($rule['cashback_percent'] ?? 0.0);
+            $capCat = $rule['max_cashback_per_category_per_period'] ?? null;
+
+            if ($percent <= 0.0 || $capCat === null || (float) $capCat <= 0.0) {
+                continue;
+            }
+
+            if (! $this->ruleMatchesCategory($rule, $category)) {
+                continue;
+            }
+
+            $amount = (int) round((float) $capCat / ($percent / 100.0));
+            $cap = $cap === null ? $amount : min($cap, $amount);
+        }
+
+        return $cap === null ? $budget : max(0, min($budget, $cap));
+    }
+
+    /**
+     * Tổ hợp ĐẶT ĐỒNG THỜI nhiều danh mục sinh hoàn lên thẻ đích (tích Descartes
+     * các mức ở {@see rewardAmountOptions()}), chặn số lượng để chi phí hữu hạn.
+     *
+     * @param  array<int, list<int>>  $options
+     * @return list<array<int, int>>
+     */
+    private function rewardCombos(array $options, int $limit): array
+    {
+        $combos = [[]];
+
+        foreach ($options as $category => $values) {
+            $next = [];
+
+            foreach ($combos as $combo) {
+                foreach ($values as $value) {
+                    $next[] = $combo + [(int) $category => (int) $value];
+                }
+            }
+
+            $combos = $next;
+        }
+
+        if (count($combos) <= $limit) {
+            return $combos;
+        }
+
+        // Giữ tổ hợp rải đều (gồm cả tổ hợp cuối) để vẫn với tới mức "toàn phần".
+        $result = [];
+        $count = count($combos);
+
+        for ($i = 0; $i < $limit; $i++) {
+            $result[] = $combos[(int) floor($i * ($count - 1) / max(1, $limit - 1))];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Đặt thẻ `$targetKey` giữ đúng `$desired` của `$category` bằng cách RÚT từ
+     * các thẻ khác, ưu tiên nơi có TỔN THẤT HOÀN THẬT nhỏ nhất trước (đánh giá
+     * bằng chính `CardScenarioEvaluator`, không dùng tỷ lệ danh nghĩa). Không tạo
+     * thêm tiền; tổng danh mục bảo toàn.
+     *
+     * @param  array<string, array<int, int>>  $allocation  cập nhật TẠI CHỖ
+     * @param  array<string, CardScaffold>  $candidates
+     * @param  array<string, array<string, CardScenario>>  $evalCache
+     */
+    private function setTargetHolding(
+        array &$allocation,
+        string $targetKey,
+        int $category,
+        int $desired,
+        array $candidates,
+        array &$evalCache,
+    ): void {
+        $current = (int) ($allocation[$targetKey][$category] ?? 0);
+        $need = $desired - $current;
+
+        if ($need <= 0) {
+            return;
+        }
+
+        $sources = [];
+
+        foreach ($allocation as $key => $cats) {
+            if ($key === $targetKey) {
+                continue;
+            }
+
+            $have = (int) ($cats[$category] ?? 0);
+
+            if ($have <= 0) {
+                continue;
+            }
+
+            $take = min($have, $need);
+
+            $sources[] = [
+                'key' => $key,
+                'take' => $take,
+                'loss' => $this->categoryRemovalLoss($candidates, $evalCache, $key, $cats, $category, $take),
+            ];
+        }
+
+        usort($sources, fn (array $a, array $b): int => [$a['loss'], $a['key']] <=> [$b['loss'], $b['key']]);
+
+        foreach ($sources as $source) {
+            if ($need <= 0) {
+                break;
+            }
+
+            $from = $source['key'];
+            $take = min((int) ($allocation[$from][$category] ?? 0), $need);
+
+            if ($take <= 0) {
+                continue;
+            }
+
+            $allocation[$from][$category] = (int) $allocation[$from][$category] - $take;
+
+            if ($allocation[$from][$category] <= 0) {
+                unset($allocation[$from][$category]);
+            }
+
+            if (($allocation[$from] ?? []) === []) {
+                unset($allocation[$from]);
+            }
+
+            $allocation[$targetKey][$category] = (int) ($allocation[$targetKey][$category] ?? 0) + $take;
+            $need -= $take;
+        }
+    }
+
+    /**
+     * Tổn thất hoàn THẬT khi rút `$take` của `$category` khỏi thẻ `$key` (đánh giá
+     * bằng evaluator). Dùng để xếp nguồn rút rẻ nhất trước.
+     *
+     * @param  array<string, CardScaffold>  $candidates
+     * @param  array<string, array<string, CardScenario>>  $evalCache
+     * @param  array<int, int>  $cats
+     */
+    private function categoryRemovalLoss(
+        array $candidates,
+        array &$evalCache,
+        string $key,
+        array $cats,
+        int $category,
+        int $take,
+    ): float {
+        $beforeValue = $this->scenarioValue2($candidates, $evalCache, $key, $cats);
+
+        $after = $cats;
+        $after[$category] = (int) $after[$category] - $take;
+
+        if ($after[$category] <= 0) {
+            unset($after[$category]);
+        }
+
+        $afterValue = $this->scenarioValue2($candidates, $evalCache, $key, $after);
+
+        return $beforeValue - $afterValue;
+    }
+
+    /**
+     * Giá trị (tổng hoàn) của một thẻ với ĐÚNG tập danh mục `$cats`; thẻ không
+     * đánh giá được ⇒ 0.
+     *
+     * @param  array<string, CardScaffold>  $candidates
+     * @param  array<string, array<string, CardScenario>>  $evalCache
+     * @param  array<int, int>  $cats
+     */
+    private function scenarioValue2(array $candidates, array &$evalCache, string $key, array $cats): float
+    {
+        if ($cats === []) {
+            return 0.0;
+        }
+
+        $scenario = $this->cachedScenario($candidates, $evalCache, $key, $cats);
+
+        return $scenario->scenarioReason === null ? (float) $scenario->totalCashback : 0.0;
+    }
+
+    /**
+     * Bù LẠI ngưỡng tổng chi tối thiểu của các thẻ nguồn vừa bị rút bớt do kích
+     * hoạt: nếu thẻ đang đạt một ngưỡng (gate) ở phân bổ `$base` mà ở `$trial` bị
+     * tụt dưới ngưỡng đó, nạp filler từ nơi khác — KHÔNG rút lại danh mục sinh hoàn
+     * của thẻ đích và không rút từ chính thẻ đích.
+     *
+     * @param  array<string, array<int, int>>  $trial  cập nhật TẠI CHỖ
+     * @param  array<string, array<int, int>>  $base
+     * @param  array<string, CardScaffold>  $candidates
+     * @param  array<string, array{any_all: bool, cats: array<int, true>}>  $positiveMap
+     * @param  array<string, array<int, array<string, mixed>>>  $singles
+     * @param  array<int, int>  $amounts
+     * @param  list<int>  $rewardCats
+     * @param  array<string, array<string, CardScenario>>  $evalCache
+     * @return array<string, array<int, int>>
+     */
+    private function repairDroppedGates(
+        array $trial,
+        array $base,
+        array $candidates,
+        array $positiveMap,
+        array $singles,
+        array $amounts,
+        string $targetKey,
+        array $rewardCats,
+        array &$evalCache,
+    ): array {
+        foreach ($base as $key => $cats) {
+            if ($key === $targetKey || ! isset($candidates[$key])) {
+                continue;
+            }
+
+            $gate = $this->satisfiedGate($candidates[$key], (int) array_sum($cats));
+
+            if ($gate <= 0) {
+                continue;
+            }
+
+            $nowTotal = (int) array_sum($trial[$key] ?? []);
+
+            if ($nowTotal >= $gate) {
+                continue;
+            }
+
+            $need = $gate - $nowTotal;
+            $sources = $this->fillerSources($candidates, $positiveMap, $evalCache, $trial, $key);
+
+            $filtered = array_values(array_filter(
+                $sources,
+                fn (array $source): bool => $source['key'] !== $targetKey
+                    && ! in_array((int) $source['category'], $rewardCats, true),
+            ));
+
+            if ($filtered === []) {
+                continue;
+            }
+
+            $filled = $this->fillFromSources($trial, $key, $need, $filtered);
+
+            if ($filled !== null) {
+                $trial = $filled;
+            }
+        }
+
+        return $trial;
+    }
+
+    /**
+     * Ngưỡng tổng chi tối thiểu LỚN NHẤT mà thẻ đang đạt với tổng chi `$total`
+     * (0 nếu chưa đạt ngưỡng dương nào). Dùng để biết thẻ "mất ngưỡng" nào khi bị
+     * rút bớt chi tiêu.
+     */
+    private function satisfiedGate(CardScaffold $scaffold, int $total): int
+    {
+        $gate = 0;
+
+        foreach ($scaffold->tiers as $tier) {
+            $min = (float) $tier->min_total_spend;
+
+            if ($min > 0.0 && $min <= $total + 0.001) {
+                $gate = max($gate, (int) round($min));
+            }
+        }
+
+        return $gate;
     }
 
     /**
@@ -2952,6 +3444,11 @@ class PortfolioOptimizerService
             OptimizationAudit::STEP_REALLOCATE => 'Chuyển '.$category.' từ ['.$holders($entry['before'] ?? []).'] sang ['.$holders($entry['after'] ?? []).'].',
 
             OptimizationAudit::STEP_TIER_FILL => 'Bù ngưỡng tổng chi cho '.$cardName($entry['card_key'] ?? null).': hiện '.Decimal::money((string) (int) ($entry['current'] ?? 0)).'đ, còn thiếu '.Decimal::money((string) (int) ($entry['need'] ?? 0)).'đ — xét '.($entry['source_count'] ?? 0).' nguồn chi tiêu hoàn thấp.',
+
+            OptimizationAudit::STEP_ACTIVATION => 'Kích hoạt điều kiện hoàn tiền cho '.$cardName($entry['card_key'] ?? null)
+                .' bằng cách đưa đồng thời chi tiêu nền + danh mục sinh hoàn lên thẻ: tổng hoàn '
+                .Decimal::money(number_format((float) ($entry['before'] ?? 0.0), 2, '.', '')).'đ → '
+                .Decimal::money(number_format((float) ($entry['after'] ?? 0.0), 2, '.', '')).'đ.',
 
             OptimizationAudit::STEP_CONDITION_UNMET => 'Điều kiện chưa đạt ở '.$cardName($entry['card_key'] ?? null).' — '.($entry['reason'] ?? ''),
 

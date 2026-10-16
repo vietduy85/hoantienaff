@@ -25,6 +25,8 @@ final class OptimizationAudit
 
     public const STEP_TIER_FILL = 'tier_fill';
 
+    public const STEP_ACTIVATION = 'activation';
+
     public const STEP_CONDITION_UNMET = 'condition_unmet';
 
     public const STEP_UNALLOCATED = 'unallocated';

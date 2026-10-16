@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\LinkRequest;
 use App\Models\Setting;
+use App\Services\AccessTrade\AccessTradeCampaignService;
+use App\Services\AccessTrade\AccessTradeCommissionEstimateService;
 use App\Services\AccessTrade\AccessTradeConfig;
 use App\Services\AccessTrade\AccessTradeException;
 use App\Services\AccessTrade\AccessTradeLinkService;
@@ -34,6 +36,8 @@ class DashboardCreateDirectLinkController extends Controller
         private readonly PlatformResolver $platformResolver,
         private readonly AccessTradeConfig $accessTradeConfig,
         private readonly AccessTradeLinkService $accessTradeLink,
+        private readonly AccessTradeCampaignService $accessTradeCampaigns,
+        private readonly AccessTradeCommissionEstimateService $accessTradeEstimate,
         private readonly ProductMetadataService $productMetadata,
     ) {}
 
@@ -341,6 +345,10 @@ class DashboardCreateDirectLinkController extends Controller
                     // fetched (best-effort) from the merchant page. A failure
                     // here MUST NOT affect the already-created link.
                     $this->enrichWithProductMetadata($link, $validated['original_url']);
+
+                    // Expected cashback (best-effort): only when the campaign's
+                    // advertised max rate is corroborated by its policy.
+                    $this->applyAccessTradeEstimate($link, $result['campaign_id'] ?? $target->campaignId);
                 } catch (AccessTradeException $e) {
                     $friendly = $this->accessTradeConfig->scrub($e->getUserMessage());
 
@@ -522,6 +530,59 @@ class DashboardCreateDirectLinkController extends Controller
 
         if ($update !== []) {
             $link->update($update);
+        }
+    }
+
+    /**
+     * Best-effort expected-cashback for a completed AccessTrade link.
+     *
+     * AccessTrade exposes no per-product commission, so the campaign's
+     * advertised `max_com` is used ONLY when the campaign policy corroborates it
+     * as the single commission rate (see
+     * {@see AccessTradeCommissionEstimateService}). When it cannot be
+     * corroborated the estimate columns stay null so the UI shows "Chưa tính
+     * được tiền hoàn dự kiến" instead of a guessed amount. Never throws and
+     * never affects the already-completed link.
+     */
+    private function applyAccessTradeEstimate(LinkRequest $link, ?string $campaignId): void
+    {
+        try {
+            $campaignId = trim((string) $campaignId);
+            $price = (float) ($link->product_price ?? 0);
+
+            if ($campaignId === '' || $price <= 0) {
+                return;
+            }
+
+            $detail = $this->accessTradeCampaigns->detail($campaignId);
+
+            if ($detail === null
+                || $detail['approval'] !== 'successful'
+                || (string) $detail['status'] !== '1') {
+                return;
+            }
+
+            $estimate = $this->accessTradeEstimate->estimate(
+                $price,
+                $detail['max_commission'],
+                $detail['commission_policy'],
+            );
+
+            if ($estimate === null) {
+                return;
+            }
+
+            $link->update([
+                'estimated_cashback' => $estimate['commission'],
+                'cashback_rate' => $estimate['cashback_rate'],
+                'user_estimated_cashback' => $estimate['user_estimated_cashback'],
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('[DirectLink] AccessTrade estimate failed', [
+                'link_request_id' => $link->id,
+                'campaign_id' => $campaignId,
+                'error' => $e->getMessage(),
+            ]);
         }
     }
 

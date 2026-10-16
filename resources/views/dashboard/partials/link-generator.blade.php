@@ -453,6 +453,9 @@
                     <p x-show="result.platform === 'Lazada' && result.estimated_cashback != null && result.estimated_cashback > 0" class="text-[11px] text-gray-400 mt-1">
                         Hoa hồng đối tác ≈ <span x-text="Number(result.estimated_cashback).toLocaleString('vi-VN')"></span>đ
                     </p>
+                    <p x-show="result.platform === 'AccessTrade' && result.estimated_cashback != null && result.estimated_cashback > 0" class="text-[11px] text-gray-400 mt-1">
+                        Hoa hồng ước tính ≈ <span x-text="Number(result.estimated_cashback).toLocaleString('vi-VN')"></span>đ — tính theo tỷ lệ hoa hồng chiến dịch, AccessTrade chốt khi đối soát.
+                    </p>
                     <p x-show="result.platform === 'AccessTrade' && !(result.user_estimated_cashback != null && result.user_estimated_cashback > 0)" class="text-[11px] text-gray-400 mt-1">
                         AccessTrade chưa trả về mức hoa hồng cho sản phẩm này nên chưa tính được tiền hoàn dự kiến.
                     </p>
