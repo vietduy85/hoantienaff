@@ -159,4 +159,21 @@ return [
         'store_no' => env('WINMART_STORE_NO', '1535'),
     ],
 
+    /*
+     * Product metadata (name/image/price) fetched from a merchant product page
+     * via Open Graph / meta tags. Used to enrich AccessTrade links (e.g.
+     * CellphoneS) where the network API does not return product information.
+     *
+     * This is a best-effort, read-only fetch with SSRF guards. It must NEVER
+     * break link creation — a failure simply leaves the metadata fields empty.
+     */
+    'product_metadata' => [
+        'enabled' => (bool) env('PRODUCT_METADATA_ENABLED', true),
+        'timeout' => (int) env('PRODUCT_METADATA_TIMEOUT', 8),
+        'connect_timeout' => (int) env('PRODUCT_METADATA_CONNECT_TIMEOUT', 4),
+        'max_bytes' => (int) env('PRODUCT_METADATA_MAX_BYTES', 524288),
+        'max_redirects' => (int) env('PRODUCT_METADATA_MAX_REDIRECTS', 3),
+        'verify_dns' => (bool) env('PRODUCT_METADATA_VERIFY_DNS', true),
+    ],
+
 ];

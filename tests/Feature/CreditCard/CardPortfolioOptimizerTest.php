@@ -2389,6 +2389,13 @@ class CardPortfolioOptimizerTest extends TestCase
         $this->assertStringContainsString('plan.excluded_candidates', $html);
         $this->assertStringContainsString('Nhật ký lựa chọn thẻ và phân bổ', $html);
         $this->assertStringContainsString('plan.audit', $html);
+
+        // §I.15.5: khối điều kiện hoàn tiền hiển thị NGAY DƯỚI từng thẻ, không chỉ
+        // ở bảng tổng hợp phía dưới. Mỗi điều kiện có nhãn, trạng thái và bậc kích hoạt.
+        $this->assertStringContainsString('Điều kiện hoàn tiền', $html);
+        $this->assertStringContainsString('cond.status_label', $html);
+        $this->assertStringContainsString('cond.activates_tier', $html);
+        $this->assertStringContainsString('cond.shortfall', $html);
     }
 
     /**
@@ -2660,6 +2667,223 @@ class CardPortfolioOptimizerTest extends TestCase
         }
 
         $this->assertSame(count($reallocCategories), count(array_unique($reallocCategories)));
+    }
+
+    /**
+     * Mỗi thẻ trong MỌI phương án phải kèm `conditions[]` với đầy đủ khoá để view
+     * hiển thị trạng thái riêng từng điều kiện (đỏ/xanh/trung tính) ngay dưới thẻ.
+     */
+    #[Test]
+    public function every_card_condition_row_exposes_status_and_activation_fields(): void
+    {
+        [$catA, $catB] = $this->makeSplitThenWholeScenario();
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'amounts' => [$catA->id => 4000000, $catB->id => 2000000],
+        ]));
+
+        $response->assertOk();
+
+        foreach ($response->json('data.plans') as $plan) {
+            foreach ($plan['cards'] as $card) {
+                $conditions = $card['spending_condition']['conditions'] ?? [];
+                $this->assertNotEmpty($conditions, 'Mỗi thẻ phải có ít nhất một dòng điều kiện.');
+
+                foreach ($conditions as $row) {
+                    foreach (['type', 'label', 'required', 'actual', 'shortfall', 'excess', 'met', 'status', 'status_label', 'activates_tier'] as $key) {
+                        $this->assertArrayHasKey($key, $row, "Thiếu khoá {$key} trong dòng điều kiện.");
+                    }
+
+                    $this->assertContains($row['status'], ['met', 'not_met', 'none']);
+                    $this->assertContains($row['status_label'], ['Đã đạt', 'Chưa đạt', 'Không áp dụng']);
+                }
+            }
+        }
+    }
+
+    /**
+     * Một thẻ có NHIỀU điều kiện (ngưỡng bậc + điều kiện đặc biệt) phải hiển thị
+     * ĐẦY ĐỦ từng điều kiện, và KHÔNG được nhầm `tier_min` với điều kiện đặc biệt.
+     */
+    #[Test]
+    public function a_card_with_multiple_conditions_lists_every_condition(): void
+    {
+        $medical = $this->makeSystemCategory(['name' => 'Y tế']);
+        $grocery = $this->makeSystemCategory(['name' => 'Siêu thị']);
+
+        $card = $this->makeUserCard($this->owner->id, ['name' => 'Thẻ đa điều kiện']);
+        $policy = $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [
+                ['category_id' => $medical->id, 'percent' => '10.000'],
+                ['category_id' => $grocery->id, 'percent' => '10.000'],
+            ],
+            ['min_total_spend' => '2000000.00'],
+        );
+
+        // Điều kiện đặc biệt: chi tiêu "danh mục khác" (không tính Siêu thị) ≥ 1tr.
+        $qualification = SpendQualification::create([
+            'policy_version_id' => $policy->id,
+            'name' => 'Điều kiện kỳ',
+            'enabled' => true,
+        ]);
+
+        $condition = SpendQualificationCondition::create([
+            'qualification_id' => $qualification->id,
+            'condition_type' => SpendQualificationCondition::TYPE_OTHER,
+            'min_spend' => '1000000.00',
+            'is_enabled' => true,
+            'sort_order' => 0,
+        ]);
+
+        SpendQualificationConditionExcludedCategory::create([
+            'condition_id' => $condition->id,
+            'category_id' => $grocery->id,
+        ]);
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'owned',
+            'criterion' => 'max_cashback',
+            'amounts' => [$medical->id => 2000000, $grocery->id => 1000000],
+        ]));
+
+        $response->assertOk();
+
+        $block = $this->conditionForCard($response->json('data.plans.0.cards'), 'Thẻ đa điều kiện');
+        $this->assertNotNull($block);
+
+        $rows = collect($block['conditions']);
+        $this->assertCount(2, $rows, 'Phải có đủ cả điều kiện ngưỡng bậc lẫn điều kiện đặc biệt.');
+
+        $tierRow = $rows->firstWhere('type', 'tier_min');
+        $specialRow = $rows->firstWhere('type', 'special_other');
+
+        $this->assertNotNull($tierRow, 'Phải có dòng tier_min.');
+        $this->assertNotNull($specialRow, 'Phải có dòng special_other (không được nhầm thành tier_min).');
+        $this->assertNotSame($tierRow['type'], $specialRow['type']);
+
+        $this->assertTrue($tierRow['met']);
+        $this->assertSame('2000000.00', $tierRow['required']);
+        $this->assertSame('Bậc 1', $tierRow['activates_tier']);
+
+        $this->assertTrue($specialRow['met']);
+        $this->assertSame('1000000.00', $specialRow['required']);
+    }
+
+    /**
+     * Điều kiện ngưỡng bậc CHƯA đạt phải có trạng thái `not_met` + số tiền còn thiếu;
+     * điều kiện KHÔNG áp dụng phải mang nhãn trung tính "Không áp dụng".
+     */
+    #[Test]
+    public function condition_rows_distinguish_unmet_and_not_applicable(): void
+    {
+        $shopee = $this->makeSystemCategory(['name' => 'Shopee']);
+        $grocery = $this->makeSystemCategory(['name' => 'Siêu thị']);
+
+        // Cake gate 5tr, chỉ Shopee được hoàn ⇒ phân bổ 3tr (< gate) ⇒ chưa đạt.
+        $this->makeTemplate('Cake Freedom', [
+            ['name' => 'Bậc 0', 'min' => 0, 'max' => 4999999.99],
+            ['name' => 'Bậc 1', 'min' => 5000000],
+        ], [
+            ['category_id' => $shopee->id, 'percent' => '20.000', 'cap_tx' => 50000, 'cap_cat' => 200000, 'only_tier' => 1],
+        ], slug: 'vpbank-cake-freedom-visa');
+
+        // Thẻ không có ngưỡng: hoàn từ 0đ.
+        $this->makeTemplate('Thẻ không ngưỡng',
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $grocery->id, 'percent' => '5.000']]);
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all',
+            'criterion' => 'max_cashback',
+            'amounts' => [$shopee->id => 3000000, $grocery->id => 1000000],
+        ]));
+
+        $response->assertOk();
+
+        $cards = $response->json('data.plans.0.cards');
+
+        $cake = $this->conditionForCard($cards, 'Cake Freedom');
+        $this->assertNotNull($cake, 'Cake phải xuất hiện để cho thấy điều kiện chưa đạt.');
+        $cakeRow = collect($cake['conditions'])->firstWhere('type', 'tier_min');
+        $this->assertNotNull($cakeRow);
+        $this->assertFalse($cakeRow['met']);
+        $this->assertSame('not_met', $cakeRow['status']);
+        $this->assertSame('Chưa đạt', $cakeRow['status_label']);
+        $this->assertSame('5000000.00', $cakeRow['required']);
+        $this->assertGreaterThan(0.0, (float) $cakeRow['shortfall']);
+
+        $plain = $this->conditionForCard($cards, 'Thẻ không ngưỡng');
+        $this->assertNotNull($plain);
+        $this->assertCount(1, $plain['conditions']);
+        $this->assertSame('none', $plain['conditions'][0]['type']);
+        $this->assertSame('none', $plain['conditions'][0]['status']);
+        $this->assertSame('Không áp dụng', $plain['conditions'][0]['status_label']);
+    }
+
+    /**
+     * MB Ultimate (điều kiện đặc biệt "danh mục khác" ≥ 2tr) khi chưa đạt phải hiện
+     * đúng số chi hiện tại (0đ) và số còn thiếu (2tr) — không suy từ tổng chi của thẻ.
+     */
+    #[Test]
+    public function mb_ultimate_special_condition_reports_actual_and_shortfall(): void
+    {
+        $medical = $this->makeSystemCategory(['name' => 'Y tế']);
+        $grocery = $this->makeSystemCategory(['name' => 'Siêu thị']);
+
+        $card = $this->makeUserCard($this->owner->id, ['name' => 'MB Ultimate']);
+        $policy = $this->makePolicyForCard(
+            $card,
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $medical->id, 'percent' => '10.000']],
+        );
+
+        $qualification = SpendQualification::create([
+            'policy_version_id' => $policy->id,
+            'name' => 'Điều kiện kỳ',
+            'enabled' => true,
+        ]);
+
+        $condition = SpendQualificationCondition::create([
+            'qualification_id' => $qualification->id,
+            'condition_type' => SpendQualificationCondition::TYPE_OTHER,
+            'min_spend' => '2000000.00',
+            'is_enabled' => true,
+            'sort_order' => 0,
+        ]);
+
+        SpendQualificationConditionExcludedCategory::create([
+            'condition_id' => $condition->id,
+            'category_id' => $medical->id,
+        ]);
+
+        $this->makeTemplate('Thẻ siêu thị 5%',
+            [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $grocery->id, 'percent' => '5.000']]);
+
+        $response = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'compare',
+            'criterion' => 'max_cashback',
+            'amounts' => [$medical->id => 2000000, $grocery->id => 500000],
+        ]));
+
+        $response->assertOk();
+
+        $row = collect($response->json('data.plans.0.excluded_candidates'))
+            ->firstWhere('card_name', 'MB Ultimate');
+        $this->assertNotNull($row);
+
+        $cond = $row['conditions'][0];
+        $this->assertSame('special_other', $cond['type']);
+        $this->assertFalse($cond['met']);
+        $this->assertSame('not_met', $cond['status']);
+        $this->assertSame('2000000.00', $cond['required']);
+        $this->assertSame('0.00', $cond['actual']);
+        $this->assertSame('2000000.00', $cond['shortfall']);
+        $this->assertArrayHasKey('activates_tier', $cond);
     }
 
     // =====================================================================

@@ -52,10 +52,10 @@ class AffiliateConfigController extends Controller
     }
 
     /**
-     * Read-only tráº¡ng thÃ¡i nhÃ  cung cáº¥p / phÆ°Æ¡ng thá»©c táº¡o link cho tab
-     * "Connect Partner AFF". CHá»ˆ tráº£ vá» nhÃ£n tráº¡ng thÃ¡i + boolean cáº¥u hÃ¬nh,
-     * KHÃ”NG tráº£ vá» giÃ¡ trá»‹ API key/secret/cookie. KhÃ´ng Ä‘á»c/ghi gÃ¬ ngoÃ i
-     * settings hiá»‡n cÃ³ vÃ  config services (chá»‰ kiá»ƒm tra cÃ³/khÃ´ng).
+     * Read-only trạng thái nhà cung cấp / phương thức tạo link cho tab
+     * "Connect Partner AFF". CHỈ trả về nhãn trạng thái + boolean cấu hình,
+     * KHÔNG trả về giá trị API key/secret/cookie. Không đọc/ghi gì ngoài
+     * settings hiện có và config services (chỉ kiểm tra có/không).
      *
      * @param  array<string, string>  $settings
      * @return array<int, array<string, mixed>>
@@ -90,7 +90,7 @@ class AffiliateConfigController extends Controller
                 'name' => 'Shopee',
                 'method' => $shopeeMethod,
                 'status' => $shopeeReady ? 'configured' : 'incomplete',
-                'status_label' => $shopeeReady ? 'ÄÃ£ cáº¥u hÃ¬nh' : 'Thiáº¿u cáº¥u hÃ¬nh',
+                'status_label' => $shopeeReady ? 'Đã cấu hình' : 'Thiếu cấu hình',
                 'methods' => [
                     ['label' => 'Direct Link', 'state' => $shopeeMethod === 'Direct Link' ? 'active' : 'available'],
                     ['label' => 'Extension Worker', 'state' => $shopeeMethod === 'Extension Worker' ? 'active' : 'available'],
@@ -103,7 +103,7 @@ class AffiliateConfigController extends Controller
                 'name' => 'TikTok Shop',
                 'method' => 'Direct Link (RioHub API)',
                 'status' => $riohubReady ? 'configured' : 'incomplete',
-                'status_label' => $riohubReady ? 'ÄÃ£ cáº¥u hÃ¬nh' : 'Thiáº¿u cáº¥u hÃ¬nh',
+                'status_label' => $riohubReady ? 'Đã cấu hình' : 'Thiếu cấu hình',
                 'methods' => [
                     ['label' => 'Direct Link (RioHub API)', 'state' => 'active'],
                     ['label' => 'AccessTrade API', 'state' => 'not_implemented'],
@@ -115,7 +115,7 @@ class AffiliateConfigController extends Controller
                 'name' => 'Lazada',
                 'method' => 'Direct Link (Lazada API)',
                 'status' => $lazadaReady ? 'configured' : 'incomplete',
-                'status_label' => $lazadaReady ? 'ÄÃ£ cáº¥u hÃ¬nh' : 'Thiáº¿u cáº¥u hÃ¬nh',
+                'status_label' => $lazadaReady ? 'Đã cấu hình' : 'Thiếu cấu hình',
                 'methods' => [
                     ['label' => 'Direct Link (Lazada API)', 'state' => 'active'],
                     ['label' => 'AccessTrade API', 'state' => 'not_implemented'],
@@ -127,7 +127,7 @@ class AffiliateConfigController extends Controller
                 'name' => 'ShopeeFood',
                 'method' => 'ShopeeFood Deep Link',
                 'status' => $shopeeFoodReady ? 'configured' : 'incomplete',
-                'status_label' => $shopeeFoodReady ? 'ÄÃ£ cáº¥u hÃ¬nh' : 'Thiáº¿u cáº¥u hÃ¬nh',
+                'status_label' => $shopeeFoodReady ? 'Đã cấu hình' : 'Thiếu cấu hình',
                 'methods' => [
                     ['label' => 'ShopeeFood Deep Link', 'state' => 'active'],
                     ['label' => 'AccessTrade API', 'state' => 'not_implemented'],
@@ -137,9 +137,9 @@ class AffiliateConfigController extends Controller
                 'key' => 'accesstrade',
                 'detect' => $detectRules['accesstrade'],
                 'name' => 'AccessTrade',
-                'method' => $accessTradeReady ? 'AccessTrade API' : 'â€”',
+                'method' => $accessTradeReady ? 'AccessTrade API' : '—',
                 'status' => $accessTradeReady ? 'configured' : 'not_configured',
-                'status_label' => $accessTradeReady ? 'ÄÃ£ káº¿t ná»‘i' : 'ChÆ°a káº¿t ná»‘i',
+                'status_label' => $accessTradeReady ? 'Đã kết nối' : 'Chưa kết nối',
                 'methods' => [
                     ['label' => 'AccessTrade API', 'state' => $accessTradeReady ? 'active' : 'not_implemented'],
                 ],
@@ -171,6 +171,6 @@ class AffiliateConfigController extends Controller
         Setting::set('affiliate.direct.resolve_shortlink', $validated['resolve']);
 
         return redirect()->route('admin.affiliate-config.index')
-            ->with('success', 'ÄÃ£ lÆ°u cáº¥u hÃ¬nh.');
+            ->with('success', 'Đã lưu cấu hình.');
     }
 }

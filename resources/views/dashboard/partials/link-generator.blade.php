@@ -453,6 +453,9 @@
                     <p x-show="result.platform === 'Lazada' && result.estimated_cashback != null && result.estimated_cashback > 0" class="text-[11px] text-gray-400 mt-1">
                         Hoa hồng đối tác ≈ <span x-text="Number(result.estimated_cashback).toLocaleString('vi-VN')"></span>đ
                     </p>
+                    <p x-show="result.platform === 'AccessTrade' && !(result.user_estimated_cashback != null && result.user_estimated_cashback > 0)" class="text-[11px] text-gray-400 mt-1">
+                        AccessTrade chưa trả về mức hoa hồng cho sản phẩm này nên chưa tính được tiền hoàn dự kiến.
+                    </p>
                 </div>
 
                 <div>
@@ -482,10 +485,17 @@
                                     <svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.41a2.25 2.25 0 013.182 0l2.909 2.91m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/></svg>
                                 </div>
                             </div>
-                            <p
-                                class="text-sm text-gray-800 font-medium leading-snug line-clamp-3 min-w-0"
-                                x-text="result.fast_mode ? 'Mở link hoàn tiền' : (result.product_name || 'Sản phẩm')"
-                            ></p>
+                            <div class="min-w-0">
+                                <p
+                                    class="text-sm text-gray-800 font-medium leading-snug line-clamp-3"
+                                    x-text="result.fast_mode ? 'Mở link hoàn tiền' : (result.product_name || 'Sản phẩm')"
+                                ></p>
+                                <p
+                                    x-show="!result.fast_mode && result.platform === 'AccessTrade' && result.product_price"
+                                    class="text-xs text-gray-500 mt-0.5"
+                                    x-text="'Giá tham khảo: ' + Number(result.product_price).toLocaleString('vi-VN') + 'đ'"
+                                ></p>
+                            </div>
                         </div>
                     </a>
 

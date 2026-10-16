@@ -2764,7 +2764,13 @@ class PortfolioOptimizerService
         float $actual,
         bool $met,
         ?string $note = null,
+        ?string $activatesTier = null,
+        ?float $activatesTierMin = null,
+        ?string $status = null,
+        ?string $statusLabel = null,
     ): array {
+        $status ??= $met ? 'met' : 'not_met';
+
         return [
             'type' => $type,
             'label' => $label,
@@ -2773,10 +2779,43 @@ class PortfolioOptimizerService
             'shortfall' => Decimal::money((string) (int) round(max(0.0, $required - $actual))),
             'excess' => Decimal::money((string) (int) round(max(0.0, $actual - $required))),
             'met' => $met,
-            'status' => $met ? 'met' : 'not_met',
-            'status_label' => $met ? 'Đã đạt' : 'Chưa đạt',
+            'status' => $status,
+            'status_label' => $statusLabel ?? ($met ? 'Đã đạt' : 'Chưa đạt'),
             'note' => $note,
+            'activates_tier' => $activatesTier,
+            'activates_tier_min' => $activatesTierMin === null
+                ? null
+                : Decimal::money((string) (int) round($activatesTierMin)),
         ];
+    }
+
+    /**
+     * Nhãn của bậc hoàn tiền mà thẻ sẽ nằm trong khi đạt tổng chi $total.
+     * Dùng để hiển thị "bậc hoàn được kích hoạt khi đạt điều kiện".
+     */
+    private function tierLabelAtTotal(CardScaffold $scaffold, float $total): ?string
+    {
+        $bestMin = null;
+        $bestLabel = null;
+
+        foreach ($scaffold->tiers as $tier) {
+            $min = (float) $tier->min_total_spend;
+
+            if ($total + 0.001 < $min) {
+                continue;
+            }
+
+            if ($tier->max_total_spend !== null && $total >= (float) $tier->max_total_spend) {
+                continue;
+            }
+
+            if ($bestMin === null || $min > $bestMin) {
+                $bestMin = $min;
+                $bestLabel = $tier->name;
+            }
+        }
+
+        return $bestLabel;
     }
 
     /**
@@ -2986,6 +3025,8 @@ class PortfolioOptimizerService
         $conditions = [];
 
         if ($requiredMin > 0.0) {
+            $activatesTier = $scaffold === null ? null : $this->tierLabelAtTotal($scaffold, $requiredMin);
+
             $conditions[] = $this->conditionRow(
                 type: 'tier_min',
                 label: 'Tổng chi tiêu tối thiểu theo chương trình'
@@ -2994,6 +3035,8 @@ class PortfolioOptimizerService
                 actual: $eligibleTotal,
                 met: $status === 'met',
                 note: 'Ngưỡng mở ưu đãi hoàn tiền của thẻ theo chính sách đang áp dụng.',
+                activatesTier: $activatesTier,
+                activatesTierMin: $requiredMin,
             );
         }
 
@@ -3006,6 +3049,22 @@ class PortfolioOptimizerService
                 actual: (float) ($condition['actual_spend'] ?? 0.0),
                 met: $met,
                 note: 'Điều kiện hoàn tiền đặc biệt (đo trên chi tiêu thực tế của kỳ giả lập).',
+                activatesTier: $scaffold === null ? null : $this->tierLabelAtTotal($scaffold, $eligibleTotal),
+            );
+        }
+
+        // Thẻ không có điều kiện nào (không ngưỡng bậc, không điều kiện đặc biệt):
+        // vẫn phải hiện một dòng trung tính thay vì bỏ trống khối điều kiện.
+        if ($conditions === []) {
+            $conditions[] = $this->conditionRow(
+                type: 'none',
+                label: 'Không có điều kiện chi tiêu tối thiểu riêng',
+                required: 0.0,
+                actual: $eligibleTotal,
+                met: true,
+                note: 'Thẻ sinh hoàn tiền ngay từ mức chi tiêu 0đ; không có ngưỡng kích hoạt riêng theo chính sách đang áp dụng.',
+                status: 'none',
+                statusLabel: 'Không áp dụng',
             );
         }
 

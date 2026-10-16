@@ -12,6 +12,7 @@ use App\Services\CashbackCalculator;
 use App\Services\Lazada\LazadaException;
 use App\Services\Lazada\LazadaLinkEstimateService;
 use App\Services\ProductDataService;
+use App\Services\ProductMetadata\ProductMetadataService;
 use App\Services\TikTok\TikTokLinkEstimateService;
 use App\Services\TikTok\TikTokServiceException;
 use App\Services\Url\PlatformResolver;
@@ -33,6 +34,7 @@ class DashboardCreateDirectLinkController extends Controller
         private readonly PlatformResolver $platformResolver,
         private readonly AccessTradeConfig $accessTradeConfig,
         private readonly AccessTradeLinkService $accessTradeLink,
+        private readonly ProductMetadataService $productMetadata,
     ) {}
 
     public function store(Request $request): JsonResponse|RedirectResponse
@@ -333,6 +335,12 @@ class DashboardCreateDirectLinkController extends Controller
                         'status' => 'completed',
                         'data_source' => 'accesstrade-api',
                     ]);
+
+                    // CellphoneS / other AccessTrade merchants: the affiliate
+                    // API returns only a tracking link, so product info is
+                    // fetched (best-effort) from the merchant page. A failure
+                    // here MUST NOT affect the already-created link.
+                    $this->enrichWithProductMetadata($link, $validated['original_url']);
                 } catch (AccessTradeException $e) {
                     $friendly = $this->accessTradeConfig->scrub($e->getUserMessage());
 
@@ -479,6 +487,42 @@ class DashboardCreateDirectLinkController extends Controller
 
         return redirect()->route('dashboard')
             ->with('success', 'Đã tạo affiliate link (chế độ nhanh).');
+    }
+
+    /**
+     * Best-effort product metadata enrichment for a completed AccessTrade link.
+     *
+     * Never throws and never overwrites an existing value with null. The
+     * affiliate link is already persisted, so metadata problems are silent to
+     * the user (logged only).
+     */
+    private function enrichWithProductMetadata(LinkRequest $link, string $url): void
+    {
+        try {
+            $metadata = $this->productMetadata->fetch($url);
+        } catch (\Throwable $e) {
+            Log::warning('[DirectLink] Product metadata fetch failed', [
+                'link_request_id' => $link->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return;
+        }
+
+        if ($metadata === null) {
+            return;
+        }
+
+        $update = array_filter([
+            'product_name' => $metadata['name'],
+            'product_image' => $metadata['image'],
+            'product_price' => $metadata['price'],
+            'product_link' => $url,
+        ], fn ($value) => $value !== null);
+
+        if ($update !== []) {
+            $link->update($update);
+        }
     }
 
     private function friendlyTikTokError(TikTokServiceException $e): string

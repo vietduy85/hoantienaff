@@ -481,6 +481,62 @@
                                             </div>
                                         </div>
 
+                                        {{-- Điều kiện hoàn tiền: liệt kê TỪNG điều kiện (tier + đặc biệt)
+                                             ngay dưới tên/thẻ, trước danh sách danh mục phân bổ. --}}
+                                        <div class="mt-2 rounded-lg border border-gray-100 bg-gray-50/60 p-2"
+                                             x-show="card.spending_condition && card.spending_condition.conditions && card.spending_condition.conditions.length">
+                                            <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Điều kiện hoàn tiền</p>
+
+                                            <ul class="mt-1 space-y-1">
+                                                <template x-for="(cond, cidx) in (card.spending_condition ? card.spending_condition.conditions : [])" :key="'cond-' + card.key + '-' + cidx">
+                                                    <li class="text-xs rounded border px-2 py-1.5"
+                                                        :class="{
+                                                            'bg-emerald-50 border-emerald-200': cond.status === 'met',
+                                                            'bg-red-50 border-red-200': cond.status === 'not_met',
+                                                            'bg-white border-gray-200': cond.status === 'none'
+                                                        }">
+                                                        <div class="flex items-start justify-between gap-2">
+                                                            <span class="text-gray-700 font-medium" x-text="cond.label"></span>
+                                                            <span class="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold"
+                                                                  :class="{
+                                                                      'bg-emerald-100 text-emerald-800': cond.status === 'met',
+                                                                      'bg-red-100 text-red-700': cond.status === 'not_met',
+                                                                      'bg-gray-100 text-gray-500': cond.status === 'none'
+                                                                  }"
+                                                                  x-text="cond.status_label"></span>
+                                                        </div>
+
+                                                        <dl class="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 tabular-nums">
+                                                            <div class="flex justify-between" x-show="Number(cond.required) > 0">
+                                                                <dt class="text-gray-500">Tối thiểu</dt>
+                                                                <dd class="text-gray-700" x-text="ccMoneyVnd(cond.required)"></dd>
+                                                            </div>
+                                                            <div class="flex justify-between">
+                                                                <dt class="text-gray-500">Chi đủ điều kiện</dt>
+                                                                <dd class="text-gray-700" x-text="ccMoneyVnd(cond.actual)"></dd>
+                                                            </div>
+                                                            <div class="flex justify-between" x-show="Number(cond.shortfall) > 0">
+                                                                <dt class="text-gray-500">Còn thiếu</dt>
+                                                                <dd class="text-red-700 font-semibold" x-text="ccMoneyVnd(cond.shortfall)"></dd>
+                                                            </div>
+                                                            <div class="flex justify-between" x-show="cond.activates_tier">
+                                                                <dt class="text-gray-500">Kích hoạt</dt>
+                                                                <dd class="text-gray-700" x-text="cond.activates_tier"></dd>
+                                                            </div>
+                                                        </dl>
+
+                                                        <p class="mt-1 text-[11px] leading-snug text-gray-500"
+                                                           x-show="cond.note"
+                                                           x-text="cond.note"></p>
+                                                    </li>
+                                                </template>
+                                            </ul>
+
+                                            <p class="mt-1 text-[11px] text-gray-500"
+                                               x-show="card.spending_condition.next_tier_label"
+                                               x-text="'Bậc kế tiếp: ' + card.spending_condition.next_tier_label + (card.spending_condition.next_tier_min ? ' — từ ' + ccMoneyVnd(card.spending_condition.next_tier_min) : '')"></p>
+                                        </div>
+
                                         <ul class="mt-2 space-y-1 border-t border-gray-100 pt-2">
                                             <template x-for="cat in card.categories" :key="cat.category_id">
                                                 <li class="flex items-baseline justify-between gap-3 text-xs">
