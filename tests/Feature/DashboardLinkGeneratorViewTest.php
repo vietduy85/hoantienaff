@@ -71,4 +71,24 @@ class DashboardLinkGeneratorViewTest extends TestCase
         $response->assertSee('<meta name="csrf-token" content="', false);
         $response->assertDontSee('content="([^"]+)"', false, 'Regex cũ với quote thô không được xuất hiện');
     }
+
+    public function test_unavailable_cashback_notice_uses_unified_wording_without_partner_name(): void
+    {
+        $html = view('dashboard.partials.link-generator')->render();
+
+        // Tiêu đề + thông báo thống nhất khi chưa ước lượng được tiền hoàn.
+        $this->assertStringContainsString('Chưa ước lượng được', $html);
+        $this->assertStringContainsString(
+            'Tiền hoàn sẽ được cộng vào ví khi đơn hàng hoàn tất và đáp ứng điều kiện hoàn tiền.',
+            $html,
+        );
+
+        // Không còn nội dung cũ và không lộ tên AccessTrade trong thông báo này.
+        $this->assertStringNotContainsString('Chưa có dữ liệu', $html);
+        $this->assertStringNotContainsString('AccessTrade chưa trả về mức hoa hồng', $html);
+        $this->assertStringNotContainsString('chưa tính được tiền hoàn dự kiến', $html);
+
+        // Trường hợp có tiền hoàn hợp lệ: binding hiển thị số tiền giữ nguyên.
+        $this->assertStringContainsString('result.user_estimated_cashback != null', $html);
+    }
 }

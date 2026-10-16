@@ -448,7 +448,7 @@
                     <p class="text-3xl font-bold text-emerald-600 leading-tight">
                         <span x-show="result.platform === 'ShopeeFood'" x-cloak class="text-lg font-medium text-emerald-600">Lên đến 4% tổng bill</span>
                         <span x-show="result.platform !== 'ShopeeFood' && result.user_estimated_cashback != null && result.user_estimated_cashback > 0" x-text="'≈ ' + Number(result.user_estimated_cashback).toLocaleString('vi-VN') + 'đ'"></span>
-                        <span x-show="result.platform !== 'ShopeeFood' && !(result.user_estimated_cashback != null && result.user_estimated_cashback > 0)" class="text-lg font-medium text-gray-400">Chưa có dữ liệu</span>
+                        <span x-show="result.platform !== 'ShopeeFood' && !(result.user_estimated_cashback != null && result.user_estimated_cashback > 0)" class="text-lg font-medium text-gray-400">Chưa ước lượng được</span>
                     </p>
                     <p x-show="result.platform === 'Lazada' && result.estimated_cashback != null && result.estimated_cashback > 0" class="text-[11px] text-gray-400 mt-1">
                         Hoa hồng đối tác ≈ <span x-text="Number(result.estimated_cashback).toLocaleString('vi-VN')"></span>đ
@@ -456,8 +456,8 @@
                     <p x-show="result.platform === 'AccessTrade' && result.estimated_cashback != null && result.estimated_cashback > 0" class="text-[11px] text-gray-400 mt-1">
                         Hoa hồng ước tính ≈ <span x-text="Number(result.estimated_cashback).toLocaleString('vi-VN')"></span>đ — tính theo tỷ lệ hoa hồng chiến dịch, AccessTrade chốt khi đối soát.
                     </p>
-                    <p x-show="result.platform === 'AccessTrade' && !(result.user_estimated_cashback != null && result.user_estimated_cashback > 0)" class="text-[11px] text-gray-400 mt-1">
-                        AccessTrade chưa trả về mức hoa hồng cho sản phẩm này nên chưa tính được tiền hoàn dự kiến.
+                    <p x-show="result.platform !== 'ShopeeFood' && !(result.user_estimated_cashback != null && result.user_estimated_cashback > 0)" class="text-[11px] text-gray-400 mt-1">
+                        Tiền hoàn sẽ được cộng vào ví khi đơn hàng hoàn tất và đáp ứng điều kiện hoàn tiền.
                     </p>
                 </div>
 

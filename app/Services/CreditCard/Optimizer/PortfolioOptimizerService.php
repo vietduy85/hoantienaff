@@ -127,6 +127,14 @@ class PortfolioOptimizerService
      */
     private const ACTIVATION_REFINE_LIMIT = 2;
 
+    /**
+     * Số vòng của phép "tái cân bằng filler theo ngưỡng": chuyển một danh mục sang
+     * thẻ có tỷ lệ hoàn cao hơn rồi BÙ LẠI ngưỡng của thẻ nguồn bằng filler rẻ nhất.
+     * Phép này xử lý trường hợp `improveCategory()` không thấy được vì nó đánh giá
+     * ngay khi thẻ nguồn còn hụt ngưỡng (tổng tạm giảm nên bị từ chối).
+     */
+    private const REBALANCE_PASSES = 2;
+
     public function __construct(
         private readonly StatementPeriodService $periods,
         private readonly PolicyEngineService $engine,
@@ -821,6 +829,16 @@ class PortfolioOptimizerService
         // THẬT cao hơn — nhờ đó chi tiêu hoàn thấp chỉ dùng để kích hoạt khi có lợi.
         $best = $this->expandToTierMinimums($config, $candidates, $positiveMap, $singles, $amounts, $best, $evalCache);
 
+        // TÁI CÂN BẰNG FILLER: chuyển danh mục hoàn cao sang thẻ hoàn cao hơn rồi
+        // bù ngưỡng thẻ nguồn bằng filler rẻ nhất — bắt được các phối hợp mà bước
+        // cải thiện cục bộ bỏ sót (ví dụ Ăn uống đang nằm trên thẻ 4% thay vì 20%).
+        $best = $this->rebalanceGatedFiller($config, $candidates, $positiveMap, $singles, $amounts, $best, $evalCache);
+
+        // Rót lại lần cuối: tái cân bằng có thể đã GỘP một danh mục về một thẻ
+        // (chỉ xét giao TRỌN danh mục); bước cải thiện cục bộ sau cùng cho phép
+        // TÁCH lại danh mục khi các thẻ có trần/quota độc lập và tổng hoàn tăng.
+        $best = $this->improveAllocation($config, $candidates, $positiveMap, $singles, $amounts, $best);
+
         // Danh mục KHÔNG được thẻ nào giữ → giữ lại chưa phân bổ (ghi nhật ký).
         foreach ($amounts as $categoryId => $amount) {
             $allocated = 0;
@@ -971,7 +989,8 @@ class PortfolioOptimizerService
                 continue;
             }
 
-            $take = min($have, $need - $moved);
+            $max = isset($source['amount']) ? min($have, (int) $source['amount']) : $have;
+            $take = min($max, $need - $moved);
             $working[$from][$cat] = $have - $take;
 
             if ($working[$from][$cat] <= 0) {
@@ -1035,6 +1054,89 @@ class PortfolioOptimizerService
 
         usort($sources, fn (array $a, array $b): int => [$a['target_positive'], $a['rate'], -$a['amount'], $a['category']]
             <=> [$b['target_positive'], $b['rate'], -$b['amount'], $b['category']]);
+
+        return $sources;
+    }
+
+    /**
+     * Nguồn filler CHỈ lấy từ PHẦN DƯ TRÊN NGƯỠNG của mỗi thẻ nguồn (tổng chi của
+     * thẻ trừ đi ngưỡng tối thiểu mà nó đang đạt). Nhờ vậy việc bù ngưỡng cho thẻ
+     * đích KHÔNG làm thẻ nguồn tụt xuống dưới ngưỡng của chính nó — biến phép đổi
+     * chỗ thành cải thiện RÒNG thật. Mỗi nguồn trả kèm `amount` = phần tối đa được
+     * rút, đúng bằng phần dư của thẻ nguồn phân bổ dần theo danh mục hoàn thấp trước.
+     *
+     * @param  array<string, CardScaffold>  $candidates
+     * @param  array<string, array{any_all: bool, cats: array<int, true>}>  $positiveMap
+     * @param  array<string, array<string, CardScenario>>  $evalCache
+     * @param  array<string, array<int, int>>  $allocation
+     * @return list<array{key: string, category: int, amount: int, rate: float, target_positive: int}>
+     */
+    private function surplusFillerSources(array $candidates, array $positiveMap, array &$evalCache, array $allocation, string $targetKey): array
+    {
+        $targetMap = $positiveMap[$targetKey] ?? ['any_all' => false, 'cats' => []];
+        $sources = [];
+
+        foreach ($allocation as $from => $cats) {
+            if ($from === $targetKey || ($cats ?? []) === [] || ! isset($candidates[$from])) {
+                continue;
+            }
+
+            $total = (int) array_sum($cats);
+            $surplus = $total - $this->satisfiedGate($candidates[$from], $total);
+
+            if ($surplus <= 0) {
+                continue;
+            }
+
+            $scenario = $this->cachedScenario($candidates, $evalCache, $from, $cats);
+
+            $rows = [];
+
+            foreach ($cats as $categoryId => $amount) {
+                $amount = (int) $amount;
+
+                if ($amount <= 0) {
+                    continue;
+                }
+
+                $row = $scenario->perCategory[(int) $categoryId] ?? [];
+
+                $rows[] = [
+                    'category' => (int) $categoryId,
+                    'amount' => $amount,
+                    'rate' => (float) ($row['rate'] ?? 0.0),
+                    'target_positive' => $this->isPositive($targetMap, (int) $categoryId) ? 0 : 1,
+                ];
+            }
+
+            // Rút phần dư theo danh mục hoàn thấp nhất trước để tổn thất nhỏ nhất.
+            usort($rows, fn (array $a, array $b): int => [$a['rate'], $a['category']]
+                <=> [$b['rate'], $b['category']]);
+
+            $remaining = $surplus;
+
+            foreach ($rows as $row) {
+                if ($remaining <= 0) {
+                    break;
+                }
+
+                $take = min($row['amount'], $remaining);
+
+                $sources[] = [
+                    'key' => $from,
+                    'category' => $row['category'],
+                    'amount' => $take,
+                    'rate' => $row['rate'],
+                    'target_positive' => $row['target_positive'],
+                    'loss' => $this->categoryRemovalLoss($candidates, $evalCache, $from, $cats, $row['category'], $take),
+                ];
+
+                $remaining -= $take;
+            }
+        }
+
+        usort($sources, fn (array $a, array $b): int => [$a['loss'], $a['target_positive'], $a['rate'], $a['key'], $a['category']]
+            <=> [$b['loss'], $b['target_positive'], $b['rate'], $b['key'], $b['category']]);
 
         return $sources;
     }
@@ -1432,6 +1534,7 @@ class PortfolioOptimizerService
         string $targetKey,
         array $rewardCats,
         array &$evalCache,
+        bool $surplusOnly = false,
     ): array {
         foreach ($base as $key => $cats) {
             if ($key === $targetKey || ! isset($candidates[$key])) {
@@ -1451,7 +1554,9 @@ class PortfolioOptimizerService
             }
 
             $need = $gate - $nowTotal;
-            $sources = $this->fillerSources($candidates, $positiveMap, $evalCache, $trial, $key);
+            $sources = $surplusOnly
+                ? $this->surplusFillerSources($candidates, $positiveMap, $evalCache, $trial, $key)
+                : $this->fillerSources($candidates, $positiveMap, $evalCache, $trial, $key);
 
             $filtered = array_values(array_filter(
                 $sources,
@@ -1491,6 +1596,122 @@ class PortfolioOptimizerService
         }
 
         return $gate;
+    }
+
+    /**
+     * TÁI CÂN BẰNG FILLER THEO NGƯỠNG (tổng quát cho mọi thẻ, mọi danh mục).
+     *
+     * Với từng danh mục, thử GIAO TRỌN danh mục cho một ứng viên khác rồi BÙ LẠI
+     * ngưỡng tổng chi của những thẻ nguồn vừa bị rút xuống dưới ngưỡng bằng filler
+     * RẺ NHẤT (qua {@see repairDroppedGates()}). Nhờ vậy thuật toán nhìn thấy lợi
+     * ích RÒNG của việc "chuyển khoản chi hoàn cao sang thẻ hoàn cao hơn + lấp chỗ
+     * trống bằng khoản hoàn thấp", điều mà {@see improveCategory()} bỏ sót vì nó
+     * đánh giá ngay lúc thẻ nguồn còn hụt ngưỡng.
+     *
+     * Chỉ nhận khi tổng hoàn THẬT (evaluator) tăng.
+     *
+     * @param  array{order: list<int>, criterion: string, prefer_owned: bool, prefer_market: bool, spread: bool}  $config
+     * @param  array<string, CardScaffold>  $candidates
+     * @param  array<string, array{any_all: bool, cats: array<int, true>}>  $positiveMap
+     * @param  array<string, array<int, array<string, mixed>>>  $singles
+     * @param  array<int, int>  $amounts
+     * @param  array<string, array<int, int>>  $allocation
+     * @param  array<string, array<string, CardScenario>>  $evalCache
+     * @return array<string, array<int, int>>
+     */
+    private function rebalanceGatedFiller(
+        array $config,
+        array $candidates,
+        array $positiveMap,
+        array $singles,
+        array $amounts,
+        array $allocation,
+        array &$evalCache,
+    ): array {
+        $best = $allocation;
+        $bestTotal = $this->allocationValue($candidates, $best, $evalCache)['total'];
+
+        for ($pass = 0; $pass < self::REBALANCE_PASSES; $pass++) {
+            $improved = false;
+
+            foreach ($config['order'] as $categoryId) {
+                $categoryId = (int) $categoryId;
+                $total = (int) ($amounts[$categoryId] ?? 0);
+
+                if ($total <= 0) {
+                    continue;
+                }
+
+                $holders = [];
+
+                foreach ($best as $key => $cats) {
+                    if (((int) ($cats[$categoryId] ?? 0)) > 0) {
+                        $holders[] = $key;
+                    }
+                }
+
+                $shortlist = $this->shortlistFor(
+                    $config, $candidates, $positiveMap, $singles, $best, $categoryId, $holders,
+                );
+
+                foreach ($shortlist as $targetKey) {
+                    if (count($holders) === 1 && in_array($targetKey, $holders, true)) {
+                        continue;
+                    }
+
+                    $moved = $this->withoutCategory($best, $holders, $categoryId);
+                    $moved[$targetKey][$categoryId] = (int) ($moved[$targetKey][$categoryId] ?? 0) + $total;
+
+                    $rewardCats = $this->positiveCategoryList($positiveMap[$targetKey] ?? []);
+                    $rewardCats[] = $categoryId;
+
+                    $moved = $this->repairDroppedGates(
+                        $moved, $best, $candidates, $positiveMap, $singles, $amounts, $targetKey, $rewardCats, $evalCache, true,
+                    );
+
+                    $totalAfter = $this->allocationValue($candidates, $moved, $evalCache)['total'];
+
+                    if ($totalAfter > $bestTotal + self::ACTIVATION_EPSILON) {
+                        $beforeHolders = $this->categoryHolders($best, $categoryId);
+                        $afterHolders = $this->categoryHolders($moved, $categoryId);
+
+                        if (array_keys($beforeHolders) !== array_keys($afterHolders)) {
+                            $this->audit?->record([
+                                'type' => OptimizationAudit::STEP_REALLOCATE,
+                                'category_id' => $categoryId,
+                                'total' => $total,
+                                'before' => $beforeHolders,
+                                'after' => $afterHolders,
+                            ]);
+                        }
+
+                        $best = $moved;
+                        $bestTotal = $totalAfter;
+                        $improved = true;
+
+                        break;
+                    }
+                }
+            }
+
+            if (! $improved) {
+                break;
+            }
+        }
+
+        return $best;
+    }
+
+    /**
+     * Danh sách danh mục SINH HOÀN (positive) của một ứng viên — dùng để bảo vệ
+     * không rút chúng khi bù ngưỡng thẻ đích.
+     *
+     * @param  array{any_all?: bool, cats?: array<int, true>}  $map
+     * @return list<int>
+     */
+    private function positiveCategoryList(array $map): array
+    {
+        return array_map('intval', array_keys($map['cats'] ?? []));
     }
 
     /**
