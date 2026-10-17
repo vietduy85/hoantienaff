@@ -215,4 +215,76 @@ class MccRowBenefitImportTest extends TestCase
         $this->assertCount(1, $stats['skipped_rows']);
         $this->assertSame(0, PolicyMccRowBenefit::query()->count());
     }
+
+    #[Test]
+    public function import_marks_bonus_tier_via_source_note(): void
+    {
+        $template = $this->makeTemplate('the-test-bonus');
+        $row = $this->makeProfileWithRow($template, 'Siêu thị, cửa hàng tiện lợi');
+
+        $path = $this->writeDataFile([
+            'the-test-bonus' => [
+                'rows' => [
+                    'Siêu thị, cửa hàng tiện lợi' => [
+                        ['pct' => 50, 'type' => 'bonus', 'cap' => 300000, 'cond' => 'Giao dịch đầu tiên trong 30 ngày kích hoạt'],
+                        ['pct' => 20, 'cap' => 300000, 'cond' => 'Các giao dịch còn lại'],
+                    ],
+                ],
+            ],
+        ]);
+
+        $importer = app(MccRowBenefitImporter::class);
+        $importer->import($path);
+
+        $tiers = PolicyMccRowBenefit::query()->where('policy_mcc_row_id', $row->id)->orderBy('tier_order')->get();
+
+        $this->assertCount(2, $tiers);
+        // Bậc 50% là ưu đãi bổ sung ⇒ đánh dấu `bonus` ở cột source_note.
+        $this->assertSame('bonus', $tiers[0]->source_note);
+        $this->assertTrue($tiers[0]->isBonus());
+        $this->assertSame(PolicyMccRowBenefit::KIND_BONUS, $tiers[0]->benefitKind());
+        // Bậc 20% không có dấu ⇒ cashback chính thức (mặc định).
+        $this->assertNull($tiers[1]->source_note);
+        $this->assertFalse($tiers[1]->isBonus());
+        $this->assertSame(PolicyMccRowBenefit::KIND_OFFICIAL, $tiers[1]->benefitKind());
+
+        // Chạy lại không ghi đè/thêm: idempotent.
+        $second = $importer->import($path);
+        $this->assertSame(0, $second['tiers_created']);
+        $this->assertSame(0, $second['tiers_updated']);
+        $this->assertSame('bonus', PolicyMccRowBenefit::query()->where('policy_mcc_row_id', $row->id)->orderBy('tier_order')->first()->source_note);
+    }
+
+    #[Test]
+    public function import_leaves_official_tier_unmarked(): void
+    {
+        $template = $this->makeTemplate('the-test-official');
+        $row = $this->makeProfileWithRow($template, 'Y tế');
+
+        $this->writeAndImport($template, [
+            ['pct' => 15, 'cap' => 400000],
+        ]);
+
+        $tier = PolicyMccRowBenefit::query()->where('policy_mcc_row_id', $row->id)->firstOrFail();
+
+        $this->assertNull($tier->source_note);
+        $this->assertFalse($tier->isBonus());
+        $this->assertSame(PolicyMccRowBenefit::KIND_OFFICIAL, $tier->benefitKind());
+    }
+
+    /**
+     * Ghi file dữ liệu tạm cho MỘT template/dòng `Bảo hiểm`… và chạy trình nhập.
+     *
+     * @param  array<int, array<string, mixed>>  $tiers
+     */
+    private function writeAndImport(PolicyTemplate $template, array $tiers): void
+    {
+        app(MccRowBenefitImporter::class)->import($this->writeDataFile([
+            $template->slug => [
+                'rows' => [
+                    'Y tế' => $tiers,
+                ],
+            ],
+        ]));
+    }
 }

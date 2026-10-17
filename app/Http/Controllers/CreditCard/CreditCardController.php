@@ -490,12 +490,20 @@ class CreditCardController extends Controller
      */
     public function optimize(Request $request): JsonResponse
     {
+        // Nâng trần thời gian chạy cho RIÊNG request tối ưu (không đổi toàn hệ
+        // thống). Thuật toán tự dừng an toàn sớm hơn (xem COMPUTATION_BUDGET_SECONDS)
+        // nên không bao giờ chạm trần này; đây chỉ là lớp bảo hiểm.
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(PortfolioOptimizerService::MAX_COMPUTATION_SECONDS);
+        }
+
         $userId = (int) auth()->id();
 
         $validated = $request->validate([
             'scope' => ['sometimes', 'string', Rule::in(OptimizerScope::keys())],
             'criterion' => ['sometimes', 'string', Rule::in(OptimizationCriterion::keys())],
             'max_copies_per_card' => ['sometimes', 'integer', 'min:1', 'max:'.PortfolioOptimizerService::MAX_COPIES_LIMIT],
+            'max_desired_cards' => ['sometimes', 'integer', 'min:1', 'max:'.PortfolioOptimizerService::MAX_DESIRED_CARDS_LIMIT],
             'amounts' => ['required', 'array'],
             'amounts.*' => ['integer', 'min:0', 'max:1000000000000'],
         ]);
@@ -526,9 +534,12 @@ class CreditCardController extends Controller
         $maxCopies = PortfolioOptimizerService::clampCopies(
             (int) ($validated['max_copies_per_card'] ?? PortfolioOptimizerService::DEFAULT_MAX_COPIES),
         );
+        $maxDesiredCards = PortfolioOptimizerService::clampMaxDesiredCards(
+            (int) ($validated['max_desired_cards'] ?? PortfolioOptimizerService::DEFAULT_MAX_DESIRED_CARDS),
+        );
 
         return response()->json([
-            'data' => $this->optimizer->optimize($userId, $scope, $criterion, $amounts, $maxCopies),
+            'data' => $this->optimizer->optimize($userId, $scope, $criterion, $amounts, $maxCopies, $maxDesiredCards),
         ]);
     }
 

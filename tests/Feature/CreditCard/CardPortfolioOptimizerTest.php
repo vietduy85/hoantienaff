@@ -13,7 +13,13 @@ use App\Models\CreditCard\SpendQualificationCondition;
 use App\Models\CreditCard\SpendQualificationConditionExcludedCategory;
 use App\Models\CreditCard\UserCard;
 use App\Models\User;
+use App\Services\CreditCard\Optimizer\CardScenarioEvaluator;
+use App\Services\CreditCard\Optimizer\OnlinePaymentEligibilityResolver;
 use App\Services\CreditCard\Optimizer\PortfolioOptimizerService;
+use App\Services\CreditCard\Optimizer\SpendingConditionAllocator;
+use App\Services\CreditCard\PolicyEngineService;
+use App\Services\CreditCard\StatementPeriodService;
+use App\Services\CreditCard\TierResolverService;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Concerns\InteractsWithCreditCardDatabase;
 use Tests\TestCase;
@@ -2884,6 +2890,226 @@ class CardPortfolioOptimizerTest extends TestCase
         $this->assertSame('0.00', $cond['actual']);
         $this->assertSame('2000000.00', $cond['shortfall']);
         $this->assertArrayHasKey('activates_tier', $cond);
+    }
+
+    // =====================================================================
+    // 12. Giới hạn "số thẻ tối đa mong muốn" (max_desired_cards)
+    // =====================================================================
+
+    #[Test]
+    public function it_validates_max_desired_cards_bounds(): void
+    {
+        $category = $this->makeSystemCategory();
+
+        $this->actingAs($this->owner)
+            ->getJson(route('credit-cards.compare.optimize', [
+                'max_desired_cards' => 0,
+                'amounts' => [$category->id => 1000000],
+            ]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('max_desired_cards');
+
+        $this->actingAs($this->owner)
+            ->getJson(route('credit-cards.compare.optimize', [
+                'max_desired_cards' => PortfolioOptimizerService::MAX_DESIRED_CARDS_LIMIT + 1,
+                'amounts' => [$category->id => 1000000],
+            ]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('max_desired_cards');
+    }
+
+    /**
+     * Ba danh mục, mỗi danh mục có một thẻ chuyên hoàn cao riêng. Không giới hạn
+     * ⇒ mỗi danh mục dùng thẻ riêng (3 thẻ, 450k). Giới hạn 2 thẻ ⇒ phương án bắt
+     * buộc phải dùng đúng 2 thẻ, danh mục thứ ba không còn thẻ hoàn ⇒ chưa phân bổ,
+     * và KHÔNG phương án nào vượt quá 2 thẻ.
+     */
+    #[Test]
+    public function it_enforces_max_desired_cards_during_optimization(): void
+    {
+        $a = $this->makeSystemCategory(['name' => 'Ăn uống']);
+        $b = $this->makeSystemCategory(['name' => 'Siêu thị']);
+        $c = $this->makeSystemCategory(['name' => 'Xăng dầu']);
+
+        $this->makeTemplate('Thẻ A 20%', [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $a->id, 'percent' => '20.000']]);
+        $this->makeTemplate('Thẻ B 15%', [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $b->id, 'percent' => '15.000']]);
+        $this->makeTemplate('Thẻ C 10%', [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $c->id, 'percent' => '10.000']]);
+
+        $amounts = [$a->id => 1000000, $b->id => 1000000, $c->id => 1000000];
+        $total = 3000000.0;
+
+        $unlimited = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all', 'criterion' => 'max_cashback',
+            'max_desired_cards' => PortfolioOptimizerService::MAX_DESIRED_CARDS_LIMIT,
+            'amounts' => $amounts,
+        ]));
+        $unlimited->assertOk();
+        $this->assertSame('450000.00', $unlimited->json('data.best_cashback'));
+
+        $capped = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all', 'criterion' => 'max_cashback',
+            'max_desired_cards' => 2,
+            'amounts' => $amounts,
+        ]));
+        $capped->assertOk();
+        $this->assertSame(2, (int) $capped->json('data.max_desired_cards'));
+        $this->assertSame('350000.00', $capped->json('data.best_cashback'));
+        $this->assertGreaterThan(0, (int) $capped->json('data.plan_count'));
+
+        // Mọi phương án trả về đều tuân thủ giới hạn — không chỉ phương án tốt nhất.
+        foreach ($capped->json('data.plans') as $plan) {
+            $this->assertLessThanOrEqual(2, (int) $plan['cards_count']);
+            $this->assertSame((int) $plan['cards_count'], (int) $plan['used_cards']);
+            $this->assertSame((int) $plan['cards_count'] >= 2, (bool) $plan['card_limit_reached']);
+
+            // Đánh giá độc lập: tổng hoàn từng thẻ = tổng hoàn phương án.
+            $sumCards = 0.0;
+            foreach ($plan['cards'] as $card) {
+                $sumCards += (float) $card['total_cashback'];
+            }
+            $this->assertEqualsWithDelta((float) $plan['total_cashback'], $sumCards, 0.01);
+
+            // Bảo toàn ngân sách: đã phân bổ + chưa phân bổ = tổng chi.
+            $allocated = (float) $plan['total_allocated'];
+            $unallocated = (float) $plan['unallocated_total'];
+            $this->assertEqualsWithDelta($total, $allocated + $unallocated, 0.01);
+
+            // Không trùng thẻ.
+            $keys = array_column($plan['cards'], 'key');
+            $this->assertSame(array_values(array_unique($keys)), $keys);
+        }
+    }
+
+    /** Mặc định (không truyền) KHÔNG ràng buộc — bảo toàn hành vi hiện tại. */
+    #[Test]
+    public function default_max_desired_cards_is_non_binding(): void
+    {
+        $a = $this->makeSystemCategory(['name' => 'Ăn uống']);
+        $b = $this->makeSystemCategory(['name' => 'Siêu thị']);
+
+        $this->makeTemplate('Thẻ A 20%', [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $a->id, 'percent' => '20.000']]);
+        $this->makeTemplate('Thẻ B 15%', [['name' => 'Bậc 1', 'min' => 0, 'max' => null]],
+            [['category_id' => $b->id, 'percent' => '15.000']]);
+
+        $amounts = [$a->id => 1000000, $b->id => 1000000];
+
+        $default = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all', 'criterion' => 'max_cashback', 'amounts' => $amounts,
+        ]));
+        $default->assertOk();
+        $this->assertSame(PortfolioOptimizerService::DEFAULT_MAX_DESIRED_CARDS, (int) $default->json('data.max_desired_cards'));
+
+        $explicit = $this->actingAs($this->owner)->getJson(route('credit-cards.compare.optimize', [
+            'scope' => 'all', 'criterion' => 'max_cashback',
+            'max_desired_cards' => PortfolioOptimizerService::MAX_DESIRED_CARDS_LIMIT,
+            'amounts' => $amounts,
+        ]));
+        $explicit->assertOk();
+
+        $this->assertSame($explicit->json('data.best_cashback'), $default->json('data.best_cashback'));
+        $this->assertSame('350000.00', $default->json('data.best_cashback'));
+    }
+
+    /** Khi hết ngân sách thời gian: dừng an toàn, không trả phân bổ dở dang. */
+    #[Test]
+    public function it_stops_safely_when_the_time_budget_is_exhausted(): void
+    {
+        $category = $this->makeSystemCategory(['name' => 'Ăn uống']);
+        $amounts = [$category->id => 5000000];
+
+        $service = app(PortfolioOptimizerService::class);
+
+        foreach (['owned', 'all', 'compare'] as $scope) {
+            $result = $service->optimize($this->owner->id, $scope, 'max_cashback', $amounts, 1,
+                PortfolioOptimizerService::MAX_DESIRED_CARDS_LIMIT, 0);
+
+            $this->assertTrue($result['timed_out'], "scope=$scope phải báo hết thời gian.");
+            $this->assertSame(0, $result['plan_count']);
+            $this->assertIsFloat($result['computation_time_seconds']);
+            $this->assertGreaterThanOrEqual(0.0, $result['computation_time_seconds']);
+            $this->assertSame(PortfolioOptimizerService::MAX_COMPUTATION_SECONDS, $result['max_computation_seconds']);
+            $this->assertSame(PortfolioOptimizerService::MAX_DESIRED_CARDS_LIMIT, $result['max_desired_cards']);
+        }
+    }
+
+    /**
+     * Nhánh "hết ngân sách thời gian" phải trả HTTP 200 + payload hợp lệ QUA endpoint
+     * thật (không chỉ ở tầng service) — bảo đảm lớp HTTP/biên không biến kết quả
+     * "dừng an toàn" thành lỗi 5xx. Dùng lớp con buộc ngân sách = 0 (endpoint không
+     * nhận tham số ngân sách).
+     */
+    #[Test]
+    public function the_endpoint_returns_a_valid_timed_out_payload_over_http(): void
+    {
+        $category = $this->makeSystemCategory(['name' => 'Ăn uống']);
+
+        $this->app->bind(PortfolioOptimizerService::class, fn () => new class extends PortfolioOptimizerService
+        {
+            public function __construct()
+            {
+                parent::__construct(
+                    app(StatementPeriodService::class),
+                    app(PolicyEngineService::class),
+                    app(TierResolverService::class),
+                    app(CardScenarioEvaluator::class),
+                    app(OnlinePaymentEligibilityResolver::class),
+                    app(SpendingConditionAllocator::class),
+                );
+            }
+
+            public function optimize(
+                int $userId,
+                string $scope,
+                string $criterion,
+                array $amounts,
+                int $maxCopies = self::DEFAULT_MAX_COPIES,
+                int $maxDesiredCards = self::DEFAULT_MAX_DESIRED_CARDS,
+                ?int $budgetSeconds = null,
+            ): array {
+                return parent::optimize($userId, $scope, $criterion, $amounts, $maxCopies, $maxDesiredCards, 0);
+            }
+        });
+
+        $response = $this->actingAs($this->owner)
+            ->getJson(route('credit-cards.compare.optimize', [
+                'scope' => 'all',
+                'amounts' => [$category->id => 5000000],
+            ]));
+
+        $response->assertOk()
+            ->assertJsonPath('data.timed_out', true)
+            ->assertJsonPath('data.plan_count', 0)
+            ->assertJsonPath('data.max_desired_cards', PortfolioOptimizerService::MAX_DESIRED_CARDS_LIMIT);
+
+        $this->assertSame([], $response->json('data.plans'));
+        $this->assertIsNumeric($response->json('data.computation_time_seconds'));
+    }
+
+    /** Bộ đếm thẻ dùng/kiểm giới hạn hoạt động đúng ở mức đơn vị. */
+    #[Test]
+    public function card_limit_helpers_count_only_cards_with_positive_allocation(): void
+    {
+        $service = app(PortfolioOptimizerService::class);
+
+        $limit = new \ReflectionProperty($service, 'activeMaxCards');
+        $limit->setValue($service, 2);
+
+        $used = new \ReflectionMethod($service, 'usedCardCount');
+        $this->assertSame(2, $used->invoke($service, [
+            'a' => [1 => 100],
+            'b' => [2 => 200],
+            'c' => [3 => 0],
+        ]));
+
+        $within = new \ReflectionMethod($service, 'withinCardLimit');
+        $this->assertTrue($within->invoke($service, ['a' => [1 => 100], 'b' => [2 => 200]]));
+        $this->assertFalse($within->invoke($service, [
+            'a' => [1 => 100], 'b' => [2 => 200], 'c' => [3 => 50],
+        ]));
     }
 
     // =====================================================================

@@ -43,12 +43,13 @@
                         <span class="font-semibold text-gray-800" x-text="row.cashback.category_name || row.category_name || '—'"></span>
                     </p>
 
-                    {{-- Tỷ lệ hoàn tiền CAO NHẤT + điều kiện của nó (trích tài liệu gốc). --}}
+                    {{-- Hoàn tiền CHÍNH THỨC: tỷ lệ cao nhất của các bậc chính thức +
+                         điều kiện/trần của chính bậc đó (trích tài liệu gốc). --}}
                     <template x-if="row.cashback.highest">
                         <div class="rounded-lg border border-emerald-100 bg-emerald-50/70 px-3 py-2">
                             <div class="flex items-start justify-between gap-3">
                                 <p class="text-sm font-bold text-emerald-700">
-                                    Hoàn tối đa
+                                    Hoàn tiền chính thức
                                     <span x-text="ccBenefitRate(row.cashback.highest)"></span>
                                 </p>
                                 <p class="shrink-0 text-[11px] text-gray-500"
@@ -61,11 +62,33 @@
                         </div>
                     </template>
 
-                    {{-- Bậc chi tiết: hiện khi KHÔNG có tỷ lệ cao nhất, hoặc khi kết quả là
-                         SẢN PHẨM dùng chung nhiều hạng thẻ — để bảo toàn khác biệt tỷ lệ theo hạng. --}}
+                    {{-- ƯU ĐÃI BỔ SUNG (khuyến mại/kích hoạt/giao dịch đầu tiên): hiển
+                         thị RIÊNG, nêu rõ KHÔNG tính vào tỷ lệ hoàn tiền chính thức. --}}
+                    <template x-if="ccBonusTiers(row.cashback).length">
+                        <div class="rounded-lg border border-violet-100 bg-violet-50/60 px-3 py-2 space-y-1.5">
+                            <p class="text-xs font-semibold text-violet-700">Ưu đãi bổ sung</p>
+                            <template x-for="(tier, bi) in ccBonusTiers(row.cashback)" :key="'bonus-' + row.id + '-' + bi">
+                                <div class="flex items-start justify-between gap-3">
+                                    <div class="min-w-0">
+                                        <p class="text-xs text-violet-800 font-semibold" x-text="ccBenefitRate(tier)"></p>
+                                        <p class="text-[11px] text-gray-500 mt-0.5" x-show="tier.note" x-text="tier.note"></p>
+                                        <p class="text-[11px] text-rose-600 mt-0.5" x-show="tier.exception" x-text="tier.exception"></p>
+                                    </div>
+                                    <p class="shrink-0 text-[11px] text-gray-500 text-right"
+                                       x-show="ccBenefitCap(tier)"
+                                       x-text="ccBenefitCap(tier)"></p>
+                                </div>
+                            </template>
+                            <p class="text-[11px] text-violet-500 italic">Không tính vào tỷ lệ hoàn tiền chính thức.</p>
+                        </div>
+                    </template>
+
+                    {{-- Bậc CHÍNH THỨC chi tiết: hiện khi KHÔNG có tỷ lệ cao nhất, hoặc khi
+                         kết quả là SẢN PHẨM dùng chung nhiều hạng thẻ — để bảo toàn khác
+                         biệt tỷ lệ theo hạng. --}}
                     <template x-if="! row.cashback.highest || row.product_name">
                         <div class="space-y-2">
-                            <template x-for="(tier, ti) in row.cashback.tiers" :key="'tier-' + row.id + '-' + ti">
+                            <template x-for="(tier, ti) in ccOfficialTiers(row.cashback)" :key="'tier-' + row.id + '-' + ti">
                                 <div class="flex items-start justify-between gap-3">
                                     <div class="min-w-0">
                                         <p class="text-xs text-gray-700" x-text="tier.name"></p>

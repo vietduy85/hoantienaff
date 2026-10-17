@@ -463,6 +463,25 @@
                 return ccRuleCaps(tier);
             }
 
+            /**
+             * Các bậc hoàn tiền CHÍNH THỨC của một kết quả (bỏ qua ưu đãi bổ sung).
+             * Kết quả blueprint cũ không có `official_tiers` ⇒ dùng toàn bộ `tiers`.
+             */
+            function ccOfficialTiers(cashback) {
+                if (! cashback) return [];
+
+                if (Array.isArray(cashback.official_tiers)) return cashback.official_tiers;
+
+                return cashback.tiers || [];
+            }
+
+            /** Các bậc ƯU ĐÃI BỔ SUNG (không tính vào cashback chính thức). */
+            function ccBonusTiers(cashback) {
+                if (! cashback) return [];
+
+                return cashback.bonus_tiers || [];
+            }
+
             /** Lớp màu cho khối tóm tắt hoàn tiền theo trạng thái dữ liệu blueprint. */
             function ccCashbackBoxClass(cashback) {
                 const status = cashback?.status;

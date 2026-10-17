@@ -168,6 +168,10 @@ class MccRowBenefitImporter
                 'exception_note' => $this->str($tier['exc'] ?? null),
                 'source_document_id' => $document?->id,
                 'source_page' => $this->str($tier['page'] ?? null) ?? $defaultPage,
+                // Dấu phân loại quyền lợi (tận dụng cột `source_note`): chỉ ghi
+                // khi tài liệu xác định đây là ƯU ĐÃI BỔ SUNG; còn lại NULL =
+                // cashback chính thức. KHÔNG suy diễn theo tỷ lệ cao.
+                'source_note' => $this->benefitKind($tier['type'] ?? null),
             ];
 
             $benefit = PolicyMccRowBenefit::query()->firstOrNew([
@@ -221,6 +225,19 @@ class MccRowBenefitImporter
             ->where('policy_mcc_profile_id', $profile->id)
             ->orderBy('id')
             ->first();
+    }
+
+    /**
+     * Dấu phân loại quyền lợi từ khoá `type` của dữ liệu: chỉ nhận `bonus`
+     * (chấp nhận hoa/thường), còn lại trả NULL = cashback chính thức.
+     */
+    private function benefitKind(mixed $value): ?string
+    {
+        $value = $this->str($value);
+
+        return $value !== null && mb_strtolower($value) === PolicyMccRowBenefit::KIND_BONUS
+            ? PolicyMccRowBenefit::KIND_BONUS
+            : null;
     }
 
     private function percent(mixed $value): ?string

@@ -135,6 +135,35 @@ class PortfolioOptimizerService
      */
     private const REBALANCE_PASSES = 2;
 
+    /**
+     * Giới hạn trên của "số thẻ tối đa mong muốn" (tổng số thẻ KHÁC NHAU được
+     * dùng trong một phương án) — chặn giá trị vô lý từ phía người dùng.
+     */
+    public const MAX_DESIRED_CARDS_LIMIT = 50;
+
+    /**
+     * Giá trị mặc định của "số thẻ tối đa mong muốn". Bằng giới hạn trên ⇒ KHÔNG
+     * ràng buộc trong thực tế (bảo toàn đúng hành vi hiện tại, vốn không giới hạn
+     * số thẻ) nhưng vẫn là một số nguyên dương hợp lệ cho payload/validate.
+     */
+    public const DEFAULT_MAX_DESIRED_CARDS = self::MAX_DESIRED_CARDS_LIMIT;
+
+    /**
+     * Thời gian chạy tối đa (giây, đồng hồ tường) được phép cho luồng tối ưu.
+     * PHP được nâng `max_execution_time` lên đúng mức này cho RIÊNG request tối ưu.
+     */
+    public const MAX_COMPUTATION_SECONDS = 300;
+
+    /**
+     * Ngân sách nội bộ cho thuật toán (giây). Phải nhỏ hơn cả `MAX_COMPUTATION_SECONDS`
+     * (trần PHP) LẪN trần của lớp biên bên ngoài: lưu lượng thật đi qua Cloudflare
+     * Tunnel (`hoantien.xyz`) nên bị `Proxy Read Timeout` của Cloudflare cắt ở ~125s
+     * (HTTP 524) — xem Phase I.15.14. Nếu chạy tới trần biên đó, trình duyệt nhận 524
+     * dù PHP còn chạy; vì vậy chặn NỘI BỘ ở 110s để luôn trả về một phương án hợp lệ
+     * (đầy đủ hoặc một phần) TRƯỚC khi lớp biên đóng kết nối.
+     */
+    private const COMPUTATION_BUDGET_SECONDS = 110;
+
     public function __construct(
         private readonly StatementPeriodService $periods,
         private readonly PolicyEngineService $engine,
@@ -150,14 +179,86 @@ class PortfolioOptimizerService
      */
     private ?OptimizationAudit $audit = null;
 
+    /**
+     * Giới hạn "số thẻ tối đa mong muốn" đang áp dụng cho lần chạy hiện tại.
+     * Null khi không trong `run` (hoặc khi tắt ràng buộc).
+     */
+    private ?int $activeMaxCards = null;
+
+    /** Mốc thời gian tuyệt đối (hrtime ns) mà thuật toán phải dừng an toàn. */
+    private ?int $deadlineNs = null;
+
+    /** True khi một mốc kiểm soát thời gian đã kích hoạt trong lần chạy này. */
+    private bool $computationTimedOut = false;
+
     /** Chuẩn hoá số bản/sản phẩm về khoảng [1, MAX_COPIES_LIMIT]. */
     public static function clampCopies(int $copies): int
     {
         return max(1, min(self::MAX_COPIES_LIMIT, $copies));
     }
 
+    /** Chuẩn hoá "số thẻ tối đa mong muốn" về khoảng [1, MAX_DESIRED_CARDS_LIMIT]. */
+    public static function clampMaxDesiredCards(int $cards): int
+    {
+        return max(1, min(self::MAX_DESIRED_CARDS_LIMIT, $cards));
+    }
+
+    /**
+     * Số thẻ KHÁC NHAU thực sự được dùng trong một phân bổ (thẻ chỉ được tính khi
+     * tổng tiền phân bổ dương — thẻ giữ 0 đồng không tính là "đang dùng").
+     *
+     * @param  array<string, array<int, int>>  $allocation
+     */
+    private function usedCardCount(array $allocation): int
+    {
+        $count = 0;
+
+        foreach ($allocation as $cats) {
+            if (array_sum($cats) > 0) {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
+    /** Phân bổ có nằm trong giới hạn số thẻ mong muốn hay không. */
+    private function withinCardLimit(array $allocation): bool
+    {
+        if ($this->activeMaxCards === null) {
+            return true;
+        }
+
+        return $this->usedCardCount($allocation) <= $this->activeMaxCards;
+    }
+
+    /** Đã chạm mốc dừng an toàn theo thời gian chưa. */
+    private function timeExceeded(): bool
+    {
+        return $this->deadlineNs !== null && hrtime(true) >= $this->deadlineNs;
+    }
+
+    /** Nhãn thời gian chạy: "<2 chữ số thập phân> giây" hoặc "M phút S,SS giây". */
+    private function formatDuration(float $seconds): string
+    {
+        if ($seconds >= 60.0) {
+            $minutes = (int) floor($seconds / 60.0);
+            $rest = $seconds - $minutes * 60;
+
+            return $minutes.' phút '.number_format($rest, 2, ',', '.').' giây';
+        }
+
+        return number_format($seconds, 2, ',', '.').' giây';
+    }
+
     /**
      * @param  array<int, int>  $amounts  categoryId => chi tiêu dự kiến (VND)
+     * @return array<string, mixed>
+     */
+    /**
+     * @param  array<int, int>  $amounts  categoryId => chi tiêu dự kiến (VND)
+     * @param  int  $maxDesiredCards  tổng số thẻ KHÁC NHAU tối đa trong một phương án
+     * @param  ?int  $budgetSeconds  ghi đè ngân sách thuật toán (chỉ dùng cho kiểm thử)
      * @return array<string, mixed>
      */
     public function optimize(
@@ -166,7 +267,15 @@ class PortfolioOptimizerService
         string $criterion,
         array $amounts,
         int $maxCopies = self::DEFAULT_MAX_COPIES,
+        int $maxDesiredCards = self::DEFAULT_MAX_DESIRED_CARDS,
+        ?int $budgetSeconds = null,
     ): array {
+        $startedNs = hrtime(true);
+        $budget = max(0, $budgetSeconds ?? self::COMPUTATION_BUDGET_SECONDS);
+        $this->deadlineNs = $startedNs + (int) round($budget * 1_000_000_000);
+        $this->computationTimedOut = false;
+        $this->activeMaxCards = self::clampMaxDesiredCards($maxDesiredCards);
+
         $amounts = $this->normalizeAmounts($amounts);
         $maxCopies = self::clampCopies($maxCopies);
         $categoryNames = $this->categoryNames(array_keys($amounts));
@@ -185,6 +294,14 @@ class PortfolioOptimizerService
         $plans = [];
 
         foreach ($configs as $config) {
+            // Dừng an toàn: hết ngân sách thì KHÔNG chạy thêm cấu hình, vẫn giữ
+            // các phương án đã được đánh giá đầy đủ.
+            if ($this->timeExceeded()) {
+                $this->computationTimedOut = true;
+
+                break;
+            }
+
             $result = $this->run($candidates, $positiveMap, $singles, $amounts, $config);
 
             if ($result === null) {
@@ -220,6 +337,8 @@ class PortfolioOptimizerService
             $rendered[] = $this->renderPlan($criterion, $plan, $index + 1, $categoryNames, $amounts, $candidates);
         }
 
+        $elapsedSeconds = (hrtime(true) - $startedNs) / 1_000_000_000;
+
         return [
             'scope' => $scope,
             'criterion' => $criterion,
@@ -230,9 +349,14 @@ class PortfolioOptimizerService
             'plan_count' => $planCount,
             'max_plans' => self::MAX_PLANS,
             'max_copies_per_card' => $maxCopies,
+            'max_desired_cards' => $this->activeMaxCards,
             'best_cashback' => Decimal::money(number_format($bestCashback, 2, '.', '')),
             'plans' => $rendered,
             'notes' => $this->planNotes($candidates, $positiveMap, $amounts, $distinct),
+            'timed_out' => $this->computationTimedOut,
+            'computation_time_seconds' => (float) number_format($elapsedSeconds, 2, '.', ''),
+            'computation_time_label' => $this->formatDuration($elapsedSeconds),
+            'max_computation_seconds' => self::MAX_COMPUTATION_SECONDS,
         ];
     }
 
@@ -728,8 +852,14 @@ class PortfolioOptimizerService
         ]);
 
         $allocation = [];
+        $evalCache = [];
 
         // Gieo: mỗi danh mục giao NGUYÊN cho ứng viên điểm cao nhất theo tiêu chí.
+        // Khi đã đạt giới hạn số thẻ mong muốn, các danh mục còn lại CHỈ được gán
+        // vào những thẻ đang dùng (không mở thêm thẻ) — ràng buộc được áp ngay từ
+        // bước gieo, không phải cắt sau khi tối ưu.
+        $seedKeys = [];
+
         foreach ($config['order'] as $categoryId) {
             $amount = (int) $amounts[$categoryId];
 
@@ -737,20 +867,27 @@ class PortfolioOptimizerService
                 continue;
             }
 
-            $bestKey = $this->bestSeedKey($config, $candidates, $positiveMap, $singles, $allocation, (int) $categoryId, $amount);
+            $allowedKeys = null;
+
+            if ($this->activeMaxCards !== null && count($seedKeys) >= $this->activeMaxCards) {
+                $allowedKeys = array_keys($seedKeys);
+            }
+
+            $bestKey = $this->bestSeedKey($config, $candidates, $positiveMap, $singles, $allocation, (int) $categoryId, $amount, $allowedKeys);
 
             if ($bestKey === null) {
                 $this->audit->record([
                     'type' => OptimizationAudit::STEP_REJECT_CATEGORY,
                     'category_id' => (int) $categoryId,
                     'amount' => $amount,
-                    'reason' => 'no_positive_candidate',
+                    'reason' => $allowedKeys !== null ? 'card_limit' : 'no_positive_candidate',
                 ]);
 
                 continue;
             }
 
             $allocation[$bestKey][(int) $categoryId] = $amount;
+            $seedKeys[$bestKey] = true;
             $this->audit->record([
                 'type' => OptimizationAudit::STEP_SEED,
                 'category_id' => (int) $categoryId,
@@ -766,13 +903,18 @@ class PortfolioOptimizerService
             return null;
         }
 
-        $allocation = $this->improveAllocation($config, $candidates, $positiveMap, $singles, $amounts, $allocation);
+        $allocation = $this->improveAllocation($config, $candidates, $positiveMap, $singles, $amounts, $allocation, $evalCache);
+
+        if ($this->timeExceeded()) {
+            $this->computationTimedOut = true;
+
+            return $this->finishRun($candidates, $allocation, $amounts, $evalCache);
+        }
 
         // Nạp đủ ngưỡng tổng chi tối thiểu của bậc TRƯỚC khi kích hoạt điều kiện
         // hoàn tiền: điều kiện là GATE, chỉ đáng kích hoạt khi phần chi tiêu nền của
         // thẻ đã ở trạng thái tốt (đã bù ngưỡng). Kích hoạt trên nền còn "thô" khiến
         // các danh mục sinh hoàn bị đẩy về thẻ hoàn cao hơn và thẻ có điều kiện bị bỏ.
-        $evalCache = [];
         $allocation = $this->expandToTierMinimums($config, $candidates, $positiveMap, $singles, $amounts, $allocation, $evalCache);
 
         // Kích hoạt "điều kiện hoàn tiền đặc biệt": chủ động dồn phần chi tiêu đủ
@@ -784,6 +926,12 @@ class PortfolioOptimizerService
         foreach ($candidates as $scaffold) {
             if ($scaffold->qualification === null) {
                 continue;
+            }
+
+            if ($this->timeExceeded()) {
+                $this->computationTimedOut = true;
+
+                break;
             }
 
             $activated = $this->conditions->activate($scaffold, $best, $amounts, $singles);
@@ -800,7 +948,7 @@ class PortfolioOptimizerService
                 $config, $candidates, $positiveMap, $singles, $amounts, $activated, $scaffold->key, $evalCache,
             );
 
-            $activated = $this->improveAllocation($config, $candidates, $positiveMap, $singles, $amounts, $activated);
+            $activated = $this->improveAllocation($config, $candidates, $positiveMap, $singles, $amounts, $activated, $evalCache);
 
             if ($activated === []) {
                 continue;
@@ -817,7 +965,7 @@ class PortfolioOptimizerService
 
             $total = $this->allocationValue($candidates, $activated, $evalCache)['total'];
 
-            if ($total > $bestTotal + self::ACTIVATION_EPSILON) {
+            if ($total > $bestTotal + self::ACTIVATION_EPSILON && $this->withinCardLimit($activated)) {
                 $best = $activated;
                 $bestTotal = $total;
             }
@@ -837,13 +985,30 @@ class PortfolioOptimizerService
         // Rót lại lần cuối: tái cân bằng có thể đã GỘP một danh mục về một thẻ
         // (chỉ xét giao TRỌN danh mục); bước cải thiện cục bộ sau cùng cho phép
         // TÁCH lại danh mục khi các thẻ có trần/quota độc lập và tổng hoàn tăng.
-        $best = $this->improveAllocation($config, $candidates, $positiveMap, $singles, $amounts, $best);
+        $best = $this->improveAllocation($config, $candidates, $positiveMap, $singles, $amounts, $best, $evalCache);
 
+        return $this->finishRun($candidates, $best, $amounts, $evalCache);
+    }
+
+    /**
+     * Khép lại một lần chạy cấu hình: ghi nhật ký danh mục chưa phân bổ + bước
+     * cuối, rồi trả phân bổ đã được đánh giá ĐẦY ĐỦ. Dùng chung cho cả đường chạy
+     * trọn vẹn lẫn đường DỪNG AN TOÀN theo thời gian (để nhánh timeout cũng trả về
+     * một phương án hoàn chỉnh, không bao giờ trả phân bổ dở dang).
+     *
+     * @param  array<string, CardScaffold>  $candidates
+     * @param  array<string, array<int, int>>  $allocation
+     * @param  array<int, int>  $amounts
+     * @param  array<string, array<string, CardScenario>>  $evalCache
+     * @return array{allocation: array<string, array<int, int>>, audit: OptimizationAudit}
+     */
+    private function finishRun(array $candidates, array $allocation, array $amounts, array &$evalCache): array
+    {
         // Danh mục KHÔNG được thẻ nào giữ → giữ lại chưa phân bổ (ghi nhật ký).
         foreach ($amounts as $categoryId => $amount) {
             $allocated = 0;
 
-            foreach ($best as $cats) {
+            foreach ($allocation as $cats) {
                 $allocated += (int) ($cats[(int) $categoryId] ?? 0);
             }
 
@@ -859,12 +1024,12 @@ class PortfolioOptimizerService
 
         $this->audit->record([
             'type' => OptimizationAudit::STEP_FINAL,
-            'card_count' => count($best),
-            'allocated_total' => array_sum(array_map('array_sum', $best)),
-            'total_cashback' => $this->allocationValue($candidates, $best, $evalCache)['total'],
+            'card_count' => count($allocation),
+            'allocated_total' => array_sum(array_map('array_sum', $allocation)),
+            'total_cashback' => $this->allocationValue($candidates, $allocation, $evalCache)['total'],
         ]);
 
-        return ['allocation' => $best, 'audit' => $this->audit];
+        return ['allocation' => $allocation, 'audit' => $this->audit];
     }
 
     /**
@@ -894,6 +1059,12 @@ class PortfolioOptimizerService
         $bestTotal = $this->allocationValue($candidates, $best, $evalCache)['total'];
 
         for ($pass = 0; $pass < self::TIER_FILL_PASSES; $pass++) {
+            if ($this->timeExceeded()) {
+                $this->computationTimedOut = true;
+
+                break;
+            }
+
             $improved = false;
 
             foreach ($candidates as $key => $scaffold) {
@@ -943,7 +1114,13 @@ class PortfolioOptimizerService
                         continue;
                     }
 
-                    $working = $this->improveAllocation($config, $candidates, $positiveMap, $singles, $amounts, $working);
+                    // Bù ngưỡng có thể mở một thẻ MỚI (thẻ đích): từ chối nếu vượt
+                    // giới hạn số thẻ mong muốn thay vì kéo dài phương án quá giới hạn.
+                    if (! $this->withinCardLimit($working)) {
+                        continue;
+                    }
+
+                    $working = $this->improveAllocation($config, $candidates, $positiveMap, $singles, $amounts, $working, $evalCache);
                     $total = $this->allocationValue($candidates, $working, $evalCache)['total'];
 
                     if ($total > $bestTotal + self::ACTIVATION_EPSILON) {
@@ -1204,6 +1381,12 @@ class PortfolioOptimizerService
         $ranked = [];
 
         foreach ($this->rewardCombos($options, self::ACTIVATION_COMBO_LIMIT) as $desired) {
+            if ($this->timeExceeded()) {
+                $this->computationTimedOut = true;
+
+                break;
+            }
+
             $trial = $activation;
 
             foreach ($desired as $category => $amount) {
@@ -1216,7 +1399,7 @@ class PortfolioOptimizerService
 
             $total = $this->allocationValue($candidates, $trial, $evalCache)['total'];
 
-            if ($total > $bestTotal + self::ACTIVATION_EPSILON) {
+            if ($total > $bestTotal + self::ACTIVATION_EPSILON && $this->withinCardLimit($trial)) {
                 $ranked[] = ['allocation' => $trial, 'total' => $total];
             }
         }
@@ -1230,7 +1413,7 @@ class PortfolioOptimizerService
 
         foreach ($ranked as $entry) {
             $candidate = $this->improveAllocation(
-                $config, $candidates, $positiveMap, $singles, $amounts, $entry['allocation'],
+                $config, $candidates, $positiveMap, $singles, $amounts, $entry['allocation'], $evalCache,
             );
 
             $candidate = $this->expandToTierMinimums(
@@ -1243,7 +1426,7 @@ class PortfolioOptimizerService
 
             $total = $this->allocationValue($candidates, $candidate, $evalCache)['total'];
 
-            if ($total > $bestTotal + self::ACTIVATION_EPSILON) {
+            if ($total > $bestTotal + self::ACTIVATION_EPSILON && $this->withinCardLimit($candidate)) {
                 $best = $candidate;
                 $bestTotal = $total;
 
@@ -1632,6 +1815,12 @@ class PortfolioOptimizerService
         $bestTotal = $this->allocationValue($candidates, $best, $evalCache)['total'];
 
         for ($pass = 0; $pass < self::REBALANCE_PASSES; $pass++) {
+            if ($this->timeExceeded()) {
+                $this->computationTimedOut = true;
+
+                break;
+            }
+
             $improved = false;
 
             foreach ($config['order'] as $categoryId) {
@@ -1671,7 +1860,7 @@ class PortfolioOptimizerService
 
                     $totalAfter = $this->allocationValue($candidates, $moved, $evalCache)['total'];
 
-                    if ($totalAfter > $bestTotal + self::ACTIVATION_EPSILON) {
+                    if ($totalAfter > $bestTotal + self::ACTIVATION_EPSILON && $this->withinCardLimit($moved)) {
                         $beforeHolders = $this->categoryHolders($best, $categoryId);
                         $afterHolders = $this->categoryHolders($moved, $categoryId);
 
@@ -1733,10 +1922,15 @@ class PortfolioOptimizerService
         array $singles,
         array $amounts,
         array $allocation,
+        array &$evalCache,
     ): array {
-        $evalCache = [];
-
         for ($pass = 0; $pass < self::MAX_IMPROVE_PASSES; $pass++) {
+            if ($this->timeExceeded()) {
+                $this->computationTimedOut = true;
+
+                break;
+            }
+
             $improved = false;
 
             foreach ($config['order'] as $categoryId) {
@@ -1773,6 +1967,7 @@ class PortfolioOptimizerService
         array $allocation,
         int $categoryId,
         int $amount,
+        ?array $allowedKeys = null,
     ): ?string {
         $heldCounts = $this->heldCounts($allocation);
         $scoreOf = function (?string $key) use ($singles, $candidates, $heldCounts, $categoryId, $config): float {
@@ -1794,6 +1989,11 @@ class PortfolioOptimizerService
         $hasPositive = false;
 
         foreach ($candidates as $key => $scaffold) {
+            // Đã đạt giới hạn số thẻ: chỉ xét các thẻ đang dùng (không mở thẻ mới).
+            if ($allowedKeys !== null && ! in_array($key, $allowedKeys, true)) {
+                continue;
+            }
+
             $positive = $this->isPositive($positiveMap[$key], $categoryId);
 
             if ($positive) {
@@ -1953,7 +2153,8 @@ class PortfolioOptimizerService
 
             $metrics = $this->allocationValue($candidates, $moved, $evalCache);
 
-            if ($this->prefers($config, $metrics, $moved, $bestConfig['metrics'], $bestConfig['allocation'], $tol)) {
+            if ($this->withinCardLimit($moved)
+                && $this->prefers($config, $metrics, $moved, $bestConfig['metrics'], $bestConfig['allocation'], $tol)) {
                 $bestConfig = ['metrics' => $metrics, 'allocation' => $moved];
             }
         }
@@ -1966,7 +2167,8 @@ class PortfolioOptimizerService
 
             $metrics = $this->allocationValue($candidates, $split, $evalCache);
 
-            if ($this->prefers($config, $metrics, $split, $bestConfig['metrics'], $bestConfig['allocation'], $tol)) {
+            if ($this->withinCardLimit($split)
+                && $this->prefers($config, $metrics, $split, $bestConfig['metrics'], $bestConfig['allocation'], $tol)) {
                 $bestConfig = ['metrics' => $metrics, 'allocation' => $split];
             }
         }
@@ -3293,14 +3495,21 @@ class PortfolioOptimizerService
             if ($unallocated > 0.5) {
                 $unallocatedTotal += $unallocated;
 
+                $reason = $splits === []
+                    ? 'Không có thẻ nào hoàn tiền cho danh mục này.'
+                    : 'Phần vượt trần/quota của các thẻ hoàn tiền hiện có.';
+
+                // Nêu RÕ khi ngân sách còn dư một phần vì đã đạt giới hạn số thẻ.
+                if ($this->activeMaxCards !== null && $plan['count'] >= $this->activeMaxCards) {
+                    $reason .= ' Đã đạt giới hạn '.$this->activeMaxCards.' thẻ mong muốn.';
+                }
+
                 $unallocatedRows[] = [
                     'category_id' => $categoryId,
                     'category_name' => $categoryName,
                     'amount' => Decimal::money((string) (int) $unallocated),
                     'expected_cashback' => '0.00',
-                    'reason' => $splits === []
-                        ? 'Không có thẻ nào hoàn tiền cho danh mục này.'
-                        : 'Phần vượt trần/quota của các thẻ hoàn tiền hiện có.',
+                    'reason' => $reason,
                 ];
             }
         }
@@ -3311,6 +3520,9 @@ class PortfolioOptimizerService
         return [
             'rank' => $rank,
             'cards_count' => $plan['count'],
+            'used_cards' => $plan['count'],
+            'max_desired_cards' => $this->activeMaxCards,
+            'card_limit_reached' => $this->activeMaxCards !== null && $plan['count'] >= $this->activeMaxCards,
             'distinct_products' => count($groupCounts),
             'total_cashback' => $totalCashback,
             'total_rate' => $this->rate($plan['total'], $totalInput),

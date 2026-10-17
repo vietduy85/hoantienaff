@@ -34,6 +34,22 @@ class PolicyMccRowBenefit extends CreditCardModel
 {
     protected $table = 'credit_card_policy_mcc_row_benefits';
 
+    /**
+     * Dấu PHÂN LOẠI quyền lợi, tận dụng cột `source_note` (vốn không dùng ở nơi
+     * khác) để tránh thêm cột schema:
+     *   - `source_note === 'bonus'`  ⇒ ƯU ĐÃI BỔ SUNG (khuyến mại / kích hoạt /
+     *     giao dịch đầu tiên trong thời gian chào mừng). KHÔNG dùng để xếp hạng
+     *     "cashback chính thức".
+     *   - NULL hoặc giá trị khác ⇒ CASHBACK CHÍNH THỨC (mặc định — mọi dữ liệu
+     *     tài liệu trước đây đều được coi là cashback chính thức).
+     *
+     * Chỉ nhập marker này từ trình nhập dữ liệu (khoá `type` = `bonus`), KHÔNG
+     * suy diễn theo tỷ lệ cao bất thường.
+     */
+    public const KIND_BONUS = 'bonus';
+
+    public const KIND_OFFICIAL = 'official';
+
     protected $fillable = [
         'policy_mcc_row_id',
         'tier_order',
@@ -77,5 +93,21 @@ class PolicyMccRowBenefit extends CreditCardModel
     public function hasRate(): bool
     {
         return $this->cashback_percent !== null || $this->rate_label !== null;
+    }
+
+    /**
+     * Bậc này là ưu đãi BỔ SUNG (bonus) — không tính vào "cashback chính thức".
+     */
+    public function isBonus(): bool
+    {
+        return mb_strtolower(trim((string) $this->source_note)) === self::KIND_BONUS;
+    }
+
+    /**
+     * Phân loại quyền lợi của bậc: `bonus` hoặc `official` (mặc định/null).
+     */
+    public function benefitKind(): string
+    {
+        return $this->isBonus() ? self::KIND_BONUS : self::KIND_OFFICIAL;
     }
 }

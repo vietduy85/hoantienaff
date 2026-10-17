@@ -38,7 +38,7 @@ Báo cáo này đối chiếu lại từng hạng mục đã triển khai: **m�
 | `cap_period` / `cap_unit` | string nullable | kỳ (vd “kỳ sao kê”) + đơn vị (vd “VND”, “điểm”) |
 | `condition_note` / `exception_note` | text nullable | điều kiện kèm theo + ngoại lệ |
 | `source_document_id` | bigint, FK → `credit_card_policy_mcc_documents` | `nullOnDelete` (`cc_pmcc_row_benefits_doc_fk`) |
-| `source_page` / `source_note` | string/text nullable | trang trích dẫn |
+| `source_page` / `source_note` | string/text nullable | trang trích dẫn / **dấu loại bậc**: `'bonus'` ⇒ ưu đãi bổ sung, `NULL` ⇒ cashback chính thức |
 
 Ràng buộc **UNIQUE(`policy_mcc_row_id`, `tier_order`)** bảo đảm import idempotent.
 
@@ -49,7 +49,7 @@ Ràng buộc **UNIQUE(`policy_mcc_row_id`, `tier_order`)** bảo đảm import i
 
 ### 2.3 Bộ dữ liệu tĩnh
 
-`database/data/credit_card_mcc_row_benefits.php` — mảng khoá theo **slug template** → `['source_doc' => mảnh tên tài liệu, 'source_page' => trang mặc định, 'rows' => [category_name => [bậc…]]]`. Mỗi bậc dùng khoá gọn: `pct, label, min, max, cap, cap_period, cap_unit, cond, exc, page`.
+`database/data/credit_card_mcc_row_benefits.php` — mảng khoá theo **slug template** → `['source_doc' => mảnh tên tài liệu, 'source_page' => trang mặc định, 'rows' => [category_name => [bậc…]]]`. Mỗi bậc dùng khoá gọn: `pct, label, min, max, cap, cap_period, cap_unit, cond, exc, page, type`. Khoá `type = 'bonus'` đánh dấu **ưu đãi bổ sung** (không xếp hạng) — importer ghi vào cột `source_note`.
 
 ### 2.4 Trình nhập (service + command)
 
@@ -72,7 +72,7 @@ Bậc gỡ bỏ ............ 0
 
 Chạy lại: `0 / 0 / 0` — **idempotent đã xác nhận**.
 
-**Thống kê bảng dữ liệu hiện tại:** 95 bậc · 95 bậc có tài liệu nguồn (12 tài liệu phân biệt) · 95 bậc có điều kiện · 80 bậc có trần · 3 bậc chỉ có nhãn (không số).
+**Thống kê bảng dữ liệu hiện tại:** 95 bậc · 95 bậc có tài liệu nguồn (12 tài liệu phân biệt) · 95 bậc có điều kiện · 80 bậc có trần · 3 bậc chỉ có nhãn (không số) · **2 bậc là ưu đãi bổ sung (`source_note = 'bonus'`, Sacombank UniQ 50%)**.
 
 | # | slug template | dòng có dữ liệu | bậc |
 |---|---------------|----------------:|----:|
@@ -96,7 +96,7 @@ Chạy lại: `0 / 0 / 0` — **idempotent đã xác nhận**.
 
 - **#1 LPBank Ultimate JCB** — Y tế/Giáo dục/Bảo hiểm **15%**, min 8.000.000/kỳ sao kê, trần 800.000/kỳ (Bảo hiểm phụ trần 400.000).
 - **#2 VIB One Card** — theo hạng: Gold **3%** / Platinum **6%** / Signature **9%**, còn lại 0,1%; trần (điểm/kỳ sao kê) 500k / 1M / 1,5M.
-- **#3 Sacombank UniQ** — “Siêu thị, cửa hàng tiện lợi” & “Ứng dụng di chuyển” **50%** giao dịch đầu (trong 30 ngày kích hoạt) / **20%** giao dịch sau; trần 300.000/kỳ TBGD mỗi nhóm.
+- **#3 Sacombank UniQ** — “Siêu thị, cửa hàng tiện lợi” & “Ứng dụng di chuyển” **50%** giao dịch đầu (trong 30 ngày kích hoạt) / **20%** giao dịch sau; trần 300.000/kỳ TBGD mỗi nhóm. **50% là ưu đãi bổ sung (bonus)** — chỉ 20% mới là tỷ lệ chính thức để xếp hạng/hiển thị.
 - **#4 MB Ultimate JCB** — Y tế/Giáo dục/Bảo hiểm **10%**, trần 800.000/kỳ sao kê (Bảo hiểm phụ 400.000).
 - **#5 VPBank StepUp** — “Chi tiêu online” 15% (≥100tr) / 15% (10–<100tr) / 6% (<10tr); “Ăn uống” 4%/4%/2%; trần theo nhóm.
 - **#6 VPBank Lady** — “Bảo hiểm trực tuyến” 15%/7,5%; Giáo dục 15%/7,5%; “Chăm sóc sắc đẹp” & Y tế 10%/5%; Siêu thị 5%/2,5% (nhóm ≥15tr / <15tr).
@@ -118,18 +118,20 @@ Chạy lại: `0 / 0 / 0` — **idempotent đã xác nhận**.
 - `benefitCashback()` trả:
   - `status = excluded` khi dòng bị loại trừ;
   - `status = missing` khi dòng không có dữ liệu (`no_data`);
-  - `status = available` + `tiers` + `highest` khi có bậc. `highest` = bậc có `cashback_percent` lớn nhất (phá hoà bằng trần lớn hơn); nếu mọi bậc chỉ có nhãn ⇒ `highest = null` (**không bịa số**).
+  - `status = available` + `tiers` + `official_tiers` + `bonus_tiers` + `highest` + `highest_bonus` khi có bậc. `highest` = bậc **chính thức** (`source_note != 'bonus'`) có `cashback_percent` lớn nhất (phá hoà bằng trần lớn hơn); `highest_bonus` = ưu đãi bổ sung cao nhất (chỉ hiển thị, không xếp hạng); nếu không có bậc chính thức có số ⇒ `highest = null` (**không bịa số**).
 - `attachCashback()` **bỏ qua** kết quả đến từ hồ sơ MCC (`source === 'policy_mcc_profile'`) — hồ sơ dùng dữ liệu tài liệu đã lưu, không bị ghi đè bằng blueprint.
 
-`resources/views/credit-card/lookup.blade.php` (tab **Tra cứu MCC**): khi `cashback.highest` tồn tại, hiển thị khối nổi bật **“Hoàn tối đa \<tỷ lệ\>”** kèm **điều kiện** và **trần**; chỉ khi không có tỷ lệ số mới liệt kê bậc chi tiết (kèm nhãn nguyên văn).
+`resources/views/credit-card/partials/mcc-match.blade.php` (dùng chung hai tab): khi `cashback.highest` tồn tại, hiển thị khối **“Hoàn tiền chính thức \<tỷ lệ\>”** kèm **điều kiện** và **trần**; khi có `cashback.highest_bonus`/`bonus_tiers`, hiển thị **riêng** khối **“Ưu đãi bổ sung”** (chú thích “Không tính vào tỷ lệ hoàn tiền chính thức.”).
 
 ---
 
 ## 5. Kiểm thử
 
 - `tests/Feature/CreditCard/CardLookupMccProfileTest.php` — cập nhật luồng hồ sơ MCC: tra cứu lấy **bậc cao nhất + điều kiện** từ bảng dữ liệu (`highest`), và trường hợp chỉ có nhãn (“tới 20%”) không sinh số. **8/8 pass.**
-- `tests/Feature/CreditCard/MccRowBenefitImportTest.php` (**mới**) — tạo bậc + phân giải tài liệu/trang, idempotent lần 2, xoá bậc thừa khi rút gọn, bỏ qua slug/dòng không khớp. **4/4 pass.**
-- Toàn bộ `tests/Feature/CreditCard`: **1339 pass / 8951 assertions.**
+- `tests/Feature/CreditCard/MccRowBenefitImportTest.php` (**mới**) — tạo bậc + phân giải tài liệu/trang, idempotent lần 2, xoá bậc thừa khi rút gọn, bỏ qua slug/dòng không khớp, **ghi `source_note = 'bonus'` cho bậc `type = bonus`** và để trống cho bậc chính thức. **6/6 pass.**
+- `tests/Feature/CreditCard/CardLookupBenefitKindTest.php` (**mới**) — phân biệt **cashback chính thức vs ưu đãi bổ sung** cho **cả hai tab** (MCC + danh mục): bonus không trở thành tỷ lệ/hạng chính thức, tách khối hiển thị, xếp hạng dùng tỷ lệ chính thức, bậc không đánh dấu coi là chính thức. **15/15 pass.**
+- `tests/Feature/CreditCard/CardLookupMccSortingTest.php` (**mới**) — thứ tự xếp hạng theo cashback (MCC). **10/10 pass.**
+- Toàn bộ `tests/Feature/CreditCard` (chia 4 đợt do suite tích luỹ chậm): **1611 test, 1 fail tồn tại** — fail là `MoneyInputThousandRegressionTest` (bộ phân tích tiền JS, nhánh công việc khác), **ngoài phạm vi**.
 
 **Sự cố tồn tại (ngoài phạm vi):** `tests/Feature/CreditCardModuleTest::credit_card_routes_do_not_override_existing_routes` đang fail vì route `credit-cards.api.policies.history` (từ nhánh **chuẩn hóa danh mục/combo** đang dang dở) chưa có trong danh sách chốt của test. Không do thay đổi trong báo cáo này; **không sửa** để tránh đụng nhánh công việc khác.
 
@@ -142,6 +144,7 @@ Chạy lại: `0 / 0 / 0` — **idempotent đã xác nhận**.
 3. **`VPBank Super Shopee` (template 7)** — chưa có tài liệu MCC nguồn ⇒ **chưa đủ căn cứ**, không nạp.
 4. **Hồ sơ #11 (BIDV) và #12 (SeABank)** — 0 dòng `included` ⇒ không có gì để nạp (không phải lỗi).
 5. Bảng dữ liệu **chỉ phục vụ tra cứu**; nếu sau này muốn engine đọc trực tiếp cần một thiết kế riêng (ngoài phạm vi).
+6. **Phân loại chính thức vs ưu đãi bổ sung** — hiện **chỉ** 2 bậc Sacombank UniQ 50% được xác định là ưu đãi bổ sung (căn cứ tài liệu: “giao dịch đầu tiên trong 30 ngày kể từ ngày kích hoạt”). Các hồ sơ còn lại **chưa** thấy dấu hiệu ưu đãi chào mừng/kích hoạt tương tự. Riêng Shinhan “Hoàn tiền Đặc Biệt” **đã rà soát** — là hoàn tiền thường xuyên có điều kiện (POS + Be-SAFE), **KHÔNG** phải bonus ⇒ **giữ chính thức**. Nếu phát hiện thêm bậc ưu đãi có điều kiện chào mừng chưa đánh dấu, bổ sung `type = 'bonus'` rồi chạy lại import.
 
 ---
 
@@ -156,7 +159,10 @@ Chạy lại: `0 / 0 / 0` — **idempotent đã xác nhận**.
 | `app/Services/CreditCard/Import/MccRowBenefitImporter.php` | Trình nhập idempotent. |
 | `app/Console/Commands/CreditCardImportMccRowBenefits.php` | Lệnh `credit-card:import-mcc-row-benefits`. |
 | `app/Services/CreditCard/CardPolicyLookupService.php` | Tra cứu dùng dữ liệu đã lưu. |
-| `resources/views/credit-card/lookup.blade.php` | Tab “Tra cứu MCC”: cao nhất + điều kiện. |
+| `resources/views/credit-card/partials/mcc-match.blade.php` | Khối kết quả chung hai tab: “Hoàn tiền chính thức” + “Ưu đãi bổ sung”. |
+| `resources/views/credit-card/lookup.blade.php` | Tab “Tra cứu MCC”/“danh mục”: markup + hàm JS `ccOfficialTiers`/`ccBonusTiers`. |
 | `tests/Feature/CreditCard/CardLookupMccProfileTest.php` | Test tra cứu hồ sơ MCC (cập nhật). |
+| `tests/Feature/CreditCard/CardLookupBenefitKindTest.php` | Test phân loại chính thức/bonus cả hai tab (mới). |
+| `tests/Feature/CreditCard/CardLookupMccSortingTest.php` | Test thứ tự xếp hạng theo cashback (mới). |
 | `tests/Feature/CreditCard/MccRowBenefitImportTest.php` | Test trình nhập (mới). |
 | `docs/CREDIT_CARD_MCC_PROFILES_REPORT.md` | Báo cáo khảo sát hồ sơ/tài liệu gốc. |

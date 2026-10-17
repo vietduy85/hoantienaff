@@ -69,6 +69,8 @@ credit_card_mcc_codes (master MCC)  ←── mcc (natural key, char 4)
   (decimal 6,3; 10.000 = 10%), `rate_label` (nhãn nguyên văn như "tới 20%"), `min_spend`/`max_spend`,
   `cap_amount`, `cap_period`, `cap_unit`, `condition_note`, `exception_note`, `source_document_id`
   (FK → documents, `nullOnDelete`), `source_page`, `source_note`. UNIQUE (`policy_mcc_row_id`, `tier_order`).
+  `source_note = 'bonus'` ⇒ bậc là **ưu đãi bổ sung** (không xếp hạng); `NULL` ⇒ **cashback chính thức**
+  (mặc định). Xem Phần F.6.
 - **`MccCode`** (`credit_card_mcc_codes`) — MCC master: `mcc` char(4) UNIQUE (giữ số 0 đầu),
   `description_en`, `description_vi`, `keywords`, `source`, `verification_status`
   (`verified` | `unverified` | `needs_review`, mặc định `unverified`), `verified_at`.
@@ -263,10 +265,11 @@ Nguồn: `CardPolicyLookupService::lookupMcc()` (CHỈ ĐỌC; không tạo kỳ
 1. Lấy `MccCode` master theo mã (có thể null).
 2. Thu thập kết quả từ `CardPolicyMccMapping` (đã **loại trừ** các template có dòng `excluded` chứa mã —
    loại trừ thắng).
-3. Thu thập kết quả từ **hồ sơ MCC admin** (`adminProfileMatches`).
+3. Thu thập kết quả từ **hồ sơ MCC admin** (`adminProfileMatches`). Mỗi hồ sơ chỉ tạo **một** kết quả —
+   nhiều dòng cùng chứa mã trong cùng hồ sơ được gộp (`groupRowsByProfile` + `mergedProfileMatch`).
 4. Gộp theo sản phẩm (`mergeProductMatches`) — xem Phần G.
-5. Sắp theo độ ưu tiên: `direct` → `group` → `excluded` → `broad` → `unverified`, sau đó theo tên chính sách.
-6. Gắn tỷ lệ/bậc thực tế (`attachCashback`).
+5. Gắn tỷ lệ/bậc thực tế (`attachCashback`) — **TRƯỚC khi sắp** để thứ tự dựa trên dữ liệu thật.
+6. Sắp theo dữ liệu cashback (`sortMatchesByCashback`) — xem Phần F.5.
 
 ### F.2 Quy tắc quan trọng
 
@@ -284,9 +287,10 @@ Nguồn: `CardPolicyLookupService::lookupMcc()` (CHỈ ĐỌC; không tạo kỳ
   (`benefitCashback`):
   - `excluded` ⇒ `status = excluded`.
   - Không có bậc ⇒ `status = missing` (`reason = no_data`).
-  - Có bậc ⇒ `status = available` + `tiers` + `highest`.
-  - `highest` = bậc có `cashback_percent` **lớn nhất**, phá hoà bằng `cap_amount` lớn hơn; nếu mọi bậc
-    chỉ có nhãn ⇒ `highest = null` (**không bịa số**).
+  - Có bậc ⇒ `status = available` + `tiers` + `official_tiers` + `bonus_tiers` + `highest` + `highest_bonus`.
+  - `highest` = bậc **CHÍNH THỨC** có `cashback_percent` **lớn nhất**, phá hoà bằng `cap_amount` lớn hơn;
+    nếu mọi bậc chính thức chỉ có nhãn (hoặc chỉ có ưu đãi bổ sung) ⇒ `highest = null` (**không bịa số**).
+  - `highest_bonus` = bậc **ưu đãi bổ sung** cao nhất (chỉ để hiển thị, **KHÔNG** xếp hạng). Xem Phần F.6.
 - **Kết quả từ mapping import** (`attachCashback`): đọc từ **blueprint đang áp dụng** của chính sách
   (`defaultBlueprint` → `credit_card_policy_tier_categories`), khớp theo `category_id`, hoặc theo tên
   (khớp chính xác → tiền tố → chứa). Không khớp ⇒ `status = missing` (`reason = not_found`).
@@ -296,11 +300,60 @@ Nguồn: `CardPolicyLookupService::lookupMcc()` (CHỈ ĐỌC; không tạo kỳ
 
 - `lookupNote`: không tìm thấy MCC → "Không tìm thấy MCC này trong dữ liệu hệ thống."; có master nhưng
   chưa mapping → "Chưa có dữ liệu mapping nào..."; có mapping chưa verify → cảnh báo kiểm tra tài liệu gốc.
-- `resources/views/credit-card/lookup.blade.php` (tab Tra cứu MCC): khi có `cashback.highest`, hiển thị
-  khối nổi bật **"Hoàn tối đa <tỷ lệ>"** kèm **điều kiện** và **trần**; nếu là kết quả sản phẩm dùng chung
-  nhiều hạng (`product_name`) thì liệt kê **đủ các bậc**.
+- `resources/views/credit-card/partials/mcc-match.blade.php` (dùng **CHUNG** cho cả hai tab): khi có
+  `cashback.highest`, hiển thị khối **"Hoàn tiền chính thức &lt;tỷ lệ&gt;"** kèm **điều kiện** + **trần**;
+  khi có `cashback.highest_bonus`/`bonus_tiers`, hiển thị **RIÊNG** khối **"Ưu đãi bổ sung"** với chú thích
+  "Không tính vào tỷ lệ hoàn tiền chính thức."; nếu là kết quả sản phẩm dùng chung nhiều hạng
+  (`product_name`) thì liệt kê **đủ các bậc chính thức**. Hàm hỗ trợ JS: `ccOfficialTiers()`, `ccBonusTiers()`.
 - **Dòng hồ sơ không có mã MCC** (hồ sơ mô tả, ví dụ VPBank Super Shopee): cột mã hiển thị nhãn
   **"Chưa có thông tin mã MCC"** thay vì để trống — tránh hiểu nhầm là đã kiểm tra đầy đủ.
+
+### F.5 Thứ tự sắp xếp kết quả tra cứu MCC (`sortMatchesByCashback`)
+
+Áp dụng cho **CẢ HAI** tab "Tra cứu MCC" (`lookupMcc`) và "Tra cứu danh mục" (`lookupCategory`), cùng một
+quy tắc. Ưu đãi bổ sung (Phần F.6) **KHÔNG** tham gia xếp hạng.
+
+Thứ tự so sánh (dừng ở tiêu chí quyết định đầu tiên), mỗi kết quả có một khoá xếp hạng
+`cashbackSortMetrics()` gồm `rank` / `rate` / `cap`:
+
+1. **Hạng (`rank`)**: `0` = có tỷ lệ **số** so sánh được → `1` = thiếu tỷ lệ số (chỉ có nhãn, hoặc
+   `relation = unverified` chưa xác minh) → `2` = `excluded` (không được hoàn tiền). Excluded luôn cuối.
+2. **Tỷ lệ giảm dần**: so sánh **BẰNG SỐ** (`(float)`), KHÔNG so chuỗi — `10%` phải đứng trước `9%`.
+3. **Trần giảm dần** (`tierCapForSort` + `capCompareValue`): ưu tiên `cap_amount`; kết quả blueprint dùng
+   `max_cashback_per_category_per_period`. **KHÔNG cộng dồn** nhiều loại trần, KHÔNG lấy trần tổng của thẻ.
+   Giá trị `NULL` (nguồn không nêu trần) **KHÔNG** coi là `0đ` và **KHÔNG** tự gán "không giới hạn" — xếp
+   **sau** bậc có trần số khi cùng tỷ lệ.
+4. **Hoà hoàn toàn**: tên chính sách (`policy_name`) tăng dần, rồi `id` — thứ tự **ổn định** giữa các lần
+   truy vấn.
+
+Chọn tỷ lệ/trần của kết quả: lấy **bậc cao nhất** trong các bậc áp dụng (`has_rule = true`) **và KHÔNG phải
+ưu đãi bổ sung** (`is_bonus = false`); bậc thiếu `cashback_percent` bị bỏ qua. Thẻ chỉ có nhãn nguyên văn
+(không có tỷ lệ số) ⇒ `rank = 1`, **không bịa số**.
+
+**Không đổi**: không sửa tỷ lệ/trần/quota/điều kiện/MCC/engine; chỉ sắp thứ tự hiển thị. Nguồn kiểm thử:
+`tests/Feature/CreditCard/CardLookupMccSortingTest.php`.
+
+### F.6 Phân biệt "cashback chính thức" và "ưu đãi bổ sung" (bonus)
+
+Một số bậc trong tài liệu là **ưu đãi bổ sung** (khuyến mại/kích hoạt/giao dịch đầu tiên trong thời gian chào
+mừng), **KHÔNG** phải tỷ lệ hoàn tiền chính thức. Ví dụ **Sacombank UniQ**: "Siêu thị" & "Ứng dụng di chuyển"
+50% cho **giao dịch đầu tiên trong 30 ngày kể từ ngày kích hoạt** (bonus) / 20% cho **các giao dịch còn lại**
+(chính thức) — xem `docs/CREDIT_CARD_MCC_ROW_BENEFITS_REPORT.md`. Dùng 50% làm tỷ lệ xếp hạng/hiển thị ⇒ sai.
+
+- **Dấu phân loại** tận dụng cột `source_note` của `credit_card_policy_mcc_row_benefits` (**không thêm cột**):
+  `source_note = 'bonus'` ⇒ ưu đãi bổ sung; `NULL` (hoặc khác) ⇒ cashback chính thức (mặc định).
+- **Nhập liệu**: khoá `type` trong `database/data/credit_card_mcc_row_benefits.php`; `MccRowBenefitImporter`
+  ghi `source_note = 'bonus'` khi `type = bonus`, còn lại để trống (idempotent theo `policy_mcc_row_id` +
+  `tier_order`). Model: `PolicyMccRowBenefit::isBonus()` / `benefitKind()` (`KIND_BONUS`/`KIND_OFFICIAL`).
+- **Trình bày**: mỗi kết quả có `official_tiers`/`bonus_tiers`, `highest` (chính thức) và `highest_bonus`
+  (bổ sung). View hiển thị "Hoàn tiền chính thức" và "Ưu đãi bổ sung" tách biệt.
+- **Xếp hạng**: `cashbackSortMetrics()` bỏ qua bậc `is_bonus = true` ⇒ ưu đãi bổ sung **không** quyết định thứ tự.
+- **Không suy diễn**: **KHÔNG** tự gắn bonus theo tỷ lệ cao bất thường; chỉ đánh dấu khi tài liệu xác định rõ
+  đây là ưu đãi có điều kiện chào mừng/kích hoạt. Trường hợp chưa đủ căn cứ ⇒ để mặc định (chính thức) và
+  **báo cáo** lại thay vì đoán.
+
+Nguồn kiểm thử: `tests/Feature/CreditCard/CardLookupBenefitKindTest.php` (15 test, cả hai tab) + 2 test trong
+`MccRowBenefitImportTest.php`.
 
 ---
 
@@ -349,6 +402,18 @@ và **3 test mới cho bảng liên kết dùng chung**:
 `mcc_lookup_returns_one_result_for_a_shared_profile_across_linked_templates`,
 `shared_profile_exclusion_applies_to_linked_templates`.
 Chạy: `php artisan test --filter "CardLookupTest|CardLookupMccProfileTest"`.
+
+Thứ tự hiển thị theo cashback (Phần F.5) được kiểm thử riêng bằng
+`tests/Feature/CreditCard/CardLookupMccSortingTest.php` (10 test): tỷ lệ cao trước → trần cao trước →
+ổn định theo tên/id; so sánh tỷ lệ BẰNG SỐ; thẻ thiếu tỷ lệ số xếp sau; trần `NULL` xếp sau trần số;
+`excluded` cuối cùng; gộp nhiều dòng cùng hồ sơ về một kết quả. Chạy:
+`php artisan test --filter CardLookupMccSortingTest`.
+
+Phân loại chính thức/ưu đãi bổ sung (Phần F.6) được kiểm thử bằng
+`tests/Feature/CreditCard/CardLookupBenefitKindTest.php` (15 test, cả hai tab: ưu đãi bổ sung không trở thành
+tỷ lệ/xếp hạng chính thức, tách khối hiển thị, xếp hạng dùng tỷ lệ chính thức) và 2 test trong
+`MccRowBenefitImportTest.php` (ghi/không ghi `source_note`). Chạy:
+`php artisan test --filter "CardLookupBenefitKindTest|MccRowBenefitImportTest"`.
 
 ---
 

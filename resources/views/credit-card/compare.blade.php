@@ -332,6 +332,23 @@
                             (1 = mỗi loại thẻ dùng một lần). Hệ thống chỉ dùng thêm bản khi thật sự tăng hoàn tiền.
                         </p>
                     </div>
+
+                    <div class="space-y-1.5">
+                        <label for="opt-max-desired-cards" class="block text-sm font-semibold text-gray-700">
+                            Số thẻ tối đa mong muốn
+                        </label>
+                        <input id="opt-max-desired-cards" type="number" min="1"
+                               max="{{ \App\Services\CreditCard\Optimizer\PortfolioOptimizerService::MAX_DESIRED_CARDS_LIMIT }}"
+                               x-model.number="budget.max_desired_cards"
+                               title="Giới hạn tổng số thẻ khác nhau được sử dụng trong một phương án tối ưu. Không phải số thẻ được hiển thị."
+                               class="w-full h-12 rounded-xl border-gray-300 text-sm px-3 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                        <p class="text-xs text-gray-400"
+                           title="Giới hạn tổng số thẻ khác nhau được sử dụng trong một phương án tối ưu. Không phải số thẻ được hiển thị.">
+                            Tổng số thẻ KHÁC NHAU tối đa được dùng trong một phương án (ví dụ 3, 5, 8, 10).
+                            Độc lập với “số thẻ tối đa cho mỗi loại thẻ”. Giới hạn này được áp ngay trong
+                            quá trình tối ưu, không phải cắt bớt sau khi tính.
+                        </p>
+                    </div>
                 </div>
 
                 <div>
@@ -410,6 +427,21 @@
                         <p class="text-xs text-gray-400 mt-1">
                             Các phương án được coi là trùng (gộp lại) khi phân bổ danh mục↔thẻ giống hệt nhau, kể cả tỷ lệ chia tiền.
                         </p>
+                        <p class="text-xs text-gray-500 mt-1"
+                           x-show="optimizeResult.max_desired_cards">
+                            Giới hạn số thẻ mong muốn:
+                            <span class="font-semibold text-gray-700" x-text="optimizeResult.max_desired_cards + ' thẻ/phương án'"></span>.
+                        </p>
+                        <p class="text-xs text-gray-500 mt-1"
+                           x-show="optimizeResult.computation_time_label">
+                            Thời gian tính toán (máy chủ):
+                            <span class="font-semibold text-gray-700" x-text="optimizeResult.computation_time_label"></span>.
+                        </p>
+                        <p class="text-xs text-amber-700 mt-1"
+                           x-show="optimizeResult.timed_out">
+                            Thuật toán đã chạm ngân sách thời gian cho phép nên dừng an toàn. Kết quả bên dưới là
+                            phương án tốt nhất đã được tính và kiểm chứng đầy đủ (không có phân bổ dở dang).
+                        </p>
                     </div>
 
                     {{-- ===== Tab 2 — Tóm tắt nhu cầu chi tiêu tháng ===== --}}
@@ -442,8 +474,15 @@
                                         Phương án <span x-text="plan.rank"></span>
                                         <span class="text-xs font-medium text-gray-500" x-text="'· ' + plan.cards_count + ' thẻ'"></span>
                                         <span class="text-xs font-medium text-gray-500"
+                                              x-show="plan.max_desired_cards"
+                                              x-text="'/' + plan.max_desired_cards + ' thẻ tối đa'"></span>
+                                        <span class="text-xs font-medium text-gray-500"
                                               x-show="plan.distinct_products < plan.cards_count"
                                               x-text="'· ' + plan.distinct_products + ' loại thẻ'"></span>
+                                    </p>
+                                    <p class="text-xs text-amber-700 mt-0.5"
+                                       x-show="plan.card_limit_reached">
+                                        Đã chạm giới hạn số thẻ mong muốn — một phần chi tiêu có thể được giữ lại chưa phân bổ.
                                     </p>
                                     <p class="text-xs text-gray-500 mt-0.5">
                                         Phân bổ các danh mục vào bộ thẻ; một danh mục có thể chia cho nhiều thẻ.
@@ -982,7 +1021,7 @@
                     error: '',
                     fieldErrors: { amount: '', category_id: '' },
                     result: null,
-                    budget: { scope: 'compare', criterion: 'balance', amounts: {}, filter: '', max_copies: 1 },
+                    budget: { scope: 'compare', criterion: 'balance', amounts: {}, filter: '', max_copies: 1, max_desired_cards: {{ \App\Services\CreditCard\Optimizer\PortfolioOptimizerService::MAX_DESIRED_CARDS_LIMIT }} },
                     optimizeLoading: false,
                     optimizeError: '',
                     optimizeFieldErrors: {},
@@ -1094,6 +1133,9 @@
                             url.searchParams.set('scope', this.budget.scope);
                             url.searchParams.set('criterion', this.budget.criterion);
                             url.searchParams.set('max_copies_per_card', String(this.budget.max_copies || 1));
+
+                            const maxDesiredCards = Number(this.budget.max_desired_cards);
+                            url.searchParams.set('max_desired_cards', String(maxDesiredCards > 0 ? maxDesiredCards : {{ \App\Services\CreditCard\Optimizer\PortfolioOptimizerService::MAX_DESIRED_CARDS_LIMIT }}));
 
                             for (const [categoryId, amount] of Object.entries(amounts)) {
                                 url.searchParams.set('amounts[' + categoryId + ']', String(amount));

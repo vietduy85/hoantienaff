@@ -197,6 +197,7 @@ return [
             'Siêu thị, cửa hàng tiện lợi' => [
                 [
                     'pct' => 50,
+                    'type' => 'bonus',
                     'cap' => 300000,
                     'cap_period' => 'kỳ TBGD',
                     'cap_unit' => 'VND',
@@ -213,6 +214,7 @@ return [
             'Ứng dụng di chuyển' => [
                 [
                     'pct' => 50,
+                    'type' => 'bonus',
                     'cap' => 300000,
                     'cap_period' => 'kỳ TBGD',
                     'cap_unit' => 'VND',

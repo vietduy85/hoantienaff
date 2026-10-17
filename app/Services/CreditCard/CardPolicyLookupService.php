@@ -194,24 +194,15 @@ class CardPolicyLookupService
         // thẻ (VIB Max Card Visa / VIB One Card Visa) về MỘT kết quả đại diện.
         $matches = $this->mergeProductMatches($matches);
 
-        // Sắp theo độ ưu tiên: trực tiếp → nhóm → loại trừ → áp dụng rộng → chưa xác minh.
-        $priority = [
-            'direct' => 0,
-            'group' => 1,
-            'excluded' => 2,
-            'broad' => 3,
-            'unverified' => 4,
-        ];
-
-        usort($matches, function (array $a, array $b) use ($priority): int {
-            $rank = ($priority[$a['relation']] ?? 9) <=> ($priority[$b['relation']] ?? 9);
-
-            return $rank !== 0 ? $rank : strcmp((string) $a['policy_name'], (string) $b['policy_name']);
-        });
-
         // Gắn tỷ lệ/bậc hoàn tiền THỰC TẾ của danh mục, lấy từ blueprint của
         // chính sách liên kết (KHÔNG suy diễn từ tên danh mục hay ghi chú tự do).
+        // Thực hiện TRƯỚC khi sắp xếp để thứ tự dựa trên dữ liệu cashback thật.
         $matches = $this->attachCashback($matches);
+
+        // Sắp theo dữ liệu cashback: tỷ lệ cao nhất trước, cùng tỷ lệ thì trần
+        // cao hơn trước; thẻ thiếu dữ liệu xếp sau thẻ so sánh được; loại trừ
+        // cuối cùng. Hoà bằng hoàn toàn theo tên + id cho kết quả ổn định.
+        $matches = $this->sortMatchesByCashback($matches);
 
         $known = $master !== null || $matches !== [];
 
@@ -329,7 +320,10 @@ class CardPolicyLookupService
         // Gộp chương trình dùng chung nhiều hạng thẻ về một kết quả đại diện.
         $matches = $this->mergeProductMatches($matches);
 
-        usort($matches, fn (array $a, array $b): int => strcmp((string) $a['policy_name'], (string) $b['policy_name']));
+        // Sắp theo dữ liệu cashback CHÍNH THỨC — cùng quy tắc với tab "Tra cứu
+        // MCC": tỷ lệ cao nhất trước, cùng tỷ lệ thì trần cao hơn trước; ưu đãi
+        // bổ sung KHÔNG tham gia xếp hạng; hoà thì theo tên + id (ổn định).
+        $matches = $this->sortMatchesByCashback($matches);
 
         return [
             'category' => [
@@ -393,8 +387,8 @@ class CardPolicyLookupService
         $categoryLabel = implode(', ', array_values($names));
 
         $cashback = $tiers === []
-            ? ['status' => 'missing', 'category_name' => $categoryLabel, 'tiers' => [], 'highest' => null, 'reason' => 'no_data']
-            : ['status' => 'available', 'category_name' => $categoryLabel, 'tiers' => $tiers, 'highest' => $this->highestTier($tiers), 'reason' => null];
+            ? $this->missingCashback($categoryLabel)
+            : $this->availableCashback($categoryLabel, $tiers);
 
         // Dòng theo MÔ TẢ (không có mã MCC): ghi rõ để không hiểu nhầm là đã
         // kiểm tra danh sách mã MCC đầy đủ.
@@ -580,19 +574,42 @@ class CardPolicyLookupService
             $excluded = $this->matchingRows($templateProfiles, $code, PolicyMccProfileRow::TYPE_EXCLUDED);
 
             if ($excluded !== []) {
-                foreach ($excluded as [$profile, $row]) {
-                    $matches[] = $this->profileMatch($profile, $row, $policyName, $code, 'excluded');
+                foreach ($this->groupRowsByProfile($excluded) as [$profile, $rows]) {
+                    $matches[] = $this->mergedProfileMatch($profile, $rows, $policyName, $code, 'excluded');
                 }
 
                 continue; // Loại trừ thắng mọi áp dụng của cùng chính sách.
             }
 
-            foreach ($this->matchingRows($templateProfiles, $code, PolicyMccProfileRow::TYPE_INCLUDED) as [$profile, $row]) {
-                $matches[] = $this->profileMatch($profile, $row, $policyName, $code, 'group');
+            $included = $this->matchingRows($templateProfiles, $code, PolicyMccProfileRow::TYPE_INCLUDED);
+
+            foreach ($this->groupRowsByProfile($included) as [$profile, $rows]) {
+                $matches[] = $this->mergedProfileMatch($profile, $rows, $policyName, $code, 'group');
             }
         }
 
         return $matches;
+    }
+
+    /**
+     * Gom các cặp [hồ sơ, dòng] theo hồ sơ để MỘT thẻ chỉ tạo MỘT kết quả
+     * (một hồ sơ có nhiều dòng cùng chứa mã đang tra ⇒ gộp, không nhân bản).
+     *
+     * @param  array<int, array{0: PolicyMccProfile, 1: PolicyMccProfileRow}>  $pairs
+     * @return array<int, array{0: PolicyMccProfile, 1: array<int, PolicyMccProfileRow>}>
+     */
+    private function groupRowsByProfile(array $pairs): array
+    {
+        $grouped = [];
+
+        foreach ($pairs as [$profile, $row]) {
+            $grouped[$profile->id][] = [$profile, $row];
+        }
+
+        return array_values(array_map(
+            fn (array $items): array => [$items[0][0], array_column($items, 1)],
+            $grouped,
+        ));
     }
 
     /**
@@ -680,6 +697,78 @@ class CardPolicyLookupService
     }
 
     /**
+     * Một kết quả tra cứu MCC cho MỘT hồ sơ, gộp MỌI dòng của hồ sơ chứa mã
+     * đang tra về một kết quả (không nhân bản thẻ). Khi chỉ có một dòng, giữ
+     * nguyên payload của {@see profileMatch()}; khi nhiều dòng, hợp nhất tên
+     * danh mục + bậc hoàn tiền (khử trùng lặp) và giữ tỷ lệ cao nhất cùng điều
+     * kiện của chính bậc đó. Không cộng trần của các dòng với nhau.
+     *
+     * @param  array<int, PolicyMccProfileRow>  $rows
+     * @return array<string, mixed>
+     */
+    private function mergedProfileMatch(PolicyMccProfile $profile, array $rows, ?string $policyName, string $code, string $relation): array
+    {
+        $rows = array_values($rows);
+        $match = $this->profileMatch($profile, $rows[0], $policyName, $code, $relation);
+
+        if (count($rows) === 1) {
+            return $match;
+        }
+
+        $names = [];
+        $notes = [];
+        $tiers = [];
+        $seen = [];
+
+        foreach ($rows as $row) {
+            if ($row->category_name !== null && $row->category_name !== '') {
+                $names[(string) $row->category_name] = (string) $row->category_name;
+            }
+
+            if ($row->note !== null && $row->note !== '') {
+                $notes[(string) $row->note] = (string) $row->note;
+            }
+
+            if ($relation === 'excluded') {
+                continue;
+            }
+
+            foreach ($row->benefits as $benefit) {
+                $tier = $this->benefitTierPayload($benefit);
+                $key = implode('|', [
+                    $tier['cashback_percent'] ?? '',
+                    $tier['rate_label'] ?? '',
+                    $tier['min_total_spend'] ?? '',
+                    $tier['max_total_spend'] ?? '',
+                    $tier['cap_amount'] ?? '',
+                    $tier['note'] ?? '',
+                ]);
+
+                if (isset($seen[$key])) {
+                    continue;
+                }
+
+                $seen[$key] = true;
+                $tiers[] = $tier;
+            }
+        }
+
+        $categoryLabel = $names === [] ? $match['category_name'] : implode(', ', array_values($names));
+
+        $match['group_reference_name'] = $categoryLabel;
+        $match['category_name'] = $categoryLabel;
+        $match['note'] = $notes === [] ? null : implode('; ', array_values($notes));
+
+        if ($relation !== 'excluded') {
+            $match['cashback'] = $tiers === []
+                ? $this->missingCashback($categoryLabel)
+                : $this->availableCashback($categoryLabel, $tiers);
+        }
+
+        return $match;
+    }
+
+    /**
      * Bậc + tỷ lệ hoàn tiền của MỘT dòng MCC, đọc từ bảng tra cứu
      * `credit_card_policy_mcc_row_benefits` (dữ liệu trích tài liệu gốc).
      *
@@ -688,13 +777,13 @@ class CardPolicyLookupService
     private function benefitCashback(PolicyMccProfileRow $row, string $relation): array
     {
         if ($relation === 'excluded') {
-            return ['status' => 'excluded', 'category_name' => $row->category_name, 'tiers' => [], 'highest' => null, 'reason' => 'excluded'];
+            return $this->excludedCashback($row->category_name);
         }
 
         $benefits = $row->benefits;
 
         if ($benefits->isEmpty()) {
-            return ['status' => 'missing', 'category_name' => $row->category_name, 'tiers' => [], 'highest' => null, 'reason' => 'no_data'];
+            return $this->missingCashback($row->category_name);
         }
 
         $tiers = $benefits
@@ -702,13 +791,7 @@ class CardPolicyLookupService
             ->values()
             ->all();
 
-        return [
-            'status' => 'available',
-            'category_name' => $row->category_name,
-            'tiers' => $tiers,
-            'highest' => $this->highestTier($tiers),
-            'reason' => null,
-        ];
+        return $this->availableCashback($row->category_name, $tiers);
     }
 
     /**
@@ -741,6 +824,207 @@ class CardPolicyLookupService
         }
 
         return $best;
+    }
+
+    /**
+     * Tách danh sách bậc thành [chính thức, bổ sung]. Bậc có `is_bonus = true`
+     * là ƯU ĐÃI BỔ SUNG; còn lại (kể cả dữ liệu blueprint không có khoá này) là
+     * CASHBACK CHÍNH THỨC.
+     *
+     * @param  array<int, array<string, mixed>>  $tiers
+     * @return array{0: array<int, array<string, mixed>>, 1: array<int, array<string, mixed>>}
+     */
+    private function partitionTiersByKind(array $tiers): array
+    {
+        $official = [];
+        $bonus = [];
+
+        foreach ($tiers as $tier) {
+            if (($tier['is_bonus'] ?? false) === true) {
+                $bonus[] = $tier;
+            } else {
+                $official[] = $tier;
+            }
+        }
+
+        return [array_values($official), array_values($bonus)];
+    }
+
+    /**
+     * Payload `cashback` khi CÓ dữ liệu: tách bậc chính thức/bổ sung. `highest`
+     * CHỈ tính trên bậc CHÍNH THỨC (dùng để xếp hạng + hiển thị "Hoàn tiền chính
+     * thức"); `highest_bonus` để hiển thị riêng "Ưu đãi bổ sung", KHÔNG xếp hạng.
+     *
+     * @param  array<int, array<string, mixed>>  $tiers
+     * @return array<string, mixed>
+     */
+    private function availableCashback(?string $categoryName, array $tiers): array
+    {
+        [$official, $bonus] = $this->partitionTiersByKind($tiers);
+
+        return [
+            'status' => 'available',
+            'category_name' => $categoryName,
+            'tiers' => array_values($tiers),
+            'official_tiers' => $official,
+            'bonus_tiers' => $bonus,
+            'highest' => $this->highestTier($official),
+            'highest_bonus' => $this->highestTier($bonus),
+            'reason' => null,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function missingCashback(?string $categoryName, string $reason = 'no_data'): array
+    {
+        return [
+            'status' => 'missing',
+            'category_name' => $categoryName,
+            'tiers' => [],
+            'official_tiers' => [],
+            'bonus_tiers' => [],
+            'highest' => null,
+            'highest_bonus' => null,
+            'reason' => $reason,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function excludedCashback(?string $categoryName): array
+    {
+        return [
+            'status' => 'excluded',
+            'category_name' => $categoryName,
+            'tiers' => [],
+            'official_tiers' => [],
+            'bonus_tiers' => [],
+            'highest' => null,
+            'highest_bonus' => null,
+            'reason' => 'excluded',
+        ];
+    }
+
+    /**
+     * Sắp xếp kết quả "Tra cứu MCC" theo dữ liệu cashback thực tế:
+     *  1. Có tỷ lệ số so sánh được → thiếu dữ liệu tỷ lệ (gồm cả "chưa xác
+     *     minh") → bị loại trừ;
+     *  2. Tỷ lệ hoàn tiền giảm dần (so sánh BẰNG SỐ, không bằng chuỗi);
+     *  3. Trần hoàn tiền giảm dần — NULL = nguồn không nêu trần, KHÔNG coi là
+     *     0đ và KHÔNG tự gán "không giới hạn" ⇒ xếp sau bậc có trần số khi cùng
+     *     tỷ lệ;
+     *  4. Tên chính sách tăng dần, rồi id — thứ tự ổn định giữa các lần truy vấn.
+     *
+     * @param  array<int, array<string, mixed>>  $matches
+     * @return array<int, array<string, mixed>>
+     */
+    private function sortMatchesByCashback(array $matches): array
+    {
+        $decorated = array_map(fn (array $match): array => [
+            'metrics' => $this->cashbackSortMetrics($match),
+            'match' => $match,
+        ], array_values($matches));
+
+        usort($decorated, function (array $a, array $b): int {
+            return $a['metrics']['rank'] <=> $b['metrics']['rank']
+                ?: $b['metrics']['rate'] <=> $a['metrics']['rate']
+                ?: $this->capCompareValue($b['metrics']['cap']) <=> $this->capCompareValue($a['metrics']['cap'])
+                ?: strcmp((string) ($a['match']['policy_name'] ?? ''), (string) ($b['match']['policy_name'] ?? ''))
+                ?: strcmp((string) ($a['match']['id'] ?? ''), (string) ($b['match']['id'] ?? ''));
+        });
+
+        return array_map(fn (array $item): array => $item['match'], $decorated);
+    }
+
+    /**
+     * Khóa xếp hạng + tỷ lệ + trần của MỘT kết quả tra MCC để so sánh.
+     *
+     * @return array{rank:int, rate:?float, cap:?float}
+     */
+    private function cashbackSortMetrics(array $match): array
+    {
+        $relation = (string) ($match['relation'] ?? '');
+
+        // Không được hoàn tiền — luôn sau mọi thẻ có dữ liệu so sánh được.
+        if ($relation === 'excluded') {
+            return ['rank' => 2, 'rate' => null, 'cap' => null];
+        }
+
+        // "Chưa đủ dữ liệu để xác nhận": không xếp theo tỷ lệ chưa xác minh.
+        if ($relation === 'unverified') {
+            return ['rank' => 1, 'rate' => null, 'cap' => null];
+        }
+
+        $bestRate = null;
+        $bestCap = null;
+
+        foreach (($match['cashback']['tiers'] ?? []) as $tier) {
+            // Bậc không áp dụng cho danh mục này (blueprint không khớp rule).
+            if (($tier['has_rule'] ?? true) === false) {
+                continue;
+            }
+
+            // Ưu đãi BỔ SUNG không phải "cashback chính thức" ⇒ không dùng xếp hạng.
+            if (($tier['is_bonus'] ?? false) === true) {
+                continue;
+            }
+
+            $percent = $tier['cashback_percent'] ?? null;
+
+            // Chỉ có nhãn nguyên văn ("tới 20%") ⇒ không bịa số để so sánh.
+            if ($percent === null || $percent === '') {
+                continue;
+            }
+
+            $percent = (float) $percent;
+            $cap = $this->tierCapForSort($tier);
+
+            if ($bestRate === null
+                || $percent > $bestRate
+                || ($percent === $bestRate && $this->capCompareValue($cap) > $this->capCompareValue($bestCap))) {
+                $bestRate = $percent;
+                $bestCap = $cap;
+            }
+        }
+
+        if ($bestRate === null) {
+            return ['rank' => 1, 'rate' => null, 'cap' => null];
+        }
+
+        return ['rank' => 0, 'rate' => $bestRate, 'cap' => $bestCap];
+    }
+
+    /**
+     * Trần áp dụng cho một bậc khi so sánh thứ tự: trần quyền lợi/bậc
+     * (`cap_amount`, dữ liệu trích tài liệu); kết quả blueprint dùng trần theo
+     * danh mục/kỳ (`max_cashback_per_category_per_period`) — KHÔNG cộng dồn các
+     * loại trần, KHÔNG lấy trần tổng của cả thẻ.
+     *
+     * @param  array<string, mixed>  $tier
+     */
+    private function tierCapForSort(array $tier): ?float
+    {
+        $cap = $tier['cap_amount'] ?? null;
+
+        if ($cap !== null && $cap !== '') {
+            return (float) $cap;
+        }
+
+        $cap = $tier['max_cashback_per_category_per_period'] ?? null;
+
+        return ($cap !== null && $cap !== '') ? (float) $cap : null;
+    }
+
+    /**
+     * Giá trị số để so sánh trần giảm dần: NULL (nguồn không nêu trần) KHÔNG
+     * phải 0đ — đặt thấp hơn mọi trần số để xếp sau khi cùng tỷ lệ.
+     */
+    private function capCompareValue(?float $cap): float
+    {
+        return $cap ?? -1.0;
     }
 
     /**
@@ -817,24 +1101,14 @@ class CardPolicyLookupService
             $representative['relation'] = 'excluded';
             $representative['relation_label'] = $this->relationLabel('excluded');
             $representative['exclusion_scope'] = 'policy';
-            $representative['cashback'] = [
-                'status' => 'excluded',
-                'category_name' => $representative['category_name'] ?? null,
-                'tiers' => [],
-                'highest' => null,
-                'reason' => 'excluded',
-            ];
+            $representative['cashback'] = $this->excludedCashback($representative['category_name'] ?? null);
 
             return $representative;
         }
 
-        $representative['cashback'] = [
-            'status' => $tiers === [] ? 'missing' : 'available',
-            'category_name' => $representative['category_name'] ?? null,
-            'tiers' => $tiers,
-            'highest' => $this->highestTier($tiers),
-            'reason' => $tiers === [] ? 'no_data' : null,
-        ];
+        $representative['cashback'] = $tiers === []
+            ? $this->missingCashback($representative['category_name'] ?? null)
+            : $this->availableCashback($representative['category_name'] ?? null, $tiers);
 
         return $representative;
     }
@@ -858,6 +1132,10 @@ class CardPolicyLookupService
             'note' => $benefit->condition_note,
             'exception' => $benefit->exception_note,
             'source_page' => $benefit->source_page,
+            // Phân loại quyền lợi: `bonus` = ưu đãi bổ sung (KHÔNG dùng xếp hạng
+            // "cashback chính thức"); `official` = mặc định.
+            'benefit_type' => $benefit->benefitKind(),
+            'is_bonus' => $benefit->isBonus(),
         ];
     }
 
