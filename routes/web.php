@@ -48,6 +48,7 @@ use App\Http\Controllers\OrderController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PromotionNewsController;
 use App\Http\Controllers\ReferralController;
+use App\Http\Controllers\ShopeeFashionAlertController;
 use App\Http\Controllers\StaticPageController;
 use App\Http\Controllers\WalletController;
 use Illuminate\Support\Facades\Auth;
@@ -86,6 +87,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard')->middleware('forensic');
     Route::post('/link-requests', [DashboardController::class, 'store'])->name('link-requests.store')->middleware('forensic');
     Route::post('/link-requests/{linkRequest}/toggle-pin', [DashboardController::class, 'togglePin'])->name('link-requests.toggle-pin');
+
+    // Thông báo "cào xu" đơn Shopee thời trang (hoa hồng 7%) trên trang chủ.
+    Route::post('/shopee-fashion-alert/acknowledge', [ShopeeFashionAlertController::class, 'acknowledge'])
+        ->name('shopee-fashion-alert.acknowledge');
+    Route::post('/shopee-fashion-alert/disable', [ShopeeFashionAlertController::class, 'disable'])
+        ->name('shopee-fashion-alert.disable');
 
     // T2 v2: trả về CSRF token HIỆN TẠI của session để frontend self-recover
     // khi POST bị 419 (session/rotation tạo token mới). GET nên không bị CSRF

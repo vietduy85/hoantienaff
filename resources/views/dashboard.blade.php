@@ -4,6 +4,10 @@
 
             @include('dashboard.partials.greeting-card')
 
+            @include('dashboard.partials.shopee-fashion-alert', [
+                'shopeeFashionAlert' => $shopeeFashionAlert ?? null,
+            ])
+
             @include('dashboard.partials.link-generator')
 
             @include('dashboard.partials.pinned-links', [

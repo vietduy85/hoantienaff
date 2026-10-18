@@ -16,10 +16,13 @@ $travelPlatforms = collect(config('travel.platforms'))
                  x-init="$nextTick(() => { const el = $el.querySelector('[aria-current=\"page\"]'); if (el && el.scrollIntoView) el.scrollIntoView({ inline: 'nearest', block: 'nearest' }); })">
 
                 <!-- Trang chủ -->
-                @php $pendingWithdrawCount = (int) ($pendingWithdrawCount ?? 0); @endphp
+                @php
+                    $pendingWithdrawCount = (int) ($pendingWithdrawCount ?? 0);
+                    $shopeeFashionBadgeCount = (int) ($shopeeFashionBadgeCount ?? 0);
+                @endphp
                 <a href="{{ route('dashboard') }}"
                    class="shrink-0 inline-flex items-center gap-1.5 font-semibold text-emerald-600 hover:text-emerald-700 active:text-emerald-800 transition-colors text-sm sm:text-base whitespace-nowrap"
-                   aria-label="Trang chủ{{ $pendingWithdrawCount > 0 ? ' ('.$pendingWithdrawCount.' yêu cầu rút tiền đang chờ xử lý)' : '' }}">
+                   aria-label="Trang chủ{{ $pendingWithdrawCount > 0 ? ' ('.$pendingWithdrawCount.' yêu cầu rút tiền đang chờ xử lý)' : '' }}{{ $shopeeFashionBadgeCount > 0 ? ' ('.$shopeeFashionBadgeCount.' đơn Shopee thời trang cần cào xu)' : '' }}">
                     Trang chủ
                     @can('withdrawals.view')
                         @if ($pendingWithdrawCount > 0)
@@ -30,6 +33,14 @@ $travelPlatforms = collect(config('travel.platforms'))
                             </span>
                         @endif
                     @endcan
+                    @if ($shopeeFashionBadgeCount > 0)
+                        <span data-testid="shopee-fashion-badge"
+                              data-shopee-fashion-badge
+                              title="{{ $shopeeFashionBadgeCount }} đơn Shopee thời trang cần cào xu"
+                              class="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] font-semibold leading-none tabular-nums ring-2 ring-white">
+                            {{ $shopeeFashionBadgeCount > 99 ? '99+' : $shopeeFashionBadgeCount }}
+                        </span>
+                    @endif
                 </a>
 
                 <!-- Thẻ tín dụng -->

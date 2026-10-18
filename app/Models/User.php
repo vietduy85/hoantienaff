@@ -32,6 +32,7 @@ class User extends Authenticatable
         'avatar',
         'google_id',
         'status',
+        'shopee_fashion_alert_disabled',
     ];
 
     protected $hidden = [
@@ -47,6 +48,7 @@ class User extends Authenticatable
             'wallet_balance' => 'decimal:2',
             'total_earned' => 'decimal:2',
             'total_withdrawn' => 'decimal:2',
+            'shopee_fashion_alert_disabled' => 'boolean',
         ];
     }
 

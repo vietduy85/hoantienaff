@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\LinkRequest;
 use App\Models\Setting;
+use App\Models\User;
 use App\Services\AffiliateLinkService;
+use App\Services\ShopeeFashionAlertService;
 use App\Services\ShopeeFood\ShopeeFoodAffiliateLinkService;
 use App\Services\ShopeeFood\ShopeeFoodPreviewService;
 use App\Services\ShopeeFood\ShopeeFoodUrlParser;
@@ -37,7 +39,30 @@ class DashboardController extends Controller
             ->limit(5)
             ->get();
 
-        return view('dashboard', compact('pinnedLinks', 'recentLinks'));
+        return view('dashboard', [
+            'pinnedLinks' => $pinnedLinks,
+            'recentLinks' => $recentLinks,
+            'shopeeFashionAlert' => $this->shopeeFashionAlert($user),
+        ]);
+    }
+
+    /**
+     * Dữ liệu thông báo "cào xu" cho trang chủ, hoặc null khi user đã tắt
+     * thông báo hoặc không còn đơn thời trang nào chưa biết.
+     *
+     * @return array{count: int}|null
+     */
+    private function shopeeFashionAlert(User $user): ?array
+    {
+        $service = app(ShopeeFashionAlertService::class);
+
+        if (! $service->isEnabled($user)) {
+            return null;
+        }
+
+        $count = $service->unseenCount($user);
+
+        return $count > 0 ? ['count' => $count] : null;
     }
 
     public function store(Request $request): JsonResponse|RedirectResponse

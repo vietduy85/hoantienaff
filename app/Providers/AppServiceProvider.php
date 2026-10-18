@@ -27,6 +27,7 @@ use App\Services\Providers\TikTokProvider;
 use App\Services\Providers\TravelokaProvider;
 use App\Services\Url\AffiliateDetectRuleRepository;
 use App\View\Composers\PendingWithdrawBadgeComposer;
+use App\View\Composers\ShopeeFashionBadgeComposer;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
@@ -104,6 +105,10 @@ class AppServiceProvider extends ServiceProvider
         // Badge số yêu cầu rút tiền đang chờ, hiển thị cạnh "Trang chủ" trong
         // navigation dùng chung. Composer tự lọc theo quyền `withdrawals.view`.
         View::composer('layouts.navigation', PendingWithdrawBadgeComposer::class);
+
+        // Badge đỏ số đơn Shopee thời trang "cào xu" chưa xác nhận, hiển thị
+        // cạnh "Trang chủ". Độc lập với badge rút tiền ở trên.
+        View::composer('layouts.navigation', ShopeeFashionBadgeComposer::class);
     }
 
     /**
