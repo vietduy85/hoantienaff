@@ -50,7 +50,10 @@ class DashboardController extends Controller
      * Dữ liệu thông báo "cào xu" cho trang chủ, hoặc null khi user đã tắt
      * thông báo hoặc không còn đơn thời trang nào chưa biết.
      *
-     * @return array{count: int}|null
+     * URL đích (href) và URL hiển thị lấy từ cấu hình Admin (bảng settings);
+     * mặc định là link cào xu Shopee đang hoạt động.
+     *
+     * @return array{count: int, destinationUrl: string, displayUrl: string}|null
      */
     private function shopeeFashionAlert(User $user): ?array
     {
@@ -62,7 +65,11 @@ class DashboardController extends Controller
 
         $count = $service->unseenCount($user);
 
-        return $count > 0 ? ['count' => $count] : null;
+        return $count > 0 ? [
+            'count' => $count,
+            'destinationUrl' => Setting::shopeeFashionAlertDestinationUrl(),
+            'displayUrl' => Setting::shopeeFashionAlertDisplayUrl(),
+        ] : null;
     }
 
     public function store(Request $request): JsonResponse|RedirectResponse

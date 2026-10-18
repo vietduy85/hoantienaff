@@ -140,9 +140,9 @@ class ShopeeFashionAlertTest extends TestCase
         $response = $this->actingAs($user)->get('/dashboard');
 
         $response->assertOk();
-        // Liên kết phải là thẻ <a href="..."> thực sự, không chỉ chuỗi văn bản.
-        $response->assertSee('href="https://s.shopee.vn/1BFBNN81J"', false);
-        $response->assertSee('https://s.shopee.vn/1BFBNN81J', false);
+        // href mặc định (URL đích do Admin cấu hình) và URL hiển thị (giữ nguyên).
+        $response->assertSee('href="https://shp.ee/622xrhjpx85"', false);
+        $response->assertSee('>https://s.shopee.vn/1BFBNN81J</a>', false);
         $response->assertSee('target="_blank"', false);
         $response->assertSee('rel="noopener noreferrer"', false);
     }

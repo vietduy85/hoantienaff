@@ -13,6 +13,7 @@ use App\Http\Controllers\Admin\CreditCard\SystemPolicyAdminController;
 use App\Http\Controllers\Admin\CreditCard\SystemPolicyApiController;
 use App\Http\Controllers\Admin\FinanceController;
 use App\Http\Controllers\Admin\OrderSyncController;
+use App\Http\Controllers\Admin\ShopeeFashionAlertConfigController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\WithdrawRequestController;
 use App\Http\Controllers\Api\AffiliateJobController;
@@ -353,6 +354,14 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
     Route::put('/affiliate-config', [AffiliateConfigController::class, 'update'])
         ->middleware('role:Admin')
         ->name('affiliate-config.update');
+
+    // Cập nhật link cào xu Shopee hiển thị trong thông báo trên trang chủ.
+    Route::get('/shopee-fashion-alert-config', [ShopeeFashionAlertConfigController::class, 'index'])
+        ->middleware('role:Admin')
+        ->name('shopee-fashion-alert-config.index');
+    Route::put('/shopee-fashion-alert-config', [ShopeeFashionAlertConfigController::class, 'update'])
+        ->middleware('role:Admin')
+        ->name('shopee-fashion-alert-config.update');
 
     Route::post('/affiliate-config/rules', [AffiliateDetectRuleController::class, 'store'])
         ->middleware('role:Admin')

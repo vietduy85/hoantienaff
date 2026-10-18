@@ -204,6 +204,12 @@ $travelPlatforms = collect(config('travel.platforms'))
                     </x-dropdown-link>
                 @endrole
 
+                @role('Admin')
+                    <x-dropdown-link :href="route('admin.shopee-fashion-alert-config.index')">
+                        {{ __('Cập nhật link cào xu') }}
+                    </x-dropdown-link>
+                @endrole
+
                 @can('users.view')
                     <x-dropdown-link :href="route('admin.users.index')">
                         {{ __('Quản lý người dùng') }}
@@ -334,6 +340,12 @@ $travelPlatforms = collect(config('travel.platforms'))
                 @role('Admin')
                     <x-responsive-nav-link :href="route('admin.affiliate-config.index')">
                         {{ __('Cấu hình tạo Link') }}
+                    </x-responsive-nav-link>
+                @endrole
+
+                @role('Admin')
+                    <x-responsive-nav-link :href="route('admin.shopee-fashion-alert-config.index')">
+                        {{ __('Cập nhật link cào xu') }}
                     </x-responsive-nav-link>
                 @endrole
 

@@ -1,5 +1,9 @@
 @php
     $shopeeFashionCount = (int) ($shopeeFashionAlert['count'] ?? 0);
+    $shopeeFashionHref = (string) ($shopeeFashionAlert['destinationUrl']
+        ?? \App\Models\Setting::SHOPEE_FASHION_ALERT_DESTINATION_URL_DEFAULT);
+    $shopeeFashionDisplayUrl = (string) ($shopeeFashionAlert['displayUrl']
+        ?? \App\Models\Setting::SHOPEE_FASHION_ALERT_DISPLAY_URL_DEFAULT);
 @endphp
 @if ($shopeeFashionCount > 0)
     <div
@@ -57,11 +61,11 @@
                     Bạn có {{ $shopeeFashionCount }} đơn hàng Shopee thuộc danh mục thời trang (hoa hồng 7%).
                     Hãy cào xu tại
                     <a
-                        href="https://shp.ee/622xrhjpx85"
+                        href="{{ $shopeeFashionHref }}"
                         target="_blank"
                         rel="noopener noreferrer"
                         class="font-semibold text-amber-700 underline hover:text-amber-900 break-all"
-                    >https://s.shopee.vn/1BFBNN81J</a>
+                    >{{ $shopeeFashionDisplayUrl }}</a>
                     để không bỏ lỡ hoàn tiền.
                 </p>
             </div>
