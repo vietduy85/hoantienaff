@@ -5,6 +5,7 @@ namespace App\Services\Lazada;
 use App\Models\AffiliateOrderItem;
 use App\Services\Lazada\DTOs\LazadaConversionRecord;
 use App\Services\WalletService;
+use App\Support\OrderUpdateMarker;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -465,6 +466,11 @@ class LazadaOrderSyncService
                         $item = $existing;
                         $result->protectedSkipped++;
                     } else {
+                        OrderUpdateMarker::freezeTimestampUnlessChanged(
+                            $existing,
+                            $row,
+                            'last_lazada_sync_at',
+                        );
                         $existing->update($row);
                         $item = $existing->fresh();
                         $result->updated++;

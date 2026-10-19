@@ -7,6 +7,7 @@ use App\Services\RioHub\RioHubClient;
 use App\Services\RioHub\RioHubException;
 use App\Services\TikTok\DTOs\TikTokOrder;
 use App\Services\WalletService;
+use App\Support\OrderUpdateMarker;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -134,6 +135,12 @@ class TikTokOrderSyncService
                             $item = $existing;
                             $result->protectedSkipped++;
                         } else {
+                            OrderUpdateMarker::freezeTimestampUnlessChanged(
+                                $existing,
+                                $data,
+                                'last_tiktok_sync_at',
+                                ['locked_at'],
+                            );
                             $existing->update($data);
                             $item = $existing->fresh();
                             $result->updated++;

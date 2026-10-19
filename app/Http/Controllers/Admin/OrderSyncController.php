@@ -15,6 +15,8 @@ use App\Services\ShopeeFood\ShopeeFoodSyncResult;
 use App\Services\TikTok\TikTokOrderSyncService;
 use App\Services\TikTok\TikTokServiceException;
 use App\Services\TikTok\TikTokSyncResult;
+use App\Support\AffiliateOrderUpdateStatus;
+use App\Support\AffiliateSyncAttempt;
 use App\Support\AffiliateSyncLock;
 use App\Support\AffiliateSyncStatus;
 use Illuminate\Http\RedirectResponse;
@@ -91,6 +93,11 @@ class OrderSyncController extends Controller
         $lastLazadaSyncAt = $this->lastRunAt(AffiliateSyncStatus::LAZADA, 'Lazada', 'last_lazada_sync_at');
         $lastShopeeSyncAt = $this->lastRunAt(AffiliateSyncStatus::SHOPEE, 'Shopee', 'last_shopee_sync_at');
 
+        // "Đơn cập nhật gần nhất" + 24h warning + last attempt per platform
+        // (Shopee / Lazada / TikTok) — ONE aggregate query + settings reads.
+        $orderStatuses = AffiliateOrderUpdateStatus::evaluateAll();
+        $shopeeAlert = $orderStatuses['shopee'];
+
         return view('admin.order-sync.index', compact(
             'recentOrders',
             'stats',
@@ -99,6 +106,8 @@ class OrderSyncController extends Controller
             'lastLazadaSyncAt',
             'lastShopeeSyncAt',
             'backupStatus',
+            'orderStatuses',
+            'shopeeAlert',
         ));
     }
 
@@ -135,6 +144,23 @@ class OrderSyncController extends Controller
         $lock = Cache::lock(AffiliateSyncLock::KEY, AffiliateSyncLock::SECONDS);
 
         if (! $lock->get()) {
+            // Nothing ran — record every monitored platform as skipped (lock
+            // busy) so the 24h warning can explain WHY no order moved this round.
+            AffiliateSyncAttempt::record(
+                AffiliateSyncAttempt::SHOPEE,
+                AffiliateSyncAttempt::STATE_SKIPPED,
+                'lock_busy',
+            );
+            AffiliateSyncAttempt::record(
+                AffiliateSyncAttempt::TIKTOK,
+                AffiliateSyncAttempt::STATE_SKIPPED,
+                'lock_busy',
+            );
+            AffiliateSyncAttempt::record(
+                AffiliateSyncAttempt::LAZADA,
+                AffiliateSyncAttempt::STATE_SKIPPED,
+                'lock_busy',
+            );
             $request->session()->flash(
                 'tiktok_sync_error',
                 'Một phiên đồng bộ đang chạy (TikTok/Lazada/ShopeeFood/Shopee). Vui lòng thử lại sau.',
@@ -174,12 +200,36 @@ class OrderSyncController extends Controller
 
             if ($result->errors === 0) {
                 AffiliateSyncStatus::record(AffiliateSyncStatus::TIKTOK);
+                AffiliateSyncAttempt::record(
+                    AffiliateSyncAttempt::TIKTOK,
+                    AffiliateSyncAttempt::STATE_SUCCESS,
+                    'success',
+                );
+            } else {
+                AffiliateSyncAttempt::record(
+                    AffiliateSyncAttempt::TIKTOK,
+                    AffiliateSyncAttempt::STATE_FAILED,
+                    'order_errors',
+                );
             }
 
             $request->session()->flash('tiktok_sync_result', $this->formatTikTokSummary($result));
         } catch (TikTokServiceException $e) {
+            AffiliateSyncAttempt::record(
+                AffiliateSyncAttempt::TIKTOK,
+                AffiliateSyncAttempt::STATE_FAILED,
+                'api_error',
+            );
             Log::error('[Admin Sync][TikTok] RioHub error', ['error' => $e->getMessage()]);
             $request->session()->flash('tiktok_sync_error', $e->getMessage());
+        } catch (\Throwable $e) {
+            AffiliateSyncAttempt::record(
+                AffiliateSyncAttempt::TIKTOK,
+                AffiliateSyncAttempt::STATE_FAILED,
+                'exception',
+            );
+
+            throw $e;
         }
     }
 
@@ -221,12 +271,36 @@ class OrderSyncController extends Controller
 
             if ($result->errors === 0) {
                 AffiliateSyncStatus::record(AffiliateSyncStatus::LAZADA);
+                AffiliateSyncAttempt::record(
+                    AffiliateSyncAttempt::LAZADA,
+                    AffiliateSyncAttempt::STATE_SUCCESS,
+                    'success',
+                );
+            } else {
+                AffiliateSyncAttempt::record(
+                    AffiliateSyncAttempt::LAZADA,
+                    AffiliateSyncAttempt::STATE_FAILED,
+                    'order_errors',
+                );
             }
 
             $request->session()->flash('lazada_sync_result', $this->formatLazadaSummary($result));
         } catch (LazadaException $e) {
+            AffiliateSyncAttempt::record(
+                AffiliateSyncAttempt::LAZADA,
+                AffiliateSyncAttempt::STATE_FAILED,
+                'api_error',
+            );
             Log::error('[Admin Sync][Lazada] error', ['error' => $e->getMessage()]);
             $request->session()->flash('lazada_sync_error', $e->getUserMessage());
+        } catch (\Throwable $e) {
+            AffiliateSyncAttempt::record(
+                AffiliateSyncAttempt::LAZADA,
+                AffiliateSyncAttempt::STATE_FAILED,
+                'exception',
+            );
+
+            throw $e;
         }
     }
 
@@ -242,6 +316,11 @@ class OrderSyncController extends Controller
 
             if (! $result['success']) {
                 Log::error('[Admin Sync][Shopee] AddLiveTag error', ['error' => $result['error']]);
+                AffiliateSyncAttempt::record(
+                    AffiliateSyncAttempt::SHOPEE,
+                    AffiliateSyncAttempt::STATE_FAILED,
+                    (string) ($result['sync_state'] ?? 'failed'),
+                );
                 $request->session()->flash(
                     'shopee_sync_error',
                     'Đồng bộ Shopee (AddLiveTag API) thất bại: '.$result['error'],
@@ -255,6 +334,11 @@ class OrderSyncController extends Controller
                 'api' => 'AddLiveTag',
                 'from' => $result['from'],
                 'to' => $result['to'],
+                'sync_state' => $result['sync_state'],
+                'http_status' => $result['api_http_status'],
+                'business_status' => $result['api_business_status'],
+                'pages' => $result['api_pages_fetched'],
+                'records' => $result['api_records'],
                 'raw_items' => $result['raw_items'],
                 'orders' => $result['orders'],
                 'created' => $result['applied_created'],
@@ -265,15 +349,37 @@ class OrderSyncController extends Controller
             ]);
 
             AffiliateSyncStatus::record(AffiliateSyncStatus::SHOPEE);
+            AffiliateSyncAttempt::record(
+                AffiliateSyncAttempt::SHOPEE,
+                AffiliateSyncAttempt::STATE_SUCCESS,
+                (string) ($result['sync_state'] ?? 'success'),
+            );
 
             $request->session()->flash('shopee_sync_result', $this->formatShopeeSummary($result));
         } catch (\Throwable $e) {
-            Log::error('[Admin Sync][Shopee] error', ['error' => $e->getMessage()]);
+            Log::error('[Admin Sync][Shopee] error', ['error' => $this->maskAddLiveTagSecrets($e->getMessage())]);
+            AffiliateSyncAttempt::record(
+                AffiliateSyncAttempt::SHOPEE,
+                AffiliateSyncAttempt::STATE_FAILED,
+                'exception',
+            );
             $request->session()->flash(
                 'shopee_sync_error',
-                'Đồng bộ Shopee (AddLiveTag API) thất bại: '.$e->getMessage(),
+                'Đồng bộ Shopee (AddLiveTag API) thất bại: '.$this->maskAddLiveTagSecrets($e->getMessage()),
             );
         }
+    }
+
+    /** Never let the AddLiveTag API key reach flash messages / logs. */
+    private function maskAddLiveTagSecrets(string $message): string
+    {
+        $key = trim((string) config('services.addlivetag.api_key', ''));
+
+        if ($key !== '' && str_contains($message, $key)) {
+            $message = str_replace($key, '****', $message);
+        }
+
+        return preg_replace('/([?&]key=)[^&\s]+/i', '$1****', $message) ?? $message;
     }
 
     // ------------------------------------------------------------------
@@ -383,12 +489,19 @@ class OrderSyncController extends Controller
             'success' => $creditErrors === 0,
             'message' => $creditErrors > 0 ? 'Đồng bộ Shopee không hoàn toàn' : 'Đồng bộ Shopee (AddLiveTag API) hoàn tất',
             'api' => 'AddLiveTag',
+            'sync_state' => (string) ($r['sync_state'] ?? '-'),
+            'api_http_status' => $r['api_http_status'] ?? null,
+            'api_business_status' => $r['api_business_status'] ?? null,
+            'api_records' => (int) ($r['api_records'] ?? 0),
+            'api_pages' => (int) ($r['api_pages_fetched'] ?? 0),
+            'notice' => $r['notice'] ?? null,
             'from' => $r['from'],
             'to' => $r['to'] ?? '-',
             'raw_items' => $r['raw_items'],
             'orders' => $r['orders'],
             'inserted' => $r['applied_created'],
             'updated' => $r['applied_updated'],
+            'orders_written' => (int) ($r['orders_written'] ?? 0),
             'protected' => $r['plan_protected'],
             'user_conflict' => $r['user_conflict'],
             'sub_id_mismatch' => $r['sub_id_mismatch'],

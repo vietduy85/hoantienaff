@@ -223,12 +223,25 @@ class OrderSyncAdminTest extends TestCase
             'last_lazada_sync_at' => '2026-09-12 10:35:50',
         ]);
 
-        $this->actingAs($this->admin)
+        $response = $this->actingAs($this->admin)
             ->get(route('admin.tiktok-order-sync.index'))
             ->assertOk()
             ->assertSee('Lần đồng bộ Lazada gần nhất')
-            ->assertSee('14/10/2026 12:00:00')
-            ->assertDontSee('12/09/2026 10:35:50');
+            ->assertSee('Đơn cập nhật Lazada gần nhất')
+            ->assertSee('14/10/2026 12:00:00');
+
+        // The run LABEL must come from the settings run marker…
+        $this->assertMatchesRegularExpression(
+            '/Lần đồng bộ Lazada gần nhất:<\/span>\s*<span class="font-mono">14\/10\/2026 12:00:00/',
+            $response->getContent(),
+        );
+
+        // …while the legacy row-write column now only feeds the separate
+        // "Đơn cập nhật Lazada gần nhất" marker (never the run label).
+        $this->assertMatchesRegularExpression(
+            '/Đơn cập nhật Lazada gần nhất:<\/span>\s*<span class="font-mono" data-testid="lazada-order-update-time">12\/09\/2026 10:35:50/',
+            $response->getContent(),
+        );
     }
 
     public function test_get_index_falls_back_to_row_write_column_without_run_marker(): void

@@ -8,6 +8,7 @@ use App\Services\Lazada\LazadaOrderSyncService;
 use App\Services\ShopeeFood\ShopeeFoodOrderSyncService;
 use App\Services\TikTok\TikTokOrderSyncService;
 use App\Services\WalletService;
+use App\Support\AffiliateSyncAttempt;
 use App\Support\AffiliateSyncLock;
 use App\Support\AffiliateSyncStatus;
 use Illuminate\Console\Command;
@@ -38,11 +39,16 @@ use Illuminate\Support\Facades\Log;
  * try/catch so one failure is logged and reported without losing the other
  * platforms' already-synced data.
  *
- * After each platform step finishes SUCCESSFULLY (even with 0 records) it
- * records a last-run marker via App\Support\AffiliateSyncStatus — this is what
- * the admin "Lần đồng bộ gần nhất" labels read, instead of the row-write
- * timestamps (`last_<platform>_sync_at`) that never move for protected feeds.
- * A failed/skipped step records nothing (never a fake success).
+     * After each platform step finishes SUCCESSFULLY (even with 0 records) it
+     * records a last-run marker via App\Support\AffiliateSyncStatus — this is what
+     * the admin "Lần đồng bộ gần nhất" labels read, instead of the row-write
+     * timestamps (`last_<platform>_sync_at`) that never move for protected feeds.
+     * A failed/skipped step records no success marker (never a fake success).
+     *
+     * Every outcome ALSO records a per-platform attempt marker
+     * (App\Support\AffiliateSyncAttempt: success / failed / skipped + a short
+     * safe reason such as `lock_timeout`, `order_errors`, `exception`) so the
+     * admin 24h warning can explain WHY an order feed went quiet.
  *
  * Hard rules preserved from the underlying services (NOT reimplemented here):
  *   - idempotent upserts (no duplicate orders / credits / WalletTransactions)
@@ -86,6 +92,7 @@ class AffiliateSyncAll extends Command
     public function handle(): int
     {
         $started = now();
+        $shopeeOnly = (bool) $this->option('shopee-only');
 
         $this->box("Affiliate Sync All\nStarted: {$started->format('Y-m-d H:i:s')}");
         Log::info('Affiliate Sync All started', ['started_at' => $started->format('Y-m-d H:i:s')]);
@@ -107,11 +114,12 @@ class AffiliateSyncAll extends Command
                 'lock_wait_seconds' => $lockWaitSeconds,
             ]);
 
+            $this->recordSkippedAttempts($shopeeOnly, 'lock_timeout');
+
             return self::FAILURE;
         }
 
         $hasError = false;
-        $shopeeOnly = (bool) $this->option('shopee-only');
 
         try {
             if (! $shopeeOnly) {
@@ -230,9 +238,19 @@ class AffiliateSyncAll extends Command
 
     private function syncTikTok(): bool
     {
-        // Same production call as affiliate:tiktok-sync --sync: fetch ALL
-        // RioHub orders, upsert + idempotent wallet lifecycle.
-        $result = $this->tikTokService->run(creditWallet: true);
+        try {
+            // Same production call as affiliate:tiktok-sync --sync: fetch ALL
+            // RioHub orders, upsert + idempotent wallet lifecycle.
+            $result = $this->tikTokService->run(creditWallet: true);
+        } catch (\Throwable $e) {
+            AffiliateSyncAttempt::record(
+                AffiliateSyncAttempt::TIKTOK,
+                AffiliateSyncAttempt::STATE_FAILED,
+                'exception',
+            );
+
+            throw $e;
+        }
 
         $this->resultSummary('TikTok', [
             ['Orders fetched', (string) $result->ordersFetched],
@@ -249,6 +267,11 @@ class AffiliateSyncAll extends Command
         $this->logResult('TikTok Sync completed', $result->toArray());
 
         if ($result->errors > 0) {
+            AffiliateSyncAttempt::record(
+                AffiliateSyncAttempt::TIKTOK,
+                AffiliateSyncAttempt::STATE_FAILED,
+                'order_errors',
+            );
             $this->warn('TikTok Sync completed with errors');
 
             return false;
@@ -257,6 +280,11 @@ class AffiliateSyncAll extends Command
         // Success marker for the admin "last sync" display. Independent of
         // whether any row changed (see App\Support\AffiliateSyncStatus).
         AffiliateSyncStatus::record(AffiliateSyncStatus::TIKTOK);
+        AffiliateSyncAttempt::record(
+            AffiliateSyncAttempt::TIKTOK,
+            AffiliateSyncAttempt::STATE_SUCCESS,
+            'success',
+        );
 
         $this->info('TikTok Sync completed');
 
@@ -265,10 +293,20 @@ class AffiliateSyncAll extends Command
 
     private function syncLazada(): bool
     {
-        // Same production call as the admin Lazada sync: current month,
-        // persist rows + idempotent wallet lifecycle (reversal of finalized
-        // returned orders). NEVER credits estimates — finalize does that.
-        $result = $this->lazadaService->run(persist: true, creditWallet: true);
+        try {
+            // Same production call as the admin Lazada sync: current month,
+            // persist rows + idempotent wallet lifecycle (reversal of finalized
+            // returned orders). NEVER credits estimates — finalize does that.
+            $result = $this->lazadaService->run(persist: true, creditWallet: true);
+        } catch (\Throwable $e) {
+            AffiliateSyncAttempt::record(
+                AffiliateSyncAttempt::LAZADA,
+                AffiliateSyncAttempt::STATE_FAILED,
+                'exception',
+            );
+
+            throw $e;
+        }
 
         $this->resultSummary('Lazada', [
             ['Months fetched', (string) $result->monthsFetched],
@@ -289,6 +327,11 @@ class AffiliateSyncAll extends Command
         $this->logResult('Lazada Sync completed', $result->toArray());
 
         if ($result->errors > 0) {
+            AffiliateSyncAttempt::record(
+                AffiliateSyncAttempt::LAZADA,
+                AffiliateSyncAttempt::STATE_FAILED,
+                'order_errors',
+            );
             $this->warn('Lazada Sync completed with errors — finalize sẽ KHÔNG chạy.');
 
             return false;
@@ -297,6 +340,11 @@ class AffiliateSyncAll extends Command
         // Success marker — recorded even when records_fetched = 0, so the
         // admin "last sync" time reflects the RUN, not the last row write.
         AffiliateSyncStatus::record(AffiliateSyncStatus::LAZADA);
+        AffiliateSyncAttempt::record(
+            AffiliateSyncAttempt::LAZADA,
+            AffiliateSyncAttempt::STATE_SUCCESS,
+            'success',
+        );
 
         $this->info('Lazada Sync completed');
 
@@ -391,8 +439,25 @@ class AffiliateSyncAll extends Command
 
         $result = $this->shopeeSync->run(from: $from, to: $to, dryRun: $dryRun);
 
+        $this->line('  api http: '.($result['api_http_status'] ?? '-')
+            .' | business: '.($result['api_business_status'] ?? '-')
+            .' | pages: '.($result['api_pages_fetched'] ?? 0)
+            .' | records: '.($result['api_records'] ?? 0)
+            .' | sync_state: '.($result['sync_state'] ?? '-'));
+        if (! empty($result['notice'])) {
+            $this->line('  notice: '.$result['notice']);
+        }
+
         if ($result['error'] !== null) {
             $this->error($result['error']);
+
+            if (! $dryRun) {
+                AffiliateSyncAttempt::record(
+                    AffiliateSyncAttempt::SHOPEE,
+                    AffiliateSyncAttempt::STATE_FAILED,
+                    'fetch_or_apply_error',
+                );
+            }
 
             return false;
         }
@@ -408,11 +473,14 @@ class AffiliateSyncAll extends Command
 
         if ($dryRun) {
             $this->info('Shopee/AddLiveTag: READ-ONLY (dry-run) — no DB writes, no wallet credit.');
+            // Dry-run records NOTHING (no attempt marker, no success marker):
+            // verification runs must never look like a completed production sync.
 
             return true;
         }
 
         $this->line('  applied created: '.$result['applied_created'].' updated: '.$result['applied_updated']);
+        $this->line('  orders written (rows): '.$result['orders_written']);
 
         $credit = $result['credit'];
         $this->resultSummary('Shopee/AddLiveTag Wallet', [
@@ -429,6 +497,11 @@ class AffiliateSyncAll extends Command
 
         if ($credit['errors'] > 0) {
             $this->warn('Shopee/AddLiveTag sync applied but wallet credit completed with errors');
+            AffiliateSyncAttempt::record(
+                AffiliateSyncAttempt::SHOPEE,
+                AffiliateSyncAttempt::STATE_FAILED,
+                'credit_errors',
+            );
 
             return false;
         }
@@ -436,10 +509,41 @@ class AffiliateSyncAll extends Command
         // Real apply path only — dry-run returned earlier, so verification
         // runs never masquerade as a completed Shopee sync.
         AffiliateSyncStatus::record(AffiliateSyncStatus::SHOPEE);
+        AffiliateSyncAttempt::record(
+            AffiliateSyncAttempt::SHOPEE,
+            AffiliateSyncAttempt::STATE_SUCCESS,
+            (string) ($result['sync_state'] ?? 'success'),
+        );
 
         $this->info('Shopee/AddLiveTag sync applied + wallet credit pass completed.');
 
         return true;
+    }
+
+    // ------------------------------------------------------------------
+    //  Attempt markers (App\Support\AffiliateSyncAttempt)
+    // ------------------------------------------------------------------
+
+    /**
+     * Lock-timeout = the run never touched any platform. Record `skipped`
+     * for the platforms that WERE scheduled this run so the admin monitor can
+     * explain the stale "Đơn cập nhật gần nhất" instead of showing silence.
+     *
+     * @param  string  $reason  short safe code (`lock_timeout`), no secrets
+     */
+    private function recordSkippedAttempts(bool $shopeeOnly, string $reason): void
+    {
+        $platforms = $shopeeOnly
+            ? [AffiliateSyncAttempt::SHOPEE]
+            : [AffiliateSyncAttempt::TIKTOK, AffiliateSyncAttempt::LAZADA, AffiliateSyncAttempt::SHOPEE];
+
+        foreach ($platforms as $platform) {
+            AffiliateSyncAttempt::record(
+                $platform,
+                AffiliateSyncAttempt::STATE_SKIPPED,
+                $reason,
+            );
+        }
     }
 
     // ------------------------------------------------------------------

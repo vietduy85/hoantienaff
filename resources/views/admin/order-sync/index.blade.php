@@ -104,9 +104,16 @@
             @php $res = session('shopee_sync_result'); @endphp
             <div class="rounded-2xl p-4 text-sm {{ $res['success'] ? 'bg-emerald-50 border border-emerald-200 text-emerald-700' : 'bg-amber-50 border border-amber-200 text-amber-800' }}">
                 <div class="font-semibold mb-2">{{ $res['message'] }}</div>
+                @if(!empty($res['notice']))
+                    <div class="text-amber-700 mb-2">{{ $res['notice'] }}</div>
+                @endif
                 <dl class="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1">
                     <div class="flex justify-between"><dt class="text-gray-500">API</dt><dd class="font-mono">{{ $res['api'] }}</dd></div>
                     <div class="flex justify-between"><dt class="text-gray-500">Trạng thái</dt><dd class="font-mono">{{ $res['success'] ? 'Thành công' : 'Có lỗi' }}</dd></div>
+                    <div class="flex justify-between"><dt class="text-gray-500">Trạng thái đồng bộ</dt><dd class="font-mono">{{ $res['sync_state'] ?? '-' }}</dd></div>
+                    <div class="flex justify-between"><dt class="text-gray-500">HTTP status</dt><dd class="font-mono">{{ $res['api_http_status'] ?? '-' }}</dd></div>
+                    <div class="flex justify-between"><dt class="text-gray-500">Business status</dt><dd class="font-mono">{{ $res['api_business_status'] ?? '-' }}</dd></div>
+                    <div class="flex justify-between"><dt class="text-gray-500">Trang API / record</dt><dd class="font-mono">{{ $res['api_pages'] ?? '-' }} / {{ $res['api_records'] ?? '-' }}</dd></div>
                     <div class="flex justify-between"><dt class="text-gray-500">Từ ngày</dt><dd class="font-mono">{{ $res['from'] }}</dd></div>
                     <div class="flex justify-between"><dt class="text-gray-500">Đến ngày</dt><dd class="font-mono">{{ $res['to'] }}</dd></div>
                     <div class="flex justify-between"><dt class="text-gray-500">Items đọc được</dt><dd class="font-mono">{{ $res['raw_items'] }}</dd></div>
@@ -133,21 +140,109 @@
                 (idempotent). Kết quả từng nền tảng hiển thị riêng.
             </p>
             <div class="bg-gray-50 border border-gray-100 rounded-xl px-3 py-2 mb-2 text-sm text-gray-600">
-                <span class="font-medium text-gray-700">Lần đồng bộ TikTok gần nhất:</span>
-                <span class="font-mono">{{ $lastTikTokSyncAt ? \Illuminate\Support\Carbon::parse($lastTikTokSyncAt)->format('d/m/Y H:i:s') : 'Chưa có' }}</span>
+                <div>
+                    <span class="font-medium text-gray-700">Lần đồng bộ TikTok gần nhất:</span>
+                    <span class="font-mono">{{ $lastTikTokSyncAt ? \Illuminate\Support\Carbon::parse($lastTikTokSyncAt)->format('d/m/Y H:i:s') : 'Chưa có' }}</span>
+                </div>
+                <div>
+                    <span class="font-medium text-gray-700">Đơn cập nhật TikTok gần nhất:</span>
+                    <span class="font-mono" data-testid="tiktok-order-update-time">{{ $orderStatuses['tiktok']['last_order_update_at'] ? $orderStatuses['tiktok']['last_order_update_at']->format('d/m/Y H:i:s') : 'Chưa có' }}</span>
+                </div>
+                @if ($orderStatuses['tiktok']['attempt'] !== null)
+                    <div>
+                        <span class="font-medium text-gray-700">Lần thử đồng bộ gần nhất:</span>
+                        <span class="font-mono">
+                            {{ $orderStatuses['tiktok']['attempt']['at'] ? $orderStatuses['tiktok']['attempt']['at']->format('d/m/Y H:i:s') : '—' }}
+                            ({{ ['success' => 'Thành công', 'failed' => 'Thất bại', 'skipped' => 'Bị bỏ qua'][$orderStatuses['tiktok']['attempt']['state']] ?? $orderStatuses['tiktok']['attempt']['state'] }})
+                        </span>
+                    </div>
+                @endif
             </div>
             <div class="bg-gray-50 border border-gray-100 rounded-xl px-3 py-2 mb-2 text-sm text-gray-600">
-                <span class="font-medium text-gray-700">Lần đồng bộ ShopeeFood gần nhất:</span>
-                <span class="font-mono">{{ $lastShopeeFoodSyncAt ? \Illuminate\Support\Carbon::parse($lastShopeeFoodSyncAt)->format('d/m/Y H:i:s') : 'Chưa có' }}</span>
+                <div>
+                    <span class="font-medium text-gray-700">Lần đồng bộ ShopeeFood gần nhất:</span>
+                    <span class="font-mono">{{ $lastShopeeFoodSyncAt ? \Illuminate\Support\Carbon::parse($lastShopeeFoodSyncAt)->format('d/m/Y H:i:s') : 'Chưa có' }}</span>
+                </div>
             </div>
             <div class="bg-gray-50 border border-gray-100 rounded-xl px-3 py-2 mb-2 text-sm text-gray-600">
-                <span class="font-medium text-gray-700">Lần đồng bộ Lazada gần nhất:</span>
-                <span class="font-mono">{{ $lastLazadaSyncAt ? \Illuminate\Support\Carbon::parse($lastLazadaSyncAt)->format('d/m/Y H:i:s') : 'Chưa có' }}</span>
+                <div>
+                    <span class="font-medium text-gray-700">Lần đồng bộ Lazada gần nhất:</span>
+                    <span class="font-mono">{{ $lastLazadaSyncAt ? \Illuminate\Support\Carbon::parse($lastLazadaSyncAt)->format('d/m/Y H:i:s') : 'Chưa có' }}</span>
+                </div>
+                <div>
+                    <span class="font-medium text-gray-700">Đơn cập nhật Lazada gần nhất:</span>
+                    <span class="font-mono" data-testid="lazada-order-update-time">{{ $orderStatuses['lazada']['last_order_update_at'] ? $orderStatuses['lazada']['last_order_update_at']->format('d/m/Y H:i:s') : 'Chưa có' }}</span>
+                </div>
+                @if ($orderStatuses['lazada']['attempt'] !== null)
+                    <div>
+                        <span class="font-medium text-gray-700">Lần thử đồng bộ gần nhất:</span>
+                        <span class="font-mono">
+                            {{ $orderStatuses['lazada']['attempt']['at'] ? $orderStatuses['lazada']['attempt']['at']->format('d/m/Y H:i:s') : '—' }}
+                            ({{ ['success' => 'Thành công', 'failed' => 'Thất bại', 'skipped' => 'Bị bỏ qua'][$orderStatuses['lazada']['attempt']['state']] ?? $orderStatuses['lazada']['attempt']['state'] }})
+                        </span>
+                    </div>
+                @endif
             </div>
-            <div class="bg-gray-50 border border-gray-100 rounded-xl px-3 py-2 mb-4 text-sm text-gray-600">
+            <div class="bg-gray-50 border border-gray-100 rounded-xl px-3 py-2 mb-1 text-sm text-gray-600">
                 <span class="font-medium text-gray-700">Lần đồng bộ Shopee gần nhất:</span>
                 <span class="font-mono">{{ $lastShopeeSyncAt ? \Illuminate\Support\Carbon::parse($lastShopeeSyncAt)->format('d/m/Y H:i:s') : 'Chưa có' }}</span>
             </div>
+            <div class="bg-gray-50 border border-gray-100 rounded-xl px-3 py-2 mb-4 text-sm text-gray-600">
+                <span class="font-medium text-gray-700">Lần cập nhật đơn Shopee từ LiveTag gần nhất:</span>
+                <span class="font-mono">{{ $shopeeAlert['last_order_update_at'] ? $shopeeAlert['last_order_update_at']->format('d/m/Y H:i:s') : 'Chưa có' }}</span>
+                @if($shopeeAlert['attempt'] !== null)
+                    <span class="text-gray-400 mx-1">·</span>
+                    <span class="font-medium text-gray-700">Lần thử đồng bộ gần nhất:</span>
+                    <span class="font-mono">
+                        {{ $shopeeAlert['attempt']['at'] ? $shopeeAlert['attempt']['at']->format('d/m/Y H:i:s') : '—' }}
+                        ({{ ['success' => 'Thành công', 'failed' => 'Thất bại', 'skipped' => 'Bị bỏ qua'][$shopeeAlert['attempt']['state']] ?? $shopeeAlert['attempt']['state'] }})
+                    </span>
+                @endif
+            </div>
+
+            @if($shopeeAlert['should_warn'])
+                <div data-testid="shopee-stale-warning"
+                     class="bg-red-50 border border-red-300 rounded-2xl p-4 text-sm mb-4"
+                     role="alert">
+                    <p class="font-semibold text-red-700 mb-2">{{ $shopeeAlert['message'] }}</p>
+                    <dl class="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-1 text-red-600">
+                        <div class="flex justify-between sm:justify-start sm:gap-2">
+                            <dt class="font-medium">Lần cập nhật đơn gần nhất:</dt>
+                            <dd class="font-mono">{{ $shopeeAlert['last_order_update_at'] ? $shopeeAlert['last_order_update_at']->format('d/m/Y H:i:s') : 'Chưa từng có' }}</dd>
+                        </div>
+                        <div class="flex justify-between sm:justify-start sm:gap-2">
+                            <dt class="font-medium">Lần đồng bộ gần nhất:</dt>
+                            <dd class="font-mono">{{ $shopeeAlert['last_sync_at'] ? $shopeeAlert['last_sync_at']->format('d/m/Y H:i:s') : 'Chưa có' }}</dd>
+                        </div>
+                        <div class="flex justify-between sm:justify-start sm:gap-2">
+                            <dt class="font-medium">Lần thử gần nhất:</dt>
+                            <dd class="font-mono">
+                                @if($shopeeAlert['attempt'] !== null)
+                                    {{ $shopeeAlert['attempt']['at'] ? $shopeeAlert['attempt']['at']->format('d/m/Y H:i:s') : '—' }}
+                                    ({{ ['success' => 'Thành công', 'failed' => 'Thất bại', 'skipped' => 'Bị bỏ qua'][$shopeeAlert['attempt']['state']] ?? $shopeeAlert['attempt']['state'] }}{{ $shopeeAlert['attempt']['reason'] ? ' · '.$shopeeAlert['attempt']['reason'] : '' }})
+                                @else
+                                    Chưa ghi nhận
+                                @endif
+                            </dd>
+                        </div>
+                    </dl>
+                    <p class="text-xs text-red-500 mt-2">
+                        Thời gian hiển thị theo giờ Việt Nam (Asia/Ho_Chi_Minh).
+                        {{ $shopeeAlert['hours_stale'] !== null ? 'Đã stale '.$shopeeAlert['hours_stale'].' giờ (ngưỡng '.$shopeeAlert['threshold_hours'].' giờ).' : 'Chưa có đơn Shopee nào được cập nhật từ LiveTag.' }}
+                    </p>
+                </div>
+            @endif
+
+            @include('admin.order-sync.partials._stale-warning', [
+                'alert' => $orderStatuses['tiktok'],
+                'testid' => 'tiktok-stale-warning',
+                'emptyNote' => 'Chưa có đơn TikTok nào được cập nhật.',
+            ])
+            @include('admin.order-sync.partials._stale-warning', [
+                'alert' => $orderStatuses['lazada'],
+                'testid' => 'lazada-stale-warning',
+                'emptyNote' => 'Chưa có đơn Lazada nào được cập nhật.',
+            ])
 
             <form method="POST" action="{{ route('admin.tiktok-order-sync.sync') }}" class="space-y-4"
                   onsubmit="this.querySelector('button[type=submit]').disabled = true; this.querySelector('button[type=submit]').textContent = 'Đang đồng bộ TikTok, Lazada, ShopeeFood & Shopee...';">
