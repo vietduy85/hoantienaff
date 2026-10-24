@@ -8,6 +8,7 @@ use App\Services\Lazada\LazadaOrderSyncService;
 use App\Services\ShopeeFood\ShopeeFoodOrderSyncService;
 use App\Services\TikTok\TikTokOrderSyncService;
 use App\Services\WalletService;
+use App\Support\AffiliateOrderUpdateStatus;
 use App\Support\AffiliateSyncAttempt;
 use App\Support\AffiliateSyncLock;
 use App\Support\AffiliateSyncStatus;
@@ -39,16 +40,16 @@ use Illuminate\Support\Facades\Log;
  * try/catch so one failure is logged and reported without losing the other
  * platforms' already-synced data.
  *
-     * After each platform step finishes SUCCESSFULLY (even with 0 records) it
-     * records a last-run marker via App\Support\AffiliateSyncStatus — this is what
-     * the admin "Lần đồng bộ gần nhất" labels read, instead of the row-write
-     * timestamps (`last_<platform>_sync_at`) that never move for protected feeds.
-     * A failed/skipped step records no success marker (never a fake success).
-     *
-     * Every outcome ALSO records a per-platform attempt marker
-     * (App\Support\AffiliateSyncAttempt: success / failed / skipped + a short
-     * safe reason such as `lock_timeout`, `order_errors`, `exception`) so the
-     * admin 24h warning can explain WHY an order feed went quiet.
+ * After each platform step finishes SUCCESSFULLY (even with 0 records) it
+ * records a last-run marker via App\Support\AffiliateSyncStatus — this is what
+ * the admin "Lần đồng bộ gần nhất" labels read, instead of the row-write
+ * timestamps (`last_<platform>_sync_at`) that never move for protected feeds.
+ * A failed/skipped step records no success marker (never a fake success).
+ *
+ * Every outcome ALSO records a per-platform attempt marker
+ * (App\Support\AffiliateSyncAttempt: success / failed / skipped + a short
+ * safe reason such as `lock_timeout`, `order_errors`, `exception`) so the
+ * admin 24h warning can explain WHY an order feed went quiet.
  *
  * Hard rules preserved from the underlying services (NOT reimplemented here):
  *   - idempotent upserts (no duplicate orders / credits / WalletTransactions)
@@ -506,13 +507,44 @@ class AffiliateSyncAll extends Command
             return false;
         }
 
+        $syncState = (string) ($result['sync_state'] ?? 'success');
+
+        // 0 records is a valid outcome inside the 24h freshness window, but
+        // once the feed is already stale (no Shopee order row updated for
+        // >24h) an empty API response means the sync did NOT bring any order:
+        // report a real failure instead of a fake success (and do not advance
+        // the "last successful run" marker).
+        if ($syncState === 'success_zero'
+            && AffiliateOrderUpdateStatus::evaluate('shopee')['state'] === 'stale') {
+            $this->warn('Shopee/AddLiveTag trả về 0 bản ghi trong khi đã quá 24 giờ không có đơn Shopee nào được cập nhật — coi là THẤT BẠI (kiểm tra API key/dữ liệu AddLiveTag).');
+            Log::warning('[AddLiveTag] zero records while Shopee feed is stale', [
+                'sync_state' => $syncState,
+                'from' => $result['from'],
+                'to' => $result['to'],
+                'api_http_status' => $result['api_http_status'],
+                'api_business_status' => $result['api_business_status'],
+                'records' => $result['api_records'],
+            ]);
+            AffiliateSyncAttempt::record(
+                AffiliateSyncAttempt::SHOPEE,
+                AffiliateSyncAttempt::STATE_FAILED,
+                'zero_records_stale',
+            );
+
+            return false;
+        }
+
+        if ($syncState === 'success_zero') {
+            $this->warn('Shopee/AddLiveTag trả về 0 bản ghi trong khoảng này (feed vẫn trong ngưỡng 24h).');
+        }
+
         // Real apply path only — dry-run returned earlier, so verification
         // runs never masquerade as a completed Shopee sync.
         AffiliateSyncStatus::record(AffiliateSyncStatus::SHOPEE);
         AffiliateSyncAttempt::record(
             AffiliateSyncAttempt::SHOPEE,
             AffiliateSyncAttempt::STATE_SUCCESS,
-            (string) ($result['sync_state'] ?? 'success'),
+            $syncState,
         );
 
         $this->info('Shopee/AddLiveTag sync applied + wallet credit pass completed.');

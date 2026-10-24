@@ -23,6 +23,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
 
@@ -53,12 +54,59 @@ class OrderSyncController extends Controller
     public function index(): View
     {
         $backupStatus = $this->backupStatusService->status();
+        $tz = config('app.timezone', 'Asia/Ho_Chi_Minh');
+        $now = Carbon::now($tz);
+        $todayStart = $now->copy()->startOfDay();
+        $yesterdayStart = $now->copy()->subDay()->startOfDay();
 
         $recentOrders = AffiliateOrderItem::query()
             ->whereIn('platform', ['TikTok', 'Lazada', 'ShopeeFood', 'Shopee'])
             ->orderByDesc('id')
             ->limit(25)
             ->get();
+
+        $orderCountByPlatform = function (string $platform, Carbon $start, Carbon $end): int {
+            return (int) AffiliateOrderItem::query()
+                ->where('platform', $platform)
+                ->whereNotNull('ordered_at')
+                ->where('ordered_at', '>=', $start)
+                ->where('ordered_at', '<', $end)
+                ->distinct()
+                ->count(DB::raw('order_id'));
+        };
+
+        $dailyOrders = [
+            'tiktok' => [
+                'today' => $orderCountByPlatform('TikTok', $todayStart, $todayStart->copy()->addDay()),
+                'yesterday' => $orderCountByPlatform('TikTok', $yesterdayStart, $todayStart),
+            ],
+            'lazada' => [
+                'today' => $orderCountByPlatform('Lazada', $todayStart, $todayStart->copy()->addDay()),
+                'yesterday' => $orderCountByPlatform('Lazada', $yesterdayStart, $todayStart),
+            ],
+            'shopeefood' => [
+                'today' => $orderCountByPlatform('ShopeeFood', $todayStart, $todayStart->copy()->addDay()),
+                'yesterday' => $orderCountByPlatform('ShopeeFood', $yesterdayStart, $todayStart),
+            ],
+            'shopee' => [
+                'today' => $orderCountByPlatform('Shopee', $todayStart, $todayStart->copy()->addDay()),
+                'yesterday' => $orderCountByPlatform('Shopee', $yesterdayStart, $todayStart),
+            ],
+        ];
+
+        foreach ($dailyOrders as $key => $v) {
+            $t = (int) $v['today'];
+            $y = (int) $v['yesterday'];
+            if ($y === 0) {
+                $dailyOrders[$key]['diff'] = null;
+                $dailyOrders[$key]['pct'] = null;
+            } else {
+                $diff = $t - $y;
+                $pct = round(($diff / $y) * 100, 1);
+                $dailyOrders[$key]['diff'] = $diff;
+                $dailyOrders[$key]['pct'] = $pct;
+            }
+        }
 
         $stats = [
             'tiktok' => [
@@ -101,6 +149,7 @@ class OrderSyncController extends Controller
         return view('admin.order-sync.index', compact(
             'recentOrders',
             'stats',
+            'dailyOrders',
             'lastTikTokSyncAt',
             'lastShopeeFoodSyncAt',
             'lastLazadaSyncAt',
@@ -108,6 +157,7 @@ class OrderSyncController extends Controller
             'backupStatus',
             'orderStatuses',
             'shopeeAlert',
+            'now',
         ));
     }
 
@@ -348,11 +398,40 @@ class OrderSyncController extends Controller
                 'duration' => $result['duration'],
             ]);
 
+            $syncState = (string) ($result['sync_state'] ?? 'success');
+
+            // 0 records is acceptable inside the 24h freshness window, but a
+            // stale Shopee feed + an empty API response is NOT a success: it
+            // means no new order was synced. Surface a real error instead of
+            // a green "hoàn tất" banner.
+            if ($syncState === 'success_zero'
+                && AffiliateOrderUpdateStatus::evaluate('shopee')['state'] === 'stale') {
+                Log::error('[Admin Sync][Shopee] zero records while Shopee feed is stale', [
+                    'sync_state' => $syncState,
+                    'http_status' => $result['api_http_status'],
+                    'business_status' => $result['api_business_status'],
+                    'records' => $result['api_records'],
+                    'from' => $result['from'],
+                    'to' => $result['to'],
+                ]);
+                AffiliateSyncAttempt::record(
+                    AffiliateSyncAttempt::SHOPEE,
+                    AffiliateSyncAttempt::STATE_FAILED,
+                    'zero_records_stale',
+                );
+                $request->session()->flash(
+                    'shopee_sync_error',
+                    'Đồng bộ Shopee (AddLiveTag API) trả về 0 bản ghi trong khi đã quá 24 giờ không có đơn Shopee nào được cập nhật. Kiểm tra API key và dữ liệu AddLiveTag.',
+                );
+
+                return;
+            }
+
             AffiliateSyncStatus::record(AffiliateSyncStatus::SHOPEE);
             AffiliateSyncAttempt::record(
                 AffiliateSyncAttempt::SHOPEE,
                 AffiliateSyncAttempt::STATE_SUCCESS,
-                (string) ($result['sync_state'] ?? 'success'),
+                $syncState,
             );
 
             $request->session()->flash('shopee_sync_result', $this->formatShopeeSummary($result));

@@ -5,11 +5,14 @@ namespace Tests\Feature\Admin;
 use App\Models\AffiliateOrderItem;
 use App\Models\User;
 use App\Models\WalletTransaction;
+use App\Services\AddLiveTag\ConversionsImporter;
 use App\Services\Lazada\LazadaException;
 use App\Services\Lazada\LazadaOrderSyncService;
+use App\Support\AffiliateSyncAttempt;
 use App\Support\AffiliateSyncStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Mockery;
 use Spatie\Permission\Models\Role;
@@ -214,7 +217,7 @@ class OrderSyncAdminTest extends TestCase
         // New mechanism: the label reflects the last sync RUN (settings key).
         AffiliateSyncStatus::record(
             AffiliateSyncStatus::LAZADA,
-            \Illuminate\Support\Carbon::parse('2026-10-14 12:00:00'),
+            Carbon::parse('2026-10-14 12:00:00'),
         );
 
         // Stale row-write column must NOT win over the run marker.
@@ -415,6 +418,31 @@ class OrderSyncAdminTest extends TestCase
 
         $this->assertSame(0, AffiliateOrderItem::where('platform', 'Shopee')->count());
         $this->assertSame(0, WalletTransaction::count());
+    }
+
+    public function test_post_shopee_zero_records_after_stale_window_is_reported_as_error(): void
+    {
+        AffiliateOrderItem::factory()->create([
+            'platform' => 'Shopee',
+            'source_file' => ConversionsImporter::SOURCE_FILE,
+            'affiliate_status' => AffiliateOrderItem::STATUS_PENDING,
+            'last_shopee_sync_at' => now()->subHours(30),
+        ]);
+
+        $this->stubAddLiveTagApi([]); // API returns 0 records
+        $this->fakeRioHubPaged([]);
+        $this->fakeShopeeFood([]);
+
+        $this->actingAs($this->admin)
+            ->post(route('admin.tiktok-order-sync.sync'))
+            ->assertRedirect(route('admin.tiktok-order-sync.index'))
+            ->assertSessionHas('shopee_sync_error', fn (string $msg) => str_contains($msg, '0 bản ghi'));
+
+        $attempt = AffiliateSyncAttempt::last(AffiliateSyncAttempt::SHOPEE);
+        $this->assertNotNull($attempt);
+        $this->assertSame(AffiliateSyncAttempt::STATE_FAILED, $attempt['state']);
+        $this->assertSame('zero_records_stale', $attempt['reason']);
+        $this->assertNull(AffiliateSyncStatus::lastRun(AffiliateSyncStatus::SHOPEE));
     }
 
     public function test_shopeefood_config_missing_keeps_tiktok_result(): void

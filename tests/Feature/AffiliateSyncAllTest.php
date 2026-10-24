@@ -6,6 +6,7 @@ use App\Models\AffiliateOrderItem;
 use App\Models\User;
 use App\Models\WalletTransaction;
 use App\Services\AddLiveTag\ConversionsClient;
+use App\Services\AddLiveTag\ConversionsImporter;
 use App\Services\Lazada\LazadaApiClient;
 use App\Services\Lazada\LazadaFinalizeService;
 use App\Services\Lazada\LazadaOrderSyncService;
@@ -15,6 +16,7 @@ use App\Services\ShopeeFood\ShopeeFoodSyncResult;
 use App\Services\TikTok\TikTokOrderSyncService;
 use App\Services\TikTok\TikTokSyncResult;
 use App\Services\WalletService;
+use App\Support\AffiliateSyncAttempt;
 use App\Support\AffiliateSyncLock;
 use App\Support\AffiliateSyncStatus;
 use DOMDocument;
@@ -624,6 +626,45 @@ class AffiliateSyncAllTest extends TestCase
             AffiliateSyncStatus::lastRun(AffiliateSyncStatus::SHOPEE),
             'a read-only dry-run must not look like a completed Shopee sync',
         );
+    }
+
+    public function test_shopee_zero_records_after_stale_window_fails_instead_of_fake_success(): void
+    {
+        $this->freeze('2026-10-21 12:00:00');
+
+        AffiliateOrderItem::factory()->create([
+            'platform' => 'Shopee',
+            'source_file' => ConversionsImporter::SOURCE_FILE,
+            'affiliate_status' => AffiliateOrderItem::STATUS_PENDING,
+            'last_shopee_sync_at' => Carbon::parse('2026-10-20 00:00:00'),
+        ]);
+
+        $tikTok = $this->okTikTok();
+        $shopeeFood = $this->okShopeeFood();
+
+        $lazadaSync = Mockery::mock(LazadaOrderSyncService::class);
+        $lazadaSync->shouldReceive('run')->once()->with(null, null, true, true)
+            ->andReturn(new LazadaSyncResult);
+
+        $finalizer = Mockery::mock(LazadaFinalizeService::class);
+        $finalizer->shouldReceive('run')->once()->with(Mockery::type(WalletService::class))
+            ->andReturn($this->finalizeCounts());
+
+        $this->bindAll($tikTok, $lazadaSync, $finalizer, $shopeeFood);
+
+        // Step 5 returns 0 records (setUp stub). The feed was last updated
+        // >24h ago, so this must NOT be reported as a successful Shopee sync.
+        $this->artisan('affiliate:sync-all')->assertExitCode(1);
+
+        $this->assertNull(
+            AffiliateSyncStatus::lastRun(AffiliateSyncStatus::SHOPEE),
+            'a zero-record run on a stale feed must not advance the success marker',
+        );
+
+        $attempt = AffiliateSyncAttempt::last(AffiliateSyncAttempt::SHOPEE);
+        $this->assertNotNull($attempt);
+        $this->assertSame(AffiliateSyncAttempt::STATE_FAILED, $attempt['state']);
+        $this->assertSame('zero_records_stale', $attempt['reason']);
     }
 
     // ------------------------------------------------------------------

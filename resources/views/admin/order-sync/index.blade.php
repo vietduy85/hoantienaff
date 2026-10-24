@@ -384,6 +384,74 @@
             @endunless
         </div>
 
+        {{-- Daily orders by ordered date (Asia/Ho_Chi_Minh) --}}
+        @php
+            $todayLabel = isset($now) ? $now->format('d/m') : now()->format('d/m');
+            $yesterdayLabel = isset($now) ? $now->copy()->subDay()->format('d/m') : now()->subDay()->format('d/m');
+        @endphp
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <div class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">TikTok</div>
+                <div class="text-sm text-gray-700 space-y-1">
+                    <div class="flex justify-between"><span>Đơn đặt hôm nay ({{ $todayLabel }})</span><span class="font-mono font-semibold">{{ number_format($dailyOrders['tiktok']['today'], 0, ',', '.') }} đơn</span></div>
+                    <div class="flex justify-between"><span>Đơn đặt hôm qua ({{ $yesterdayLabel }})</span><span class="font-mono">{{ number_format($dailyOrders['tiktok']['yesterday'], 0, ',', '.') }} đơn</span></div>
+                    @php $d = $dailyOrders['tiktok']['diff']; $p = $dailyOrders['tiktok']['pct']; @endphp
+                    <div class="flex justify-between pt-1 border-t border-gray-50">
+                        <span>Chênh lệch</span>
+                        <span class="font-mono {{ $d === null ? 'text-gray-400' : ($d > 0 ? 'text-emerald-600' : ($d < 0 ? 'text-red-600' : 'text-gray-600')) }}">
+                            @if($d === null) — @elseif($d >= 0)+{{ number_format($d, 0, ',', '.') }} đơn @else{{ number_format($d, 0, ',', '.') }} đơn @endif
+                            @if($p !== null) ({{ $p >= 0 ? '+' : '' }}{{ $p }}%)@endif
+                        </span>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <div class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Lazada</div>
+                <div class="text-sm text-gray-700 space-y-1">
+                    <div class="flex justify-between"><span>Đơn đặt hôm nay ({{ $todayLabel }})</span><span class="font-mono font-semibold">{{ number_format($dailyOrders['lazada']['today'], 0, ',', '.') }} đơn</span></div>
+                    <div class="flex justify-between"><span>Đơn đặt hôm qua ({{ $yesterdayLabel }})</span><span class="font-mono">{{ number_format($dailyOrders['lazada']['yesterday'], 0, ',', '.') }} đơn</span></div>
+                    @php $d = $dailyOrders['lazada']['diff']; $p = $dailyOrders['lazada']['pct']; @endphp
+                    <div class="flex justify-between pt-1 border-t border-gray-50">
+                        <span>Chênh lệch</span>
+                        <span class="font-mono {{ $d === null ? 'text-gray-400' : ($d > 0 ? 'text-emerald-600' : ($d < 0 ? 'text-red-600' : 'text-gray-600')) }}">
+                            @if($d === null) — @elseif($d >= 0)+{{ number_format($d, 0, ',', '.') }} đơn @else{{ number_format($d, 0, ',', '.') }} đơn @endif
+                            @if($p !== null) ({{ $p >= 0 ? '+' : '' }}{{ $p }}%)@endif
+                        </span>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <div class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">ShopeeFood</div>
+                <div class="text-sm text-gray-700 space-y-1">
+                    <div class="flex justify-between"><span>Đơn đặt hôm nay ({{ $todayLabel }})</span><span class="font-mono font-semibold">{{ number_format($dailyOrders['shopeefood']['today'], 0, ',', '.') }} đơn</span></div>
+                    <div class="flex justify-between"><span>Đơn đặt hôm qua ({{ $yesterdayLabel }})</span><span class="font-mono">{{ number_format($dailyOrders['shopeefood']['yesterday'], 0, ',', '.') }} đơn</span></div>
+                    @php $d = $dailyOrders['shopeefood']['diff']; $p = $dailyOrders['shopeefood']['pct']; @endphp
+                    <div class="flex justify-between pt-1 border-t border-gray-50">
+                        <span>Chênh lệch</span>
+                        <span class="font-mono {{ $d === null ? 'text-gray-400' : ($d > 0 ? 'text-emerald-600' : ($d < 0 ? 'text-red-600' : 'text-gray-600')) }}">
+                            @if($d === null) — @elseif($d >= 0)+{{ number_format($d, 0, ',', '.') }} đơn @else{{ number_format($d, 0, ',', '.') }} đơn @endif
+                            @if($p !== null) ({{ $p >= 0 ? '+' : '' }}{{ $p }}%)@endif
+                        </span>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <div class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Shopee</div>
+                <div class="text-sm text-gray-700 space-y-1">
+                    <div class="flex justify-between"><span>Đơn đặt hôm nay ({{ $todayLabel }})</span><span class="font-mono font-semibold">{{ number_format($dailyOrders['shopee']['today'], 0, ',', '.') }} đơn</span></div>
+                    <div class="flex justify-between"><span>Đơn đặt hôm qua ({{ $yesterdayLabel }})</span><span class="font-mono">{{ number_format($dailyOrders['shopee']['yesterday'], 0, ',', '.') }} đơn</span></div>
+                    @php $d = $dailyOrders['shopee']['diff']; $p = $dailyOrders['shopee']['pct']; @endphp
+                    <div class="flex justify-between pt-1 border-t border-gray-50">
+                        <span>Chênh lệch</span>
+                        <span class="font-mono {{ $d === null ? 'text-gray-400' : ($d > 0 ? 'text-emerald-600' : ($d < 0 ? 'text-red-600' : 'text-gray-600')) }}">
+                            @if($d === null) — @elseif($d >= 0)+{{ number_format($d, 0, ',', '.') }} đơn @else{{ number_format($d, 0, ',', '.') }} đơn @endif
+                            @if($p !== null) ({{ $p >= 0 ? '+' : '' }}{{ $p }}%)@endif
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         {{-- Stats --}}
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
@@ -443,21 +511,23 @@
             @if ($recentOrders->isEmpty())
                 <p class="text-sm text-gray-500">Chưa có đơn TikTok / Lazada / ShopeeFood / Shopee nào được đồng bộ.</p>
             @else
-                <div>
-                    <table class="w-full text-sm table-fixed">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm min-w-[720px]">
                         <colgroup>
                             <col style="width: 16%;">
                             <col style="width: 9%;">
-                            <col style="width: 30%;">
-                            <col style="width: 15%;">
-                            <col style="width: 10%;">
-                            <col style="width: 10%;">
-                            <col style="width: 10%;">
+                            <col style="width: 14%;">
+                            <col style="width: 24%;">
+                            <col style="width: 12%;">
+                            <col style="width: 9%;">
+                            <col style="width: 9%;">
+                            <col style="width: 7%;">
                         </colgroup>
                         <thead class="text-left text-xs text-gray-400 uppercase tracking-wide">
                             <tr>
                                 <th class="py-2 pr-4 font-normal">Order ID</th>
                                 <th class="py-2 pr-4 font-normal">Nền tảng</th>
+                                <th class="py-2 pr-4 font-normal">Ngày đặt hàng</th>
                                 <th class="py-2 pr-4 font-normal">Sản phẩm</th>
                                 <th class="py-2 pr-4 font-normal">Trạng thái</th>
                                 <th class="py-2 pr-4 text-right font-normal">Hoa hồng (net)</th>
@@ -470,6 +540,13 @@
                                 <tr class="border-t border-gray-100">
                                     <td class="py-2 pr-4 align-top font-mono text-xs break-words">{{ $order->order_id }}</td>
                                     <td class="py-2 pr-4 align-top text-xs break-words">{{ $order->platform }}</td>
+                                    <td class="py-2 pr-4 align-top text-xs font-mono break-words">
+                                        @if($order->ordered_at)
+                                            {{ \Illuminate\Support\Carbon::parse($order->ordered_at)->timezone(config('app.timezone', 'Asia/Ho_Chi_Minh'))->format('d/m/Y H:i:s') }}
+                                        @else
+                                            <span class="text-gray-400">—</span>
+                                        @endif
+                                    </td>
                                     <td class="py-2 pr-4 align-top text-xs" style="white-space: normal; overflow-wrap: anywhere; word-break: break-word;">{{ $order->item_name }}</td>
                                     <td class="py-2 pr-4 align-top">
                                         @if ($order->affiliate_status === 'Hoàn thành')
