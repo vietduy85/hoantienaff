@@ -65,6 +65,10 @@ class OrderSyncController extends Controller
             ->limit(25)
             ->get();
 
+        $monthStart = $now->copy()->startOfMonth();
+        $lastMonthStart = $now->copy()->subMonth()->startOfMonth();
+        $lastMonthEnd = $monthStart->copy();
+
         $orderCountByPlatform = function (string $platform, Carbon $start, Carbon $end): int {
             return (int) AffiliateOrderItem::query()
                 ->where('platform', $platform)
@@ -105,6 +109,39 @@ class OrderSyncController extends Controller
                 $pct = round(($diff / $y) * 100, 1);
                 $dailyOrders[$key]['diff'] = $diff;
                 $dailyOrders[$key]['pct'] = $pct;
+            }
+        }
+
+        $monthlyOrders = [
+            'tiktok' => [
+                'this_month' => $orderCountByPlatform('TikTok', $monthStart, $monthStart->copy()->addMonth()),
+                'last_month' => $orderCountByPlatform('TikTok', $lastMonthStart, $lastMonthEnd),
+            ],
+            'lazada' => [
+                'this_month' => $orderCountByPlatform('Lazada', $monthStart, $monthStart->copy()->addMonth()),
+                'last_month' => $orderCountByPlatform('Lazada', $lastMonthStart, $lastMonthEnd),
+            ],
+            'shopeefood' => [
+                'this_month' => $orderCountByPlatform('ShopeeFood', $monthStart, $monthStart->copy()->addMonth()),
+                'last_month' => $orderCountByPlatform('ShopeeFood', $lastMonthStart, $lastMonthEnd),
+            ],
+            'shopee' => [
+                'this_month' => $orderCountByPlatform('Shopee', $monthStart, $monthStart->copy()->addMonth()),
+                'last_month' => $orderCountByPlatform('Shopee', $lastMonthStart, $lastMonthEnd),
+            ],
+        ];
+
+        foreach ($monthlyOrders as $key => $v) {
+            $t = (int) $v['this_month'];
+            $y = (int) $v['last_month'];
+            if ($y === 0) {
+                $monthlyOrders[$key]['diff'] = null;
+                $monthlyOrders[$key]['pct'] = null;
+            } else {
+                $diff = $t - $y;
+                $pct = round(($diff / $y) * 100, 1);
+                $monthlyOrders[$key]['diff'] = $diff;
+                $monthlyOrders[$key]['pct'] = $pct;
             }
         }
 
@@ -150,6 +187,7 @@ class OrderSyncController extends Controller
             'recentOrders',
             'stats',
             'dailyOrders',
+            'monthlyOrders',
             'lastTikTokSyncAt',
             'lastShopeeFoodSyncAt',
             'lastLazadaSyncAt',

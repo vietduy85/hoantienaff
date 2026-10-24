@@ -388,6 +388,8 @@
         @php
             $todayLabel = isset($now) ? $now->format('d/m') : now()->format('d/m');
             $yesterdayLabel = isset($now) ? $now->copy()->subDay()->format('d/m') : now()->subDay()->format('d/m');
+            $thisMonthLabel = isset($now) ? $now->format('m/Y') : now()->format('m/Y');
+            $lastMonthLabel = isset($now) ? $now->copy()->subMonth()->format('m/Y') : now()->subMonth()->format('m/Y');
         @endphp
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
@@ -441,6 +443,70 @@
                     <div class="flex justify-between"><span>Đơn đặt hôm nay ({{ $todayLabel }})</span><span class="font-mono font-semibold">{{ number_format($dailyOrders['shopee']['today'], 0, ',', '.') }} đơn</span></div>
                     <div class="flex justify-between"><span>Đơn đặt hôm qua ({{ $yesterdayLabel }})</span><span class="font-mono">{{ number_format($dailyOrders['shopee']['yesterday'], 0, ',', '.') }} đơn</span></div>
                     @php $d = $dailyOrders['shopee']['diff']; $p = $dailyOrders['shopee']['pct']; @endphp
+                    <div class="flex justify-between pt-1 border-t border-gray-50">
+                        <span>Chênh lệch</span>
+                        <span class="font-mono {{ $d === null ? 'text-gray-400' : ($d > 0 ? 'text-emerald-600' : ($d < 0 ? 'text-red-600' : 'text-gray-600')) }}">
+                            @if($d === null) — @elseif($d >= 0)+{{ number_format($d, 0, ',', '.') }} đơn @else{{ number_format($d, 0, ',', '.') }} đơn @endif
+                            @if($p !== null) ({{ $p >= 0 ? '+' : '' }}{{ $p }}%)@endif
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {{-- Monthly orders by ordered date (Asia/Ho_Chi_Minh) --}}
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <div class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">TikTok</div>
+                <div class="text-sm text-gray-700 space-y-1">
+                    <div class="flex justify-between"><span>Tháng hiện tại ({{ $thisMonthLabel }})</span><span class="font-mono font-semibold">{{ number_format($monthlyOrders['tiktok']['this_month'], 0, ',', '.') }} đơn</span></div>
+                    <div class="flex justify-between"><span>Tháng trước ({{ $lastMonthLabel }})</span><span class="font-mono">{{ number_format($monthlyOrders['tiktok']['last_month'], 0, ',', '.') }} đơn</span></div>
+                    @php $d = $monthlyOrders['tiktok']['diff']; $p = $monthlyOrders['tiktok']['pct']; @endphp
+                    <div class="flex justify-between pt-1 border-t border-gray-50">
+                        <span>Chênh lệch</span>
+                        <span class="font-mono {{ $d === null ? 'text-gray-400' : ($d > 0 ? 'text-emerald-600' : ($d < 0 ? 'text-red-600' : 'text-gray-600')) }}">
+                            @if($d === null) — @elseif($d >= 0)+{{ number_format($d, 0, ',', '.') }} đơn @else{{ number_format($d, 0, ',', '.') }} đơn @endif
+                            @if($p !== null) ({{ $p >= 0 ? '+' : '' }}{{ $p }}%)@endif
+                        </span>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <div class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Lazada</div>
+                <div class="text-sm text-gray-700 space-y-1">
+                    <div class="flex justify-between"><span>Tháng hiện tại ({{ $thisMonthLabel }})</span><span class="font-mono font-semibold">{{ number_format($monthlyOrders['lazada']['this_month'], 0, ',', '.') }} đơn</span></div>
+                    <div class="flex justify-between"><span>Tháng trước ({{ $lastMonthLabel }})</span><span class="font-mono">{{ number_format($monthlyOrders['lazada']['last_month'], 0, ',', '.') }} đơn</span></div>
+                    @php $d = $monthlyOrders['lazada']['diff']; $p = $monthlyOrders['lazada']['pct']; @endphp
+                    <div class="flex justify-between pt-1 border-t border-gray-50">
+                        <span>Chênh lệch</span>
+                        <span class="font-mono {{ $d === null ? 'text-gray-400' : ($d > 0 ? 'text-emerald-600' : ($d < 0 ? 'text-red-600' : 'text-gray-600')) }}">
+                            @if($d === null) — @elseif($d >= 0)+{{ number_format($d, 0, ',', '.') }} đơn @else{{ number_format($d, 0, ',', '.') }} đơn @endif
+                            @if($p !== null) ({{ $p >= 0 ? '+' : '' }}{{ $p }}%)@endif
+                        </span>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <div class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">ShopeeFood</div>
+                <div class="text-sm text-gray-700 space-y-1">
+                    <div class="flex justify-between"><span>Tháng hiện tại ({{ $thisMonthLabel }})</span><span class="font-mono font-semibold">{{ number_format($monthlyOrders['shopeefood']['this_month'], 0, ',', '.') }} đơn</span></div>
+                    <div class="flex justify-between"><span>Tháng trước ({{ $lastMonthLabel }})</span><span class="font-mono">{{ number_format($monthlyOrders['shopeefood']['last_month'], 0, ',', '.') }} đơn</span></div>
+                    @php $d = $monthlyOrders['shopeefood']['diff']; $p = $monthlyOrders['shopeefood']['pct']; @endphp
+                    <div class="flex justify-between pt-1 border-t border-gray-50">
+                        <span>Chênh lệch</span>
+                        <span class="font-mono {{ $d === null ? 'text-gray-400' : ($d > 0 ? 'text-emerald-600' : ($d < 0 ? 'text-red-600' : 'text-gray-600')) }}">
+                            @if($d === null) — @elseif($d >= 0)+{{ number_format($d, 0, ',', '.') }} đơn @else{{ number_format($d, 0, ',', '.') }} đơn @endif
+                            @if($p !== null) ({{ $p >= 0 ? '+' : '' }}{{ $p }}%)@endif
+                        </span>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <div class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Shopee</div>
+                <div class="text-sm text-gray-700 space-y-1">
+                    <div class="flex justify-between"><span>Tháng hiện tại ({{ $thisMonthLabel }})</span><span class="font-mono font-semibold">{{ number_format($monthlyOrders['shopee']['this_month'], 0, ',', '.') }} đơn</span></div>
+                    <div class="flex justify-between"><span>Tháng trước ({{ $lastMonthLabel }})</span><span class="font-mono">{{ number_format($monthlyOrders['shopee']['last_month'], 0, ',', '.') }} đơn</span></div>
+                    @php $d = $monthlyOrders['shopee']['diff']; $p = $monthlyOrders['shopee']['pct']; @endphp
                     <div class="flex justify-between pt-1 border-t border-gray-50">
                         <span>Chênh lệch</span>
                         <span class="font-mono {{ $d === null ? 'text-gray-400' : ($d > 0 ? 'text-emerald-600' : ($d < 0 ? 'text-red-600' : 'text-gray-600')) }}">
