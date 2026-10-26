@@ -7,6 +7,42 @@
 
     <div class="py-6 px-4 max-w-5xl mx-auto space-y-6">
 
+        {{-- ShopeeFood Cookie Config --}}
+        <div class="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+            <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                <div>
+                    <h3 class="text-base font-semibold text-gray-900">Cấu hình API ShopeeFood</h3>
+                    <p class="text-sm text-gray-500 mt-1">Import cookie JSON từ trình duyệt để sử dụng cho đồng bộ ShopeeFood</p>
+                </div>
+                <div class="text-sm text-gray-600">
+                    Trạng thái: <span class="font-medium {{ ($shopeeFoodCookieConfigured ?? false) ? 'text-green-600' : 'text-red-600' }}">{{ ($shopeeFoodCookieConfigured ?? false) ? 'Đã cấu hình' : 'Chưa cấu hình' }}</span>
+                    @if(!empty($shopeeFoodCookieMeta['imported_at'] ?? null))
+                        <span class="ml-2 text-gray-500">| Import gần nhất: {{ $shopeeFoodCookieMeta['imported_at'] }}</span>
+                    @endif
+                </div>
+            </div>
+            <div class="px-5 py-4 space-y-3">
+                @if(session('shopeefood_cookie_success'))
+                    <div class="bg-green-50 border border-green-200 text-green-700 rounded-xl p-3 text-sm">{{ session('shopeefood_cookie_success') }}</div>
+                @endif
+                @if(session('shopeefood_cookie_error'))
+                    <div class="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 text-sm">{{ session('shopeefood_cookie_error') }}</div>
+                @endif
+                <div class="flex flex-wrap items-center gap-3">
+                    <form action="{{ route('admin.tiktok-order-sync.shopeefood-cookie.import') }}" method="POST" enctype="multipart/form-data" class="flex items-center gap-2">
+                        @csrf
+                        <input type="file" name="cookie_json" accept="application/json,.json,.txt" required class="text-sm text-gray-700">
+                        <button type="submit" class="inline-flex items-center px-3 py-2 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">Import cookie JSON</button>
+                    </form>
+                    <form action="{{ route('admin.tiktok-order-sync.shopeefood-cookie.test') }}" method="POST">
+                        @csrf
+                        <button type="submit" class="inline-flex items-center px-3 py-2 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200">Kiểm tra cookie</button>
+                    </form>
+                </div>
+                <p class="text-xs text-gray-500">Hỗ trợ file JSON dạng mảng cookie (name/value) hoặc object. Cookie được mã hóa khi lưu, không hiển thị trên giao diện.</p>
+            </div>
+        </div>
+
         @if (session('tiktok_sync_error'))
             <div class="bg-red-50 border border-red-200 text-red-700 rounded-2xl p-4 text-sm">
                 {{ session('tiktok_sync_error') }}
@@ -518,6 +554,91 @@
             </div>
         </div>
 
+        {{-- THỐNG KÊ HOA HỒNG THEO THÁNG --}}
+        <div class="mt-6">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                <h2 class="text-lg font-semibold text-gray-900">THỐNG KÊ HOA HỒNG THEO THÁNG</h2>
+                <form method="GET" class="flex flex-wrap items-center gap-2 bg-white border border-gray-200 rounded-xl shadow-sm px-3 py-2">
+                    <input type="hidden" name="platform" value="{{ request('platform') }}">
+                    <input type="hidden" name="affiliate_status" value="{{ request('affiliate_status') }}">
+                    <input type="hidden" name="sub_id1" value="{{ request('sub_id1') }}">
+                    <span class="text-sm font-semibold text-gray-800">Kỳ thống kê</span>
+                    <select name="month" class="text-sm border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        @for($m=1;$m<=12;$m++)
+                            <option value="{{ $m }}" @selected(($summaryMonth ?? (int)now()->format('m')) == $m)>Tháng {{ $m }}</option>
+                        @endfor
+                    </select>
+                    <select name="year" class="text-sm border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        @for($y=now()->format('Y');$y>=2023;$y--)
+                            <option value="{{ $y }}" @selected(($summaryYear ?? (int)now()->format('Y')) == $y)>{{ $y }}</option>
+                        @endfor
+                    </select>
+                    <button class="px-4 py-1.5 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-colors">Xem thống kê</button>
+                </form>
+            </div>
+            <p class="text-xs text-gray-500 mb-4">Tháng đang lọc theo ngày đặt hàng (ordered_at). Đếm đơn duy nhất theo platform + order_id.</p>
+            @php
+                $taxRate = 0.10;
+                $platformsList = ['TikTok', 'Lazada', 'ShopeeFood', 'Shopee'];
+            @endphp
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                @foreach($platformsList as $pl)
+                    @php
+                        $p = $monthlyByPlatform[$pl] ?? null;
+                        $g = (float)($p->total_commission ?? 0);
+                        $c = (float)($p->total_cashback ?? 0);
+                        $taxEst = $g * $taxRate;
+                        $leftEst = $g - $taxEst - $c;
+                    @endphp
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                        <div class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{{ $pl }}</div>
+                        <div class="text-sm text-gray-700 space-y-1.5">
+                            <div class="flex justify-between"><span>Số đơn duy nhất</span><span class="font-mono font-semibold">{{ number_format($p->total_orders ?? 0, 0, ',', '.') }}</span></div>
+                            <div class="flex justify-between"><span>Tổng giá trị đơn hàng</span><span class="font-mono">{{ number_format($p->total_order_amount ?? 0, 0, ',', '.') }} đ</span></div>
+                            <div class="flex justify-between"><span>Tổng hoa hồng gộp</span><span class="font-mono font-semibold">{{ number_format($g, 0, ',', '.') }} đ</span></div>
+                            <div class="flex justify-between"><span>Cashback đã thực sự ghi nhận/trả</span><span class="font-mono">{{ number_format($c, 0, ',', '.') }} đ</span></div>
+                            <div class="flex justify-between"><span>Thuế ước tính (10%)</span><span class="font-mono">{{ number_format($taxEst, 0, ',', '.') }} đ</span></div>
+                            <div class="pt-1.5 border-t border-gray-50">
+                                <div class="flex justify-between"><span>Hoa hồng còn lại sau thuế và cashback</span><span class="font-mono font-semibold">{{ number_format($leftEst, 0, ',', '.') }} đ</span></div>
+                            </div>
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+            <div class="mt-4 bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <div class="text-sm font-semibold text-gray-900 mb-3">TỔNG HOA HỒNG TẤT CẢ SÀN TRONG THÁNG</div>
+                @php
+                    $ms = $monthlySummary ?? null;
+                    $gt = (float)($ms->total_commission ?? 0);
+                    $gc = (float)($ms->total_cashback ?? 0);
+                    $taxEstTotal = $gt * $taxRate;
+                    $gleftTotal = $gt - $taxEstTotal - $gc;
+                @endphp
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 text-sm text-gray-700">
+                    <div class="border border-gray-100 rounded-xl p-3">
+                        <div class="text-xs text-gray-400">Số đơn duy nhất</div>
+                        <div class="text-lg font-semibold font-mono">{{ number_format($ms->total_orders ?? 0, 0, ',', '.') }}</div>
+                    </div>
+                    <div class="border border-gray-100 rounded-xl p-3">
+                        <div class="text-xs text-gray-400">Tổng hoa hồng gộp của cả 4 sàn</div>
+                        <div class="text-lg font-semibold font-mono">{{ number_format($gt, 0, ',', '.') }} đ</div>
+                    </div>
+                    <div class="border border-gray-100 rounded-xl p-3">
+                        <div class="text-xs text-gray-400">Tổng cashback đã trả khách</div>
+                        <div class="text-lg font-semibold font-mono">{{ number_format($gc, 0, ',', '.') }} đ</div>
+                    </div>
+                    <div class="border border-gray-100 rounded-xl p-3">
+                        <div class="text-xs text-gray-400">Thuế ước tính (10%)</div>
+                        <div class="text-lg font-semibold font-mono">{{ number_format($taxEstTotal, 0, ',', '.') }} đ</div>
+                    </div>
+                    <div class="border border-gray-100 rounded-xl p-3">
+                        <div class="text-xs text-gray-400">Hoa hồng còn lại sau thuế và cashback</div>
+                        <div class="text-lg font-semibold font-mono text-gray-800">{{ number_format($gleftTotal, 0, ',', '.') }} đ</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         {{-- Stats --}}
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
@@ -578,16 +699,18 @@
                 <p class="text-sm text-gray-500">Chưa có đơn TikTok / Lazada / ShopeeFood / Shopee nào được đồng bộ.</p>
             @else
                 <div class="overflow-x-auto">
-                    <table class="w-full text-sm min-w-[720px]">
+                    <table class="w-full text-sm min-w-[1100px]">
                         <colgroup>
-                            <col style="width: 16%;">
-                            <col style="width: 9%;">
-                            <col style="width: 14%;">
-                            <col style="width: 24%;">
                             <col style="width: 12%;">
-                            <col style="width: 9%;">
-                            <col style="width: 9%;">
                             <col style="width: 7%;">
+                            <col style="width: 12%;">
+                            <col style="width: 22%;">
+                            <col style="width: 10%;">
+                            <col style="width: 10%;">
+                            <col style="width: 10%;">
+                            <col style="width: 10%;">
+                            <col style="width: 9%;">
+                            <col style="width: 8%;">
                         </colgroup>
                         <thead class="text-left text-xs text-gray-400 uppercase tracking-wide">
                             <tr>
@@ -595,17 +718,43 @@
                                 <th class="py-2 pr-4 font-normal">Nền tảng</th>
                                 <th class="py-2 pr-4 font-normal">Ngày đặt hàng</th>
                                 <th class="py-2 pr-4 font-normal">Sản phẩm</th>
+                                <th class="py-2 pr-4 text-right font-normal">Hoa hồng sàn (%)</th>
+                                <th class="py-2 pr-4 text-right font-normal">Hoa hồng người bán (%)</th>
+                                <th class="py-2 pr-4 text-right font-normal">Tổng hoa hồng (%)</th>
                                 <th class="py-2 pr-4 font-normal">Trạng thái</th>
-                                <th class="py-2 pr-4 text-right font-normal">Hoa hồng (net)</th>
                                 <th class="py-2 pr-4 text-right font-normal">Cashback</th>
                                 <th class="py-2 pr-4 font-normal">Người dùng</th>
                             </tr>
                         </thead>
                         <tbody class="text-gray-700">
                             @foreach ($recentOrders as $order)
-                                <tr class="border-t border-gray-100">
+                                @php
+                                    $shopeeRate = $order->shopee_commission_rate ?? null;
+                                    $sellerRate = $order->seller_commission_rate ?? null;
+                                    if($shopeeRate !== null && $shopeeRate !== ''){ $shopeeRate = (float)$shopeeRate; if($shopeeRate > 1) $shopeeRate = $shopeeRate/100; }
+                                    else { $shopeeRate = null; }
+                                    if($sellerRate !== null && $sellerRate !== ''){ $sellerRate = (float)$sellerRate; if($sellerRate > 1) $sellerRate = $sellerRate/100; }
+                                    else { $sellerRate = null; }
+                                    $totalRate = null;
+                                    if($shopeeRate !== null && $sellerRate !== null){ $totalRate = $shopeeRate + $sellerRate; }
+                                    elseif($shopeeRate !== null && in_array($order->platform, ['TikTok'])){ $totalRate = $shopeeRate; }
+                                    elseif($sellerRate !== null && in_array($order->platform, ['TikTok'])){ $totalRate = $sellerRate; }
+                                    $highlight7 = false;
+                                    if($order->platform === 'Shopee' && $shopeeRate !== null && abs($shopeeRate - 0.07) < 0.0001){ $highlight7 = true; }
+                                    $itemName = $order->item_name ?? '';
+                                    $words = preg_split('/\s+/', trim($itemName));
+                                    if(is_array($words) && count($words) > 5){
+                                        $short = implode(' ', array_slice($words, 0, 5)) . '...';
+                                    }else{
+                                        $short = $itemName;
+                                    }
+                                @endphp
+                                <tr class="border-t border-gray-100 {{ $highlight7 ? 'bg-amber-50/40' : '' }}">
                                     <td class="py-2 pr-4 align-top font-mono text-xs break-words">{{ $order->order_id }}</td>
-                                    <td class="py-2 pr-4 align-top text-xs break-words">{{ $order->platform }}</td>
+                                    <td class="py-2 pr-4 align-top text-xs break-words">
+                                        {{ $order->platform }}
+                                        @if($highlight7)<span class="ml-1 inline-flex px-1.5 py-0.5 rounded text-[10px] bg-amber-100 text-amber-700">Hoa hồng sàn 7%</span>@endif
+                                    </td>
                                     <td class="py-2 pr-4 align-top text-xs font-mono break-words">
                                         @if($order->ordered_at)
                                             {{ \Illuminate\Support\Carbon::parse($order->ordered_at)->timezone(config('app.timezone', 'Asia/Ho_Chi_Minh'))->format('d/m/Y H:i:s') }}
@@ -613,7 +762,10 @@
                                             <span class="text-gray-400">—</span>
                                         @endif
                                     </td>
-                                    <td class="py-2 pr-4 align-top text-xs" style="white-space: normal; overflow-wrap: anywhere; word-break: break-word;">{{ $order->item_name }}</td>
+                                    <td class="py-2 pr-4 align-top text-xs" style="white-space: normal; overflow-wrap: anywhere; word-break: break-word;" title="{{ $itemName }}">{{ $short }}</td>
+                                    <td class="py-2 pr-4 align-top text-right font-mono text-xs break-words">@if($shopeeRate !== null){{ number_format($shopeeRate * 100, 2, ',', '.') }}% @else<span class="text-gray-400">—</span>@endif</td>
+                                    <td class="py-2 pr-4 align-top text-right font-mono text-xs break-words">@if($sellerRate !== null){{ number_format($sellerRate * 100, 2, ',', '.') }}% @else<span class="text-gray-400">—</span>@endif</td>
+                                    <td class="py-2 pr-4 align-top text-right font-mono text-xs break-words">@if($totalRate !== null){{ number_format($totalRate * 100, 2, ',', '.') }}% @else<span class="text-gray-400">—</span>@endif</td>
                                     <td class="py-2 pr-4 align-top">
                                         @if ($order->affiliate_status === 'Hoàn thành')
                                             <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">Hoàn thành</span>
@@ -623,7 +775,6 @@
                                             <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">{{ $order->affiliate_status }}</span>
                                         @endif
                                     </td>
-                                    <td class="py-2 pr-4 align-top text-right font-mono text-xs break-words">{{ number_format((float) $order->net_commission, 0, ',', '.') }}</td>
                                     <td class="py-2 pr-4 align-top text-right font-mono text-xs break-words">
                                         @if ((float) $order->cashback_amount > 0 && $order->affiliate_status === 'Hoàn thành')
                                             <span class="text-emerald-700 font-semibold">{{ number_format((float) $order->cashback_amount, 0, ',', '.') }} đ</span>

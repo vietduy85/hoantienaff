@@ -347,6 +347,12 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
     Route::post('/tiktok-order-sync', [OrderSyncController::class, 'sync'])
         ->middleware('role:Admin|Operator')
         ->name('tiktok-order-sync.sync');
+    Route::post('/tiktok-order-sync/shopeefood-cookie', [OrderSyncController::class, 'importShopeeFoodCookie'])
+        ->middleware('role:Admin')
+        ->name('tiktok-order-sync.shopeefood-cookie.import');
+    Route::post('/tiktok-order-sync/shopeefood-cookie/test', [OrderSyncController::class, 'testShopeeFoodCookie'])
+        ->middleware('role:Admin')
+        ->name('tiktok-order-sync.shopeefood-cookie.test');
 
     Route::get('/affiliate-config', [AffiliateConfigController::class, 'index'])
         ->middleware('role:Admin')

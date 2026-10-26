@@ -12,6 +12,8 @@ use App\Services\Lazada\LazadaSyncResult;
 use App\Services\ShopeeFood\ShopeeFoodException;
 use App\Services\ShopeeFood\ShopeeFoodOrderSyncService;
 use App\Services\ShopeeFood\ShopeeFoodSyncResult;
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\File;
 use App\Services\TikTok\TikTokOrderSyncService;
 use App\Services\TikTok\TikTokServiceException;
 use App\Services\TikTok\TikTokSyncResult;
@@ -59,22 +61,53 @@ class OrderSyncController extends Controller
         $todayStart = $now->copy()->startOfDay();
         $yesterdayStart = $now->copy()->subDay()->startOfDay();
 
-        $recentOrders = AffiliateOrderItem::query()
-            ->whereIn('platform', ['TikTok', 'Lazada', 'ShopeeFood', 'Shopee'])
-            ->orderByDesc('id')
-            ->limit(25)
-            ->get();
+        $hasOrderedAtRo = \Illuminate\Support\Facades\Schema::hasColumn('affiliate_order_items', 'ordered_at');
+        $hasCreatedAtRo = \Illuminate\Support\Facades\Schema::hasColumn('affiliate_order_items', 'created_at');
+        if ($hasOrderedAtRo && $hasCreatedAtRo) {
+            $recentOrders = AffiliateOrderItem::query()
+                ->with('user')
+                ->orderByRaw('COALESCE(ordered_at, created_at) DESC')
+                ->orderByDesc('id')
+                ->limit(50)
+                ->get();
+        } elseif ($hasOrderedAtRo) {
+            $recentOrders = AffiliateOrderItem::query()
+                ->with('user')
+                ->orderByRaw('ordered_at DESC')
+                ->orderByDesc('id')
+                ->limit(50)
+                ->get();
+        } elseif ($hasCreatedAtRo) {
+            $recentOrders = AffiliateOrderItem::query()
+                ->with('user')
+                ->orderByRaw('created_at DESC')
+                ->orderByDesc('id')
+                ->limit(50)
+                ->get();
+        } else {
+            $recentOrders = AffiliateOrderItem::query()
+                ->with('user')
+                ->orderByDesc('id')
+                ->limit(50)
+                ->get();
+        }
 
         $monthStart = $now->copy()->startOfMonth();
         $lastMonthStart = $now->copy()->subMonth()->startOfMonth();
         $lastMonthEnd = $monthStart->copy();
 
-        $orderCountByPlatform = function (string $platform, Carbon $start, Carbon $end): int {
+        $hasOrderedAtCount = \Illuminate\Support\Facades\Schema::hasColumn('affiliate_order_items', 'ordered_at');
+        $hasCreatedAtCount = \Illuminate\Support\Facades\Schema::hasColumn('affiliate_order_items', 'created_at');
+        $dateColCount = $hasOrderedAtCount ? 'ordered_at' : ($hasCreatedAtCount ? 'created_at' : null);
+        $orderCountByPlatform = function (string $platform, Carbon $start, Carbon $end) use ($dateColCount): int {
+            if (! $dateColCount) {
+                return 0;
+            }
             return (int) AffiliateOrderItem::query()
                 ->where('platform', $platform)
-                ->whereNotNull('ordered_at')
-                ->where('ordered_at', '>=', $start)
-                ->where('ordered_at', '<', $end)
+                ->whereNotNull($dateColCount)
+                ->where($dateColCount, '>=', $start)
+                ->where($dateColCount, '<', $end)
                 ->distinct()
                 ->count(DB::raw('order_id'));
         };
@@ -182,6 +215,96 @@ class OrderSyncController extends Controller
         // (Shopee / Lazada / TikTok) — ONE aggregate query + settings reads.
         $orderStatuses = AffiliateOrderUpdateStatus::evaluateAll();
         $shopeeAlert = $orderStatuses['shopee'];
+        $shopeeFoodCookieMeta = $this->getShopeeFoodCookieMeta();
+        $shopeeFoodCookieConfigured = $this->getShopeeFoodCookie() !== null && $this->getShopeeFoodCookie() !== '';
+        $shopeeFoodCookieConfiguredAt = null;
+        $metaPath = storage_path('app/shopeefood/meta.json');
+        if (file_exists($metaPath)) {
+            $meta = @json_decode(file_get_contents($metaPath), true);
+            if (is_array($meta) && isset($meta['updated_at'])) {
+                $shopeeFoodCookieConfiguredAt = $meta['updated_at'];
+            }
+        }
+
+        $month = (int) request()->input('month', now()->format('m'));
+        $year = (int) request()->input('year', now()->format('Y'));
+        if ($month < 1 || $month > 12) {
+            $month = (int) now()->format('m');
+        }
+        if ($year < 2000 || $year > 2100) {
+            $year = (int) now()->format('Y');
+        }
+        $startOfMonth = Carbon::create($year, $month, 1, 0, 0, 0, config('app.timezone', 'Asia/Ho_Chi_Minh'))->startOfMonth();
+        $endOfMonthNext = $startOfMonth->copy()->addMonth();
+        $platformsList = ['TikTok', 'Lazada', 'ShopeeFood', 'Shopee'];
+        $monthlyByPlatform = [];
+        $hasIsDeleted = \Illuminate\Support\Facades\Schema::hasColumn('affiliate_order_items', 'is_deleted');
+        $hasOrderedAt = \Illuminate\Support\Facades\Schema::hasColumn('affiliate_order_items', 'ordered_at');
+        $hasCreatedAt = \Illuminate\Support\Facades\Schema::hasColumn('affiliate_order_items', 'created_at');
+        $dateCol = $hasOrderedAt ? 'ordered_at' : ($hasCreatedAt ? 'created_at' : null);
+
+        foreach ($platformsList as $pl) {
+            $monthlyByPlatform[$pl] = null;
+            if ($dateCol) {
+                $monthlyByPlatform[$pl] = DB::table('affiliate_order_items')
+                    ->where('platform', $pl)
+                    ->when($hasIsDeleted, function ($q) {
+                        $q->where(function ($qq) {
+                            $qq->whereNull('is_deleted')->orWhere('is_deleted', 0);
+                        });
+                    })
+                    ->selectRaw('COUNT(DISTINCT order_id) as total_orders')
+                    ->selectRaw('SUM(CASE WHEN rn=1 THEN COALESCE(order_amount,0) ELSE 0 END) as total_order_amount')
+                    ->selectRaw('SUM(COALESCE(total_order_commission,0)) as total_commission')
+                    ->selectRaw('SUM(COALESCE(cashback_amount,0)) as total_cashback')
+                    ->fromSub(function ($q) use ($startOfMonth, $endOfMonthNext, $pl, $hasIsDeleted, $dateCol) {
+                        $q->from('affiliate_order_items')
+                            ->where('platform', $pl)
+                            ->whereNotNull($dateCol)
+                            ->where($dateCol, '>=', $startOfMonth)
+                            ->where($dateCol, '<', $endOfMonthNext)
+                            ->when($hasIsDeleted, function ($q2) {
+                                $q2->where(function ($qq) {
+                                    $qq->whereNull('is_deleted')->orWhere('is_deleted', 0);
+                                });
+                            })
+                            ->select('id', 'platform', 'order_id', 'order_amount', 'total_order_commission', 'cashback_amount')
+                            ->selectRaw('ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY id ASC) as rn');
+                    }, 't')
+                    ->first();
+            }
+        }
+        $driver = DB::getDriverName();
+        $keyExpr = $driver === 'sqlite' ? "platform || '|' || order_id" : "CONCAT(platform, '|', order_id)";
+        $monthlySummary = null;
+        if ($dateCol) {
+            $monthlySummary = DB::table('affiliate_order_items')
+                ->when($hasIsDeleted, function ($q) {
+                    $q->where(function ($qq) {
+                        $qq->whereNull('is_deleted')->orWhere('is_deleted', 0);
+                    });
+                })
+                ->whereIn('platform', $platformsList)
+                ->selectRaw('COUNT(DISTINCT '.$keyExpr.') as total_orders')
+                ->selectRaw('SUM(CASE WHEN rn=1 THEN COALESCE(order_amount,0) ELSE 0 END) as total_order_amount')
+                ->selectRaw('SUM(COALESCE(total_order_commission,0)) as total_commission')
+                ->selectRaw('SUM(COALESCE(cashback_amount,0)) as total_cashback')
+                ->fromSub(function ($q) use ($startOfMonth, $endOfMonthNext, $platformsList, $hasIsDeleted, $dateCol) {
+                    $q->from('affiliate_order_items')
+                        ->whereNotNull($dateCol)
+                        ->where($dateCol, '>=', $startOfMonth)
+                        ->where($dateCol, '<', $endOfMonthNext)
+                        ->when($hasIsDeleted, function ($q2) {
+                            $q2->where(function ($qq) {
+                                $qq->whereNull('is_deleted')->orWhere('is_deleted', 0);
+                            });
+                        })
+                        ->whereIn('platform', $platformsList)
+                        ->select('id', 'platform', 'order_id', 'order_amount', 'total_order_commission', 'cashback_amount')
+                        ->selectRaw('ROW_NUMBER() OVER (PARTITION BY platform, order_id ORDER BY id ASC) as rn');
+                }, 't')
+                ->first();
+        }
 
         return view('admin.order-sync.index', compact(
             'recentOrders',
@@ -196,7 +319,15 @@ class OrderSyncController extends Controller
             'orderStatuses',
             'shopeeAlert',
             'now',
-        ));
+            'shopeeFoodCookieMeta',
+            'shopeeFoodCookieConfigured',
+            'shopeeFoodCookieConfiguredAt',
+            'monthlySummary',
+            'monthlyByPlatform',
+        ) + [
+            'summaryMonth' => $month,
+            'summaryYear' => $year,
+        ]);
     }
 
     /**
@@ -220,6 +351,193 @@ class OrderSyncController extends Controller
             ->max($column);
 
         return $fallback ? Carbon::parse($fallback) : null;
+    }
+
+    private function getShopeeFoodCookieMeta(): array
+    {
+        $path = storage_path('app/shopeefood/meta.json');
+        if (! File::exists($path)) {
+            return ['configured' => false, 'imported_at' => null];
+        }
+        try {
+            $raw = File::get($path);
+            $data = json_decode($raw, true);
+            return is_array($data) ? $data : ['configured' => false, 'imported_at' => null];
+        } catch (\Throwable $e) {
+            return ['configured' => false, 'imported_at' => null];
+        }
+    }
+
+    private function getShopeeFoodCookie(): ?string
+    {
+        $path = storage_path('app/shopeefood/cookie.json');
+        if (File::exists($path)) {
+            try {
+                $raw = File::get($path);
+                $data = json_decode($raw, true);
+                if (is_array($data) && isset($data['cookie'])) {
+                    $enc = $data['cookie'];
+                    if (is_string($enc) && $enc !== '') {
+                        try {
+                            $dec = Crypt::decryptString($enc);
+                            if (is_string($dec) && $dec !== '') {
+                                return $dec;
+                            }
+                        } catch (\Throwable $e) {
+                        }
+                        return $enc;
+                    }
+                }
+            } catch (\Throwable $e) {
+            }
+        }
+        $env = (string) (config('services.shopeefood.cookie') ?? '');
+        if ($env !== '') {
+            return $env;
+        }
+        return null;
+    }
+
+    private function normalizeShopeeFoodCookies(array $input): string
+    {
+        // Support format: {"url": ..., "cookies": [{name,value,...}, ...]}
+        if (isset($input['cookies']) && is_array($input['cookies'])) {
+            $cookiesArr = $input['cookies'];
+            if (array_key_exists(0, $cookiesArr) && is_array($cookiesArr[0])) {
+                $parts = [];
+                foreach ($cookiesArr as $item) {
+                    if (! is_array($item)) {
+                        continue;
+                    }
+                    $name = $item['name'] ?? $item['key'] ?? null;
+                    $value = $item['value'] ?? null;
+                    if (is_string($name) && $name !== '' && (is_string($value) || is_numeric($value))) {
+                        $parts[] = $name . '=' . $value;
+                    }
+                }
+                if (! empty($parts)) {
+                    return implode('; ', $parts);
+                }
+            }
+            if (! array_key_exists(0, $cookiesArr) && ! empty($cookiesArr)) {
+                $parts = [];
+                foreach ($cookiesArr as $k => $v) {
+                    if (is_string($k) && $k !== '' && (is_string($v) || is_numeric($v)) && ! is_array($v)) {
+                        $parts[] = $k . '=' . $v;
+                    }
+                }
+                if (! empty($parts)) {
+                    return implode('; ', $parts);
+                }
+            }
+        }
+
+        if (array_key_exists(0, $input) && is_array($input[0])) {
+            $parts = [];
+            foreach ($input as $item) {
+                if (! is_array($item)) {
+                    continue;
+                }
+                $name = $item['name'] ?? $item['key'] ?? null;
+                $value = $item['value'] ?? null;
+                if (is_string($name) && $name !== '' && (is_string($value) || is_numeric($value))) {
+                    $parts[] = $name . '=' . $value;
+                }
+            }
+            if (! empty($parts)) {
+                return implode('; ', $parts);
+            }
+        }
+
+        $parts = [];
+        foreach ($input as $k => $v) {
+            if (is_string($k) && $k !== '' && (is_string($v) || is_numeric($v)) && ! is_array($v)) {
+                $kl = strtolower($k);
+                if (in_array($kl, ['cookie', 'cookies', 'header', 'url'], true)) {
+                    continue;
+                }
+                $parts[] = $k . '=' . $v;
+            }
+        }
+        if (! empty($parts)) {
+            return implode('; ', $parts);
+        }
+
+        if (isset($input['cookie']) && is_string($input['cookie']) && $input['cookie'] !== '') {
+            return trim($input['cookie']);
+        }
+        if (isset($input['cookies']) && is_string($input['cookies']) && $input['cookies'] !== '') {
+            return trim($input['cookies']);
+        }
+
+        return '';
+    }
+
+    public function importShopeeFoodCookie(Request $request): RedirectResponse
+    {
+        $request->validate([
+            'cookie_json' => ['required', 'file', 'mimes:json,txt', 'max:512'],
+        ]);
+
+        $file = $request->file('cookie_json');
+        if (! $file || ! $file->isValid()) {
+            return redirect()->route('admin.tiktok-order-sync.index')->with('shopeefood_cookie_error', 'File không hợp lệ.');
+        }
+
+        $content = @file_get_contents($file->getRealPath());
+        if ($content === false || $content === '') {
+            return redirect()->route('admin.tiktok-order-sync.index')->with('shopeefood_cookie_error', 'Không thể đọc file.');
+        }
+
+        $decoded = json_decode($content, true);
+        if (json_last_error() !== JSON_ERROR_NONE || ! is_array($decoded)) {
+            return redirect()->route('admin.tiktok-order-sync.index')->with('shopeefood_cookie_error', 'File JSON không hợp lệ.');
+        }
+
+        $cookieStr = $this->normalizeShopeeFoodCookies($decoded);
+        if ($cookieStr === '') {
+            return redirect()->route('admin.tiktok-order-sync.index')->with('shopeefood_cookie_error', 'Không thể trích xuất cookie hợp lệ từ file JSON.');
+        }
+
+        try {
+            $cookiePath = storage_path('app/shopeefood/cookie.json');
+            $metaPath = storage_path('app/shopeefood/meta.json');
+            $enc = Crypt::encryptString($cookieStr);
+            $payload = json_encode(['cookie' => $enc], JSON_UNESCAPED_SLASHES);
+            File::put($cookiePath, $payload);
+            $meta = ['configured' => true, 'imported_at' => Carbon::now()->toIso8601String()];
+            File::put($metaPath, json_encode($meta, JSON_UNESCAPED_SLASHES));
+        } catch (\Throwable $e) {
+            Log::error('[ShopeeFoodCookie] import failed', ['err' => get_class($e)]);
+            return redirect()->route('admin.tiktok-order-sync.index')->with('shopeefood_cookie_error', 'Không thể lưu cookie.');
+        }
+
+        return redirect()->route('admin.tiktok-order-sync.index')->with('shopeefood_cookie_success', 'Đã import cookie ShopeeFood thành công.');
+    }
+
+    public function testShopeeFoodCookie(Request $request): RedirectResponse
+    {
+        $cookie = $this->getShopeeFoodCookie();
+        if (! $cookie) {
+            return redirect()->route('admin.tiktok-order-sync.index')->with('shopeefood_cookie_error', 'Chưa cấu hình cookie ShopeeFood.');
+        }
+        try {
+            $client = app(\App\Services\ShopeeFood\ShopeeFoodClient::class);
+            $client->setCookie($cookie);
+            $client->getOrders(null, null, 1, 5);
+            return redirect()->route('admin.tiktok-order-sync.index')->with('shopeefood_cookie_success', 'Cookie hợp lệ. Đã kết nối thành công tới API ShopeeFood.');
+        } catch (\App\Services\ShopeeFood\ShopeeFoodException $e) {
+            $kind = $e->getKind();
+            if ($kind === 'expired_session' || $kind === 'http_auth') {
+                return redirect()->route('admin.tiktok-order-sync.index')->with('shopeefood_cookie_error', 'Cookie không hợp lệ hoặc đã hết hạn.');
+            }
+            if ($kind === 'config_missing') {
+                return redirect()->route('admin.tiktok-order-sync.index')->with('shopeefood_cookie_error', 'Chưa cấu hình cookie.');
+            }
+            return redirect()->route('admin.tiktok-order-sync.index')->with('shopeefood_cookie_error', 'Kiểm tra cookie thất bại.');
+        } catch (\Throwable $e) {
+            return redirect()->route('admin.tiktok-order-sync.index')->with('shopeefood_cookie_error', 'Lỗi kết nối khi kiểm tra cookie.');
+        }
     }
 
     public function sync(Request $request): RedirectResponse

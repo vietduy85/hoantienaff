@@ -39,7 +39,35 @@ class ShopeeFoodClient
     public function __construct()
     {
         $this->baseUrl = rtrim((string) config('services.shopeefood.base_url', ''), '/');
-        $this->cookie = config('services.shopeefood.cookie');
+        $cookie = null;
+        try {
+            $path = storage_path('app/shopeefood/cookie.json');
+            if (file_exists($path)) {
+                $raw = @file_get_contents($path);
+                if ($raw !== false) {
+                    $data = json_decode($raw, true);
+                    if (is_array($data) && isset($data['cookie'])) {
+                        $enc = $data['cookie'];
+                        if (is_string($enc) && $enc !== '') {
+                            try {
+                                $dec = \Illuminate\Support\Facades\Crypt::decryptString($enc);
+                                if (is_string($dec) && $dec !== '') {
+                                    $cookie = $dec;
+                                }
+                            } catch (\Throwable $e) {
+                                $cookie = $enc;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            $cookie = null;
+        }
+        if (! $cookie) {
+            $cookie = config('services.shopeefood.cookie');
+        }
+        $this->cookie = $cookie;
     }
 
     /**
