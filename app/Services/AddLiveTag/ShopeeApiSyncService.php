@@ -84,7 +84,43 @@ class ShopeeApiSyncService
         $startedAt = microtime(true);
 
         $from = ($from !== null && $from !== '') ? $from : self::defaultFrom();
-        $to = ($to !== null && $to !== '') ? $to : null;
+        $to = ($to !== null && $to !== '') ? $to : Carbon::now(config('app.timezone'))->format('Y-m-d');
+
+        if ($to < $from) {
+            $result = [
+                'success' => false,
+                'error' => 'Invalid date range: to ('.$to.') < from ('.$from.').',
+                'dry_run' => $dryRun,
+                'from' => $from,
+                'to' => $to,
+                'raw_items' => 0,
+                'normalized' => 0,
+                'orders' => 0,
+                'plan_create' => 0,
+                'plan_update' => 0,
+                'plan_protected' => 0,
+                'user_conflict' => 0,
+                'sub_id_mismatch' => 0,
+                'overlap_groups' => 0,
+                'applied_created' => 0,
+                'applied_updated' => 0,
+                'credit' => $this->emptyCredit(),
+                'duration' => 0.0,
+                'api_http_status' => null,
+                'api_business_status' => null,
+                'api_pages_fetched' => 0,
+                'api_records' => 0,
+                'api_duration_ms' => 0,
+                'api_endpoint' => null,
+                'orders_written' => 0,
+                'sync_state' => 'failed',
+                'notice' => null,
+            ];
+            $result['duration'] = round(microtime(true) - $startedAt, 2);
+            $this->logResult($result);
+
+            return $result;
+        }
 
         $result = [
             'success' => false,

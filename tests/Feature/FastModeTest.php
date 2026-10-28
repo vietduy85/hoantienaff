@@ -75,6 +75,7 @@ class FastModeTest extends TestCase
     {
         AffiliateCache::create([
             'item_id'                => $itemId,
+            'platform'               => 'Shopee',
             'cache_date'             => now('Asia/Ho_Chi_Minh')->toDateString(),
             'product_name'           => 'Sản phẩm cached',
             'product_price'          => 50000,
@@ -82,6 +83,11 @@ class FastModeTest extends TestCase
             'user_estimated_cashback' => 500,
             'cashback_rate'          => 5,
             'shop_id'                => 59917031,
+            'shopee_commission_rate' => 0.05,
+            'seller_commission_rate' => 0.10,
+            'commission_rate_source' => 'api',
+            'commission_rate_status' => 'available',
+            'commission_rate_checked_at' => now(),
         ]);
     }
 

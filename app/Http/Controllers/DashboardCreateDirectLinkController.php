@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AffiliateCache;
 use App\Models\LinkRequest;
 use App\Models\Setting;
 use App\Services\AccessTrade\AccessTradeCampaignService;
@@ -99,7 +100,7 @@ class DashboardCreateDirectLinkController extends Controller
                 return $this->storeFastShopeeLink($request, $link, $resolvedUrl, $itemId);
             }
 
-                $cached = $itemId ? $this->cacheService->get($itemId) : null;
+                $cached = $itemId ? $this->cacheService->get($itemId, $platform) : null;
 
                 if ($cached) {
                     if (config('app.affiliate_timing')) {
@@ -127,15 +128,33 @@ class DashboardCreateDirectLinkController extends Controller
                         'is_xtra' => $cached->is_xtra,
                         'data_source' => $cached->data_source,
                     ];
-                    // Snapshot commission rates if cache has them (rare) but only if not already set
-                    if (($link->shopee_commission_rate_at_create === null || $link->shopee_commission_rate_at_create === '') && property_exists($cached, 'shopee_commission_rate') && $cached->shopee_commission_rate !== null) {
-                        $update['shopee_commission_rate_at_create'] = $cached->shopee_commission_rate;
+
+                    // Only trust rates from a cache row whose platform matches the
+                    // resolved platform. Legacy platform=NULL rows are usable as
+                    // product data, but not as commission-rate evidence.
+                    $cacheRateTrusted = $this->cachePlatformMatches($cached, $platform);
+                    $cachedShopeeRate = $cacheRateTrusted ? $cached->getAttribute('shopee_commission_rate') : null;
+                    $cachedSellerRate = $cacheRateTrusted ? $cached->getAttribute('seller_commission_rate') : null;
+                    $copiedRate = false;
+
+                    if (($link->getAttribute('shopee_commission_rate_at_create') === null || $link->getAttribute('shopee_commission_rate_at_create') === '')
+                        && $cachedShopeeRate !== null && $cachedShopeeRate !== '') {
+                        $update['shopee_commission_rate_at_create'] = $cachedShopeeRate;
+                        $copiedRate = true;
+                    }
+                    if (($link->getAttribute('seller_commission_rate_at_create') === null || $link->getAttribute('seller_commission_rate_at_create') === '')
+                        && $cachedSellerRate !== null && $cachedSellerRate !== '') {
+                        $update['seller_commission_rate_at_create'] = $cachedSellerRate;
+                        $copiedRate = true;
+                    }
+
+                    $hasPositiveCachedRate = $this->isPositiveRate($cachedShopeeRate)
+                        || $this->isPositiveRate($cachedSellerRate);
+
+                    if ($copiedRate) {
                         $update['commission_rate_source'] = 'product-data-cache';
                         $update['commission_rate_captured_at'] = now();
-                        $update['commission_rate_status'] = 'available';
-                    }
-                    if (($link->seller_commission_rate_at_create === null || $link->seller_commission_rate_at_create === '') && property_exists($cached, 'seller_commission_rate') && $cached->seller_commission_rate !== null) {
-                        $update['seller_commission_rate_at_create'] = $cached->seller_commission_rate;
+                        $update['commission_rate_status'] = $hasPositiveCachedRate ? 'available' : 'unverified';
                     }
 
                     $link->update($update);
@@ -146,6 +165,13 @@ class DashboardCreateDirectLinkController extends Controller
                         'affiliate_url' => $affiliateUrl,
                         'status' => 'completed',
                     ]);
+
+                    // Cache hit without a trusted positive rate: complete the link
+                    // first, then enrich rates in the background without touching
+                    // the affiliate URL.
+                    if (! $hasPositiveCachedRate) {
+                        $this->dispatchProductDataRefresh($link->id, $resolvedUrl, $itemId, $platform);
+                    }
             } else {
                 if ($itemId) {
                     $this->cacheService->logMiss($itemId);
@@ -159,131 +185,7 @@ class DashboardCreateDirectLinkController extends Controller
                     'affiliate_url' => $affiliateUrl,
                 ]);
 
-                $linkId = $link->id;
-                $resolvedUrlClone = $resolvedUrl;
-                $itemIdClone = $itemId;
-
-                dispatch(function () use ($resolvedUrlClone, $itemIdClone, $linkId, $platform) {
-                    try {
-                        if (config('app.affiliate_timing')) {
-                            Log::info('[CACHE] ProductData URL', [
-                                'url' => $resolvedUrlClone,
-                                'item_id' => $itemIdClone,
-                            ]);
-                        }
-
-                        $refreshStart = config('app.affiliate_timing') ? microtime(true) : null;
-                        $productDataService = app(ProductDataService::class);
-                        $productData = $productDataService->getByUrl($resolvedUrlClone);
-                        if ($refreshStart !== null) {
-                            Log::info('[CACHE-Timing] Refresh Cache', [
-                                'item_id' => $itemIdClone,
-                                'elapsed_ms' => (int) ((microtime(true) - $refreshStart) * 1000),
-                            ]);
-                        }
-
-                        if (($productData['success'] ?? false)) {
-                            $commission = (float) ($productData['commission'] ?? 0);
-                            $price = (float) ($productData['product_price'] ?? 0);
-                            $cashbackCalculator = app(CashbackCalculator::class);
-                            $cashback = $cashbackCalculator->calculate($commission, $price);
-
-                            $update = [
-                                'item_id' => $productData['item_id'],
-                                'shop_id' => $productData['shop_id'],
-                                'estimated_cashback' => $commission,
-                                'user_estimated_cashback' => $cashback['user_estimated_cashback'],
-                                'cashback_rate' => $cashback['cashback_rate'],
-                                'product_name' => $productData['product_name'],
-                                'product_price' => $productData['product_price'],
-                                'product_link' => $productData['product_link'],
-                                'seller_commission' => $productData['seller_commission'],
-                                'shopee_commission' => $productData['shopee_commission'],
-                                'rating' => $productData['rating'],
-                                'product_image' => $productData['product_image'],
-                                'shop_name' => $productData['shop_name'],
-                                'sales' => $productData['sales'],
-                                'is_xtra' => $productData['is_xtra'],
-                                'data_source' => $productData['data_source'],
-                                'status' => 'completed',
-                            ];
-
-                            $shopeeRateSrc = $productData['shopee_rate_source'] ?? null;
-                            $shopeeRate = $productData['shopee_commission_rate'] ?? null;
-                            $sellerRate = $productData['seller_commission_rate'] ?? null;
-                            if ($shopeeRate !== null && $shopeeRateSrc !== null && $shopeeRateSrc !== 'none') {
-                                $update['shopee_commission_rate_at_create'] = $shopeeRate;
-                                $update['commission_rate_source'] = 'product-data';
-                                $update['commission_rate_captured_at'] = now();
-                                $update['commission_rate_status'] = 'available';
-                            }
-                            if ($sellerRate !== null && $shopeeRateSrc !== null && $shopeeRateSrc !== 'none') {
-                                $update['seller_commission_rate_at_create'] = $sellerRate;
-                            } elseif ($sellerRate !== null && empty($update['commission_rate_source'])) {
-                                $update['seller_commission_rate_at_create'] = $sellerRate;
-                                $update['commission_rate_source'] = 'product-data';
-                                $update['commission_rate_captured_at'] = now();
-                                $update['commission_rate_status'] = 'available';
-                            }
-
-                            LinkRequest::where('id', $linkId)->update($update);
-
-                            $resolvedItemId = $productData['item_id'] ?? $itemIdClone;
-                            if ($resolvedItemId) {
-                                $cacheService = app(AffiliateCacheService::class);
-                                $cachePut = [
-                                    'platform' => $platform,
-                                    'shop_id' => $productData['shop_id'],
-                                    'product_name' => $productData['product_name'],
-                                    'product_price' => $productData['product_price'],
-                                    'seller_commission' => $productData['seller_commission'],
-                                    'shopee_commission' => $productData['shopee_commission'],
-                                    'estimated_cashback' => $commission,
-                                    'user_estimated_cashback' => $cashback['user_estimated_cashback'],
-                                    'cashback_rate' => $cashback['cashback_rate'],
-                                    'rating' => $productData['rating'],
-                                    'sales' => $productData['sales'],
-                                    'product_image' => $productData['product_image'],
-                                    'product_link' => $productData['product_link'],
-                                    'shop_name' => $productData['shop_name'],
-                                    'is_xtra' => $productData['is_xtra'],
-                                    'data_source' => $productData['data_source'],
-                                ];
-                                if ($shopeeRate !== null && $shopeeRateSrc !== 'none') {
-                                    $cachePut['shopee_commission_rate'] = $shopeeRate;
-                                }
-                                if ($sellerRate !== null && $shopeeRateSrc !== 'none') {
-                                    $cachePut['seller_commission_rate'] = $sellerRate;
-                                }
-                                if (($cachePut['shopee_commission_rate'] ?? null) !== null || ($cachePut['seller_commission_rate'] ?? null) !== null) {
-                                    if ($shopeeRateSrc !== null && $shopeeRateSrc !== 'none') {
-                                        $cachePut['commission_rate_source'] = $shopeeRateSrc;
-                                        $cachePut['commission_rate_status'] = 'available';
-                                        $cachePut['commission_rate_checked_at'] = now();
-                                    } elseif (empty($cachePut['commission_rate_source'])) {
-                                        $cachePut['commission_rate_source'] = 'product-data';
-                                        $cachePut['commission_rate_status'] = 'available';
-                                        $cachePut['commission_rate_checked_at'] = now();
-                                    }
-                                }
-                                $cacheService->put($resolvedItemId, $cachePut);
-                            }
-                        } else {
-                            LinkRequest::where('id', $linkId)
-                                ->where('status', 'processing')
-                                ->update(['status' => 'completed']);
-                        }
-                    } catch (\Throwable $e) {
-                        LinkRequest::where('id', $linkId)
-                            ->where('status', 'processing')
-                            ->update(['status' => 'completed']);
-
-                        Log::warning('[ShopeeLink] afterResponse ProductData failed', [
-                            'link_request_id' => $linkId,
-                            'error' => $e->getMessage(),
-                        ]);
-                    }
-                })->afterResponse();
+                $this->dispatchProductDataRefresh($link->id, $resolvedUrl, $itemId, $platform);
             }
         } else {
             if ($target->isTikTok()) {
@@ -506,6 +408,151 @@ class DashboardCreateDirectLinkController extends Controller
 
         return redirect()->route('dashboard')
             ->with('success', 'Đã nhận link. Đang tạo affiliate link...');
+    }
+
+    private function cachePlatformMatches(AffiliateCache $cache, string $platform): bool
+    {
+        $cachePlatform = $cache->getAttribute('platform');
+
+        if ($cachePlatform === null || $cachePlatform === '') {
+            return false;
+        }
+
+        return strcasecmp((string) $cachePlatform, $platform) === 0;
+    }
+
+    private function isPositiveRate($value): bool
+    {
+        if ($value === null || $value === '' || ! is_numeric($value)) {
+            return false;
+        }
+
+        return (float) $value > 0;
+    }
+
+    private function dispatchProductDataRefresh(int $linkId, string $resolvedUrl, ?int $itemId, string $platform): void
+    {
+        dispatch(function () use ($linkId, $resolvedUrl, $itemId, $platform) {
+            try {
+                if (config('app.affiliate_timing')) {
+                    Log::info('[CACHE] ProductData URL', [
+                        'url' => $resolvedUrl,
+                        'item_id' => $itemId,
+                    ]);
+                }
+
+                $refreshStart = config('app.affiliate_timing') ? microtime(true) : null;
+                $productDataService = app(ProductDataService::class);
+                $productData = $productDataService->getByUrl($resolvedUrl);
+                if ($refreshStart !== null) {
+                    Log::info('[CACHE-Timing] Refresh Cache', [
+                        'item_id' => $itemId,
+                        'elapsed_ms' => (int) ((microtime(true) - $refreshStart) * 1000),
+                    ]);
+                }
+
+                if (($productData['success'] ?? false)) {
+                    $commission = (float) ($productData['commission'] ?? 0);
+                    $price = (float) ($productData['product_price'] ?? 0);
+                    $cashbackCalculator = app(CashbackCalculator::class);
+                    $cashback = $cashbackCalculator->calculate($commission, $price);
+
+                    $update = [
+                        'item_id' => $productData['item_id'],
+                        'shop_id' => $productData['shop_id'],
+                        'estimated_cashback' => $commission,
+                        'user_estimated_cashback' => $cashback['user_estimated_cashback'],
+                        'cashback_rate' => $cashback['cashback_rate'],
+                        'product_name' => $productData['product_name'],
+                        'product_price' => $productData['product_price'],
+                        'product_link' => $productData['product_link'],
+                        'seller_commission' => $productData['seller_commission'],
+                        'shopee_commission' => $productData['shopee_commission'],
+                        'rating' => $productData['rating'],
+                        'product_image' => $productData['product_image'],
+                        'shop_name' => $productData['shop_name'],
+                        'sales' => $productData['sales'],
+                        'is_xtra' => $productData['is_xtra'],
+                        'data_source' => $productData['data_source'],
+                        'status' => 'completed',
+                    ];
+
+                    $shopeeRateSrc = $productData['shopee_rate_source'] ?? null;
+                    $shopeeRate = $productData['shopee_commission_rate'] ?? null;
+                    $sellerRate = $productData['seller_commission_rate'] ?? null;
+                    if ($shopeeRate !== null && $shopeeRateSrc !== null && $shopeeRateSrc !== 'none') {
+                        $update['shopee_commission_rate_at_create'] = $shopeeRate;
+                        $update['commission_rate_source'] = 'product-data';
+                        $update['commission_rate_captured_at'] = now();
+                        $update['commission_rate_status'] = 'available';
+                    }
+                    if ($sellerRate !== null && $shopeeRateSrc !== null && $shopeeRateSrc !== 'none') {
+                        $update['seller_commission_rate_at_create'] = $sellerRate;
+                    } elseif ($sellerRate !== null && empty($update['commission_rate_source'])) {
+                        $update['seller_commission_rate_at_create'] = $sellerRate;
+                        $update['commission_rate_source'] = 'product-data';
+                        $update['commission_rate_captured_at'] = now();
+                        $update['commission_rate_status'] = 'available';
+                    }
+
+                    LinkRequest::where('id', $linkId)->update($update);
+
+                    $resolvedItemId = $productData['item_id'] ?? $itemId;
+                    if ($resolvedItemId) {
+                        $cacheService = app(AffiliateCacheService::class);
+                        $cachePut = [
+                            'platform' => $platform,
+                            'shop_id' => $productData['shop_id'],
+                            'product_name' => $productData['product_name'],
+                            'product_price' => $productData['product_price'],
+                            'seller_commission' => $productData['seller_commission'],
+                            'shopee_commission' => $productData['shopee_commission'],
+                            'estimated_cashback' => $commission,
+                            'user_estimated_cashback' => $cashback['user_estimated_cashback'],
+                            'cashback_rate' => $cashback['cashback_rate'],
+                            'rating' => $productData['rating'],
+                            'sales' => $productData['sales'],
+                            'product_image' => $productData['product_image'],
+                            'product_link' => $productData['product_link'],
+                            'shop_name' => $productData['shop_name'],
+                            'is_xtra' => $productData['is_xtra'],
+                            'data_source' => $productData['data_source'],
+                        ];
+                        if ($shopeeRate !== null && $shopeeRateSrc !== 'none') {
+                            $cachePut['shopee_commission_rate'] = $shopeeRate;
+                        }
+                        if ($sellerRate !== null && $shopeeRateSrc !== 'none') {
+                            $cachePut['seller_commission_rate'] = $sellerRate;
+                        }
+                        if (($cachePut['shopee_commission_rate'] ?? null) !== null || ($cachePut['seller_commission_rate'] ?? null) !== null) {
+                            if ($shopeeRateSrc !== null && $shopeeRateSrc !== 'none') {
+                                $cachePut['commission_rate_source'] = $shopeeRateSrc;
+                                $cachePut['commission_rate_status'] = 'available';
+                                $cachePut['commission_rate_checked_at'] = now();
+                            } elseif (empty($cachePut['commission_rate_source'])) {
+                                $cachePut['commission_rate_source'] = 'product-data';
+                                $cachePut['commission_rate_status'] = 'available';
+                                $cachePut['commission_rate_checked_at'] = now();
+                            }
+                        }
+                        $cacheService->put($resolvedItemId, $cachePut);
+                    }
+                } else {
+                    LinkRequest::where('id', $linkId)
+                        ->where('status', 'processing')
+                        ->update(['status' => 'completed']);
+                }
+            } catch (\Throwable $e) {
+                LinkRequest::where('id', $linkId)
+                    ->where('status', 'processing')
+                    ->update(['status' => 'completed']);
+
+                Log::warning('[ShopeeLink] afterResponse ProductData failed', [
+                    'link_request_id' => $linkId,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        })->afterResponse();
     }
 
     /**
