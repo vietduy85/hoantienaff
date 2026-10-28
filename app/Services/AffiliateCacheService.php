@@ -8,10 +8,12 @@ use Illuminate\Support\Facades\Log;
 class AffiliateCacheService
 {
     private readonly string $cacheDate;
+    private readonly \Illuminate\Support\Carbon $now;
 
     public function __construct()
     {
-        $this->cacheDate = now('Asia/Ho_Chi_Minh')->toDateString();
+        $this->now = now('Asia/Ho_Chi_Minh');
+        $this->cacheDate = $this->now->toDateString();
     }
 
     public function getCacheDate(): string
@@ -19,10 +21,18 @@ class AffiliateCacheService
         return $this->cacheDate;
     }
 
-    public function get(int $itemId): ?AffiliateCache
+    public function get(int $itemId, ?string $platform = null): ?AffiliateCache
     {
-        $cache = AffiliateCache::where('item_id', $itemId)
-            ->whereDate('cache_date', $this->cacheDate)
+        $cutoff = $this->now->copy()->startOfDay()->subDays(2);
+        $query = AffiliateCache::where('item_id', $itemId)
+            ->whereDate('cache_date', '>=', $cutoff->toDateString());
+        if ($platform !== null && $platform !== '') {
+            $query->where(function ($q) use ($platform) {
+                $q->where('platform', $platform)->orWhereNull('platform');
+            });
+        }
+        $cache = $query->orderByRaw("CASE WHEN platform IS NULL THEN 1 ELSE 0 END")
+            ->orderByDesc('cache_date')
             ->first();
 
         if ($cache !== null && $this->isEmptyPlaceholder($cache)) {
@@ -34,7 +44,8 @@ class AffiliateCacheService
                 Log::info('[CACHE]', [
                     'item_id' => $itemId,
                     'status' => 'HIT',
-                    'cache_date' => $this->cacheDate,
+                    'cache_date' => $cache->cache_date,
+                    'platform' => $cache->platform,
                 ]);
             }
         }
@@ -67,12 +78,17 @@ class AffiliateCacheService
         $data['item_id'] = $itemId;
         $data['cache_date'] = $this->cacheDate;
 
-        $result = AffiliateCache::updateOrCreate(
-            ['item_id' => $itemId, 'cache_date' => $this->cacheDate],
-            $data
-        );
+        $lookup = ['item_id' => $itemId, 'cache_date' => $this->cacheDate];
 
-        return $result;
+        $existing = AffiliateCache::where($lookup)->first();
+
+        if ($existing !== null) {
+            AffiliateCache::where($lookup)->update($data);
+
+            return $existing->refresh();
+        }
+
+        return AffiliateCache::create($data);
     }
 
     public function updateAffiliateUrl(int $itemId, string $affiliateUrl): void

@@ -151,7 +151,7 @@ class ShopeeFoodOrderSyncService
     {
         if ($this->client->getCookie() === null || $this->client->getCookie() === '') {
             throw new ShopeeFoodException(
-                'SHOPEEFOOD_COOKIE chưa được cấu hình (config services.shopeefood.cookie) — không thể gọi API ShopeeFood. Đồng bộ TikTok vẫn chạy bình thường.',
+                'SHOPEEFOOD_COOKIE chưa được cấu hình (config services.shopeefood.cookie) - không thể gọi API ShopeeFood. Đồng bộ TikTok vẫn chạy bình thường.',
                 kind: 'config_missing',
             );
         }

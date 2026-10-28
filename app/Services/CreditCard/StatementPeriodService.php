@@ -353,7 +353,11 @@ class StatementPeriodService
     }
 
     /**
-     * Ngày đến hạn thanh toán, tính từ ngày chốt kỳ sang tháng kế tiếp.
+     * Ngày đến hạn thanh toán.
+     *
+     * Lấy lần xuất hiện đầu tiên của payment_due_day sau ngày chốt kỳ.
+     * Nếu payment_due_day > ngày chốt (statement_date) → cùng tháng.
+     * Ngược lại → tháng sau (trường hợp thường gặp khi due sớm hơn chốt).
      */
     public function paymentDueDateFor(UserCard $userCard, CarbonInterface $statementDate): ?CarbonImmutable
     {
@@ -363,10 +367,18 @@ class StatementPeriodService
             return null;
         }
 
-        [$year, $month] = $this->nextMonth($statementDate->year, $statementDate->month);
+        $day = (int) $day;
+        $statementDay = $statementDate->day;
+
+        if ($day > $statementDay) {
+            $year = $statementDate->year;
+            $month = $statementDate->month;
+        } else {
+            [$year, $month] = $this->nextMonth($statementDate->year, $statementDate->month);
+        }
 
         return CarbonImmutable::create($year, $month, 1)
-            ->day($this->clampDay((int) $day, $year, $month))
+            ->day($this->clampDay($day, $year, $month))
             ->startOfDay();
     }
 

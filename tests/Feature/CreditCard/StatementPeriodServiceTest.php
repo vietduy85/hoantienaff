@@ -360,7 +360,7 @@ class StatementPeriodServiceTest extends TestCase
     // =====================================================================
 
     #[Test]
-    public function payment_due_date_lands_in_the_month_after_the_statement_date(): void
+    public function payment_due_date_lands_in_the_same_month_when_due_day_after_statement_date(): void
     {
         $card = $this->makeUserCard($this->makeUser()->id, [
             'statement_day' => 15,
@@ -369,15 +369,14 @@ class StatementPeriodServiceTest extends TestCase
 
         $period = $this->service->resolvePeriodForDate($card, CarbonImmutable::parse('2026-09-10'));
 
-        $this->assertSame('2026-10-25', $period->payment_due_date->toDateString());
+        $this->assertSame('2026-09-25', $period->payment_due_date->toDateString());
     }
 
     #[Test]
     public function payment_due_date_is_clamped_when_the_next_month_is_short(): void
     {
         // Anchor 31: kỳ mở 31/01 kết thúc 27/02 (clamp theo tháng 2 chỉ 28 ngày).
-        // payment_due_day = 31 rơi vào tháng 3 — không có 31/02 nên không sinh
-        // ngày không tồn tại.
+        // payment_due_day = 31 > ngày chốt 27 → cùng tháng, clamp về 28/02.
         $card = $this->makeUserCard($this->makeUser()->id, [
             'statement_day' => 31,
             'payment_due_day' => 31,
@@ -387,7 +386,7 @@ class StatementPeriodServiceTest extends TestCase
 
         $this->assertSame('2026-01-31', $period->period_start->toDateString());
         $this->assertSame('2026-02-27', $period->period_end->toDateString());
-        $this->assertSame('2026-03-31', $period->payment_due_date->toDateString());
+        $this->assertSame('2026-02-28', $period->payment_due_date->toDateString());
 
         // payment_due_day = 30 clamp về 28/02 khi kỳ kết thúc trong tháng 2.
         $clamped = $this->makeUserCard($this->makeUser()->id, [

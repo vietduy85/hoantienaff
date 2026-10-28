@@ -64,6 +64,9 @@ class ConversionsNormalizer
 
         $orderValue = $this->parser->parseDecimal($row['order_value'] ?? ($itemPrice * $qty));
 
+        $shopeeRate = $this->parseRate($row['shopee_commission_rate'] ?? $row['commission_rate'] ?? $row['rate'] ?? null);
+        $sellerRate = $this->parseRate($row['seller_commission_rate'] ?? $row['shop_commission_rate'] ?? $row['xtra_commission_rate'] ?? null);
+
         return [
             'order_id' => $orderSn,
             'checkout_id' => $this->clean($row['checkout_id'] ?? null),
@@ -88,11 +91,47 @@ class ConversionsNormalizer
             'sub_id4' => $this->clean($row['sub_id4'] ?? null),
             'sub_id5' => $this->clean($row['sub_id5'] ?? null),
             'utm' => $this->clean($row['utm'] ?? null),
+            'shopee_commission_rate' => $shopeeRate,
+            'seller_commission_rate' => $sellerRate,
             'cashback_rate' => $cb['rate'],
             'cashback_amount' => $cb['amount'],
             'source_file' => 'addlivetag-api',
             'platform' => 'Shopee',
         ];
+    }
+
+    private function parseRate($v): ?float
+    {
+        if ($v === null || $v === '') {
+            return null;
+        }
+        if (is_numeric($v)) {
+            $r = (float) $v;
+            if ($r > 1) {
+                $r = $r / 100;
+            }
+            if ($r < 0) {
+                return null;
+            }
+            return $r;
+        }
+        $s = trim((string) $v);
+        if ($s === '') {
+            return null;
+        }
+        $s = str_replace('%', '', $s);
+        $s = str_replace(',', '.', $s);
+        if (is_numeric($s)) {
+            $r = (float) $s;
+            if ($r > 1) {
+                $r = $r / 100;
+            }
+            if ($r < 0) {
+                return null;
+            }
+            return $r;
+        }
+        return null;
     }
 
     private function extractItemId($itemUrl): ?string

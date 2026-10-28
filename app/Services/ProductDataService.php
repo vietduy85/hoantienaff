@@ -163,22 +163,47 @@ class ProductDataService
 
         $commission = (int) ($info['commission'] ?? 0);
 
+        $shopeeRate = isset($info['shopeeRate']) ? (float) $info['shopeeRate'] : null;
+        $sellerRate = isset($info['sellerRate']) ? (float) $info['sellerRate'] : null;
+        if ($shopeeRate !== null && ($shopeeRate < 0 || $shopeeRate > 1)) {
+            if ($shopeeRate > 1 && $shopeeRate <= 100) {
+                $shopeeRate = $shopeeRate / 100;
+            } else {
+                $shopeeRate = null;
+            }
+        }
+        if ($sellerRate !== null && ($sellerRate < 0 || $sellerRate > 1)) {
+            if ($sellerRate > 1 && $sellerRate <= 100) {
+                $sellerRate = $sellerRate / 100;
+            } else {
+                $sellerRate = null;
+            }
+        }
+
         return [
-            'success'           => true,
-            'item_id'           => $info['itemId'] ?? null,
-            'shop_id'           => $info['shopId'] ?? null,
-            'product_name'      => $info['productName'] ?? null,
-            'product_price'     => $info['price'] ?? null,
-            'commission'        => $commission,
-            'seller_commission' => $info['sellerComFinal'] ?? null,
-            'shopee_commission' => $info['shopeeComFinal'] ?? null,
-            'rating'            => $info['rating'] ?? null,
-            'product_image'     => $info['imageUrl'] ?? null,
-            'product_link'      => $info['productLink'] ?? null,
-            'shop_name'         => $info['shopName'] ?? null,
-            'sales'             => $info['sales'] ?? null,
-            'is_xtra'           => !empty($info['isXtra']),
-            'data_source'       => $info['dataSource'] ?? null,
+            'success'              => true,
+            'item_id'              => $info['itemId'] ?? null,
+            'shop_id'              => $info['shopId'] ?? null,
+            'product_name'         => $info['productName'] ?? null,
+            'product_price'        => $info['price'] ?? null,
+            'commission'           => $commission,
+            'seller_commission'    => $info['sellerComFinal'] ?? null,
+            'shopee_commission'    => $info['shopeeComFinal'] ?? null,
+            'shopee_commission_rate' => $shopeeRate,
+            'seller_commission_rate' => $sellerRate,
+            'shopee_rate_percent'  => $info['shopeeRatePercent'] ?? null,
+            'seller_rate_percent'  => $info['sellerRatePercent'] ?? null,
+            'total_rate_percent'   => $info['totalRatePercent'] ?? null,
+            'shopee_rate_source'   => $info['shopeeRateSource'] ?? null,
+            'has_seller_commission' => $info['hasSellerCommission'] ?? null,
+            'has_shopee_commission' => $info['hasShopeeCommission'] ?? null,
+            'is_xtra'              => !empty($info['isXtra']),
+            'rating'               => $info['rating'] ?? null,
+            'product_image'        => $info['imageUrl'] ?? null,
+            'product_link'         => $info['productLink'] ?? null,
+            'shop_name'            => $info['shopName'] ?? null,
+            'sales'                => $info['sales'] ?? null,
+            'data_source'          => $info['dataSource'] ?? null,
         ];
     }
 }

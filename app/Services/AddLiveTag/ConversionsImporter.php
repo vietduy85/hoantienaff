@@ -255,9 +255,9 @@ class ConversionsImporter
                         'order_amount' => $row['order_amount'],
                         'refund_amount' => 0,
                         'commission_type' => '',
-                        'shopee_commission_rate' => 0,
+                        'shopee_commission_rate' => $this->parseRate($row['shopee_commission_rate'] ?? $row['commission_rate'] ?? null) ?? 0,
                         'shopee_commission' => 0,
-                        'seller_commission_rate' => 0,
+                        'seller_commission_rate' => $this->parseRate($row['seller_commission_rate'] ?? $row['shop_commission_rate'] ?? $row['xtra_commission_rate'] ?? null) ?? 0,
                         'xtra_commission' => 0,
                         'total_product_commission' => $row['total_product_commission'],
                         'order_commission_shopee' => 0,
@@ -535,6 +535,40 @@ class ConversionsImporter
         }
 
         return $changes;
+    }
+
+    private function parseRate($v): ?float
+    {
+        if ($v === null || $v === '') {
+            return null;
+        }
+        if (is_numeric($v)) {
+            $r = (float) $v;
+            if ($r > 1) {
+                $r = $r / 100;
+            }
+            if ($r < 0) {
+                return null;
+            }
+            return $r;
+        }
+        $s = trim((string) $v);
+        if ($s === '') {
+            return null;
+        }
+        $s = str_replace('%', '', $s);
+        $s = str_replace(',', '.', $s);
+        if (is_numeric($s)) {
+            $r = (float) $s;
+            if ($r > 1) {
+                $r = $r / 100;
+            }
+            if ($r < 0) {
+                return null;
+            }
+            return $r;
+        }
+        return null;
     }
 
     private function entry(

@@ -92,6 +92,62 @@ class OrderSyncController extends Controller
                 ->get();
         }
 
+        // Attach link-request commission rate snapshot for orders from 2026-10-25 onward (read-only, no backfill)
+        try {
+            $cutoff = \Carbon\Carbon::parse('2026-10-25 00:00:00', $tz);
+            $hasLrRates = \Illuminate\Support\Facades\Schema::hasColumn('link_requests', 'shopee_commission_rate_at_create');
+            if ($hasLrRates && $recentOrders->isNotEmpty()) {
+                $userIds = $recentOrders->pluck('user_id')->filter()->unique()->all();
+                $itemIds = $recentOrders->pluck('item_id')->filter()->unique()->all();
+                if (!empty($userIds) && !empty($itemIds)) {
+                    $lrMap = [];
+                    \App\Models\LinkRequest::query()
+                        ->whereIn('user_id', $userIds)
+                        ->whereIn('item_id', $itemIds)
+                        ->where('platform', 'Shopee')
+                        ->whereNotNull('shopee_commission_rate_at_create')
+                        ->orderByDesc('created_at')
+                        ->get()
+                        ->each(function ($lr) use (&$lrMap) {
+                            $key = $lr->user_id.'|'.$lr->item_id;
+                            if (!isset($lrMap[$key])) {
+                                $lrMap[$key] = $lr;
+                            }
+                        });
+                    foreach ($recentOrders as $order) {
+                    $orderedAt = $order->ordered_at ? \Carbon\Carbon::parse($order->ordered_at) : null;
+                    if (!$orderedAt || $orderedAt->lt($cutoff)) {
+                        continue;
+                    }
+                    if ($order->platform !== 'Shopee') {
+                        continue;
+                    }
+                    $key = ($order->user_id ?? '').'|'.$order->item_id;
+                    $attached = false;
+                    if (isset($lrMap[$key])) {
+                        $lr = $lrMap[$key];
+                        if ($lr->shopee_commission_rate_at_create !== null && $lr->shopee_commission_rate_at_create !== '') {
+                            $order->setAttribute('shopee_commission_rate_link', (float)$lr->shopee_commission_rate_at_create);
+                            $order->setAttribute('shopee_commission_rate_verified', true);
+                            $attached = true;
+                        }
+                        if ($lr->seller_commission_rate_at_create !== null && $lr->seller_commission_rate_at_create !== '') {
+                            $order->setAttribute('seller_commission_rate_link', (float)$lr->seller_commission_rate_at_create);
+                            $order->setAttribute('seller_commission_rate_verified', true);
+                            $attached = true;
+                        }
+                    }
+                    if (!$attached) {
+                        $order->setAttribute('shopee_commission_rate_unverified_from_25oct', true);
+                        $order->setAttribute('seller_commission_rate_unverified_from_25oct', true);
+                    }
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            // ignore
+        }
+
         $monthStart = $now->copy()->startOfMonth();
         $lastMonthStart = $now->copy()->subMonth()->startOfMonth();
         $lastMonthEnd = $monthStart->copy();
@@ -658,7 +714,7 @@ class OrderSyncController extends Controller
             $request->session()->flash('shopeefood_sync_result', $this->formatShopeeFoodSummary($result));
         } catch (ShopeeFoodException $e) {
             Log::error('[Admin Sync][ShopeeFood] error', ['error' => $e->getMessage(), 'kind' => $e->getKind()]);
-            $request->session()->flash('shopeefood_sync_error', $e->getMessage());
+            $request->session()->flash('shopeefood_sync_error', (string) ($e->getMessage() ?? ''));
         }
     }
 

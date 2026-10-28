@@ -51,8 +51,8 @@ class CreditCardCardSortService
     /**
      * Ngày đến hạn thanh toán KẾ TIẾP (chưa qua) gần nhất đứng trước.
      *
-     * Hạn = `payment_due_day` của tháng sau kỳ liên quan (xem
-     * `StatementPeriodService::paymentDueDateFor()`). Nếu hạn của kỳ trước đã
+     * Hạn = lần xuất hiện đầu tiên của `payment_due_day` sau kỳ liên quan
+     * (xem `StatementPeriodService::paymentDueDateFor()`). Nếu hạn của kỳ trước đã
      * trôi qua thì lấy hạn kỳ hiện tại; không dùng `spending_deadline_day`.
      */
     public const MODE_PAYMENT_DUE = 'payment_due';
@@ -280,7 +280,7 @@ class CreditCardCardSortService
      * ---------------------------------------------------------------------------
      * VÌ SAO PHẢI XÉT CẢ KỲ LIỀN TRƯỚC, KHÔNG CHỈ KỲ HIỆN TẠI
      * ---------------------------------------------------------------------------
-     * Hạn thanh toán gắn với một kỳ: `payment_due_day` của tháng SAU `period_end`.
+     * Hạn thanh toán gắn với một kỳ: lần xuất hiện đầu tiên của `payment_due_day` sau `period_end`.
      * Hôm nay luôn nằm trong kỳ hiện tại nên hạn của kỳ hiện tại luôn ở tương lai.
      * Nhưng hoá đơn NGAY TRƯỚC vẫn có thể chưa tới hạn (ví dụ kỳ trước đóng ngày
      * 30/09 → hạn 12/10, hôm nay 09/10): đó mới là khoản phải trả GẦN NHẤT. Vì

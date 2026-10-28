@@ -702,19 +702,20 @@
                     <table class="w-full text-sm min-w-[1100px]">
                         <colgroup>
                             <col style="width: 12%;">
-                            <col style="width: 7%;">
+                            <col style="width: 10%;">
+                            <col style="width: 8%;">
                             <col style="width: 12%;">
-                            <col style="width: 22%;">
-                            <col style="width: 10%;">
-                            <col style="width: 10%;">
-                            <col style="width: 10%;">
-                            <col style="width: 10%;">
+                            <col style="width: 26%; min-width: 200px;">
+                            <col style="width: 9%;">
+                            <col style="width: 9%;">
                             <col style="width: 9%;">
                             <col style="width: 8%;">
+                            <col style="width: 14%;">
                         </colgroup>
                         <thead class="text-left text-xs text-gray-400 uppercase tracking-wide">
                             <tr>
-                                <th class="py-2 pr-4 font-normal">Order ID</th>
+                                <th class="py-2 pr-4 font-normal">Người dùng</th>
+                                <th class="py-2 pr-4 text-right font-normal">Cashback</th>
                                 <th class="py-2 pr-4 font-normal">Nền tảng</th>
                                 <th class="py-2 pr-4 font-normal">Ngày đặt hàng</th>
                                 <th class="py-2 pr-4 font-normal">Sản phẩm</th>
@@ -722,25 +723,59 @@
                                 <th class="py-2 pr-4 text-right font-normal">Hoa hồng người bán (%)</th>
                                 <th class="py-2 pr-4 text-right font-normal">Tổng hoa hồng (%)</th>
                                 <th class="py-2 pr-4 font-normal">Trạng thái</th>
-                                <th class="py-2 pr-4 text-right font-normal">Cashback</th>
-                                <th class="py-2 pr-4 font-normal">Người dùng</th>
+                                <th class="py-2 pr-4 font-normal">Order ID</th>
                             </tr>
                         </thead>
                         <tbody class="text-gray-700">
                             @foreach ($recentOrders as $order)
                                 @php
+                                    $tzv = config('app.timezone', 'Asia/Ho_Chi_Minh');
+                                    $cutoffv = \Carbon\Carbon::parse('2026-10-25 00:00:00', $tzv);
+                                    $orderedAtv = $order->ordered_at ? \Carbon\Carbon::parse($order->ordered_at) : null;
+                                    $isShopeeFrom25v = $order->platform === 'Shopee' && $orderedAtv && $orderedAtv->gte($cutoffv);
+
                                     $shopeeRate = $order->shopee_commission_rate ?? null;
                                     $sellerRate = $order->seller_commission_rate ?? null;
-                                    if($shopeeRate !== null && $shopeeRate !== ''){ $shopeeRate = (float)$shopeeRate; if($shopeeRate > 1) $shopeeRate = $shopeeRate/100; }
+
+                                    $shopeeVerified = isset($order->shopee_commission_rate_verified) && $order->shopee_commission_rate_verified;
+                                    $sellerVerified = isset($order->seller_commission_rate_verified) && $order->seller_commission_rate_verified;
+
+                                    if(isset($order->shopee_commission_rate_link) && $order->shopee_commission_rate_link !== null && $isShopeeFrom25v){
+                                        $shopeeRate = $order->shopee_commission_rate_link;
+                                        $shopeeVerified = true;
+                                    }
+                                    if(isset($order->seller_commission_rate_link) && $order->seller_commission_rate_link !== null && $isShopeeFrom25v){
+                                        $sellerRate = $order->seller_commission_rate_link;
+                                        $sellerVerified = true;
+                                    }
+
+                                    if($shopeeRate !== null && $shopeeRate !== ''){ $shopeeRate = (float)$shopeeRate; if($shopeeRate > 1) $shopeeRate = $shopeeRate/100; if($shopeeRate < 0) $shopeeRate = null; }
                                     else { $shopeeRate = null; }
-                                    if($sellerRate !== null && $sellerRate !== ''){ $sellerRate = (float)$sellerRate; if($sellerRate > 1) $sellerRate = $sellerRate/100; }
+                                    if($sellerRate !== null && $sellerRate !== ''){ $sellerRate = (float)$sellerRate; if($sellerRate > 1) $sellerRate = $sellerRate/100; if($sellerRate < 0) $sellerRate = null; }
                                     else { $sellerRate = null; }
-                                    $totalRate = null;
-                                    if($shopeeRate !== null && $sellerRate !== null){ $totalRate = $shopeeRate + $sellerRate; }
-                                    elseif($shopeeRate !== null && in_array($order->platform, ['TikTok'])){ $totalRate = $shopeeRate; }
-                                    elseif($sellerRate !== null && in_array($order->platform, ['TikTok'])){ $totalRate = $sellerRate; }
+
+                                    if($isShopeeFrom25v){
+                                        $shopeeRateDisplay = ($shopeeRate !== null && $shopeeVerified) ? number_format($shopeeRate * 100, 2, ',', '.') . '%' : '—';
+                                        $sellerRateDisplay = ($sellerRate !== null && $sellerVerified) ? number_format($sellerRate * 100, 2, ',', '.') . '%' : '—';
+                                        $hasTotal = ($shopeeRate !== null && $shopeeVerified) || ($sellerRate !== null && $sellerVerified);
+                                        if(!$hasTotal){
+                                            $totalRateDisplay = '—';
+                                        }else{
+                                            $totalRate = (($shopeeRate !== null && $shopeeVerified)?$shopeeRate:0) + (($sellerRate !== null && $sellerVerified)?$sellerRate:0);
+                                            $totalRateDisplay = number_format($totalRate * 100, 2, ',', '.') . '%';
+                                        }
+                                    }else{
+                                        $shopeeRateDisplay = ($shopeeRate !== null) ? number_format($shopeeRate * 100, 2, ',', '.') . '%' : '—';
+                                        $sellerRateDisplay = ($sellerRate !== null) ? number_format($sellerRate * 100, 2, ',', '.') . '%' : '—';
+                                        $totalRate = ($shopeeRate !== null ? $shopeeRate : 0) + ($sellerRate !== null ? $sellerRate : 0);
+                                        if($shopeeRate === null && $sellerRate === null){ $totalRateDisplay = '—'; }else{ $totalRateDisplay = number_format($totalRate * 100, 2, ',', '.') . '%'; }
+                                    }
                                     $highlight7 = false;
-                                    if($order->platform === 'Shopee' && $shopeeRate !== null && abs($shopeeRate - 0.07) < 0.0001){ $highlight7 = true; }
+                                    if($isShopeeFrom25v){
+                                        if($shopeeRate !== null && $shopeeVerified && abs($shopeeRate - 0.07) < 0.0001){ $highlight7 = true; }
+                                    }else{
+                                        if($order->platform === 'Shopee' && $shopeeRate !== null && abs($shopeeRate - 0.07) < 0.0001){ $highlight7 = true; }
+                                    }
                                     $itemName = $order->item_name ?? '';
                                     $words = preg_split('/\s+/', trim($itemName));
                                     if(is_array($words) && count($words) > 5){
@@ -750,31 +785,7 @@
                                     }
                                 @endphp
                                 <tr class="border-t border-gray-100 {{ $highlight7 ? 'bg-amber-50/40' : '' }}">
-                                    <td class="py-2 pr-4 align-top font-mono text-xs break-words">{{ $order->order_id }}</td>
-                                    <td class="py-2 pr-4 align-top text-xs break-words">
-                                        {{ $order->platform }}
-                                        @if($highlight7)<span class="ml-1 inline-flex px-1.5 py-0.5 rounded text-[10px] bg-amber-100 text-amber-700">Hoa hồng sàn 7%</span>@endif
-                                    </td>
-                                    <td class="py-2 pr-4 align-top text-xs font-mono break-words">
-                                        @if($order->ordered_at)
-                                            {{ \Illuminate\Support\Carbon::parse($order->ordered_at)->timezone(config('app.timezone', 'Asia/Ho_Chi_Minh'))->format('d/m/Y H:i:s') }}
-                                        @else
-                                            <span class="text-gray-400">—</span>
-                                        @endif
-                                    </td>
-                                    <td class="py-2 pr-4 align-top text-xs" style="white-space: normal; overflow-wrap: anywhere; word-break: break-word;" title="{{ $itemName }}">{{ $short }}</td>
-                                    <td class="py-2 pr-4 align-top text-right font-mono text-xs break-words">@if($shopeeRate !== null){{ number_format($shopeeRate * 100, 2, ',', '.') }}% @else<span class="text-gray-400">—</span>@endif</td>
-                                    <td class="py-2 pr-4 align-top text-right font-mono text-xs break-words">@if($sellerRate !== null){{ number_format($sellerRate * 100, 2, ',', '.') }}% @else<span class="text-gray-400">—</span>@endif</td>
-                                    <td class="py-2 pr-4 align-top text-right font-mono text-xs break-words">@if($totalRate !== null){{ number_format($totalRate * 100, 2, ',', '.') }}% @else<span class="text-gray-400">—</span>@endif</td>
-                                    <td class="py-2 pr-4 align-top">
-                                        @if ($order->affiliate_status === 'Hoàn thành')
-                                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">Hoàn thành</span>
-                                        @elseif ($order->affiliate_status === 'Đã hủy')
-                                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">Đã hủy</span>
-                                        @else
-                                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">{{ $order->affiliate_status }}</span>
-                                        @endif
-                                    </td>
+                                    <td class="py-2 pr-4 align-top text-xs break-words">{{ $order->username }}</td>
                                     <td class="py-2 pr-4 align-top text-right font-mono text-xs break-words">
                                         @if ((float) $order->cashback_amount > 0 && $order->affiliate_status === 'Hoàn thành')
                                             <span class="text-emerald-700 font-semibold">{{ number_format((float) $order->cashback_amount, 0, ',', '.') }} đ</span>
@@ -786,7 +797,31 @@
                                             <span class="text-gray-300">—</span>
                                         @endif
                                     </td>
-                                    <td class="py-2 pr-4 align-top text-xs break-words">{{ $order->username }}</td>
+                                    <td class="py-2 pr-4 align-top text-xs break-words">
+                                        {{ $order->platform }}
+                                        @if($highlight7)<span class="ml-1 inline-flex px-1.5 py-0.5 rounded text-[10px] bg-amber-100 text-amber-700">Hoa hồng sàn 7%</span>@endif
+                                    </td>
+                                    <td class="py-2 pr-4 align-top text-xs font-mono break-words">
+                                        @if($order->ordered_at)
+                                            {{ \Illuminate\Support\Carbon::parse($order->ordered_at)->timezone(config('app.timezone', 'Asia/Ho_Chi_Minh'))->format('d/m/Y H:i:s') }}
+                                        @else
+                                            <span class="text-gray-400">—</span>
+                                        @endif
+                                    </td>
+                                    <td class="py-2 pr-4 align-top text-xs" style="white-space: normal; overflow-wrap: anywhere; word-break: break-word; min-width: 200px;" title="{{ $itemName }}">{{ $short }}</td>
+                                    <td class="py-2 pr-4 align-top text-right font-mono text-xs break-words">{{ $shopeeRateDisplay }}</td>
+                                    <td class="py-2 pr-4 align-top text-right font-mono text-xs break-words">{{ $sellerRateDisplay }}</td>
+                                    <td class="py-2 pr-4 align-top text-right font-mono text-xs break-words">{{ $totalRateDisplay }}</td>
+                                    <td class="py-2 pr-4 align-top">
+                                        @if ($order->affiliate_status === 'Hoàn thành')
+                                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">Hoàn thành</span>
+                                        @elseif ($order->affiliate_status === 'Đã hủy')
+                                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">Đã hủy</span>
+                                        @else
+                                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">{{ $order->affiliate_status }}</span>
+                                        @endif
+                                    </td>
+                                    <td class="py-2 pr-4 align-top font-mono text-xs break-words">{{ $order->order_id }}</td>
                                 </tr>
                             @endforeach
                         </tbody>
