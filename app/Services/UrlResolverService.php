@@ -186,7 +186,13 @@ class UrlResolverService
             $ch = curl_init($url);
 
             curl_setopt_array($ch, [
-                CURLOPT_RETURNTRANSFER => true,
+                // Chỉ cần URL cuối cùng: bỏ phần thân của trang đích ngay khi nhận được 2xx
+                // (không tải HTML nặng của Shopee). Thân của các response 3xx vẫn đọc bình thường.
+                CURLOPT_WRITEFUNCTION => static function ($handle, string $chunk): int {
+                    $code = (int) curl_getinfo($handle, CURLINFO_RESPONSE_CODE);
+
+                    return ($code >= 200 && $code < 300) ? 0 : strlen($chunk);
+                },
                 CURLOPT_FOLLOWLOCATION => true,
                 CURLOPT_MAXREDIRS => self::MAX_REDIRS,
                 CURLOPT_TIMEOUT => self::TIMEOUT,
@@ -210,8 +216,9 @@ class UrlResolverService
                 ? (int) ((microtime(true) - $attemptStart) * 1000)
                 : null;
 
-            // Success
-            if ($errno === 0 && $httpCode >= 200 && $httpCode < 400) {
+            // Success (errno 23 = chủ động ngắt khi đã nhận header 2xx của trang đích)
+            $abortedAfterHeaders = $errno === CURLE_WRITE_ERROR && $httpCode >= 200 && $httpCode < 300;
+            if (($errno === 0 || $abortedAfterHeaders) && $httpCode >= 200 && $httpCode < 400) {
                 if (filter_var($finalUrl, FILTER_VALIDATE_URL)) {
                     if ($attemptStart !== null) {
                         Log::info('[Resolver] Attempt '.($attempt + 1), [

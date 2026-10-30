@@ -13,7 +13,7 @@ class ShopeeFashionAlertTest extends TestCase
     use RefreshDatabase;
 
     /** Ngày phát sinh đơn mặc định cho test: nằm trong tháng 10/2026. */
-    private const OCT_DATE = '2026-10-15 10:00:00';
+    private const OCT_DATE = '2026-10-26 10:00:00';
 
     /** Ngày phát sinh đơn "mới" sau cửa sổ khởi tạo (tháng 11/2026). */
     private const NOV_DATE = '2026-11-05 09:30:00';
@@ -89,7 +89,7 @@ class ShopeeFashionAlertTest extends TestCase
         $user = User::factory()->create();
 
         $this->makeItem($user, ['order_id' => 'SEP1', 'ordered_at' => self::SEP_DATE]);
-        $this->makeItem($user, ['order_id' => 'SEP2', 'ordered_at' => '2026-09-30 23:59:59']);
+        $this->makeItem($user, ['order_id' => 'SEP2', 'ordered_at' => '2026-10-24 23:59:59']);
         $this->makeItem($user, ['order_id' => 'OCT', 'ordered_at' => self::OCT_DATE]);
 
         $this->actingAs($user)->get('/dashboard')
@@ -97,14 +97,14 @@ class ShopeeFashionAlertTest extends TestCase
             ->assertSee('Có 1 đơn Shopee thời trang', false);
     }
 
-    public function test_boundary_october_first_counts_but_september_is_excluded(): void
+    public function test_boundary_october_25_counts_but_september_is_excluded(): void
     {
         $user = User::factory()->create();
 
-        // Ngay trước mốc 01/10/2026 00:00:00 (giờ VN) => loại.
-        $this->makeItem($user, ['order_id' => 'BEFORE', 'ordered_at' => '2026-09-30 23:59:59']);
-        // Đúng mốc 01/10/2026 00:00:00 => tính.
-        $this->makeItem($user, ['order_id' => 'AT', 'ordered_at' => '2026-10-01 00:00:00']);
+        // Ngay trước mốc 25/10/2026 00:00:00 (giờ VN) => loại.
+        $this->makeItem($user, ['order_id' => 'BEFORE', 'ordered_at' => '2026-10-24 23:59:59']);
+        // Đúng mốc 25/10/2026 00:00:00 => tính.
+        $this->makeItem($user, ['order_id' => 'AT', 'ordered_at' => '2026-10-25 00:00:00']);
 
         $this->assertSame(['AT'], $this->eligibleOrderIds($user));
 

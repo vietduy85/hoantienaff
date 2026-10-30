@@ -157,14 +157,12 @@ class DashboardCreateDirectLinkController extends Controller
                         $update['commission_rate_status'] = $hasPositiveCachedRate ? 'available' : 'unverified';
                     }
 
+                    // Affiliate URL chỉ phụ thuộc URL đã resolve + user, KHÔNG phụ thuộc dữ liệu
+                    // sản phẩm: ghi cùng lúc và hoàn tất link ngay trong 1 câu UPDATE.
+                    $update['affiliate_url'] = $this->buildAffiliateUrl($resolvedUrl, $user);
+                    $update['status'] = 'completed';
+
                     $link->update($update);
-
-                    $affiliateUrl = $this->buildAffiliateUrl($resolvedUrl, $user);
-
-                    $link->update([
-                        'affiliate_url' => $affiliateUrl,
-                        'status' => 'completed',
-                    ]);
 
                     // Cache hit without a trusted positive rate: complete the link
                     // first, then enrich rates in the background without touching
@@ -175,14 +173,15 @@ class DashboardCreateDirectLinkController extends Controller
             } else {
                 if ($itemId) {
                     $this->cacheService->logMiss($itemId);
-
-                    $link->update(['item_id' => $itemId]);
                 }
 
-                $affiliateUrl = $this->buildAffiliateUrl($resolvedUrl, $user);
-
+                // Tác vụ 1 (độc lập): tạo affiliate URL và hoàn tất link NGAY.
+                // Tác vụ 2 (độc lập): lấy thông tin sản phẩm chạy nền sau response; nếu nó lỗi,
+                // timeout hay bị kill thì link vẫn 'completed' và dùng được (không kẹt 'processing').
                 $link->update([
-                    'affiliate_url' => $affiliateUrl,
+                    'item_id' => $itemId,
+                    'affiliate_url' => $this->buildAffiliateUrl($resolvedUrl, $user),
+                    'status' => 'completed',
                 ]);
 
                 $this->dispatchProductDataRefresh($link->id, $resolvedUrl, $itemId, $platform);
@@ -190,7 +189,7 @@ class DashboardCreateDirectLinkController extends Controller
         } else {
             if ($target->isTikTok()) {
                 try {
-                    $this->tiktokLinkEstimate->create($link, $validated['original_url'], $user);
+                    $this->tiktokLinkEstimate->create($link, $validated['original_url'], $user, $fastMode, true);
                 } catch (TikTokServiceException $e) {
                     $link->update([
                         'status' => 'failed',
@@ -240,7 +239,7 @@ class DashboardCreateDirectLinkController extends Controller
                 }
             } elseif ($target->isLazada()) {
                 try {
-                    $this->lazadaLinkEstimate->create($link, $validated['original_url'], $user);
+                    $this->lazadaLinkEstimate->create($link, $validated['original_url'], $user, $fastMode);
                 } catch (LazadaException $e) {
                     $link->update([
                         'status' => 'failed',
@@ -312,11 +311,14 @@ class DashboardCreateDirectLinkController extends Controller
                     // API returns only a tracking link, so product info is
                     // fetched (best-effort) from the merchant page. A failure
                     // here MUST NOT affect the already-created link.
-                    $this->enrichWithProductMetadata($link, $validated['original_url']);
+                    // Chế độ nhanh: bỏ cả thông tin sản phẩm lẫn ước tính hoàn tiền.
+                    if (! $fastMode) {
+                        $this->enrichWithProductMetadata($link, $validated['original_url']);
 
-                    // Expected cashback (best-effort): only when the campaign's
-                    // advertised max rate is corroborated by its policy.
-                    $this->applyAccessTradeEstimate($link, $result['campaign_id'] ?? $target->campaignId);
+                        // Expected cashback (best-effort): only when the campaign's
+                        // advertised max rate is corroborated by its policy.
+                        $this->applyAccessTradeEstimate($link, $result['campaign_id'] ?? $target->campaignId);
+                    }
                 } catch (AccessTradeException $e) {
                     $friendly = $this->accessTradeConfig->scrub($e->getUserMessage());
 
@@ -397,13 +399,21 @@ class DashboardCreateDirectLinkController extends Controller
         }
 
         if ($request->expectsJson() || $request->ajax()) {
+            // Trả luôn các trường sản phẩm đã có (cache hit / TikTok / Lazada) để UI khỏi phải polling.
             return response()->json([
                 'success' => true,
                 'request_id' => $link->id,
                 'platform' => $platform,
                 'affiliate_url' => $link->affiliate_url,
                 'status' => $link->status,
-            ]);
+                'product_name' => $link->product_name,
+                'product_image' => $link->product_image,
+                'product_price' => $link->product_price,
+                'shop_name' => $link->shop_name,
+                'estimated_cashback' => $link->estimated_cashback,
+                'user_estimated_cashback' => $link->user_estimated_cashback,
+                'cashback_rate' => $link->cashback_rate,
+            ] + ($fastMode ? ['fast_mode' => true] : []));
         }
 
         return redirect()->route('dashboard')

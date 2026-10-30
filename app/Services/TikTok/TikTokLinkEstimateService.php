@@ -30,7 +30,7 @@ class TikTokLinkEstimateService
      * caller can mark the request failed / show an error). Product info is
      * best-effort: a failure there does not fail link creation.
      */
-    public function create(LinkRequest $link, string $url, User $user): void
+    public function create(LinkRequest $link, string $url, User $user, bool $fast = false, bool $deferProduct = false): void
     {
         $linkDTO = $this->affiliateService->createAffiliateLink($url, $user->username);
 
@@ -53,27 +53,73 @@ class TikTokLinkEstimateService
             'product_link' => $url,
         ];
 
-        $product = null;
-
         if ($productId) {
             $update['item_id'] = (int) $productId;
-
-            try {
-                $product = $this->productService->getProduct($productId);
-            } catch (TikTokServiceException $e) {
-                Log::warning('[TikTokLinkEstimate] Product info failed (best-effort)', [
-                    'product_id' => $productId,
-                    'error'      => $e->getMessage(),
-                ]);
-                $product = null;
-            }
         }
 
-        if ($product !== null && $product->getProductId() !== '') {
-            $this->applyEstimate($update, $product);
-        }
-
+        // Tác vụ 1: lưu affiliate link và hoàn tất NGAY.
         $link->update($update);
+
+        // Tác vụ 2 (độc lập): thông tin sản phẩm + ước tính hoàn tiền chạy nền sau response.
+        // Chế độ nhanh: bỏ hẳn. Lỗi ở đây không bao giờ ảnh hưởng link đã tạo.
+        if ($fast || ! $productId) {
+            return;
+        }
+
+        if (! $deferProduct) {
+            $extra = $this->productUpdate((string) $productId);
+            if ($extra !== []) {
+                $link->update($extra);
+            }
+
+            return;
+        }
+
+        $linkId = $link->id;
+        dispatch(function () use ($linkId, $productId): void {
+            try {
+                app(self::class)->enrichProduct($linkId, (string) $productId);
+            } catch (\Throwable $e) {
+                Log::warning('[TikTokLinkEstimate] background enrich failed', [
+                    'link_request_id' => $linkId,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        })->afterResponse();
+    }
+
+    /** Lấy thông tin sản phẩm + ước tính hoàn tiền cho link TikTok đã tạo (best-effort). */
+    public function enrichProduct(int $linkId, string $productId): void
+    {
+        $update = $this->productUpdate($productId);
+
+        if ($update !== []) {
+            LinkRequest::where('id', $linkId)->update($update);
+        }
+    }
+
+    /** @return array<string,mixed> các cột cần cập nhật (rỗng nếu không lấy được) */
+    private function productUpdate(string $productId): array
+    {
+        try {
+            $product = $this->productService->getProduct($productId);
+        } catch (TikTokServiceException $e) {
+            Log::warning('[TikTokLinkEstimate] Product info failed (best-effort)', [
+                'product_id' => $productId,
+                'error'      => $e->getMessage(),
+            ]);
+
+            return [];
+        }
+
+        if ($product->getProductId() === '') {
+            return [];
+        }
+
+        $update = [];
+        $this->applyEstimate($update, $product);
+
+        return $update;
     }
 
     private function applyEstimate(array &$update, TikTokProductDTO $product): void

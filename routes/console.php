@@ -9,3 +9,5 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('affiliate:cache-cleanup')->dailyAt('03:00')->timezone('Asia/Ho_Chi_Minh');
+
+Schedule::command('logs:prune --days=7')->dailyAt('03:30')->timezone('Asia/Ho_Chi_Minh');

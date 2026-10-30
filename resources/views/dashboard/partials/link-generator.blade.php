@@ -217,6 +217,14 @@
                 if (data.affiliate_url) {
                     this.result = { ...data };
                     this.loading = false;
+                    this.$nextTick(() => {
+                        this.$refs.urlInput.focus();
+                        this.$refs.urlInput.select();
+                    });
+                    // Link đã dùng được; chỉ polling tiếp nếu còn thiếu thông tin sản phẩm.
+                    if (data.product_name) {
+                        return;
+                    }
                 }
                 this.startPolling();
             } catch (e) {
@@ -260,28 +268,32 @@
                 .then(r => r.json())
                 .then(data => {
                     this._errorCount = 0;
-                    if (data.status === 'completed') {
-                        this.stopPolling();
-                        if (this.result) {
-                            Object.assign(this.result, data);
-                        } else {
-                            this.result = data;
+                    // Thông tin sản phẩm và affiliate link là 2 việc độc lập: có link là hiển thị
+                    // ngay; thiếu thông tin sản phẩm chỉ làm trống phần ước tính, không báo lỗi.
+                    if (data.affiliate_url && data.status !== 'failed' && data.status !== 'rejected') {
+                        const firstShow = !this.result;
+                        this.result = this.result ? Object.assign(this.result, data) : { ...data };
+                        if (firstShow) {
+                            this.loading = false;
+                            this.$nextTick(() => {
+                                this.$refs.urlInput.focus();
+                                this.$refs.urlInput.select();
+                            });
                         }
-                        this.loading = false;
-                        this.$nextTick(() => {
-                            this.$refs.urlInput.focus();
-                            this.$refs.urlInput.select();
-                        });
-                        return;
-                    }
-                    if (data.status === 'failed' || data.status === 'rejected') {
+                        if (data.product_name || elapsed >= 15) {
+                            this.stopPolling();
+                            return;
+                        }
+                    } else if (data.status === 'failed' || data.status === 'rejected') {
                         this.stopPolling();
                         this.error = 'Không thể tạo affiliate link. Vui lòng thử lại sau.';
                         this.loading = false;
                         return;
-                    }
-                    if (this.result && data.user_estimated_cashback != null) {
-                        Object.assign(this.result, data);
+                    } else if (elapsed >= 30) {
+                        this.stopPolling();
+                        this.error = 'Tạo link quá lâu. Vui lòng thử lại.';
+                        this.loading = false;
+                        return;
                     }
                     this.pollTimer = setTimeout(poll, delay);
                 })

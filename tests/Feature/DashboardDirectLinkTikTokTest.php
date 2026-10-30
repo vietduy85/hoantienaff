@@ -56,7 +56,7 @@ class DashboardDirectLinkTikTokTest extends TestCase
 
         $link = LinkRequest::latest()->first();
         $this->assertEquals('Shopee', $link->platform);
-        $this->assertEquals('processing', $link->status);
+        $this->assertEquals('completed', $link->status);
         $this->assertStringStartsWith('https://s.shopee.vn/an_redir?', $link->affiliate_url);
         $this->assertStringContainsString('affiliate_id=12345', $link->affiliate_url);
     }

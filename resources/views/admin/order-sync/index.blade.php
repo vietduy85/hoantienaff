@@ -755,6 +755,17 @@
                                     else { $sellerRate = null; }
 
                                     if($isShopeeFrom25v){
+                                        // Từ 25/10: tỉ lệ đã được điền tự động vào DB (đơn amount 0 = 0%), lưu dạng % nên chia 100.
+                                        $stored = (float) ($order->shopee_commission_rate ?? 0) + (float) ($order->seller_commission_rate ?? 0);
+                                        $resolved25 = $stored > 0 || !empty($order->commission_rate_source);
+                                        if($resolved25){
+                                            $shopeeRate = (float) $order->shopee_commission_rate / 100;
+                                            $sellerRate = (float) $order->seller_commission_rate / 100;
+                                            $shopeeVerified = true;
+                                            $sellerVerified = true;
+                                        }
+                                    }
+                                    if($isShopeeFrom25v){
                                         $shopeeRateDisplay = ($shopeeRate !== null && $shopeeVerified) ? number_format($shopeeRate * 100, 2, ',', '.') . '%' : '—';
                                         $sellerRateDisplay = ($sellerRate !== null && $sellerVerified) ? number_format($sellerRate * 100, 2, ',', '.') . '%' : '—';
                                         $hasTotal = ($shopeeRate !== null && $shopeeVerified) || ($sellerRate !== null && $sellerVerified);

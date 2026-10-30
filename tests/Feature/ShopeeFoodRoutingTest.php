@@ -84,7 +84,7 @@ class ShopeeFoodRoutingTest extends TestCase
 
         $link = LinkRequest::latest()->first();
         $this->assertEquals('Shopee', $link->platform);
-        $this->assertEquals('processing', $link->status);
+        $this->assertEquals('completed', $link->status);
         $this->assertStringStartsWith('https://s.shopee.vn/an_redir?', $link->affiliate_url);
         $this->assertStringContainsString('sub_id=test_user', $link->affiliate_url);
     }
@@ -275,7 +275,7 @@ class ShopeeFoodRoutingTest extends TestCase
         $response->assertOk();
 
         $link = LinkRequest::latest()->first();
-        $this->assertEquals('processing', $link->status);
+        $this->assertEquals('completed', $link->status);
         $this->assertStringStartsWith('https://s.shopee.vn/an_redir?', $link->affiliate_url);
     }
 

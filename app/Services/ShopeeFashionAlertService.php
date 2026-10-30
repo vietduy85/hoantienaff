@@ -40,8 +40,8 @@ use Illuminate\Support\Collection;
  * GIAI ĐOẠN KHỞI TẠO THÁNG 10/2026 vs PHÁT HIỆN ĐƠN MỚI
  * ---------------------------------------------------------------------------
  * - Khởi tạo: chỉ rà soát đơn phát sinh trong tháng 10/2026
- *   [2026-10-01 00:00:00, 2026-11-01 00:00:00) — method `initialWindowOrderIds()`.
- * - Nền sàn vĩnh viễn: mọi đơn có `ordered_at >= 2026-10-01 00:00:00` đều đủ
+ *   [2026-10-25 00:00:00, 2026-11-01 00:00:00) — method `initialWindowOrderIds()`.
+ * - Nền sàn vĩnh viễn: mọi đơn có `ordered_at >= 2026-10-25 00:00:00` đều đủ
  *   điều kiện (bao gồm cả đơn tháng 11/2026 trở đi) — method `eligibleOrderIds()`.
  *   Nền sàn này loại bỏ đơn trước tháng 10 (ví dụ tháng 9/2026) khỏi thông báo.
  * - Phát hiện đơn mới sau khởi tạo: đơn có `ordered_at >= 2026-11-01` —
@@ -56,8 +56,8 @@ class ShopeeFashionAlertService
     /** Tỷ lệ hoa hồng Shopee của danh mục thời trang (%). */
     public const FASHION_COMMISSION_RATE = 7.0;
 
-    /** Nền sàn đủ điều kiện: đơn phát sinh từ 01/10/2026 (giờ VN), bao gồm. */
-    public const WINDOW_START = '2026-10-01 00:00:00';
+    /** Nền sàn đủ điều kiện: đơn phát sinh từ 25/10/2026 (giờ VN), bao gồm. */
+    public const WINDOW_START = '2026-10-25 00:00:00';
 
     /** Kết thúc cửa sổ KHỞI TẠO tháng 10/2026 (giờ VN), KHÔNG bao gồm. */
     public const INITIAL_WINDOW_END = '2026-11-01 00:00:00';
@@ -149,7 +149,10 @@ class ShopeeFashionAlertService
 
     public function unseenCount(User $user): int
     {
-        return $this->unseenOrderIds($user)->count();
+        $count = $this->unseenOrderIds($user)->count();
+
+        // Admin luôn thấy ít nhất 1 thông báo để kiểm tra đường dẫn đích.
+        return ($user->isAdmin() && $this->isEnabled($user)) ? max(1, $count) : $count;
     }
 
     public function isEnabled(User $user): bool

@@ -23,7 +23,7 @@ class ShopeeFashionAlertConfigTest extends TestCase
 {
     use RefreshDatabase;
 
-    private const OCT_DATE = '2026-10-15 10:00:00';
+    private const OCT_DATE = '2026-10-26 10:00:00';
 
     private User $admin;
     private User $member;

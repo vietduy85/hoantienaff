@@ -28,16 +28,16 @@ class LazadaProductService
     {
     }
 
-    public function createLink(string $url, ?string $subId1 = null, ?string $subId2 = null): LazadaProductLinkDTO
+    public function createLink(string $url, ?string $subId1 = null, ?string $subId2 = null, bool $withDetails = true): LazadaProductLinkDTO
     {
-        $cacheKey = 'lazada:link:v1:' . sha1($url . '|' . ($subId1 ?? '') . '|' . ($subId2 ?? ''));
+        $cacheKey = 'lazada:link:v1:' . sha1($url . '|' . ($subId1 ?? '') . '|' . ($subId2 ?? '') . ($withDetails ? '' : '|nodetails'));
 
-        return Cache::remember($cacheKey, 600, function () use ($url, $subId1, $subId2) {
-            return $this->fetchLink($url, $subId1, $subId2);
+        return Cache::remember($cacheKey, 600, function () use ($url, $subId1, $subId2, $withDetails) {
+            return $this->fetchLink($url, $subId1, $subId2, $withDetails);
         });
     }
 
-    private function fetchLink(string $url, ?string $subId1, ?string $subId2): LazadaProductLinkDTO
+    private function fetchLink(string $url, ?string $subId1, ?string $subId2, bool $withDetails = true): LazadaProductLinkDTO
     {
         $payload = $this->client->request('marketing/getlink', [
             'inputType'  => 'url',
@@ -74,7 +74,9 @@ class LazadaProductService
         $productId = ($item['productId'] ?? null) !== null ? (string) $item['productId'] : null;
         $commissionRate = $this->parsePercent($item['regularCommission'] ?? null);
 
-        $details = $this->fetchProductDetails($productId);
+        $details = $withDetails
+            ? $this->fetchProductDetails($productId)
+            : ['name' => null, 'image' => null, 'price' => null, 'currency' => null, 'rate' => null, 'amount' => null];
 
         return new LazadaProductLinkDTO(
             productId: $productId,

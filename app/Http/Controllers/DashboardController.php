@@ -147,8 +147,7 @@ class DashboardController extends Controller
 
         $pipeline = $this->shopeeFoodAffiliateLink->resolvePipeline($originalUrl);
         $restaurantId = $pipeline['restaurant_id'];
-
-        $this->shopeeFoodPreview->preview($link, $originalUrl, $restaurantId);
+        $fastMode = $request->boolean('fast_mode');
 
         $affiliateUrl = $restaurantId !== null
             ? $this->shopeeFoodAffiliateLink->buildAffiliateUrl($restaurantId, $user->affiliateSubId())
@@ -172,6 +171,16 @@ class DashboardController extends Controller
             ]);
         }
 
+        // Xem trước (tên quán/ảnh) là việc độc lập: lỗi không ảnh hưởng link đã tạo.
+        // Chế độ nhanh: bỏ hẳn.
+        if (! $fastMode) {
+            try {
+                $this->shopeeFoodPreview->preview($link, $originalUrl, $restaurantId);
+            } catch (\Throwable $e) {
+                Log::warning('[ShopeeFood] preview failed (best-effort)', ['link_request_id' => $link->id, 'error' => $e->getMessage()]);
+            }
+        }
+
         if ($request->expectsJson() || $request->ajax()) {
             return response()->json([
                 'success' => true,
@@ -179,7 +188,7 @@ class DashboardController extends Controller
                 'platform' => $link->platform,
                 'status' => $link->status,
                 'affiliate_url' => $link->affiliate_url,
-            ]);
+            ] + ($fastMode ? ['fast_mode' => true] : []));
         }
 
         return redirect()->route('dashboard')

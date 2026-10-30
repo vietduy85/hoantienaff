@@ -30,7 +30,7 @@ class LazadaLinkEstimateService
      * API error, credentials missing) so the caller can mark the request failed
      * and show a friendly error.
      */
-    public function create(LinkRequest $link, string $url, User $user): void
+    public function create(LinkRequest $link, string $url, User $user, bool $fast = false): void
     {
         $this->urlParser->assertLazadaUrl($url);
 
@@ -38,6 +38,7 @@ class LazadaLinkEstimateService
             $url,
             (string) $user->id,
             (string) $user->username,
+            ! $fast,
         );
 
         $update = [
@@ -51,6 +52,13 @@ class LazadaLinkEstimateService
         $productId = $dto->getProductId();
         if ($productId !== null && $productId !== '') {
             $update['item_id'] = (int) $productId;
+        }
+
+        // Chế độ nhanh: chỉ lưu affiliate link, không thông tin sản phẩm / ước tính hoàn tiền.
+        if ($fast) {
+            $link->update($update);
+
+            return;
         }
 
         if (($name = $dto->getProductName()) !== null && $name !== '') {

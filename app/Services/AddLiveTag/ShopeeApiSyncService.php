@@ -205,6 +205,13 @@ class ShopeeApiSyncService
         $result['orders_written'] = $result['applied_created'] + $result['applied_updated'];
 
         $result['credit'] = $this->importer->credit($plan, $this->wallet);
+
+        // Điền tỉ lệ hoa hồng (đơn từ 25/10) sau khi đơn đã được ghi; không được làm hỏng sync.
+        try {
+            app(\App\Services\ShopeeOrderCommissionRateFiller::class)->fill();
+        } catch (\Throwable $e) {
+            Log::warning('[AddLiveTag] commission rate fill failed', ['error' => $this->maskSecrets($e->getMessage())]);
+        }
         $result['success'] = true;
         $result['duration'] = round(microtime(true) - $startedAt, 2);
 

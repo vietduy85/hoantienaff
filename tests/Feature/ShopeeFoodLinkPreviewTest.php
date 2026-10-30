@@ -257,7 +257,7 @@ class ShopeeFoodLinkPreviewTest extends TestCase
         $link = LinkRequest::latest()->first();
 
         $this->assertSame('Shopee', $link->platform);
-        $this->assertSame('processing', $link->status);
+        $this->assertSame('completed', $link->status);
         $this->assertStringStartsWith('https://s.shopee.vn/an_redir?', $link->affiliate_url);
         $this->assertNull($link->product_image);
         $this->assertNull($link->product_name);
