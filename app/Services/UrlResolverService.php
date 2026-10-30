@@ -15,6 +15,7 @@ class UrlResolverService
 
     private const MAX_REDIRS = 10;
 
+
     private const TIMEOUT = 6;
 
     private const CONNECT_TIMEOUT = 4;
@@ -166,6 +167,80 @@ class UrlResolverService
         return $url;
     }
 
+    /**
+     * Tự lần theo redirect (thay vì CURLOPT_FOLLOWLOCATION) để:
+     *  - DỪNG ngay khi Location đã là URL sản phẩm chuẩn (có shop_id + item_id) — không tải
+     *    trang sản phẩm Shopee (tiết kiệm ~0,5s, link rút gọn chỉ có 1 hop 301).
+     *  - Dùng CApath (App\Support\CaStore): nạp bundle đầy đủ ~120 CA tốn
+     *    ~300ms mỗi lần bắt tay TLS. Lỗi xác thực => thử lại hop đó với bundle mặc định.
+     *
+     * @return array{0: ?string, 1: int, 2: int, 3: string, 4: int} [url, http, errno, error, redirects]
+     */
+    private function follow(string $url): array
+    {
+        $caOptions = \App\Support\CaStore::curlOptions();
+        $useSmallCa = $caOptions !== [];
+        $httpCode = 0;
+        $errno = 0;
+        $error = '';
+
+        for ($hop = 0; $hop <= self::MAX_REDIRS; $hop++) {
+            $ch = curl_init($url);
+
+            $options = [
+                // Trang đích 2xx: ngắt ngay sau header, không tải HTML.
+                CURLOPT_WRITEFUNCTION => static function ($handle, string $chunk): int {
+                    $code = (int) curl_getinfo($handle, CURLINFO_RESPONSE_CODE);
+
+                    return ($code >= 200 && $code < 300) ? 0 : strlen($chunk);
+                },
+                CURLOPT_FOLLOWLOCATION => false,
+                CURLOPT_TIMEOUT => self::TIMEOUT,
+                CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT,
+                CURLOPT_USERAGENT => self::USER_AGENT,
+                CURLOPT_HTTPHEADER => ['Accept: text/html,application/xhtml+xml'],
+            ];
+            if ($useSmallCa) {
+                $options += $caOptions;
+            }
+            curl_setopt_array($ch, $options);
+
+            curl_exec($ch);
+
+            $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $errno = curl_errno($ch);
+            $error = curl_error($ch);
+            $location = (string) curl_getinfo($ch, CURLINFO_REDIRECT_URL);
+
+            curl_close($ch);
+
+            if ($useSmallCa && in_array($errno, [60, 77], true)) {
+                Log::warning('[Resolver] CApath failed, falling back to default bundle', [
+                    'host' => parse_url($url, PHP_URL_HOST),
+                    'errno' => $errno,
+                ]);
+                $useSmallCa = false;
+                $hop--;
+
+                continue;
+            }
+
+            $isRedirect = $errno === 0 && $httpCode >= 300 && $httpCode < 400 && $location !== '';
+
+            if (! $isRedirect) {
+                return [$url, $httpCode, $errno, $error, $hop];
+            }
+
+            $url = $location;
+
+            if ($this->isShopeeLanding($url) && $this->isCanonicalProductUrl($url)) {
+                return [$url, $httpCode, 0, '', $hop + 1];
+            }
+        }
+
+        return [null, $httpCode, $errno, 'too many redirects', self::MAX_REDIRS];
+    }
+
     private function expandShortUrl(string $url): ?string
     {
         if (! preg_match('/^https?:\/\//i', $url)) {
@@ -183,34 +258,7 @@ class UrlResolverService
 
             $attemptStart = config('app.affiliate_timing') ? microtime(true) : null;
 
-            $ch = curl_init($url);
-
-            curl_setopt_array($ch, [
-                // Chỉ cần URL cuối cùng: bỏ phần thân của trang đích ngay khi nhận được 2xx
-                // (không tải HTML nặng của Shopee). Thân của các response 3xx vẫn đọc bình thường.
-                CURLOPT_WRITEFUNCTION => static function ($handle, string $chunk): int {
-                    $code = (int) curl_getinfo($handle, CURLINFO_RESPONSE_CODE);
-
-                    return ($code >= 200 && $code < 300) ? 0 : strlen($chunk);
-                },
-                CURLOPT_FOLLOWLOCATION => true,
-                CURLOPT_MAXREDIRS => self::MAX_REDIRS,
-                CURLOPT_TIMEOUT => self::TIMEOUT,
-                CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT,
-                CURLOPT_USERAGENT => self::USER_AGENT,
-                CURLOPT_HTTPHEADER => ['Accept: text/html,application/xhtml+xml'],
-                CURLOPT_NOBODY => false,
-            ]);
-
-            curl_exec($ch);
-
-            $finalUrl = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $errno = curl_errno($ch);
-            $error = curl_error($ch);
-            $redirects = curl_getinfo($ch, CURLINFO_REDIRECT_COUNT);
-
-            curl_close($ch);
+            [$finalUrl, $httpCode, $errno, $error, $redirects] = $this->follow($url);
 
             $elapsed = $attemptStart !== null
                 ? (int) ((microtime(true) - $attemptStart) * 1000)

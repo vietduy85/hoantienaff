@@ -5,6 +5,7 @@ namespace App\Services\TikTok;
 use App\Models\LinkRequest;
 use App\Models\User;
 use App\Services\TikTok\DTOs\TikTokProductDTO;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -76,7 +77,7 @@ class TikTokLinkEstimateService
         }
 
         $linkId = $link->id;
-        dispatch(function () use ($linkId, $productId): void {
+        \App\Support\LinkEnrichment::dispatch(static function () use ($linkId, $productId): void {
             try {
                 app(self::class)->enrichProduct($linkId, (string) $productId);
             } catch (\Throwable $e) {
@@ -85,7 +86,7 @@ class TikTokLinkEstimateService
                     'error' => $e->getMessage(),
                 ]);
             }
-        })->afterResponse();
+        });
     }
 
     /** Lấy thông tin sản phẩm + ước tính hoàn tiền cho link TikTok đã tạo (best-effort). */
@@ -99,7 +100,26 @@ class TikTokLinkEstimateService
     }
 
     /** @return array<string,mixed> các cột cần cập nhật (rỗng nếu không lấy được) */
+    /** Cache theo product_id: nhiều người tạo link cùng sản phẩm không phải gọi lại RioHub. */
+    private const PRODUCT_CACHE_TTL = 3600;
+
     private function productUpdate(string $productId): array
+    {
+        $cacheKey = 'tiktok:product-estimate:v1:'.$productId;
+        $cached = Cache::get($cacheKey);
+        if (is_array($cached) && $cached !== []) {
+            return $cached;
+        }
+
+        $update = $this->fetchProductUpdate($productId);
+        if ($update !== []) {
+            Cache::put($cacheKey, $update, self::PRODUCT_CACHE_TTL);
+        }
+
+        return $update;
+    }
+
+    private function fetchProductUpdate(string $productId): array
     {
         try {
             $product = $this->productService->getProduct($productId);

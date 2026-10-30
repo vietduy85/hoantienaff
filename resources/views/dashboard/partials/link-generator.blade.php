@@ -8,6 +8,8 @@
         copied: false,
         fastMode: false,
         pollTimer: null,
+        // Đã có link, đang chờ thông tin sản phẩm / tiền hoàn ước tính (chạy nền).
+        enriching: false,
         lastSubmittedUrl: '',
         autoGenerateTimer: null,
         _csrfToken: '',
@@ -244,6 +246,7 @@
         },
 
         stopPolling() {
+            this.enriching = false;
             if (this.pollTimer) {
                 clearTimeout(this.pollTimer);
                 this.pollTimer = null;
@@ -253,6 +256,7 @@
 
         startPolling() {
             this.stopPolling();
+            this.enriching = true;
             this._pollStartTime = Date.now();
 
             const poll = () => {
@@ -430,7 +434,7 @@
             <template x-if="loading">
                 <span class="inline-block w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
             </template>
-            <span x-text="loading ? 'Đang xử lý...' : 'Tạo Link Ngay'"></span>
+            <span x-text="loading ? (/tiktok\.com/i.test(url) ? 'Đang tạo link TikTok (~2 giây)...' : 'Đang xử lý...') : 'Tạo Link Ngay'"></span>
         </button>
     </div>
 
@@ -460,7 +464,8 @@
                     <p class="text-3xl font-bold text-emerald-600 leading-tight">
                         <span x-show="result.platform === 'ShopeeFood'" x-cloak class="text-lg font-medium text-emerald-600">Lên đến 4% tổng bill</span>
                         <span x-show="result.platform !== 'ShopeeFood' && result.user_estimated_cashback != null && result.user_estimated_cashback > 0" x-text="'≈ ' + Number(result.user_estimated_cashback).toLocaleString('vi-VN') + 'đ'"></span>
-                        <span x-show="result.platform !== 'ShopeeFood' && !(result.user_estimated_cashback != null && result.user_estimated_cashback > 0)" class="text-lg font-medium text-gray-400">Chưa ước lượng được</span>
+                        <span x-show="enriching && result.platform !== 'ShopeeFood' && !(result.user_estimated_cashback != null && result.user_estimated_cashback > 0)" class="inline-flex items-center gap-2 text-lg font-medium text-gray-400"><span class="inline-block w-4 h-4 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin"></span>Đang tính tiền hoàn...</span>
+                        <span x-show="!enriching && result.platform !== 'ShopeeFood' && !(result.user_estimated_cashback != null && result.user_estimated_cashback > 0)" class="text-lg font-medium text-gray-400">Chưa ước lượng được</span>
                     </p>
                     <p x-show="result.platform === 'Lazada' && result.estimated_cashback != null && result.estimated_cashback > 0" class="text-[11px] text-gray-400 mt-1">
                         Hoa hồng đối tác ≈ <span x-text="Number(result.estimated_cashback).toLocaleString('vi-VN')"></span>đ
@@ -468,7 +473,7 @@
                     <p x-show="result.platform === 'AccessTrade' && result.estimated_cashback != null && result.estimated_cashback > 0" class="text-[11px] text-gray-400 mt-1">
                         Hoa hồng ước tính ≈ <span x-text="Number(result.estimated_cashback).toLocaleString('vi-VN')"></span>đ — tính theo tỷ lệ hoa hồng chiến dịch, AccessTrade chốt khi đối soát.
                     </p>
-                    <p x-show="result.platform !== 'ShopeeFood' && !(result.user_estimated_cashback != null && result.user_estimated_cashback > 0)" class="text-[11px] text-gray-400 mt-1">
+                    <p x-show="!enriching && result.platform !== 'ShopeeFood' && !(result.user_estimated_cashback != null && result.user_estimated_cashback > 0)" class="text-[11px] text-gray-400 mt-1">
                         Tiền hoàn sẽ được cộng vào ví khi đơn hàng hoàn tất và đáp ứng điều kiện hoàn tiền.
                     </p>
                 </div>

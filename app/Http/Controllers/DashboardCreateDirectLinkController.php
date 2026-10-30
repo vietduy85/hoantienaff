@@ -20,6 +20,7 @@ use App\Services\TikTok\TikTokLinkEstimateService;
 use App\Services\TikTok\TikTokServiceException;
 use App\Services\Url\PlatformResolver;
 use App\Services\UrlResolverService;
+use App\Support\LinkEnrichment;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -239,7 +240,7 @@ class DashboardCreateDirectLinkController extends Controller
                 }
             } elseif ($target->isLazada()) {
                 try {
-                    $this->lazadaLinkEstimate->create($link, $validated['original_url'], $user, $fastMode);
+                    $this->lazadaLinkEstimate->create($link, $validated['original_url'], $user, $fastMode, true);
                 } catch (LazadaException $e) {
                     $link->update([
                         'status' => 'failed',
@@ -442,7 +443,7 @@ class DashboardCreateDirectLinkController extends Controller
 
     private function dispatchProductDataRefresh(int $linkId, string $resolvedUrl, ?int $itemId, string $platform): void
     {
-        dispatch(function () use ($linkId, $resolvedUrl, $itemId, $platform) {
+        LinkEnrichment::dispatch(static function () use ($linkId, $resolvedUrl, $itemId, $platform) {
             try {
                 if (config('app.affiliate_timing')) {
                     Log::info('[CACHE] ProductData URL', [
@@ -562,7 +563,7 @@ class DashboardCreateDirectLinkController extends Controller
                     'error' => $e->getMessage(),
                 ]);
             }
-        })->afterResponse();
+        });
     }
 
     /**

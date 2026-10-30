@@ -96,6 +96,16 @@ class LazadaProductService
      *
      * @return array{name: ?string, image: ?string, price: ?float, currency: ?string, rate: ?float, amount: ?float}
      */
+    /**
+     * Feed sản phẩm cho link đã tạo (dùng bởi worker khi tách khỏi getlink).
+     *
+     * @return array{name: ?string, image: ?string, price: ?float, currency: ?string, rate: ?float, amount: ?float}
+     */
+    public function productDetails(?string $productId): array
+    {
+        return $this->fetchProductDetails($productId);
+    }
+
     private function fetchProductDetails(?string $productId): array
     {
         $empty = ['name' => null, 'image' => null, 'price' => null, 'currency' => null, 'rate' => null, 'amount' => null];

@@ -71,4 +71,51 @@ class ShopeeLinkIndependentTasksTest extends TestCase
         $this->postJson("/link-requests", ["original_url" => "https://www.lazada.vn/products/x-i123-s456.html", "fast_mode" => 1])
             ->assertJsonPath("fast_mode", true);
     }
+
+    public function test_product_info_is_queued_on_link_enrich_when_queue_mode_is_on(): void
+    {
+        config(["app.link_enrich_via_queue" => true]);
+        \Illuminate\Support\Facades\Queue::fake();
+
+        $this->actingAs(User::factory()->create(["username" => "queued"]))
+            ->postJson("/link-requests", ["original_url" => self::URL])
+            ->assertJsonPath("status", "completed");
+
+        \Illuminate\Support\Facades\Queue::assertPushedOn(\App\Support\LinkEnrichment::QUEUE, \Illuminate\Queue\CallQueuedClosure::class);
+    }
+
+    public function test_queued_closure_runs_and_fills_product_info(): void
+    {
+        config(["app.link_enrich_via_queue" => true]);
+        $this->mock(ProductDataService::class, function ($mock) {
+            $mock->shouldReceive("getByUrl")->andReturn(["success" => false]);
+        });
+
+        // QUEUE_CONNECTION=sync trong test: closure được serialize + chạy ngay như worker thật.
+        $this->actingAs(User::factory()->create(["username" => "queued2"]))
+            ->postJson("/link-requests", ["original_url" => self::URL])
+            ->assertJsonPath("status", "completed");
+    }
+
+    public function test_lazada_returns_link_after_getlink_only_and_queues_product_feed(): void
+    {
+        config(["app.link_enrich_via_queue" => true]);
+        \Illuminate\Support\Facades\Queue::fake();
+
+        $this->mock(\App\Services\Lazada\LazadaProductService::class, function ($mock) {
+            $mock->shouldReceive("createLink")->once()
+                ->withArgs(fn ($url, $s1, $s2, $withDetails) => $withDetails === false)
+                ->andReturn(new \App\Services\Lazada\DTOs\LazadaProductLinkDTO(
+                    productId: "123", productName: "X", productImage: null, productPrice: null,
+                    currency: null, commissionRatePct: 5.0, commissionAmount: null, affiliateUrl: "https://c.lazada.vn/t/abc",
+                ));
+        });
+
+        $this->actingAs(User::factory()->create(["username" => "lzq"]))
+            ->postJson("/link-requests", ["original_url" => "https://www.lazada.vn/products/x-i123-s456.html"])
+            ->assertJsonPath("affiliate_url", "https://c.lazada.vn/t/abc")
+            ->assertJsonPath("product_name", null);
+
+        \Illuminate\Support\Facades\Queue::assertPushedOn(\App\Support\LinkEnrichment::QUEUE, \Illuminate\Queue\CallQueuedClosure::class);
+    }
 }

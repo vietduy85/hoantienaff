@@ -125,6 +125,9 @@ return [
 
     'affiliate_timing' => filter_var(env('AFFILIATE_TIMING', false), FILTER_VALIDATE_BOOLEAN),
 
+    // Lấy thông tin sản phẩm sau khi tạo link qua queue `link-enrich` (cần worker chạy) thay vì afterResponse.
+    'link_enrich_via_queue' => filter_var(env('LINK_ENRICH_VIA_QUEUE', false), FILTER_VALIDATE_BOOLEAN),
+
     // TEMPORARY controlled-test flag for T2 V2 CSRF self-recovery proof.
     // Remove together with the test controller + route in Phase 8.
     't2_test_enabled' => filter_var(env('T2_TEST_ENABLED', false), FILTER_VALIDATE_BOOLEAN),

@@ -259,6 +259,7 @@ class TikTokLinkEstimateServiceTest extends TestCase
 
         foreach ($cases as $case) {
             $link = $this->link();
+            \Illuminate\Support\Facades\Cache::flush(); // mỗi case là một bảng giá khác cho cùng product_id
             $this->service->create($link, 'https://tiktok.com/item/pid', $this->user());
 
             $order = TikTokOrder::fromArray([
@@ -310,10 +311,26 @@ class TikTokLinkEstimateServiceTest extends TestCase
 
         foreach ($cases as $case) {
             $link = $this->link();
+            \Illuminate\Support\Facades\Cache::flush();
             $this->service->create($link, 'https://tiktok.com/item/pid', $this->user());
 
             $this->assertEquals($case['tier'], (float) $link->cashback_rate);
             $this->assertEquals($case['user'], (float) $link->user_estimated_cashback);
         }
+    }
+
+    public function test_product_info_is_cached_per_product_id(): void
+    {
+        $this->stubAffiliateLink('https://riohub.vn/aff/l', 'pid-cache');
+        $this->productService->expects($this->once())->method('getProduct')
+            ->willReturn($this->product('pid-cache', 100000, 1000));
+
+        $first = $this->link();
+        $this->service->create($first, 'https://tiktok.com/item/pid-cache', $this->user());
+        $second = $this->link();
+        $this->service->create($second, 'https://tiktok.com/item/pid-cache', $this->user());
+
+        $this->assertEquals($first->estimated_cashback, $second->estimated_cashback);
+        $this->assertNotNull($second->product_name);
     }
 }

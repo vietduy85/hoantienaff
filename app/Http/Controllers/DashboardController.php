@@ -173,7 +173,21 @@ class DashboardController extends Controller
 
         // Xem trước (tên quán/ảnh) là việc độc lập: lỗi không ảnh hưởng link đã tạo.
         // Chế độ nhanh: bỏ hẳn.
-        if (! $fastMode) {
+        // Có worker queue: chạy trong worker để user nhận link ngay; chưa có thì chạy tại chỗ như cũ.
+        if (! $fastMode && \App\Support\LinkEnrichment::viaQueue()) {
+            $linkId = $link->id;
+            \App\Support\LinkEnrichment::dispatch(static function () use ($linkId, $originalUrl, $restaurantId): void {
+                $fresh = LinkRequest::find($linkId);
+                if ($fresh === null) {
+                    return;
+                }
+                try {
+                    app(\App\Services\ShopeeFood\ShopeeFoodPreviewService::class)->preview($fresh, $originalUrl, $restaurantId);
+                } catch (\Throwable $e) {
+                    Log::warning('[ShopeeFood] preview failed (best-effort)', ['link_request_id' => $linkId, 'error' => $e->getMessage()]);
+                }
+            });
+        } elseif (! $fastMode) {
             try {
                 $this->shopeeFoodPreview->preview($link, $originalUrl, $restaurantId);
             } catch (\Throwable $e) {

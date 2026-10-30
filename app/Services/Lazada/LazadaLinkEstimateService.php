@@ -4,6 +4,7 @@ namespace App\Services\Lazada;
 
 use App\Models\LinkRequest;
 use App\Models\User;
+use App\Support\LinkEnrichment;
 
 /**
  * Phase Lazada 1 orchestration: Lazada product URL → getlink affiliate link →
@@ -30,15 +31,18 @@ class LazadaLinkEstimateService
      * API error, credentials missing) so the caller can mark the request failed
      * and show a friendly error.
      */
-    public function create(LinkRequest $link, string $url, User $user, bool $fast = false): void
+    public function create(LinkRequest $link, string $url, User $user, bool $fast = false, bool $deferProduct = false): void
     {
         $this->urlParser->assertLazadaUrl($url);
+
+        // Có worker queue: link trả về ngay sau 1 lần gọi getlink; feed sản phẩm chạy trong worker.
+        $defer = ! $fast && $deferProduct && LinkEnrichment::viaQueue();
 
         $dto = $this->productService->createLink(
             $url,
             (string) $user->id,
             (string) $user->username,
-            ! $fast,
+            ! $fast && ! $defer,
         );
 
         $update = [
@@ -61,24 +65,59 @@ class LazadaLinkEstimateService
             return;
         }
 
-        if (($name = $dto->getProductName()) !== null && $name !== '') {
+        if ($defer) {
+            $link->update($update);
+
+            $linkId = $link->id;
+            $fallbackName = $dto->getProductName();
+            $listedRate = $dto->getCommissionRatePct();
+            LinkEnrichment::dispatch(static function () use ($linkId, $productId, $fallbackName, $listedRate): void {
+                app(self::class)->enrichProduct($linkId, $productId, $fallbackName, $listedRate);
+            });
+
+            return;
+        }
+
+        $this->applyProduct($update, $dto->getProductName(), $dto->getProductImage(), $dto->getProductPrice(),
+            $dto->getCommissionRatePct(), $dto->getCommissionAmount());
+
+        $link->update($update);
+    }
+
+    /** Feed sản phẩm (tên/ảnh/giá/hoa hồng) cho link Lazada đã tạo — chạy trong worker, best-effort. */
+    public function enrichProduct(int $linkId, ?string $productId, ?string $fallbackName, ?float $listedRate): void
+    {
+        $details = $this->productService->productDetails($productId);
+
+        $update = [];
+        $this->applyProduct($update, $details['name'] ?? $fallbackName, $details['image'], $details['price'],
+            $listedRate ?? $details['rate'], $details['amount']);
+
+        // Luôn ghi product_name (kể cả tên dự phòng) để UI ngừng chờ.
+        $update['product_name'] ??= $fallbackName ?? 'Sản phẩm Lazada';
+
+        LinkRequest::where('id', $linkId)->update($update);
+    }
+
+    /** @param array<string, mixed> $update */
+    private function applyProduct(array &$update, ?string $name, ?string $image, ?float $price, ?float $rate, ?float $amount): void
+    {
+        if ($name !== null && $name !== '') {
             $update['product_name'] = $name;
         }
 
-        if (($image = $dto->getProductImage()) !== null && $image !== '') {
+        if ($image !== null && $image !== '') {
             $update['product_image'] = $image;
         }
 
-        if (($price = $dto->getProductPrice()) !== null && $price > 0) {
+        if ($price !== null && $price > 0) {
             $update['product_price'] = (int) round($price);
         }
 
-        $rate = $dto->getCommissionRatePct();
         if ($rate !== null && $rate > 0) {
             $update['cashback_rate'] = $rate;
         }
 
-        $amount = $dto->getCommissionAmount();
         if ($amount !== null && $amount > 0) {
             $update['estimated_cashback'] = $amount;
 
@@ -87,14 +126,12 @@ class LazadaLinkEstimateService
             // >= 0.52 -> 70% | >= 0.12 -> 60% | otherwise 50%, no 10% cut.
             $cashback = $this->cashbackCalculator->calculate(
                 (float) $amount,
-                (float) ($dto->getProductPrice() ?? 0.0),
+                (float) ($price ?? 0.0),
                 false,
             );
 
             $update['cashback_rate']           = $cashback['cashback_rate'];
             $update['user_estimated_cashback'] = $cashback['cashback_amount'];
         }
-
-        $link->update($update);
     }
 }

@@ -30,6 +30,7 @@ use App\View\Composers\PendingWithdrawBadgeComposer;
 use App\View\Composers\ShopeeFashionBadgeComposer;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\View;
@@ -97,6 +98,11 @@ class AppServiceProvider extends ServiceProvider
     {
         if (! $this->app->isLocal()) {
             URL::forceScheme('https');
+        }
+
+        // Mọi request HTTPS ra ngoài dùng CApath: TLS ~40-70ms thay vì ~400ms (xem App\Support\CaStore).
+        if ($caOptions = \App\Support\CaStore::guzzleOptions()) {
+            Http::globalOptions($caOptions);
         }
 
         $this->registerCreditCardApiRateLimiter();
