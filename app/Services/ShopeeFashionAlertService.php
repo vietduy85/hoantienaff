@@ -56,6 +56,9 @@ class ShopeeFashionAlertService
     /** Tỷ lệ hoa hồng Shopee của danh mục thời trang (%). */
     public const FASHION_COMMISSION_RATE = 7.0;
 
+    /** Chỉ cảnh báo đơn có giá trị lớn hơn mức này (đồng). */
+    public const MIN_ORDER_AMOUNT = 150000;
+
     /** Nền sàn đủ điều kiện: đơn phát sinh từ 25/10/2026 (giờ VN), bao gồm. */
     public const WINDOW_START = '2026-10-25 00:00:00';
 
@@ -73,6 +76,7 @@ class ShopeeFashionAlertService
             ->where('user_id', $user->id)
             ->where('shopee_commission_rate', self::FASHION_COMMISSION_RATE)
             ->whereNotNull('order_id')
+            ->where('order_amount', '>', self::MIN_ORDER_AMOUNT)
             ->where('ordered_at', '>=', self::WINDOW_START);
     }
 

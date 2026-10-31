@@ -39,7 +39,6 @@
                         <button type="submit" class="inline-flex items-center px-3 py-2 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200">Kiểm tra cookie</button>
                     </form>
                 </div>
-                <p class="text-xs text-gray-500">Hỗ trợ file JSON dạng mảng cookie (name/value) hoặc object. Cookie được mã hóa khi lưu, không hiển thị trên giao diện.</p>
             </div>
         </div>
 
@@ -169,12 +168,6 @@
         {{-- Form --}}
         <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
             <h3 class="font-semibold text-gray-800 mb-1">Đồng bộ từ RioHub, Lazada, ShopeeFood &amp; AddLiveTag API (Shopee)</h3>
-            <p class="text-sm text-gray-500 mb-4">
-                Một nút đồng bộ chạy lần lượt TikTok (RioHub), Lazada (conversion report),
-                ShopeeFood (addlivetag) rồi Shopee (AddLiveTag API). Cả bốn đều ghi đơn &amp; ví ở chế độ
-                <strong>REAL</strong> — đồng bộ lặp lại không nhân đôi cashback
-                (idempotent). Kết quả từng nền tảng hiển thị riêng.
-            </p>
             <div class="bg-gray-50 border border-gray-100 rounded-xl px-3 py-2 mb-2 text-sm text-gray-600">
                 <div>
                     <span class="font-medium text-gray-700">Lần đồng bộ TikTok gần nhất:</span>
@@ -699,7 +692,7 @@
                 <p class="text-sm text-gray-500">Chưa có đơn TikTok / Lazada / ShopeeFood / Shopee nào được đồng bộ.</p>
             @else
                 <div class="overflow-x-auto">
-                    <table class="w-full text-sm min-w-[1100px]">
+                    <table class="w-full text-sm min-w-[1250px]">
                         <colgroup>
                             <col style="width: 12%;">
                             <col style="width: 10%;">
@@ -711,6 +704,7 @@
                             <col style="width: 9%;">
                             <col style="width: 8%;">
                             <col style="width: 14%;">
+                            <col style="width: 9%;">
                         </colgroup>
                         <thead class="text-left text-xs text-gray-400 uppercase tracking-wide">
                             <tr>
@@ -719,6 +713,7 @@
                                 <th class="py-2 pr-4 font-normal">Nền tảng</th>
                                 <th class="py-2 pr-4 font-normal">Ngày đặt hàng</th>
                                 <th class="py-2 pr-4 font-normal">Sản phẩm</th>
+                                <th class="py-2 pr-4 text-right font-normal">Giá trị đơn</th>
                                 <th class="py-2 pr-4 text-right font-normal">Hoa hồng sàn (%)</th>
                                 <th class="py-2 pr-4 text-right font-normal">Hoa hồng người bán (%)</th>
                                 <th class="py-2 pr-4 text-right font-normal">Tổng hoa hồng (%)</th>
@@ -820,6 +815,7 @@
                                         @endif
                                     </td>
                                     <td class="py-2 pr-4 align-top text-xs" style="white-space: normal; overflow-wrap: anywhere; word-break: break-word; min-width: 200px;" title="{{ $itemName }}">{{ $short }}</td>
+                                    <td class="py-2 pr-4 align-top text-right font-mono text-xs whitespace-nowrap">{{ number_format((float) $order->order_amount, 0, ',', '.') }} đ</td>
                                     <td class="py-2 pr-4 align-top text-right font-mono text-xs break-words">{{ $shopeeRateDisplay }}</td>
                                     <td class="py-2 pr-4 align-top text-right font-mono text-xs break-words">{{ $sellerRateDisplay }}</td>
                                     <td class="py-2 pr-4 align-top text-right font-mono text-xs break-words">{{ $totalRateDisplay }}</td>

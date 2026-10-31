@@ -340,6 +340,24 @@
             cursor: pointer;
         }
 
+        /* Mobile: thu gọn để nút Google không bị thanh địa chỉ Safari che */
+        @media (max-width: 479px) {
+            body { align-items: flex-start; padding-top: calc(12px + env(safe-area-inset-top, 0px)); padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
+            .login-card { padding: 24px 20px 24px; }
+            .brand { margin-bottom: 20px; }
+            .brand-logo { width: 62px; height: 62px; }
+            .brand-name { margin-top: 10px; font-size: 30px; }
+            .brand-slogan { margin-top: 5px; font-size: 14px; }
+            .login-title { font-size: 22px; }
+            .login-sub { margin-top: 6px; }
+            .form { margin-top: 18px; }
+            .field { margin-bottom: 14px; }
+            .field label { margin-bottom: 6px; }
+            .input, .btn-primary, .btn-google { height: 49px; }
+            .row-between { margin: 4px 0 16px; }
+            .divider { margin: 18px 0 14px; }
+        }
+
         @media (min-width: 480px) {
             .login-card { padding: 36px 32px 32px; }
             .login-title { font-size: 28px; }

@@ -39,7 +39,32 @@ class DashboardController extends Controller
             ->limit(5)
             ->get();
 
+        $wallet = app(\App\Services\WalletService::class);
+
+        $walletPending = (float) \App\Models\AffiliateOrderItem::query()
+            ->where('user_id', $user->id)
+            ->whereIn('affiliate_status', ['Đang chờ xử lý', 'Đang xử lý'])
+            ->sum('cashback_amount');
+
+        $recentOrders = \App\Models\AffiliateOrderItem::query()
+            ->where('user_id', $user->id)
+            ->select([
+                'order_id',
+                'platform',
+                \Illuminate\Support\Facades\DB::raw('MAX(shop_name) as shop_name'),
+                \Illuminate\Support\Facades\DB::raw('MAX(ordered_at) as ordered_at'),
+                \Illuminate\Support\Facades\DB::raw('MAX(affiliate_status) as affiliate_status'),
+                \Illuminate\Support\Facades\DB::raw('SUM(cashback_amount) as total_cashback'),
+            ])
+            ->groupBy('order_id', 'platform')
+            ->orderByRaw('MAX(ordered_at) DESC')
+            ->limit(5)
+            ->get();
+
         return view('dashboard', [
+            'walletAvailable' => $wallet->getAvailableBalance($user),
+            'walletPending' => $walletPending,
+            'recentOrders' => $recentOrders,
             'pinnedLinks' => $pinnedLinks,
             'recentLinks' => $recentLinks,
             'shopeeFashionAlert' => $this->shopeeFashionAlert($user),

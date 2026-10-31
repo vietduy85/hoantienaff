@@ -12,7 +12,7 @@
         "standalone"
     ],
     "orientation": "portrait",
-    "theme_color": "#FF6A00",
+    "theme_color": "#FFFFFF",
     "background_color": "#FFFFFF",
     "categories": ["shopping", "finance"],
     "icons": [

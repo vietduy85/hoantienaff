@@ -25,7 +25,7 @@
     @endif
 
     <div x-data="{
-            showWithdraw: false,
+            showWithdraw: {{ (request()->boolean('rut') && $hasBankInfo) ? 'true' : 'false' }},
             loading: false,
             rawAmount: '',
             minWithdraw: 10000,
@@ -48,6 +48,8 @@
          }">
 
         <div class="py-6 px-4 max-w-lg mx-auto space-y-4">
+        <x-wallet-tabs />
+
 
         {{-- Card 1: Số dư khả dụng --}}
         <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4">

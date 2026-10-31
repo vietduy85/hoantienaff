@@ -1262,6 +1262,18 @@ return [
         'source_doc' => 'vpbank_s_rewards',
         'source_page' => 'Bảng 1 & Bảng 2 (phụ đính)',
         'rows' => [
+            // Bổ sung 2026-10-31: dòng Shopee trước đây thiếu bậc hoàn tiền dù ghi chú
+            // hồ sơ (cùng tài liệu) nêu rõ 12% Shopee/ShopeeFood ở Bậc 2.
+            'Mua sắm online - Shopee, ShopeeFood' => [
+                [
+                    'pct' => 12,
+                    'min' => 5000000,
+                    'cap' => 2400000,
+                    'cap_period' => 'kỳ TBGD',
+                    'cap_unit' => 'điểm',
+                    'cond' => 'Bậc 2: tổng chi tiêu kỳ TBGD ≥ 5.000.000đ; 12% chi tiêu Shopee/ShopeeFood (xác định theo MID, không theo MCC); trần chung 2.400.000 điểm/kỳ TBGD cho nhóm 12% + 4%',
+                ],
+            ],
             'Ăn uống' => [
                 [
                     'pct' => 4,

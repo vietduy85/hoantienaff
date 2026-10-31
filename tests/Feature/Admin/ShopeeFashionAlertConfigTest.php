@@ -50,6 +50,7 @@ class ShopeeFashionAlertConfigTest extends TestCase
             'user_id' => $user->id,
             'platform' => 'Shopee',
             'shopee_commission_rate' => ShopeeFashionAlertService::FASHION_COMMISSION_RATE,
+            'order_amount' => 200000,
             'ordered_at' => self::OCT_DATE,
             'order_id' => 'ORD'.fake()->unique()->numerify('#######'),
             'item_id' => (string) fake()->unique()->numerify('##########'),

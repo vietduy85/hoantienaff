@@ -24,7 +24,7 @@ class ShopeeOrderCommissionRateFillerTest extends TestCase
     public function test_cache_rate_matching_actual_commission_is_exact_and_fashion_alert_fires(): void
     {
         $user = User::factory()->create();
-        $order = $this->order($user, ['total_order_commission' => 11000]); // 11% of 100k
+        $order = $this->order($user, ['order_amount' => 200000, 'total_order_commission' => 22000]); // 11% of 100k
         $this->cache($order->item_id, 0.07, 0.04);
 
         $result = app(ShopeeOrderCommissionRateFiller::class)->fill();
@@ -41,7 +41,7 @@ class ShopeeOrderCommissionRateFillerTest extends TestCase
     public function test_listed_rate_above_actual_is_estimate_but_still_triggers_alert(): void
     {
         $user = User::factory()->create();
-        $order = $this->order($user, ['total_order_commission' => 9000]); // actual 9%
+        $order = $this->order($user, ['order_amount' => 200000, 'total_order_commission' => 18000]); // actual 9%
         $this->cache($order->item_id, 0.07, 0.05);                          // listed 12%
 
         app(ShopeeOrderCommissionRateFiller::class)->fill();

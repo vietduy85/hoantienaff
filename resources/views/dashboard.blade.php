@@ -10,13 +10,18 @@
 
             @include('dashboard.partials.link-generator')
 
-            @include('dashboard.partials.pinned-links', [
-                'links' => $pinnedLinks
-            ])
+            {{-- Tạm ẩn để dời sang mục khác: Link ghim + Link hoàn tiền gần đây.
+            @include('dashboard.partials.pinned-links', ['links' => $pinnedLinks])
+            @include('dashboard.partials.recent-links', ['links' => $recentLinks])
+            --}}
 
-            @include('dashboard.partials.recent-links', [
-                'links' => $recentLinks
-            ])
+            @include('dashboard.partials.credit-card-tip')
+
+            @include('dashboard.partials.wallet-summary')
+
+            @include('dashboard.partials.recent-orders')
+
+            @include('dashboard.partials.guide-section')
 
         </div>
     </div>

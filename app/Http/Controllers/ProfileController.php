@@ -41,7 +41,9 @@ class ProfileController extends Controller
 
         $request->user()->save();
 
-        return Redirect::route('profile.edit')->with('status', 'profile-updated');
+        $status = $request->input('section') === ProfileUpdateRequest::SECTION_BANK ? 'bank-updated' : 'profile-updated';
+
+        return Redirect::route('profile.edit')->with('status', $status);
     }
 
     /**

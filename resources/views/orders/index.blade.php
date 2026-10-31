@@ -13,6 +13,8 @@
     </x-slot>
 
     <div class="py-6 px-4 max-w-lg mx-auto space-y-4">
+        <x-wallet-tabs />
+
         {{-- Search --}}
         <form method="GET" action="{{ route('orders.index') }}" class="space-y-3">
             <div class="relative">

@@ -367,7 +367,7 @@ class PortfolioOptimizerService
             'max_desired_cards' => $this->activeMaxCards,
             'best_cashback' => Decimal::money(number_format($bestCashback, 2, '.', '')),
             'plans' => $rendered,
-            'notes' => $this->planNotes($candidates, $positiveMap, $amounts, $distinct),
+            'notes' => $this->planNotes($candidates, $positiveMap, $amounts, $distinct, $categoryNames),
             'timed_out' => $this->computationTimedOut,
             'computation_time_seconds' => (float) number_format($elapsedSeconds, 2, '.', ''),
             'computation_time_label' => $this->formatDuration($elapsedSeconds),
@@ -4087,7 +4087,7 @@ class PortfolioOptimizerService
      * @param  array<int, array<string, mixed>>  $plans
      * @return list<string>
      */
-    private function planNotes(array $candidates, array $positiveMap, array $amounts, array $plans): array
+    private function planNotes(array $candidates, array $positiveMap, array $amounts, array $plans, array $categoryNames = []): array
     {
         $notes = [];
 
@@ -4103,10 +4103,18 @@ class PortfolioOptimizerService
             }
         }
 
+        // Gộp thành MỘT ghi chú có tên danh mục — trước đây lặp một câu chung cho
+        // mỗi danh mục nên người dùng không biết danh mục nào bị bỏ trống.
+        $uncovered = [];
+
         foreach ($amounts as $categoryId => $amount) {
-            if (! isset($covered[(int) $categoryId])) {
-                $notes[] = 'Danh mục chưa có thẻ hoàn tiền trong các phương án đã chọn.';
+            if ((int) $amount > 0 && ! isset($covered[(int) $categoryId])) {
+                $uncovered[] = $categoryNames[(int) $categoryId] ?? ('#'.$categoryId);
             }
+        }
+
+        if ($uncovered !== []) {
+            $notes[] = 'Danh mục chưa có thẻ hoàn tiền trong các phương án đã chọn: '.implode(', ', $uncovered).'.';
         }
 
         // Cảnh báo khi phương án dùng nhiều thẻ CÙNG một sản phẩm: mô hình chính

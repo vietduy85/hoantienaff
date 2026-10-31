@@ -743,7 +743,7 @@ class CreditCardModuleTest extends TestCase
         $this->assertStringContainsString('href="'.route('credit-cards.index').'"', $html);
 
         // Menu hiện tại không bị mất
-        foreach (['Trang chủ', 'So sánh giá', 'Tin tức KM', 'Dashboard'] as $item) {
+        foreach (['Hoàn tiền', 'Đơn &amp; Ví', 'So sánh giá', 'Tin tức KM'] as $item) {
             $this->assertStringContainsString($item, $html, "Thiếu menu hiện tại: {$item}");
         }
     }
@@ -771,8 +771,7 @@ class CreditCardModuleTest extends TestCase
         $html = $this->actingAs($user)->get('/thetindung')->assertOk()->getContent();
 
         // Header/navigation hiện tại vẫn được tái sử dụng nguyên vẹn
-        $this->assertStringContainsString('Trang chủ', $html);
-        $this->assertStringContainsString('Dashboard', $html);
+        $this->assertStringContainsString('Hoàn tiền', $html);
         $this->assertStringContainsString('Tài khoản', $html);
         $this->assertStringContainsString('Ví tiền', $html);
         $this->assertStringContainsString('Tra cứu đơn hàng', $html);

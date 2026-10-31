@@ -27,6 +27,7 @@ class ShopeeFashionAlertTest extends TestCase
             'user_id' => $user->id,
             'platform' => 'Shopee',
             'shopee_commission_rate' => ShopeeFashionAlertService::FASHION_COMMISSION_RATE,
+            'order_amount' => 200000,
             'ordered_at' => self::OCT_DATE,
             'order_id' => 'ORD'.fake()->unique()->numerify('#######'),
             'item_id' => (string) fake()->unique()->numerify('##########'),
@@ -254,6 +255,24 @@ class ShopeeFashionAlertTest extends TestCase
     // ---------------------------------------------------------------------
     // Lọc theo nền tảng / tỷ lệ / người dùng
     // ---------------------------------------------------------------------
+
+    public function test_orders_up_to_150k_are_not_alerted(): void
+    {
+        $user = User::factory()->create();
+
+        $this->makeItem($user, ['order_amount' => 150000]);
+        $this->makeItem($user, ['order_amount' => 90000]);
+
+        $this->actingAs($user)->get('/dashboard')
+            ->assertOk()
+            ->assertDontSee('data-testid="shopee-fashion-badge"', false);
+
+        $this->makeItem($user, ['order_amount' => 150001]);
+
+        $this->actingAs($user)->get('/dashboard')
+            ->assertOk()
+            ->assertSee('1 đơn Shopee thời trang', false);
+    }
 
     public function test_non_fashion_and_non_shopee_orders_are_ignored(): void
     {

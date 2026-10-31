@@ -39,6 +39,9 @@
             <main>
                 {{ $slot }}
             </main>
+
+            {{-- Chừa chỗ cho thanh điều hướng dưới trên mobile --}}
+            <div class="sm:hidden" style="height: calc(4rem + env(safe-area-inset-bottom, 0px));" aria-hidden="true"></div>
         </div>
 
         @stack('scripts')

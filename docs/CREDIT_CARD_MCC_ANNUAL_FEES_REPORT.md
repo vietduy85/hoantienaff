@@ -178,3 +178,12 @@ Trường riêng lẻ còn NULL: `#11` ngưỡng miễn (trang BIDV ghi "10–50
 - VIB `vib.com.vn` (trang sản phẩm VIB One Card / VIB Max Card + biểu phí).
 - BIDV `bidv.com.vn` (trang sản phẩm Visa Cashback Online).
 - MB `mbbank.com.vn` (trang sản phẩm JCB Ultimate — biểu phí đính kèm render JS, chưa trích được).
+
+## Cập nhật 2026-10-31
+
+| # | Sản phẩm | Trường | Giá trị | Nguồn |
+|---|---|---|---|---|
+| 28 | HSBC Cash Back | thẻ chính | 880.000 | <https://www.hsbc.com.vn/en-vn/credit-cards/compare/cashback> (thẻ phụ "Free" ⇒ NULL; không có ngưỡng miễn phí năm sau ⇒ NULL) |
+| 29 | VPBank Super Shopee Platinum | — | NULL | Biểu phí VPBank 19/10/2026 là PDF không trích được chữ ⇒ chưa xác minh |
+
+Chi tiết: `docs/CREDIT_CARD_DATA_AND_OPTIMIZER_AUDIT_2026-10-31.md`.

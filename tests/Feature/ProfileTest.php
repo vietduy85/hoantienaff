@@ -154,4 +154,63 @@ class ProfileTest extends TestCase
         $response->assertSessionHasErrors('email');
         $this->assertNull($user->refresh()->email);
     }
+
+    public function test_bank_form_only_updates_bank_fields(): void
+    {
+        $user = User::factory()->create(['name' => 'Giu Nguyen', 'email' => 'keep@example.com', 'phone' => '0900000000']);
+        $bank = config('banks.list')[0];
+
+        $this->actingAs($user)
+            ->patch('/profile', [
+                'section' => 'bank',
+                'bank_name' => $bank,
+                'bank_account_number' => '123456789',
+                'bank_account_name' => 'nguyễn văn a',
+                // Trường ngoài nhóm bị bỏ qua, kể cả khi bị gửi kèm.
+                'name' => '',
+                'email' => 'hacked@example.com',
+                'phone' => '',
+            ])
+            ->assertSessionHasNoErrors()
+            ->assertSessionHas('status', 'bank-updated')
+            ->assertRedirect('/profile');
+
+        $user->refresh();
+        $this->assertSame('NGUYEN VAN A', $user->bank_account_name);
+        $this->assertSame('123456789', $user->bank_account_number);
+        $this->assertSame($bank, $user->bank_name);
+        $this->assertSame('Giu Nguyen', $user->name);
+        $this->assertSame('keep@example.com', $user->email);
+        $this->assertSame('0900000000', $user->phone);
+    }
+
+    public function test_info_form_does_not_touch_bank_fields(): void
+    {
+        $user = User::factory()->create(['bank_account_number' => '999', 'bank_account_name' => 'TRAN B']);
+
+        $this->actingAs($user)
+            ->patch('/profile', [
+                'section' => 'info',
+                'name' => 'Ten Moi',
+                'email' => '',
+                'bank_account_number' => '',
+            ])
+            ->assertSessionHasNoErrors()
+            ->assertSessionHas('status', 'profile-updated');
+
+        $user->refresh();
+        $this->assertSame('Ten Moi', $user->name);
+        $this->assertSame('999', $user->bank_account_number);
+        $this->assertSame('TRAN B', $user->bank_account_name);
+    }
+
+    public function test_profile_page_shows_bank_form_before_info(): void
+    {
+        $html = $this->actingAs(User::factory()->create())->get('/profile')->assertOk()->getContent();
+
+        $bank = strpos($html, 'data-testid="bank-form"');
+        $info = strpos($html, 'data-testid="info-card"');
+        $this->assertNotFalse($bank);
+        $this->assertTrue($bank < $info);
+    }
 }

@@ -48,14 +48,14 @@
      @keydown.escape.window="settingsOpen = false; $refs.settingsTrigger && $refs.settingsTrigger.focus()"
      @resize.window="settingsOpen = false">
 
-    <div class="flex items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+    <div class="flex items-center justify-between gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
          @scroll="settingsOpen = false">
         @foreach ($ccTabsMain as $item)
             @php $isActive = $active === $item['key']; @endphp
             <a href="{{ route($item['route']) }}"
                @if ($isActive) aria-current="page" @endif
-               class="shrink-0 inline-flex items-center gap-1.5 whitespace-nowrap px-3 h-9 rounded-xl text-sm font-medium transition-colors {{ $isActive ? 'bg-emerald-500 text-white shadow-sm' : 'bg-gray-50 text-gray-600 hover:bg-gray-100' }}">
-                <span aria-hidden="true">{{ $item['icon'] }}</span>
+               class="shrink-0 sm:flex-1 flex flex-col items-center justify-center gap-0.5 sm:gap-1 whitespace-nowrap min-w-[4.25rem] px-2.5 py-1.5 sm:py-2.5 rounded-xl text-[11px] sm:text-[15px] font-medium sm:font-semibold transition-colors {{ $isActive ? 'bg-orange-50 text-orange-600' : 'text-gray-500 hover:bg-gray-50' }}">
+                <span aria-hidden="true" class="text-xl sm:text-3xl leading-none">{{ $item['icon'] }}</span>
                 <span>{{ $item['label'] }}</span>
             </a>
         @endforeach
@@ -65,7 +65,7 @@
         <button type="button"
                 x-ref="settingsTrigger"
                 data-testid="cc-settings-trigger"
-                class="shrink-0 inline-flex items-center gap-1.5 whitespace-nowrap px-3 h-9 rounded-xl text-sm font-medium transition-colors {{ $isSettingsActive ? 'bg-emerald-500 text-white shadow-sm' : 'bg-gray-50 text-gray-600 hover:bg-gray-100' }}"
+                class="shrink-0 sm:flex-1 flex flex-col items-center justify-center gap-0.5 sm:gap-1 whitespace-nowrap min-w-[4.25rem] px-2.5 py-1.5 sm:py-2.5 rounded-xl text-[11px] sm:text-[15px] font-medium sm:font-semibold transition-colors {{ $isSettingsActive ? 'bg-orange-50 text-orange-600' : 'text-gray-500 hover:bg-gray-50' }}"
                 @if ($isSettingsActive) data-active="true" @endif
                 aria-haspopup="true"
                 :aria-expanded="settingsOpen ? 'true' : 'false'"
@@ -87,12 +87,8 @@
                         });
                     }
                 ">
-            <span aria-hidden="true">⚙️</span>
+            <span aria-hidden="true" class="text-xl sm:text-3xl leading-none">⚙️</span>
             <span>Cài đặt</span>
-            <svg class="h-3.5 w-3.5 transition-transform" :class="settingsOpen ? 'rotate-180' : ''"
-                 viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-            </svg>
         </button>
     </div>
 

@@ -13,6 +13,8 @@
     </x-slot>
 
     <div class="py-6 px-4 max-w-lg mx-auto space-y-4" x-data="{ show: false, message: '' }">
+        <x-wallet-tabs />
+
         {{-- Intro --}}
         <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-2">
             <p class="font-bold text-gray-800">Chia sẻ link ngay – Nhận tiền liền tay 💸</p>
