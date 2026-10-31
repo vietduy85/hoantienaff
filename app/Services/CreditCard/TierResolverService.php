@@ -72,6 +72,10 @@ class TierResolverService
      */
     public function tiersOfVersion(PolicyVersion $policyVersion): Collection
     {
+        if (TierReadCache::active()) {
+            return TierReadCache::tiersOf((int) $policyVersion->id);
+        }
+
         return PolicyTier::query()
             ->where('policy_id', $policyVersion->id)
             ->get();
@@ -91,12 +95,14 @@ class TierResolverService
             return [];
         }
 
-        $rules = PolicyTierCategory::query()
-            ->where('tier_id', $tier->id)
-            ->where('is_enabled', true)
-            ->orderBy('sort_order')
-            ->orderBy('id')
-            ->get();
+        $rules = TierReadCache::active()
+            ? TierReadCache::rulesOf((int) $tier->id)
+            : PolicyTierCategory::query()
+                ->where('tier_id', $tier->id)
+                ->where('is_enabled', true)
+                ->orderBy('sort_order')
+                ->orderBy('id')
+                ->get();
 
         return $this->hydrate($rules);
     }
@@ -112,11 +118,13 @@ class TierResolverService
             return [];
         }
 
-        return PolicyTierCategoryTransactionCap::query()
-            ->where('policy_tier_id', $tier->id)
-            ->orderBy('sort_order')
-            ->orderBy('id')
-            ->get()
+        return (TierReadCache::active()
+            ? TierReadCache::capsOf((int) $tier->id)
+            : PolicyTierCategoryTransactionCap::query()
+                ->where('policy_tier_id', $tier->id)
+                ->orderBy('sort_order')
+                ->orderBy('id')
+                ->get())
             ->map(fn (PolicyTierCategoryTransactionCap $cap): array => [
                 'min_transaction_amount' => (float) $cap->min_transaction_amount,
                 'max_transaction_amount' => $cap->max_transaction_amount === null
@@ -139,6 +147,12 @@ class TierResolverService
      */
     public function allEnabledRulesFor(PolicyVersion $policyVersion): array
     {
+        if (TierReadCache::active()) {
+            $tierIds = TierReadCache::tiersOf((int) $policyVersion->id)->pluck('id');
+
+            return $tierIds->isEmpty() ? [] : $this->hydrate(TierReadCache::rulesOfTiers($tierIds));
+        }
+
         $tierIds = PolicyTier::query()
             ->where('policy_id', $policyVersion->id)
             ->orderBy('sort_order')
@@ -190,7 +204,10 @@ class TierResolverService
 
         $membersByCombo = $comboIds->isEmpty()
             ? collect()
-            : CategoryComboItem::query()
+            : (TierReadCache::active()
+                ? $comboIds->mapWithKeys(fn (int $id): array => [$id => TierReadCache::comboMembers($id)])
+                    ->filter(fn (array $members): bool => $members !== [])
+                : CategoryComboItem::query()
                 ->whereIn('combo_id', $comboIds->all())
                 ->orderBy('sort_order')
                 ->orderBy('id')
@@ -198,7 +215,7 @@ class TierResolverService
                 ->groupBy('combo_id')
                 ->map(fn (Collection $items): array => $items
                     ->map(fn (CategoryComboItem $item): int => (int) $item->category_id)
-                    ->all());
+                    ->all()));
 
         return $rules
             ->map(fn (PolicyTierCategory $rule): array => [

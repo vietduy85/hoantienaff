@@ -29,7 +29,7 @@ final class CoopOnlineProvider implements CatalogProvider
 
     private const CONNECT_TIMEOUT = 5;
 
-    private const SEARCH_CACHE_TTL = 300;
+    private const SEARCH_CACHE_TTL = 1800; // 30 phút: giá siêu thị ít đổi trong ngày, tìm lại cùng từ khóa khỏi gọi API
 
     private const DETAIL_CACHE_TTL = 600;
 

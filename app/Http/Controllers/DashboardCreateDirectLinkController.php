@@ -5,17 +5,15 @@ namespace App\Http\Controllers;
 use App\Models\AffiliateCache;
 use App\Models\LinkRequest;
 use App\Models\Setting;
-use App\Services\AccessTrade\AccessTradeCampaignService;
-use App\Services\AccessTrade\AccessTradeCommissionEstimateService;
 use App\Services\AccessTrade\AccessTradeConfig;
 use App\Services\AccessTrade\AccessTradeException;
+use App\Services\AccessTrade\AccessTradeLinkEnricher;
 use App\Services\AccessTrade\AccessTradeLinkService;
 use App\Services\AffiliateCacheService;
 use App\Services\CashbackCalculator;
 use App\Services\Lazada\LazadaException;
 use App\Services\Lazada\LazadaLinkEstimateService;
 use App\Services\ProductDataService;
-use App\Services\ProductMetadata\ProductMetadataService;
 use App\Services\TikTok\TikTokLinkEstimateService;
 use App\Services\TikTok\TikTokServiceException;
 use App\Services\Url\PlatformResolver;
@@ -38,9 +36,6 @@ class DashboardCreateDirectLinkController extends Controller
         private readonly PlatformResolver $platformResolver,
         private readonly AccessTradeConfig $accessTradeConfig,
         private readonly AccessTradeLinkService $accessTradeLink,
-        private readonly AccessTradeCampaignService $accessTradeCampaigns,
-        private readonly AccessTradeCommissionEstimateService $accessTradeEstimate,
-        private readonly ProductMetadataService $productMetadata,
     ) {}
 
     public function store(Request $request): JsonResponse|RedirectResponse
@@ -312,13 +307,19 @@ class DashboardCreateDirectLinkController extends Controller
                     // API returns only a tracking link, so product info is
                     // fetched (best-effort) from the merchant page. A failure
                     // here MUST NOT affect the already-created link.
-                    // Chế độ nhanh: bỏ cả thông tin sản phẩm lẫn ước tính hoàn tiền.
+                    // Thông tin sản phẩm + tiền hoàn ước tính: worker nếu có, chế độ nhanh thì bỏ.
                     if (! $fastMode) {
-                        $this->enrichWithProductMetadata($link, $validated['original_url']);
+                        $campaignId = $result['campaign_id'] ?? $target->campaignId;
+                        $url = $validated['original_url'];
 
-                        // Expected cashback (best-effort): only when the campaign's
-                        // advertised max rate is corroborated by its policy.
-                        $this->applyAccessTradeEstimate($link, $result['campaign_id'] ?? $target->campaignId);
+                        if (LinkEnrichment::viaQueue()) {
+                            $linkId = $link->id;
+                            LinkEnrichment::dispatch(static function () use ($linkId, $url, $campaignId): void {
+                                app(AccessTradeLinkEnricher::class)->enrichById($linkId, $url, $campaignId);
+                            });
+                        } else {
+                            app(AccessTradeLinkEnricher::class)->enrich($link, $url, $campaignId);
+                        }
                     }
                 } catch (AccessTradeException $e) {
                     $friendly = $this->accessTradeConfig->scrub($e->getUserMessage());
@@ -619,95 +620,6 @@ class DashboardCreateDirectLinkController extends Controller
 
         return redirect()->route('dashboard')
             ->with('success', 'Đã tạo affiliate link (chế độ nhanh).');
-    }
-
-    /**
-     * Best-effort product metadata enrichment for a completed AccessTrade link.
-     *
-     * Never throws and never overwrites an existing value with null. The
-     * affiliate link is already persisted, so metadata problems are silent to
-     * the user (logged only).
-     */
-    private function enrichWithProductMetadata(LinkRequest $link, string $url): void
-    {
-        try {
-            $metadata = $this->productMetadata->fetch($url);
-        } catch (\Throwable $e) {
-            Log::warning('[DirectLink] Product metadata fetch failed', [
-                'link_request_id' => $link->id,
-                'error' => $e->getMessage(),
-            ]);
-
-            return;
-        }
-
-        if ($metadata === null) {
-            return;
-        }
-
-        $update = array_filter([
-            'product_name' => $metadata['name'],
-            'product_image' => $metadata['image'],
-            'product_price' => $metadata['price'],
-            'product_link' => $url,
-        ], fn ($value) => $value !== null);
-
-        if ($update !== []) {
-            $link->update($update);
-        }
-    }
-
-    /**
-     * Best-effort expected-cashback for a completed AccessTrade link.
-     *
-     * AccessTrade exposes no per-product commission, so the campaign's
-     * advertised `max_com` is used ONLY when the campaign policy corroborates it
-     * as the single commission rate (see
-     * {@see AccessTradeCommissionEstimateService}). When it cannot be
-     * corroborated the estimate columns stay null so the UI shows "Chưa tính
-     * được tiền hoàn dự kiến" instead of a guessed amount. Never throws and
-     * never affects the already-completed link.
-     */
-    private function applyAccessTradeEstimate(LinkRequest $link, ?string $campaignId): void
-    {
-        try {
-            $campaignId = trim((string) $campaignId);
-            $price = (float) ($link->product_price ?? 0);
-
-            if ($campaignId === '' || $price <= 0) {
-                return;
-            }
-
-            $detail = $this->accessTradeCampaigns->detail($campaignId);
-
-            if ($detail === null
-                || $detail['approval'] !== 'successful'
-                || (string) $detail['status'] !== '1') {
-                return;
-            }
-
-            $estimate = $this->accessTradeEstimate->estimate(
-                $price,
-                $detail['max_commission'],
-                $detail['commission_policy'],
-            );
-
-            if ($estimate === null) {
-                return;
-            }
-
-            $link->update([
-                'estimated_cashback' => $estimate['commission'],
-                'cashback_rate' => $estimate['cashback_rate'],
-                'user_estimated_cashback' => $estimate['user_estimated_cashback'],
-            ]);
-        } catch (\Throwable $e) {
-            Log::warning('[DirectLink] AccessTrade estimate failed', [
-                'link_request_id' => $link->id,
-                'campaign_id' => $campaignId,
-                'error' => $e->getMessage(),
-            ]);
-        }
     }
 
     private function friendlyTikTokError(TikTokServiceException $e): string

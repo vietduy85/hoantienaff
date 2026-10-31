@@ -19,9 +19,11 @@ use Throwable;
 final class PriceComparisonManager
 {
     /**
-     * Page size requested from each provider when aggregating.
+     * Page size requested from each provider when aggregating. Providers clamp it to
+     * their own API maximum (Co.op/Kingfoodmart/WinMart 100, BHX 50), so asking for 100
+     * halves the number of sequential API calls where the API allows it.
      */
-    private const SOURCE_PAGE_SIZE = 50;
+    private const SOURCE_PAGE_SIZE = 100;
 
     /**
      * Upper bound on provider pages fetched per source while aggregating.
@@ -36,7 +38,7 @@ final class PriceComparisonManager
     /**
      * TTL for the cached aggregated counts used to render retailer tab totals.
      */
-    private const COUNTS_CACHE_TTL = 300;
+    private const COUNTS_CACHE_TTL = 1800;
 
     /**
      * @var array<string, CatalogProvider>
@@ -238,7 +240,8 @@ final class PriceComparisonManager
                 break;
             }
 
-            if (count($batch) < self::SOURCE_PAGE_SIZE) {
+            // So với cỡ trang THỰC của provider (đã bị kẹp theo giới hạn API của nó).
+            if (count($batch) < max(1, min(self::SOURCE_PAGE_SIZE, $result->perPage))) {
                 break;
             }
         }

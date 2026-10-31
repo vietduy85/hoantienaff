@@ -163,6 +163,15 @@ class StatementPeriodService
      */
     public function findByBoundaries(UserCard $userCard, CarbonInterface $start, CarbonInterface $end): ?StatementPeriod
     {
+        // Trang chỉ đọc đã nạp sẵn kỳ của mọi thẻ (StatementReadCache) => khỏi 1 query/thẻ.
+        if (($cached = StatementReadCache::periodsFor((int) $userCard->id)) !== null) {
+            $startDate = $start->toDateString();
+            $endDate = $end->toDateString();
+
+            return $cached->first(fn (StatementPeriod $period): bool => $period->period_start->toDateString() === $startDate
+                && $period->period_end->toDateString() === $endDate);
+        }
+
         return StatementPeriod::query()
             ->where('user_card_id', $userCard->id)
             ->whereDate('period_start', $start->toDateString())
@@ -274,14 +283,14 @@ class StatementPeriodService
         return DB::connection('creditcard')->transaction(function () use ($userCard, $start, $end): StatementPeriod {
             $paymentDueDate = $this->paymentDueDateFor($userCard, $end);
 
-            return StatementPeriod::create([
+            return tap(StatementPeriod::create([
                 'user_card_id' => $userCard->id,
                 'period_start' => $start->toDateString(),
                 'period_end' => $end->toDateString(),
                 'statement_date' => $end->toDateString(),
                 'payment_due_date' => $paymentDueDate?->toDateString(),
                 'status' => StatementPeriod::STATUS_OPEN,
-            ]);
+            ]), fn (StatementPeriod $period) => StatementReadCache::remember($period));
         });
     }
 

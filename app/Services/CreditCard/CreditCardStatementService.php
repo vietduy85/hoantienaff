@@ -65,6 +65,10 @@ class CreditCardStatementService
      */
     public function findOrNull(UserCard $card, StatementPeriod $period): ?CreditCardStatement
     {
+        if (($cached = StatementReadCache::statementsFor((int) $card->id)) !== null) {
+            return $cached->get($period->id);
+        }
+
         return CreditCardStatement::query()
             ->where('user_card_id', $card->id)
             ->where('statement_period_id', $period->id)
@@ -175,14 +179,14 @@ class CreditCardStatementService
     {
         $bounds = $this->periods->selectableBoundaries($card, $today, $limit);
 
-        $periods = StatementPeriod::query()
+        $periods = (StatementReadCache::periodsFor((int) $card->id) ?? StatementPeriod::query()
             ->where('user_card_id', $card->id)
-            ->get()
+            ->get())
             ->keyBy(fn (StatementPeriod $period): string => $period->period_start->toDateString());
 
-        $statements = CreditCardStatement::query()
+        $statements = (StatementReadCache::statementsFor((int) $card->id) ?? CreditCardStatement::query()
             ->where('user_card_id', $card->id)
-            ->get()
+            ->get())
             ->keyBy('statement_period_id');
 
         [$currentStart] = $this->periods->currentBoundaries($card, $today);

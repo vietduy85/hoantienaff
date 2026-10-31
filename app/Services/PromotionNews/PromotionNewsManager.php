@@ -203,12 +203,63 @@ class PromotionNewsManager
      */
     private function fetchFromProvider(string $source, PromotionNewsProvider $provider): array
     {
-        $cacheKey = $this->providerCacheKey($source);
-        $cached = Cache::get($cacheKey);
+        $cached = Cache::get($this->providerCacheKey($source));
 
+        // Stale-while-revalidate: tin cũ hơn TTL vẫn được trả ngay, worker queue lấy tin mới
+        // ở nền => trang chủ / trang tin không phải chờ 4 website siêu thị (~1-1,6s).
         if (is_array($cached)) {
-            return array_map(static fn (array $item) => PromotionNewsData::fromArray($item), $cached);
+            $isEnvelope = isset($cached['fetched_at'], $cached['items']) && is_array($cached['items']);
+            $items = $isEnvelope ? $cached['items'] : $cached;
+            $fresh = $isEnvelope && (time() - (int) $cached['fetched_at']) < $this->ttl($source);
+
+            if ($fresh || $this->refreshInBackground($source)) {
+                return array_map(static fn (array $item) => PromotionNewsData::fromArray($item), $items);
+            }
         }
+
+        return $this->fetchAndStore($source, $provider);
+    }
+
+    /** Lấy tin mới của 1 nguồn và lưu cache (chạy trong worker khi làm mới nền). */
+    public function refreshSource(string $source): void
+    {
+        if (! isset($this->providers[$source])) {
+            return;
+        }
+
+        $this->fetchAndStore($source, $this->providers[$source]);
+        $this->memo = null;
+        Cache::forget($this->aggregateCacheKey());
+    }
+
+    private function ttl(string $source): int
+    {
+        return self::PROVIDER_TTL_SECONDS[$source] ?? self::DEFAULT_PROVIDER_TTL_SECONDS;
+    }
+
+    /** true nếu đã giao việc làm mới cho worker (hoặc đang có worker làm). */
+    private function refreshInBackground(string $source): bool
+    {
+        if (! \App\Support\LinkEnrichment::viaQueue()) {
+            return false;
+        }
+
+        // Mỗi nguồn chỉ 1 job làm mới trong 2 phút.
+        if (Cache::add('promotion-news:refreshing:'.$source, 1, 120)) {
+            dispatch(static function () use ($source): void {
+                app(self::class)->refreshSource($source);
+            })->onQueue(\App\Support\LinkEnrichment::QUEUE);
+        }
+
+        return true;
+    }
+
+    /**
+     * @return array<int, PromotionNewsData>
+     */
+    private function fetchAndStore(string $source, PromotionNewsProvider $provider): array
+    {
+        $cacheKey = $this->providerCacheKey($source);
 
         try {
             $items = $provider->getNews();
@@ -226,11 +277,11 @@ class PromotionNewsManager
             static fn ($item) => $item instanceof PromotionNewsData
         ));
 
-        Cache::put(
-            $cacheKey,
-            array_map(static fn (PromotionNewsData $item) => $item->toArray(), $items),
-            self::PROVIDER_TTL_SECONDS[$source] ?? self::DEFAULT_PROVIDER_TTL_SECONDS
-        );
+        // Giữ 1 ngày để còn tin "cũ" trả ngay khi quá TTL; độ tươi do fetched_at quyết định.
+        Cache::put($cacheKey, [
+            'fetched_at' => time(),
+            'items' => array_map(static fn (PromotionNewsData $item) => $item->toArray(), $items),
+        ], 86400);
 
         return $items;
     }

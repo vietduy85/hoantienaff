@@ -82,17 +82,19 @@ class StatementController extends Controller
         // trong `presentCard()` sẽ thành N+1 truy vấn trên trang có nhiều thẻ.
         $reminderDays = $this->settings->reminderDaysFor($userId);
 
-        $rows = $this->sort
-            ->sort($sortMode, $cards, $today)
-            ->map(fn (UserCard $card): array => $this->presentCard($card, $today, $request, $reminderDays))
-            ->all();
-
-        // Tab "Phí thường niên và chi tiêu tích lũy" dùng CÙNG danh sách thẻ và CÙNG
-        // thứ tự sort, nhưng số liệu khác — dựng một lượt, read-only, ở service.
-        $feeRows = $this->sort
-            ->sort($sortMode, $cards, $today)
-            ->map(fn (UserCard $card): array => $this->cumulative->row($card, $today))
-            ->all();
+        // Nạp sẵn kỳ + sao kê của mọi thẻ (2 query) thay vì nhiều query/thẻ.
+        [$rows, $feeRows] = \App\Services\CreditCard\StatementReadCache::using($cards, fn (): array => [
+            $this->sort
+                ->sort($sortMode, $cards, $today)
+                ->map(fn (UserCard $card): array => $this->presentCard($card, $today, $request, $reminderDays))
+                ->all(),
+            // Tab "Phí thường niên và chi tiêu tích lũy" dùng CÙNG danh sách thẻ và CÙNG
+            // thứ tự sort, nhưng số liệu khác — dựng một lượt, read-only, ở service.
+            $this->sort
+                ->sort($sortMode, $cards, $today)
+                ->map(fn (UserCard $card): array => $this->cumulative->row($card, $today))
+                ->all(),
+        ]);
 
         return view('credit-card.statements', [
             'rows' => $rows,

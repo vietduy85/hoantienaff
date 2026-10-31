@@ -100,7 +100,8 @@ class CreditCardController extends Controller
         // và Tổng quan/Sao kê sẽ dễ rơi vào hai con số khác nhau.
         $reminderDays = $this->settings->reminderDaysFor($userId);
 
-        return view('credit-card.index', [
+        // Nạp sẵn kỳ + sao kê của mọi thẻ (2 query) thay vì 2 query/thẻ.
+        $viewData = \App\Services\CreditCard\StatementReadCache::using($cards, fn (): array => [
             'userCreditCards' => $userCreditCards,
             'sortMode' => $sortMode,
             'sortModes' => CreditCardCardSortService::modes(),
@@ -143,6 +144,8 @@ class CreditCardController extends Controller
             'latestStatements' => $this->latestStatements($userCreditCards, $today, $reminderDays),
             'today' => $today->toDateString(),
         ]);
+
+        return view('credit-card.index', $viewData);
     }
 
     /**
@@ -577,7 +580,7 @@ class CreditCardController extends Controller
         return view('credit-card.policies', [
             'userCreditCards' => UserCard::query()
                 ->ownedBy((int) auth()->id())
-                ->with('bank')
+                ->with(['bank', 'currentPolicy'])
                 ->ordered()
                 ->get(),
         ]);

@@ -114,7 +114,8 @@ class CardRecommendationService
             ->whereKey($categoryId)
             ->value('name');
 
-        return [
+        // Nạp sẵn bậc/rule/cap của mọi policy (4 query) thay vì vài trăm query theo từng policy.
+        return TierReadCache::using(fn (): array => [
             'scenario' => [
                 'amount' => $amount,
                 'category_id' => $categoryId,
@@ -122,7 +123,7 @@ class CardRecommendationService
             ],
             'my_cards' => $this->myCards($userId, $amount, $categoryId),
             'market_cards' => $this->marketCards($amount, $categoryId),
-        ];
+        ]);
     }
 
     /**

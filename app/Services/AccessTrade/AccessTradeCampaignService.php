@@ -210,6 +210,24 @@ class AccessTradeCampaignService
             return null;
         }
 
+        // Chính sách hoa hồng campaign ít đổi: cache 6 giờ, khỏi gọi API mỗi lần tạo link.
+        $cacheKey = 'accesstrade:campaign-detail:v1:'.$campaignId;
+        $cached = \Illuminate\Support\Facades\Cache::get($cacheKey);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        $detail = $this->fetchDetail($campaignId);
+        if ($detail !== null) {
+            \Illuminate\Support\Facades\Cache::put($cacheKey, $detail, 21600);
+        }
+
+        return $detail;
+    }
+
+    private function fetchDetail(string $campaignId): ?array
+    {
+
         $data = $this->client->get('/v1/campaigns', [
             'campaign_id' => $campaignId,
             'limit' => 1,

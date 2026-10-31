@@ -270,6 +270,21 @@ class PortfolioOptimizerService
         int $maxDesiredCards = self::DEFAULT_MAX_DESIRED_CARDS,
         ?int $budgetSeconds = null,
     ): array {
+        // Nạp sẵn bậc/rule/cap của mọi policy cho cả lần tối ưu (chỉ đọc).
+        return \App\Services\CreditCard\TierReadCache::using(
+            fn (): array => $this->runOptimize($userId, $scope, $criterion, $amounts, $maxCopies, $maxDesiredCards, $budgetSeconds),
+        );
+    }
+
+    private function runOptimize(
+        int $userId,
+        string $scope,
+        string $criterion,
+        array $amounts,
+        int $maxCopies,
+        int $maxDesiredCards,
+        ?int $budgetSeconds,
+    ): array {
         $startedNs = hrtime(true);
         $budget = max(0, $budgetSeconds ?? self::COMPUTATION_BUDGET_SECONDS);
         $this->deadlineNs = $startedNs + (int) round($budget * 1_000_000_000);
@@ -1058,6 +1073,10 @@ class PortfolioOptimizerService
         $best = $allocation;
         $bestTotal = $this->allocationValue($candidates, $best, $evalCache)['total'];
 
+        // improveAllocation là tất định: cùng input (chính xác cả thứ tự) => cùng output.
+        // Dùng lại kết quả giữa các thẻ/lượt thay vì chạy lại cả vòng cải thiện.
+        $improveMemo = [];
+
         for ($pass = 0; $pass < self::TIER_FILL_PASSES; $pass++) {
             if ($this->timeExceeded()) {
                 $this->computationTimedOut = true;
@@ -1065,7 +1084,7 @@ class PortfolioOptimizerService
                 break;
             }
 
-            $improved = false;
+            $improvedThisPass = false;
 
             foreach ($candidates as $key => $scaffold) {
                 $current = array_sum($best[$key] ?? []);
@@ -1109,10 +1128,20 @@ class PortfolioOptimizerService
                     $variants[] = $this->fillFromSources($best, $key, $need, $filtered);
                 }
 
+                // Bỏ một nguồn KHÔNG dùng tới cho ra đúng phân bổ như biến thể gốc; chạy
+                // improveAllocation (tất định) với input GIỐNG HỆT chỉ ra cùng kết quả => bỏ qua bản trùng.
+                $seenVariants = [];
+
                 foreach ($variants as $working) {
                     if ($working === null) {
                         continue;
                     }
+
+                    $fingerprint = serialize($working); // chính xác cả thứ tự khoá
+                    if (isset($seenVariants[$fingerprint])) {
+                        continue;
+                    }
+                    $seenVariants[$fingerprint] = true;
 
                     // Bù ngưỡng có thể mở một thẻ MỚI (thẻ đích): từ chối nếu vượt
                     // giới hạn số thẻ mong muốn thay vì kéo dài phương án quá giới hạn.
@@ -1120,18 +1149,21 @@ class PortfolioOptimizerService
                         continue;
                     }
 
-                    $working = $this->improveAllocation($config, $candidates, $positiveMap, $singles, $amounts, $working, $evalCache);
-                    $total = $this->allocationValue($candidates, $working, $evalCache)['total'];
+                    [$working, $total] = $improveMemo[$fingerprint] ??= (function () use ($config, $candidates, $positiveMap, $singles, $amounts, $working, &$evalCache): array {
+                        $result = $this->improveAllocation($config, $candidates, $positiveMap, $singles, $amounts, $working, $evalCache);
+
+                        return [$result, $this->allocationValue($candidates, $result, $evalCache)['total']];
+                    })();
 
                     if ($total > $bestTotal + self::ACTIVATION_EPSILON) {
                         $best = $working;
                         $bestTotal = $total;
-                        $improved = true;
+                        $improvedThisPass = true;
                     }
                 }
             }
 
-            if (! $improved) {
+            if (! $improvedThisPass) {
                 break;
             }
         }
@@ -2376,6 +2408,15 @@ class PortfolioOptimizerService
         $guard = 0;
         $guardLimit = self::WATERFILL_STEPS * max(1, count($shortlist)) + 5;
 
+        // $base[$key] không đổi trong suốt lần rót => giá trị chỉ phụ thuộc (thẻ, số tiền).
+        // Ghi nhớ để mỗi vòng không phải dựng lại khoá cache cho các thẻ KHÔNG đổi.
+        $valueAt = [];
+        $value = function (string $key, int $amount) use (&$valueAt, $candidates, &$evalCache, $base, $categoryId): float {
+            return $valueAt[$key][$amount] ??= $this->scenarioValue(
+                $candidates, $evalCache, $key, $base[$key], $categoryId, $amount,
+            );
+        };
+
         while ($used < $total && $guard++ < $guardLimit) {
             $bestKey = null;
             $bestChunk = 0;
@@ -2400,12 +2441,8 @@ class PortfolioOptimizerService
                     continue;
                 }
 
-                $currentValue = $this->scenarioValue(
-                    $candidates, $evalCache, $key, $base[$key], $categoryId, $assigned[$key],
-                );
-                $nextValue = $this->scenarioValue(
-                    $candidates, $evalCache, $key, $base[$key], $categoryId, $assigned[$key] + $chunk,
-                );
+                $currentValue = $value($key, $assigned[$key]);
+                $nextValue = $value($key, $assigned[$key] + $chunk);
 
                 $gain = $nextValue - $currentValue;
 
@@ -2853,15 +2890,15 @@ class PortfolioOptimizerService
     {
         ksort($cats);
 
-        $parts = [];
+        $out = '';
 
         foreach ($cats as $categoryId => $amount) {
             if ((int) $amount > 0) {
-                $parts[] = $categoryId.':'.$amount;
+                $out .= ($out === '' ? '' : '|').$categoryId.':'.$amount;
             }
         }
 
-        return implode('|', $parts);
+        return $out;
     }
 
     // ---------------------------------------------------------------------

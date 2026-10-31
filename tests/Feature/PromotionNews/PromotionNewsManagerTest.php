@@ -98,6 +98,30 @@ class PromotionNewsManagerTest extends TestCase
         $this->assertSame(1, $counter->calls);
     }
 
+    public function test_stale_provider_cache_is_served_and_refreshed_in_background(): void
+    {
+        config(["app.link_enrich_via_queue" => true]);
+        \Illuminate\Support\Facades\Queue::fake();
+        $counter = new \stdClass;
+        $counter->calls = 0;
+
+        // Tin đã quá TTL (fetched_at 2 giờ trước).
+        Cache::put("promotion-news:provider:coop:v1", [
+            "fetched_at" => time() - 7200,
+            "items" => [$this->dto("coop", "Tin cu")->toArray()],
+        ], 86400);
+
+        $manager = new PromotionNewsManager([
+            $this->fakeProvider("coop", [$this->dto("coop", "Tin moi")], $counter),
+        ]);
+
+        $titles = array_map(fn ($n) => $n->title, $manager->all());
+
+        $this->assertSame(["Tin cu"], $titles);
+        $this->assertSame(0, $counter->calls, "Không được gọi website siêu thị trong request của user");
+        \Illuminate\Support\Facades\Queue::assertPushedOn("link-enrich", \Illuminate\Queue\CallQueuedClosure::class);
+    }
+
     public function test_for_source_sources_and_categories(): void
     {
         $manager = new PromotionNewsManager([
