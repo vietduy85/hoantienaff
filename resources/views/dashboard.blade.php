@@ -15,6 +15,8 @@
             @include('dashboard.partials.recent-links', ['links' => $recentLinks])
             --}}
 
+            @include('dashboard.partials.announcements', ['announcements' => $announcements ?? collect()])
+
             @include('dashboard.partials.credit-card-tip')
 
             @include('dashboard.partials.wallet-summary')

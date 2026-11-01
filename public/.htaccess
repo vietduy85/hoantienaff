@@ -3,6 +3,15 @@
     AddType application/manifest+json .webmanifest
 </IfModule>
 
+# Service worker: KHÔNG cho trình duyệt/Cloudflare cache, nếu không điện thoại giữ bản SW cũ
+# (thiếu xử lý push) tới 4 giờ và iOS tự huỷ đăng ký thông báo.
+<IfModule mod_headers.c>
+    <Files "sw.js">
+        Header set Cache-Control "no-cache, no-store, must-revalidate"
+        Header set CDN-Cache-Control "no-store"
+    </Files>
+</IfModule>
+
 <IfModule mod_rewrite.c>
     <IfModule mod_negotiation.c>
         Options -MultiViews -Indexes

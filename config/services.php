@@ -41,6 +41,21 @@ return [
         'redirect' => env('GOOGLE_REDIRECT_URI'),
     ],
 
+    // Zalo Official Account: báo admin khi có yêu cầu rút tiền. Token lưu ở bảng settings (zalo-oa:token).
+    'zalo_oa' => [
+        'app_id' => env('ZALO_OA_APP_ID'),
+        'secret_key' => env('ZALO_OA_SECRET_KEY'),
+        // user_id (theo OA) của admin nhận tin, nhiều người cách nhau dấu phẩy.
+        'admin_user_ids' => env('ZALO_OA_ADMIN_USER_IDS', ''),
+    ],
+
+    // Web Push (VAPID): thông báo đẩy lên màn hình khoá cho admin khi có yêu cầu rút tiền.
+    'webpush' => [
+        'subject' => env('VAPID_SUBJECT', env('APP_URL')),
+        'public_key' => env('VAPID_PUBLIC_KEY'),
+        'private_key' => env('VAPID_PRIVATE_KEY'),
+    ],
+
     'affiliate_worker' => [
         'url' => env('AFFILIATE_WORKER_URL', 'http://127.0.0.1:3001'),
     ],

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreWithdrawRequest;
 use App\Models\AffiliateOrderItem;
 use App\Models\WalletTransaction;
+use App\Services\Payout\WithdrawAdminNotifier;
 use App\Services\WalletService;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -56,7 +57,10 @@ class WalletController extends Controller
         $user = auth()->user();
         $amount = (float) $request->input('amount');
 
-        $this->walletService->createWithdrawRequest($user, $amount);
+        $withdrawRequest = $this->walletService->createWithdrawRequest($user, $amount);
+
+        // Báo admin qua Zalo sau khi đã trả trang cho user — không chờ, không cần queue worker.
+        dispatch(fn () => app(WithdrawAdminNotifier::class)->notifyNew($withdrawRequest))->afterResponse();
 
         return redirect()->route('wallet.index')
             ->with('success', __('Đã tạo yêu cầu rút tiền.'));

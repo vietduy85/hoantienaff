@@ -7,6 +7,8 @@ export default {
         './vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php',
         './storage/framework/views/*.php',
         './resources/views/**/*.blade.php',
+        // Bảng màu thông báo trang chủ (class viết sẵn trong model).
+        './app/Models/Announcement.php',
     ],
 
     theme: {

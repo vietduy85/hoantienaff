@@ -11,3 +11,7 @@ Artisan::command('inspire', function () {
 Schedule::command('affiliate:cache-cleanup')->dailyAt('03:00')->timezone('Asia/Ho_Chi_Minh');
 
 Schedule::command('logs:prune --days=7')->dailyAt('03:30')->timezone('Asia/Ho_Chi_Minh');
+
+// Refresh token Zalo OA hết hạn nếu lâu không dùng — làm mới mỗi ngày khi đã cấu hình.
+Schedule::command('zalo-oa:token')->dailyAt('04:00')->timezone('Asia/Ho_Chi_Minh')
+    ->when(fn () => app(\App\Services\Zalo\ZaloOaClient::class)->isConfigured());

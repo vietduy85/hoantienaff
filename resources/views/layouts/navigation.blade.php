@@ -211,6 +211,9 @@ $travelPlatforms = collect(config('travel.platforms'))
                     <x-dropdown-link :href="route('admin.promotion-news.index')">
                         {{ __('Tin tức khuyến mãi') }}
                     </x-dropdown-link>
+                    <x-dropdown-link :href="route('admin.announcements.index')">
+                        📢 {{ __('Thông báo trang chủ') }}
+                    </x-dropdown-link>
                 @endrole
 
                 @role('Admin')
@@ -334,6 +337,9 @@ $travelPlatforms = collect(config('travel.platforms'))
                 </x-responsive-nav-link>
 
                 @can('withdrawals.view')
+                    <x-responsive-nav-link :href="route('admin.payouts.index')">
+                        💸 {{ __('Chuyển tiền rút (VietQR)') }}
+                    </x-responsive-nav-link>
                     <x-responsive-nav-link :href="route('admin.withdraw-requests.index')">
                         {{ __('Quản lý rút tiền') }}
                     </x-responsive-nav-link>
@@ -354,6 +360,9 @@ $travelPlatforms = collect(config('travel.platforms'))
                 @role('Admin|Operator')
                     <x-responsive-nav-link :href="route('admin.promotion-news.index')">
                         {{ __('Tin tức khuyến mãi') }}
+                    </x-responsive-nav-link>
+                    <x-responsive-nav-link :href="route('admin.announcements.index')">
+                        📢 {{ __('Thông báo trang chủ') }}
                     </x-responsive-nav-link>
                 @endrole
 

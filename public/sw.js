@@ -9,7 +9,7 @@
  * POST, PUT, PATCH, DELETE. Không intercept navigation.
  */
 
-const CACHE_VERSION = '1.0.2';
+const CACHE_VERSION = '1.0.4';
 const CACHE_PREFIX = 'hoantien-cache-';
 const LEGACY_CACHE_PREFIX = 'hoantien-static-';
 const STATIC_CACHE = `${CACHE_PREFIX}static-${CACHE_VERSION}`;
@@ -46,6 +46,45 @@ self.addEventListener('activate', (event) => {
     );
     // Service worker mới kiểm soát toàn bộ tab đang mở
     self.clients.claim();
+});
+
+// Thông báo đẩy (admin: yêu cầu rút tiền mới). Payload JSON: { title, body, url }.
+self.addEventListener('push', (event) => {
+    let data = {};
+    try { data = event.data ? event.data.json() : {}; } catch (e) { data = { body: event.data && event.data.text() }; }
+
+    event.waitUntil(
+        self.registration.showNotification(data.title || 'Hoàn Tiền', {
+            body: data.body || '',
+            icon: '/icon-192.png',
+            data: { url: data.url || '/' },
+        })
+            // Báo về máy chủ là máy đã nhận được push (để dò lỗi), không chặn hiển thị.
+            .then(() => fetch('/admin/push/received?v=' + CACHE_VERSION, { credentials: 'same-origin' }).catch(() => {}))
+    );
+});
+
+self.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'version' && event.ports[0]) {
+        event.ports[0].postMessage(CACHE_VERSION);
+    }
+});
+
+self.addEventListener('notificationclick', (event) => {
+    event.notification.close();
+    const url = (event.notification.data && event.notification.data.url) || '/';
+
+    event.waitUntil(
+        self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windows) => {
+            for (const client of windows) {
+                if ('focus' in client) {
+                    client.navigate(url).catch(() => {});
+                    return client.focus();
+                }
+            }
+            return self.clients.openWindow(url);
+        })
+    );
 });
 
 self.addEventListener('fetch', (event) => {

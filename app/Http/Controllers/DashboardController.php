@@ -68,6 +68,7 @@ class DashboardController extends Controller
             'pinnedLinks' => $pinnedLinks,
             'recentLinks' => $recentLinks,
             'shopeeFashionAlert' => $this->shopeeFashionAlert($user),
+            'announcements' => \App\Models\Announcement::forHome(),
         ]);
     }
 

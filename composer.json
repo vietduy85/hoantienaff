@@ -7,9 +7,11 @@
     "license": "MIT",
     "require": {
         "php": "^8.2",
+        "chillerlan/php-qrcode": "^6.0",
         "laravel/framework": "^12.0",
         "laravel/socialite": "^5.28",
         "laravel/tinker": "^2.10.1",
+        "minishlink/web-push": "^11.0",
         "phpoffice/phpspreadsheet": "^5.9",
         "spatie/laravel-permission": "^6.25"
     },

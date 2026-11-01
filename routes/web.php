@@ -320,7 +320,38 @@ Route::get('/tin-tuc-khuyen-mai/{source}', [PromotionNewsController::class, 'sou
     ->where('source', '[A-Za-z0-9_-]+')
     ->name('promotion-news.source');
 
+// Link trong thông báo trang chủ: đếm lượt bấm rồi chuyển tới URL admin đặt.
+Route::get('/tb/{announcement}', App\Http\Controllers\AnnouncementClickController::class)
+    ->whereNumber('announcement')
+    ->middleware('throttle:60,1')
+    ->name('announcements.click');
+
+// Service worker báo đã nhận push (chỉ ghi log dò lỗi). Không bắt đăng nhập vì SW có thể không kèm cookie.
+Route::get('/admin/push/received', [App\Http\Controllers\Admin\PushSubscriptionController::class, 'received'])
+    ->middleware('throttle:30,1')
+    ->name('admin.push.received');
+
 Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () {
+    // Duyệt rút tiền trên điện thoại (VietQR) — link này được gửi qua Zalo OA.
+    Route::get('/rut-tien', [App\Http\Controllers\Admin\PayoutController::class, 'index'])
+        ->middleware('permission:withdrawals.view')
+        ->name('payouts.index');
+    Route::post('/rut-tien/{withdrawRequest}/da-chuyen', [App\Http\Controllers\Admin\PayoutController::class, 'complete'])
+        ->middleware('permission:withdrawals.manage')
+        ->name('payouts.complete');
+    Route::post('/rut-tien/{withdrawRequest}/tu-choi', [App\Http\Controllers\Admin\PayoutController::class, 'reject'])
+        ->middleware('permission:withdrawals.manage')
+        ->name('payouts.reject');
+    Route::post('/push/subscribe', [App\Http\Controllers\Admin\PushSubscriptionController::class, 'store'])
+        ->middleware('permission:withdrawals.view')
+        ->name('push.subscribe');
+    Route::post('/push/unsubscribe', [App\Http\Controllers\Admin\PushSubscriptionController::class, 'destroy'])
+        ->middleware('permission:withdrawals.view')
+        ->name('push.unsubscribe');
+    Route::post('/push/test',[App\Http\Controllers\Admin\PushSubscriptionController::class, 'test'])
+        ->middleware(['permission:withdrawals.view', 'throttle:6,1'])
+        ->name('push.test');
+
     Route::get('/withdraw-requests', [WithdrawRequestController::class, 'index'])
         ->middleware('permission:withdrawals.view')
         ->name('withdraw-requests.index');
@@ -426,6 +457,24 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
     Route::delete('/promotion-news/{promotionNews}', [App\Http\Controllers\Admin\PromotionNewsController::class, 'destroy'])
         ->middleware('role:Admin|Operator')
         ->name('promotion-news.destroy');
+
+    // Thông báo ngắn trên trang chủ hoàn tiền (trên dòng mời chọn thẻ).
+    Route::middleware('role:Admin|Operator')->group(function () {
+        Route::get('/announcements', [App\Http\Controllers\Admin\AnnouncementController::class, 'index'])
+            ->name('announcements.index');
+        Route::get('/announcements/create', [App\Http\Controllers\Admin\AnnouncementController::class, 'create'])
+            ->name('announcements.create');
+        Route::post('/announcements', [App\Http\Controllers\Admin\AnnouncementController::class, 'store'])
+            ->name('announcements.store');
+        Route::get('/announcements/{announcement}/edit', [App\Http\Controllers\Admin\AnnouncementController::class, 'edit'])
+            ->name('announcements.edit');
+        Route::put('/announcements/{announcement}', [App\Http\Controllers\Admin\AnnouncementController::class, 'update'])
+            ->name('announcements.update');
+        Route::post('/announcements/{announcement}/toggle', [App\Http\Controllers\Admin\AnnouncementController::class, 'toggle'])
+            ->name('announcements.toggle');
+        Route::delete('/announcements/{announcement}', [App\Http\Controllers\Admin\AnnouncementController::class, 'destroy'])
+            ->name('announcements.destroy');
+    });
 
     // === Quản trị "Chính sách hoàn tiền hệ thống" (Credit Card) ===
     // Trang Blade đổ dữ liệu; mọi ghi (tạo mới / đổi version / sửa metadata) gọi

@@ -26,6 +26,7 @@ if ('serviceWorker' in navigator) {
         }
 
         // PWA bat: register nhu binh thuong.
-        navigator.serviceWorker.register('/sw.js').catch(() => {});
+        // ?v=: đổi URL để vượt bản sw.js cũ Cloudflare đã cache; updateViaCache 'none' để luôn lấy bản mới.
+        navigator.serviceWorker.register('/sw.js?v=2', { updateViaCache: 'none' }).catch(() => {});
     });
 }
