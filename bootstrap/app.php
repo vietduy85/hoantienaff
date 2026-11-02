@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\CaptureReferral;
 use App\Http\Middleware\ForensicObserver;
+use App\Http\Middleware\NoStoreHtml;
 use App\Support\AppKeyFlightRecorder;
 use App\Support\CsrfForensic;
 use Illuminate\Encryption\MissingAppKeyException;
@@ -33,6 +34,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->web(append: [
             CaptureReferral::class,
+            NoStoreHtml::class,
         ]);
 
         $middleware->alias([

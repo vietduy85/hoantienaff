@@ -326,6 +326,13 @@ Route::get('/tb/{announcement}', App\Http\Controllers\AnnouncementClickControlle
     ->middleware('throttle:60,1')
     ->name('announcements.click');
 
+// CSS/JS của bản build cũ (trang HTML cũ còn trong tab iPhone) → chuyển sang file hiện tại.
+// Không cần session/cookie nên bỏ nhóm middleware web.
+Route::get('/build/assets/{file}', App\Http\Controllers\StaleBuildAssetController::class)
+    ->where('file', '[A-Za-z0-9_.-]+')
+    ->withoutMiddleware('web')
+    ->name('build.stale-asset');
+
 // Service worker báo đã nhận push (chỉ ghi log dò lỗi). Không bắt đăng nhập vì SW có thể không kèm cookie.
 Route::get('/admin/push/received', [App\Http\Controllers\Admin\PushSubscriptionController::class, 'received'])
     ->middleware('throttle:30,1')
